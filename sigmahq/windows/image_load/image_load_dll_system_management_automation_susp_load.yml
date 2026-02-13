@@ -1,0 +1,114 @@
+title: PowerShell Core DLL Loaded By Non PowerShell Process
+id: 092bc4b9-3d1d-43b4-a6b4-8c8acd83522f
+related:
+- id: 867613fb-fa60-4497-a017-a82df74a172c
+  type: obsolete
+- id: fe6e002f-f244-4278-9263-20e4b593827f
+  type: obsolete
+status: test
+description: |
+  Detects loading of essential DLLs used by PowerShell by non-PowerShell process.
+  Detects behavior similar to meterpreter's "load powershell" extension.
+references:
+- https://adsecurity.org/?p=2921
+- https://github.com/p3nt4/PowerShdll
+author: Tom Kern, oscd.community, Natalia Shornikova, Tim Shelton, Roberto Rodriguez
+  (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2019-11-14
+modified: 2025-10-07
+tags:
+- attack.t1059.001
+- attack.execution
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+  - Description: 'System.Management.Automation'
+  - OriginalFileName: 'System.Management.Automation.dll'
+  - ImageLoaded|endswith:
+    - '\System.Management.Automation.dll'
+    - '\System.Management.Automation.ni.dll'
+  filter_main_powershell:
+    Image:
+    - 'C:\Program Files\PowerShell\7-preview\pwsh.exe'         # PowerShell 7 preview
+    - 'C:\Program Files\PowerShell\7\pwsh.exe'         # PowerShell 7
+    - 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe'
+    - 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+    - 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell_ise.exe'
+    - 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
+  filter_main_pwsh_preview:
+    Image|contains:
+    - 'C:\Program Files\WindowsApps\Microsoft.PowerShellPreview'
+    - '\AppData\Local\Microsoft\WindowsApps\Microsoft.PowerShellPreview'
+    Image|endswith: '\pwsh.exe'
+  filter_main_generic:
+    Image:
+    - 'C:\Windows\System32\dsac.exe'
+    - 'C:\WINDOWS\System32\RemoteFXvGPUDisablement.exe'
+    - 'C:\Windows\System32\runscripthelper.exe'
+    - 'C:\WINDOWS\System32\sdiagnhost.exe'
+    - 'C:\Windows\System32\ServerManager.exe'
+    - 'C:\Windows\System32\SyncAppvPublishingServer.exe'
+    - 'C:\Windows\System32\winrshost.exe'
+    - 'C:\Windows\System32\wsmprovhost.exe'
+    - 'C:\Windows\SysWOW64\winrshost.exe'
+    - 'C:\Windows\SysWOW64\wsmprovhost.exe'
+  filter_main_dotnet:
+    Image|startswith:
+    - 'C:\Windows\Microsoft.NET\Framework\'
+    - 'C:\Windows\Microsoft.NET\FrameworkArm\'
+    - 'C:\Windows\Microsoft.NET\FrameworkArm64\'
+    - 'C:\Windows\Microsoft.NET\Framework64\'
+    Image|endswith: '\mscorsvw.exe'
+  filter_optional_sql_server_mgmt:
+    Image|startswith:
+    - 'C:\Program Files (x86)\Microsoft SQL Server Management Studio'
+    - 'C:\Program Files\Microsoft SQL Server Management Studio'
+    Image|endswith: '\IDE\Ssms.exe'
+  filter_optional_sql_server_tools:
+    Image|startswith:
+    - 'C:\Program Files (x86)\Microsoft SQL Server\'
+    - 'C:\Program Files\Microsoft SQL Server\'
+    Image|endswith: '\Tools\Binn\SQLPS.exe'
+  filter_optional_citrix:
+    Image|endswith: '\Citrix\ConfigSync\ConfigSyncRun.exe'
+  filter_optional_vs:
+    Image|startswith:
+    - 'C:\Program Files (x86)\Microsoft Visual Studio\'
+    - 'C:\Program Files\Microsoft Visual Studio\'
+  filter_optional_chocolatey:
+    Image|startswith: 'C:\ProgramData\chocolatey\choco.exe'
+  filter_optional_nextron:
+    Image|startswith: 'C:\Windows\Temp\asgard2-agent\'
+    Image|endswith:
+    - '\thor64.exe'
+    - '\thor.exe'
+        # User: 'NT AUTHORITY\SYSTEM'   # if set, matches all powershell processes not launched by SYSTEM
+  filter_optional_aurora:
+        # This filter is to avoid a race condition FP with this specific ETW provider in aurora
+    Image:
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Used by some .NET binaries, minimal on user workstation.
+- Used by Microsoft SQL Server Management Studio
+level: medium
+note: |
+  ### Technical Context
+  This detection rule monitors for the loading of the PowerShell Core Dynamic Link Libraries (DLLs) by non-PowerShell processes, which may indicate malicious activity. Attackers often leverage PowerShell for its powerful scripting capabilities, and employing it in unexpected contexts can signify an attempt to execute or manipulate code stealthily. The presence of non-PowerShell processes loading critical PowerShell libraries, such as `System.Management.Automation.dll`, is especially indicative of behaviors associated with tools like Metasploit's Meterpreter, which has a "load powershell" extension that can facilitate remote command execution.
+
+  The relevant MITRE ATT&CK tactics for this detection include **Execution** (TA0002) and specifically reflects the **Command and Scripting Interpreter: PowerShell** technique (T1059.001). Attackers may aim to achieve their objectives through lateral movement or data exfiltration by exploiting PowerShell's inherent capabilities, resulting in potential data breaches or system compromises. The telemetry that offers the best insight into this behavior primarily comes from image load events, which capture DLL interactions across processes on Windows systems.
+
+  ### Investigation Steps
+  - **Review Image Load Events**: Collect image loading logs that show which processes are loading `System.Management.Automation.dll`. Focus on any processes outside of expected PowerShell executable paths.
+  - **Analyze Process Creation Logs**: Examine process creation records to identify the command line arguments and parent processes associated with the suspicious processes. Look for unusual execution patterns or command sequences.
+  - **Correlate with Network Activity**: Check for any outbound network connections initiated by suspicious processes that could indicate data exfiltration or remote command and control sessions.
+  - **Investigate File Path Anomalies**: Validate the legitimacy of the processes loading the PowerShell DLLs. Investigate any irregular file paths or names that do not conform to standard application or operating system installations.
+
+  ### Prioritization
+  This alert should be prioritized as medium severity due to the potential for significant impact from the use of PowerShell in unauthorized contexts. Given the accessibility and power of PowerShell for executing code, the likelihood of being targeted by adversaries is high, making rapid investigation crucial.
+
+  ### Blind Spots and Assumptions
+  The detection logic may miss instances where legitimate applications misuse PowerShell libraries, such as .NET applications or SQL Server Management Studio, which might lead to false positives. Additionally, the rule assumes the use of standard PowerShell paths for detection efficacy and could overlook custom installations or malicious impersonation of PowerShell. Comprehensive logging configurations across all relevant processes and appropriate monitoring for image load events are essential for effective detection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

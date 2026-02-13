@@ -1,0 +1,72 @@
+title: NetNTLM Downgrade Attack - Registry
+id: d67572a0-e2ec-45d6-b8db-c100d14b8ef2
+status: test
+description: Detects NetNTLM downgrade attack
+references:
+- https://web.archive.org/web/20171113231705/https://www.optiv.com/blog/post-exploitation-using-netntlm-downgrade-attacks
+- https://www.ultimatewindowssecurity.com/wiki/page.aspx?spid=NSrpcservers
+author: Florian Roth (Nextron Systems), wagga, Nasreddine Bencherchali (Splunk STRT)
+date: 2018-03-20
+modified: 2024-12-03
+tags:
+- attack.persistence
+- attack.defense-evasion
+- attack.t1562.001
+- attack.t1112
+logsource:
+  product: windows
+  category: registry_event
+detection:
+  selection_regkey:
+    TargetObject|contains|all:
+    - 'SYSTEM\'
+    - 'ControlSet'
+    - '\Control\Lsa'
+  selection_value_lmcompatibilitylevel:
+    TargetObject|endswith: '\lmcompatibilitylevel'
+    Details:
+    - 'DWORD (0x00000000)'
+    - 'DWORD (0x00000001)'
+    - 'DWORD (0x00000002)'
+  selection_value_ntlmminclientsec:
+    TargetObject|endswith: '\NtlmMinClientSec'
+    Details:
+    - 'DWORD (0x00000000)'         # No Security
+    - 'DWORD (0x00000010)'         # Only Integrity
+    - 'DWORD (0x00000020)'         # Only confidentiality
+    - 'DWORD (0x00000030)'         # Both Integrity and confidentiality
+  selection_value_restrictsendingntlmtraffic:
+        # Note: The obvious values with issues are 0x00000000 (allow all) and 0x00000001 (audit).
+        # 0x00000002 can be secure but only if "ClientAllowedNTLMServers" is properly configured
+        # Hence all values should be monitored and investigated
+    TargetObject|endswith: '\RestrictSendingNTLMTraffic'
+  condition: selection_regkey and 1 of selection_value_*
+falsepositives:
+- Services or tools that set the values to more restrictive values
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies configurations related to a NetNTLM downgrade attack, a technique that allows attackers to exploit vulnerabilities in NTLM (NT LAN Manager) authentication. Attackers may conduct this downgrade to weaken security settings, enabling them to capture and replay NTLM authentication requests or perform relay attacks with lower security protocols. By manipulating registry values, attackers can adjust NTLM settings to less secure options, compromising the integrity and confidentiality of network communications.
+
+  The primary MITRE ATT&CK techniques associated with this detection are:
+  - **T1562.001** - "Impair Defenses: Disable or Modify Tools"
+  - **T1112** - "Modify Registry"
+
+  The key data sources for detecting this behavior include Windows Registry event logs, specifically monitoring for changes to NTLM-related configurations that indicate a potential downgrade to weaker security settings.
+
+  ### Investigation Steps
+  - **Review Registry Logs**: Check the Windows Registry event logs for modifications to the keys under `HKEY_LOCAL_MACHINE\SYSTEM\ControlSet\Control\Lsa` that could indicate a downgrade attempt. Look for changes involving `lmcompatibilitylevel`, `NtlmMinClientSec`, and `RestrictSendingNTLMTraffic`.
+
+  - **Analyze Authentication Traffic**: Collect and analyze network authentication logs to identify any NTLM authentication requests that may have been intercepted or manipulated. Look for discrepancies, such as unexpected NTLM requests from unusual hosts.
+
+  - **Inspect Group Policy Objects (GPOs)**: Verify the settings configured in GPOs related to NTLM authentication. Ensure that the configurations align with security best practices and do not allow for unsafe downgrades.
+
+  - **Audit Security Policies**: Audit the security policies across your Windows hosts for compliance with the organization's security stance regarding NTLM usage. Specifically, ensure that settings do not permit lower security settings that could expose the environment to downgrade attacks.
+
+  ### Prioritization
+  The alert is classified as high severity due to the significant impact that a successful NetNTLM downgrade attack could have on network security. The likelihood of the attack occurring is increased in environments where legacy systems or weak configurations are present.
+
+  ### Blind Spots and Assumptions
+  There may be detection gaps if registry logging is not enabled across all critical systems, which could prevent visibility into changes made to NTLM settings. Additionally, this detection assumes that the registry modifications are indicative of attack activity rather than legitimate administrative actions or certain services that dynamically alter these settings for operational needs. Proper configuration of systems and enabling of comprehensive logging is required for the detection rule to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

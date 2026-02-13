@@ -1,0 +1,59 @@
+title: Standard User In High Privileged Group
+id: 7ac407cc-0f48-4328-aede-de1d2e6fef41
+status: test
+description: Detect standard users login that are part of high privileged groups such
+  as the Administrator group
+references:
+- https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/understand-security-identifiers
+- https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/configuring-additional-lsa-protection
+- https://github.com/nasbench/EVTX-ETW-Resources/blob/7a806a148b3d9d381193d4a80356016e6e8b1ee8/ETWProvidersManifests/Windows11/22H2/W11_22H2_Pro_20221220_22621.963/WEPExplorer/LsaSrv.xml
+author: frack113
+date: 2023-01-13
+modified: 2023-05-05
+tags:
+- attack.credential-access
+- attack.privilege-escalation
+logsource:
+  product: windows
+  service: lsa-server
+  definition: 'Requirements: Microsoft-Windows-LSA/Operational (199FE037-2B82-40A9-82AC-E1D46C792B99)
+    Event Log must be enabled and collected in order to use this rule.'
+detection:
+  selection:
+    EventID: 300
+    TargetUserSid|startswith: 'S-1-5-21-'     # Standard user
+    SidList|contains:
+    - 'S-1-5-32-544'            # Local admin
+    - '-500}'                   # Domain admin
+    - '-518}'                   # Schema admin
+    - '-519}'                   # Enterprise admin
+  filter_main_admin:
+    TargetUserSid|endswith:
+    - '-500'                   # Domain admin
+    - '-518'                   # Schema admin
+    - '-519'                   # Enterprise admin
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Standard domain users who are part of the administrator group. These users shouldn't
+  have these right. But in the case where it's necessary. They should be filtered
+  out using the "TargetUserName" field
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies logins by standard users who are members of high-privileged groups, such as the Administrator or Domain Admin groups. Typically, standard users are not expected to have access to these groups, making such logins potentially indicative of privilege escalation, either through legitimate means (misconfiguration) or malicious intent (e.g., account compromise). Attackers may aim to elevate their access or move laterally within an environment by exploiting these high-privilege accounts.
+
+  The related MITRE ATT&CK tactics include **Credential Access** (T1003) and **Privilege Escalation** (T1068), given that gaining access to privileged accounts is a common goal for threat actors. Data sources to focus on include the Microsoft-Windows-LSA/Operational event log, which provides insights into the login events tied to user accounts and their associated privileges.
+
+  ### Investigation Steps
+  - **Review LSA Event Logs**: Examine the Microsoft-Windows-LSA/Operational event logs specifically for Event ID 300 to identify the context of the login events related to standard users in privileged groups.
+  - **Correlate User Activity**: Investigate the account activity associated with the detected logins to understand recent behavior, including other logins, command execution, and any lateral movement attempts.
+  - **Check Group Memberships**: Validate the membership details of the standard users flagged in the alert to determine if legitimate access is required or if further investigation into possible misconfiguration or insider threats is warranted.
+  - **Assess Change Management**: Review any recent changes applied to user group memberships or security policies that could have resulted in standard users gaining elevated access, ensuring appropriate safeguards are in place.
+
+  ### Prioritization
+  This alert is categorized as medium severity due to its potential to highlight improper collection of privileges, which can lead to significant vulnerabilities within an enterprise environment if exploited by malicious insiders or external attackers.
+
+  ### Blind Spots and Assumptions
+  The detection logic assumes that privilege escalation events will consistently generate Event ID 300 under all circumstances, which may not always be the case. Additionally, if the relevant LSA event logging is not enabled or if there are gaps in log collection, critical activities may be missed. As such, ensuring the Microsoft-Windows-LSA/Operational event log is correctly configured and monitored is pivotal for this detection to be effective. Regular review and adjustment of user group memberships are also required to reduce false positives related to necessary access rights for certain standard users.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,104 @@
+title: Execution of Suspicious File Type Extension
+id: c09dad97-1c78-4f71-b127-7edb2b8e491a
+status: test
+description: |
+  Detects whether the image specified in a process creation event doesn't refer to an ".exe" (or other known executable extension) file. This can be caused by process ghosting or other unorthodox methods to start a process.
+  This rule might require some initial baselining to align with some third party tooling in the user environment.
+references:
+- https://pentestlaboratories.com/2021/12/08/process-ghosting/
+author: Max Altgelt (Nextron Systems)
+date: 2021-12-09
+modified: 2023-11-23
+tags:
+- attack.defense-evasion
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  known_image_extension:
+    Image|endswith:
+    - '.bin'
+    - '.cgi'
+    - '.com'
+    - '.exe'
+    - '.scr'
+    - '.tmp'         # sadly many installers use this extension
+  filter_main_image:   # Windows utilities without extension
+    Image:
+    - 'System'
+    - 'Registry'
+    - 'MemCompression'
+    - 'vmmem'
+  filter_main_msi_installers:
+    Image|contains: ':\Windows\Installer\MSI'
+  filter_main_driver_store:
+    Image|contains: ':\Windows\System32\DriverStore\FileRepository\'
+  filter_main_msi_rollbackfiles:
+    Image|contains: ':\Config.Msi\'
+    Image|endswith:
+    - '.rbf'
+    - '.rbs'
+  filter_main_windows_temp:
+  - ParentImage|contains: ':\Windows\Temp\'
+  - Image|contains: ':\Windows\Temp\'
+  filter_main_deleted:
+    Image|contains: ':\$Extend\$Deleted\'
+  filter_main_empty:
+    Image:
+    - '-'
+    - ''
+  filter_main_null:
+    Image:
+  filter_optional_avira:
+    ParentImage|contains: ':\ProgramData\Avira\'
+  filter_optional_nvidia:
+    Image|contains: 'NVIDIA\NvBackend\'
+    Image|endswith: '.dat'
+  filter_optional_winpakpro:
+    Image|contains:
+    - ':\Program Files (x86)\WINPAKPRO\'
+    - ':\Program Files\WINPAKPRO\'
+    Image|endswith: '.ngn'
+  filter_optional_myq_server:
+    Image|endswith:
+    - ':\Program Files (x86)\MyQ\Server\pcltool.dll'
+    - ':\Program Files\MyQ\Server\pcltool.dll'
+  filter_optional_wsl:
+    Image|contains|all:
+    - '\AppData\Local\Packages\'
+    - '\LocalState\rootfs\'
+  filter_optional_lzma_exe:
+    Image|endswith: '\LZMA_EXE'
+  filter_optional_firefox:
+    Image|contains: ':\Program Files\Mozilla Firefox\'
+  filter_optional_docker:
+    ParentImage: 'C:\Windows\System32\services.exe'
+    Image|endswith: 'com.docker.service'
+  condition: not known_image_extension and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of non-standard file types as processes on Windows systems. It primarily focuses on detecting processes that do not have common executable extensions such as `.exe`, `.com`, `.scr`, or similar. The unusual invocation of processes with unexpected file extensions can indicate tactics such as process ghosting, where attackers may attempt to execute malicious code without raising alarms by using unconventional file types to mask their activities.
+
+  The threat scenario here involves adversaries attempting to bypass typical security measures by launching malicious payloads in unexpected ways. Their objectives may include gaining persistent access, executing payloads without detection, or leveraging the trust of legitimate system processes. This behavior falls under the MITRE ATT&CK framework's "Defense Evasion" tactic, specifically the use of techniques such as "Process Injection" (T1055) and "Exploitation for Client Execution" (T1203).
+
+  Primary data sources for this detection include process creation logs from the operating system, which provide insights into the execution context of processes, along with associated file paths that can indicate anomalous behavior.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Examine the process creation events in your SIEM to identify instances where non-standard file types are being executed. Pay particular attention to the command-line arguments associated with these processes.
+
+  - **Identify Anomalies in File Extensions**: Focus on the file extensions of newly executed processes. Create a list of common and legitimate extensions in your environment for comparison to identify any outliers.
+
+  - **Check Parent Processes**: Analyze the parent-child relationships of the suspicious processes. Unusual parent processes may indicate malicious intentions or a further attempt to evade detection.
+
+  - **Correlate with Threat Intelligence**: Match the identified processes and their paths against known Indicators of Compromise (IoCs) or threat intelligence feeds to check if they have been previously associated with malicious activity or threat actors.
+
+  ### Prioritization
+  This alert should be prioritized as medium severity in an enterprise environment due to its potential indication of a sophisticated threat attempting to bypass security controls. The likelihood of such techniques being employed in targeted and advanced attacks necessitates prompt investigation to prevent further exploitation.
+
+  ### Blind Spots and Assumptions
+  One potential gap in detection coverage is the reliance on standard process creation logging, which may not capture all instances of malicious activity especially if an attacker has control over logging settings or privileges. The detection logic assumes that the environment is baseline-checked for legitimate process behaviors, which may allow for false negatives if those are not adequately established. Ensuring the proper configuration of event logging to capture all process creation events is essential for the effectiveness of this alert.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

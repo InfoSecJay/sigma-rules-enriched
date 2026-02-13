@@ -1,0 +1,68 @@
+title: Potential Meterpreter/CobaltStrike Activity
+id: 15619216-e993-4721-b590-4c520615a67d
+status: test
+description: Detects the use of getsystem Meterpreter/Cobalt Strike command by detecting
+  a specific service starting
+references:
+- https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+- https://blog.cobaltstrike.com/2014/04/02/what-happens-when-i-type-getsystem/
+author: Teymur Kheirkhabarov, Ecco, Florian Roth
+date: 2019-10-26
+modified: 2023-02-05
+tags:
+- attack.defense-evasion
+- attack.privilege-escalation
+- attack.t1134.001
+- attack.t1134.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+    ParentImage|endswith: '\services.exe'
+  selection_technique_1:
+        # Examples:
+        #   Meterpreter  getsystem technique 1: cmd.exe /c echo 559891bb017 > \\.\pipe\5e120a
+        #   CobaltStrike getsystem technique 1b (expanded env var): %COMSPEC% /c echo 559891bb017 > \\.\pipe\5e120a
+        #   CobaltStrike getsystem technique 1: %COMSPEC% /c echo 559891bb017 > \\.\pipe\5e120a
+    CommandLine|contains|all:
+    - '/c'
+    - 'echo'
+    - '\pipe\'
+    CommandLine|contains:
+    - 'cmd'
+    - '%COMSPEC%'
+  selection_technique_2:
+        # meterpreter getsystem technique 2: rundll32.exe C:\Users\test\AppData\Local\Temp\tmexsn.dll,a /p:tmexsn
+    CommandLine|contains|all:
+    - 'rundll32'
+    - '.dll,a'
+    - '/p:'
+  filter_defender:
+    CommandLine|contains: 'MpCmdRun'
+  condition: selection_img and 1 of selection_technique_* and not 1 of filter_*
+falsepositives:
+- Commandlines containing components like cmd accidentally
+- Jobs and services started with cmd
+level: high
+note: |
+  ### Technical Context
+  This Sigma rule detects actions indicative of potential Meterpreter or Cobalt Strike activity through the use of the `getsystem` command. This command is often employed by attackers to elevate privileges on compromised systems. By monitoring process creation events, particularly those initiated by `services.exe`, the rule aims to identify behavior typical of exploitation attempts where attackers manipulate system functions to gain higher-level access.
+
+  In this context, attackers might aim to establish a persistent foothold in the environment, exfiltrate sensitive data or propagate lateral movement across the network, all while maintaining stealth. Relevant MITRE ATT&CK tactics include **Privilege Escalation (TA0004)** as attackers execute commands to elevate privileges, and **Defense Evasion (TA0005)** as they may attempt to hide their activities from security tools. The associated techniques include **T1134.001 – Access Token Manipulation: Group Membership Modification** and **T1134.002 – Access Token Manipulation: Create New Principal**.
+
+  Primary data sources for this detection include process creation events captured in Windows Security Logs, specifically focusing on the command line arguments associated with service starts.
+
+  ### Investigation Steps
+  - **Review Process Creation Events**: Check process creation logs for entries related to `services.exe` and examine command lines for potential Meterpreter or Cobalt Strike patterns.
+  - **Analyze Command Line Arguments**: Focus on command lines that feature `/c`, `echo`, and instances of `\pipe\` or `rundll32` with `.dll` loading methods, indicating privilege escalation attempts through crafted DLL calls.
+  - **Correlate with Recent Changes**: Investigate any recently created or modified services that coincide with detected suspicious commands, which may reveal unauthorized installations or modifications.
+  - **Cross-reference with Threat Intelligence**: Utilize threat intelligence sources to match the identified behavior against known indicators of Meterpreter and Cobalt Strike activity to validate the intrusion footprint.
+
+  ### Prioritization
+  Given the potential impact of privilege escalation and the criticality of maintaining control over administrative access in an enterprise environment, this alert is considered high severity. A successful exploitation could lead to full system compromise and data breach.
+
+  ### Blind Spots and Assumptions
+  This detection may miss instances of legitimate administrative actions or custom scripts that utilize similar command patterns. Additionally, the effectiveness of the alert is predicated on the logging of detailed process creation events in Windows. If logs are not adequately configured, or if command lines are obfuscated, detection may fail. The detection logic assumes that attackers will use recognizable patterns within their command executions, which may not always hold true in more sophisticated attacks.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

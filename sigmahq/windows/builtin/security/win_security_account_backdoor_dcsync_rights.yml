@@ -1,0 +1,70 @@
+title: Powerview Add-DomainObjectAcl DCSync AD Extend Right
+id: 2c99737c-585d-4431-b61a-c911d86ff32f
+status: test
+description: Backdooring domain object to grant the rights associated with DCSync
+  to a regular user or machine account using Powerview\Add-DomainObjectAcl DCSync
+  Extended Right cmdlet, will allow to re-obtain the pwd hashes of any user/computer
+references:
+- https://twitter.com/menasec1/status/1111556090137903104
+- https://www.specterops.io/assets/resources/an_ace_up_the_sleeve.pdf
+author: Samir Bousseaden, Roberto Rodriguez @Cyb3rWard0g, oscd.community, Tim Shelton,
+  Maxence Fossat
+date: 2019-04-03
+modified: 2022-08-16
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1098
+logsource:
+  product: windows
+  service: security
+  definition: 'Requirements: The "Audit Directory Service Changes" logging policy
+    must be configured in order to receive events. Audit events are generated only
+    for objects with configured system access control lists (SACLs). Audit events
+    are generated only for objects with configured system access control lists (SACLs)
+    and only when accessed in a manner that matches their SACL settings. This policy
+    covers the following events ids - 5136, 5137, 5138, 5139, 5141. Note that the
+    default policy does not cover User objects. For that a custom AuditRule need to
+    be setup (See https://github.com/OTRF/Set-AuditRule)'
+detection:
+  selection:
+    EventID: 5136
+    AttributeLDAPDisplayName: 'ntSecurityDescriptor'
+    AttributeValue|contains:
+    - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
+    - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
+    - '89e95b76-444d-4c62-991a-0facbeda640c'
+  filter_main_dns_object_class:
+    ObjectClass:
+    - 'dnsNode'
+    - 'dnsZoneScope'
+    - 'dnsZone'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- New Domain Controller computer account, check user SIDs within the value attribute
+  of event 5136 and verify if it's a regular user or DC computer account.
+level: high
+note: |
+  ### Technical Context
+  This detection rule aims to identify the use of PowerView's `Add-DomainObjectAcl` cmdlet, specifically targeting the abuse of the DCSync rights on Active Directory domain objects. By backdooring domain objects and granting DCSync rights to a regular user or machine account, an attacker can facilitate the unauthorized retrieval of password hashes for any user or computer in the domain. This behavior indicates an attempt to escalate privileges and maintain persistence within the network.
+
+  In the context of an enterprise, the primary attacker objective may involve lateral movement and credential extraction, which can subsequently lead to further exploitation or deepening control over the network environment. This technique falls under the MITRE ATT&CK framework, particularly within the tactics of Privilege Escalation (TA0004) and Persistence (TA0003), utilizing the techniques of Application Layer Protocol Abuse (T1098).
+
+  The best sources of evidence for this detection are logs generated from the Windows Security event log, specifically focusing on Event ID 5136, which captures changes to the security descriptor of directory service objects. Proper monitoring of the "Audit Directory Service Changes" policy is essential to receiving the relevant audit events.
+
+  ### Investigation Steps
+  - **Review Security Logs**: Analyze Windows Security event logs for Event ID 5136, which indicates modifications to the security descriptor of an Active Directory object. Look for objects that have had their ntSecurityDescriptor altered in a manner consistent with DCSync rights being granted.
+
+  - **Check Object Classes**: Ensure that the modified objects belong to appropriate classes like `dnsNode`, `dnsZone`, or `dnsZoneScope`. This helps in filtering legitimate changes from potentially malicious ones.
+
+  - **Investigate User Accounts**: Identify the user or machine account granted DCSync rights. Verify their identity by cross-referencing with Active Directory to determine if they are a legitimate user or a newly created/modified account that seems out of place.
+
+  - **Validate Permissions**: Check the permissions associated with the modified security descriptor for indications of DCSync access. Focus on known ACL identifiers that correspond to DCSync rights, and assess whether this aligns with expected configurations.
+
+  ### Prioritization
+  Given the nature of DCSync access that can allow attackers to extract password hashes, this alert is classified as high severity. The ability to harvest credentials poses a significant risk to the integrity and security of the enterprise network.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage if the "Audit Directory Service Changes" policy is not correctly configured, particularly concerning User objects, which could result in missing key audit logs. The detection logic assumes that the identified attributes and values specifically represent malicious intent; however, legitimate administrative changes could produce similar events. Proper SACL configurations and logging for all relevant directory objects are necessary for accurate monitoring; without these, the rule may produce false negatives or misclassifications.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,67 @@
+title: Suspicious Process Access of MsMpEng by WerFaultSecure - EDR-Freeze
+id: 387df17d-3b04-448f-8669-9e7fd5e5fd8c
+related:
+- id: 8a2f4b1c-3d5e-4f7a-9b2c-1e4f6d8a9c2b
+  type: similar
+- id: 1f0b4cac-9c81-41f4-95d0-8475ff46b3e2
+  type: similar
+status: experimental
+description: |
+  Detects process access events where WerFaultSecure accesses MsMpEng.exe with dbgcore.dll or dbghelp.dll in the call trace, indicating potential EDR freeze techniques.
+  This technique leverages WerFaultSecure.exe running as a Protected Process Light (PPL) with WinTCB protection level to call MiniDumpWriteDump and suspend EDR/AV processes, allowing malicious activity to execute undetected during the suspension period.
+references:
+- https://blog.axelarator.net/hunting-for-edr-freeze/
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-11-27
+tags:
+- attack.defense-evasion
+- attack.t1562.001
+logsource:
+  category: process_access
+  product: windows
+  definition: |
+    Requires Sysmon Event ID 10 (ProcessAccess) with CallTrace enabled.
+    Example sysmon config snippet with grouping, as logging individual ProcessAccess events can generate excessive logs:
+    <ProcessAccess onmatch="include">
+        <Rule groupRelation="and">
+        <TargetImage condition="end with">\MsMpEng.exe</TargetImage>
+        <SourceImage condition="end with">\WerFaultSecure.exe</SourceImage>
+        </Rule>
+    </ProcessAccess>
+detection:
+  selection:
+    SourceImage|endswith: '\WerFaultSecure.exe'
+    TargetImage|endswith: '\MsMpEng.exe'
+    CallTrace|contains:
+    - '\dbgcore.dll'
+    - '\dbghelp.dll'
+  condition: selection
+falsepositives:
+- Legitimate Windows Error Reporting operations
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_access/proc_access_win_werfaultsecure_msmpeng_access/info.yml
+note: |
+  ### Technical Context
+  This detection rule focuses on suspicious access events initiated by the `WerFaultSecure.exe` process to the `MsMpEng.exe` executable, particularly when certain debugger-related DLLs (`dbgcore.dll` or `dbghelp.dll`) are present in the call trace. This behavior suggests an attacker employing EDR (Endpoint Detection and Response) evasion techniques known as "EDR freeze" methods. The possible tactic behind such activity is to temporarily suspend security processes of EDR or antivirus solutions, allowing malicious code to execute unmonitored during this period.
+
+  Attackers typically use `WerFaultSecure.exe`, which operates as a Protected Process Light (PPL), under the Windows operating system's security architecture. Their objective is to manipulate or interact with security measures to create opportunities for further compromise or exploitation. The relevant MITRE ATT&CK tactics include **Defense Evasion** (Tactic ID: TA0005) and specifically the technique of **Process Injection: EDR Freeze** (T1562.001).
+
+  To effectively monitor this behavior, primary sources of telemetry include Sysmon Event ID 10 (Process Access) which must have the Call Trace feature enabled. This event captures detailed interactions between processes on Windows systems, providing crucial forensic data to identify and analyze potential threats.
+
+  ### Investigation Steps
+  - **Review Sysmon Logs**: Gather Sysmon Event ID 10 logs where `WerFaultSecure.exe` is the source image and `MsMpEng.exe` is the target. Look specifically for entries that include `dbgcore.dll` or `dbghelp.dll` in the call trace.
+
+  - **Analyze Process Trees**: Investigate the process tree surrounding these events to understand the context and potential chain of attacks. Focus on parent-child relationships and check for any known malicious processes.
+
+  - **Verify Anti-Virus and EDR Status**: Check the status and operational logs of any EDR or antivirus solutions on the affected systems during the timeframe of the access event. Take note of any instances of process suspension or unusual behavior that aligns with the detected event.
+
+  - **Identify Anomalous Behavior**: Look for instances of legitimate `WerFaultSecure.exe` activities that deviate from normal operation patterns. Determine whether any recent changes in system configuration occurred, which could provide further context.
+
+  ### Prioritization
+  This alert is marked as high severity due to the potential impact on system security and the likelihood of successful evasion of security controls. The ability of an attacker to manipulate EDR or antivirus processes poses significant risks, as it may facilitate further attacks or compromise sensitive data.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited if Sysmon is not deployed consistently across all endpoints or if configurations do not enable the capturing of Call Trace data. The detection logic assumes that `WerFaultSecure.exe` accessing `MsMpEng.exe` with the specified DLLs indicates malicious intent, which may overlook legitimate Windows error reporting scenarios. These assumptions necessitate thorough deployment and configuration of Sysmon across the enterprise to ensure comprehensive logging and detection capabilities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

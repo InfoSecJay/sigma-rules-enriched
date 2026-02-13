@@ -1,0 +1,77 @@
+title: Sdiagnhost Calling Suspicious Child Process
+id: f3d39c45-de1a-4486-a687-ab126124f744
+status: test
+description: Detects sdiagnhost.exe calling a suspicious child process (e.g. used
+  in exploits for Follina / CVE-2022-30190)
+references:
+- https://twitter.com/nao_sec/status/1530196847679401984
+- https://doublepulsar.com/follina-a-microsoft-office-code-execution-vulnerability-1a47fce5629e
+- https://app.any.run/tasks/713f05d2-fe78-4b9d-a744-f7c133e3fafb/
+- https://app.any.run/tasks/f420d295-0457-4e9b-9b9e-6732be227583/
+- https://app.any.run/tasks/c4117d9a-f463-461a-b90f-4cd258746798/
+author: Nextron Systems, @Kostastsale
+date: 2022-06-01
+modified: 2024-08-23
+tags:
+- attack.defense-evasion
+- attack.t1036
+- attack.t1218
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith: '\sdiagnhost.exe'
+    Image|endswith:
+            # Add more suspicious LOLBins
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    - '\cmd.exe'
+    - '\mshta.exe'
+    - '\cscript.exe'
+    - '\wscript.exe'
+    - '\taskkill.exe'
+    - '\regsvr32.exe'
+    - '\rundll32.exe'
+            # - '\csc.exe'   # https://app.any.run/tasks/f420d295-0457-4e9b-9b9e-6732be227583/
+    - '\calc.exe'          # https://app.any.run/tasks/f420d295-0457-4e9b-9b9e-6732be227583/
+  filter_main_cmd_bits:
+    Image|endswith: '\cmd.exe'
+    CommandLine|contains: 'bits'
+  filter_main_powershell_noprofile:
+    Image|endswith: '\powershell.exe'
+    CommandLine|endswith:
+    - '-noprofile -'
+    - '-noprofile'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies instances where `sdiagnhost.exe` (a legitimate Windows process used for diagnostics) spawns a suspicious child process, particularly in the context of exploitation techniques related to the Follina vulnerability (CVE-2022-30190). The Follina exploit involves crafting malicious Microsoft Office documents that utilize a specific URL protocol handler to execute code, generally executed through various Windows utilities and scripting environments like PowerShell and cmd.exe.
+
+  The primary objectives of attackers leveraging this vulnerability include executing arbitrary code on target machines, potentially leading to further compromise of the network and exfiltration of sensitive data. When `sdiagnhost.exe` is observed invoking processes such as PowerShell, cmd.exe, and other commonly abused utilities, it raises an alarm due to the unusual parent-child relationship, suggesting that exploitation might be occurring.
+
+  This rule is aligned with MITRE ATT&CK tactics of [Defense Evasion](https://attack.mitre.org/tactics/TA0005) (T1036, T1218) as it monitors for deviations from expected process behaviors that could indicate the presence of malicious activities.
+
+  Primary data sources include:
+  - Process creation events which track parent-child process relationships.
+  - Command line invocation logs that illustrate executed commands and parameters.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Check logs for instances of `sdiagnhost.exe` spawning child processes associated with suspicious behavior. Look for logs that retain parent-child relationships, specifically noting the command lines of the child processes.
+
+  - **Analyze Command Line Parameters:** Pay attention to the command line arguments passed to any child processes initiated by `sdiagnhost.exe`. Investigate any unusual flags or parameters that could indicate exploitation attempts.
+
+  - **Correlate with Other Security Alerts:** Examine recent alerts from related security tools (EDR, AV, SIEM) that may provide context or corroboration for the detected process behavior, especially if additional indicators of compromise (IOCs) were present around the same time.
+
+  - **Check for Known IOCs:** Reference threat intelligence feeds to identify if the specific child processes or command lines match known IOCs associated with Follina or similar exploitation techniques.
+
+  ### Prioritization
+  The high severity of this alert stems from the significant potential impact of exploitation, which could result in unauthorized access to sensitive data or system compromise. Given the likelihood of legitimate administrative activities being mimicked by attackers, quick identification and response are critical.
+
+  ### Blind Spots and Assumptions
+  This rule assumes that `sdiagnhost.exe` is not a frequently legitimate parent process for the specific child processes listed, which may result in false negatives if the environment has custom scripts or legitimate applications behaving similarly. Additionally, the detection logic relies heavily on comprehensive process creation logs being available and properly configured in the environment. Any gaps in logging (for instance, if verbose command line logging is not enabled) may hinder the effectiveness of this detection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,69 @@
+title: Non Interactive PowerShell Process Spawned
+id: f4bbd493-b796-416e-bbf2-121235348529
+status: test
+description: Detects non-interactive PowerShell activity by looking at the "powershell"
+  process with a non-user GUI process such as "explorer.exe" as a parent.
+references:
+- https://web.archive.org/web/20200925032237/https://threathunterplaybook.com/notebooks/windows/02_execution/WIN-190410151110.html
+author: Roberto Rodriguez @Cyb3rWard0g (rule), oscd.community (improvements)
+date: 2019-09-12
+modified: 2023-09-07
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+  - Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'PowerShell.EXE'
+    - 'pwsh.dll'
+  filter_main_generic:
+    ParentImage|endswith:
+    - ':\Windows\explorer.exe'
+    - ':\Windows\System32\CompatTelRunner.exe'
+    - ':\Windows\SysWOW64\explorer.exe'
+  filter_main_windows_update:
+    ParentImage: ':\$WINDOWS.~BT\Sources\SetupHost.exe'     # During Windows updates/upgrades
+        # CommandLine: powershell.exe -ExecutionPolicy Restricted -Command Write-Host 'Final result: 1';
+  filter_optional_vscode:
+        # Triggered by VsCode when you open a Shell inside the workspace
+    ParentImage|endswith: '\AppData\Local\Programs\Microsoft VS Code\Code.exe'
+    ParentCommandLine|contains: ' --ms-enable-electron-run-as-node '
+  filter_optional_terminal:
+    ParentImage|contains: ':\Program Files\WindowsApps\Microsoft.WindowsTerminal_'
+    ParentImage|endswith: '\WindowsTerminal.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Likely. Many admin scripts and tools leverage PowerShell in their BAT or VB scripts
+  which may trigger this rule often. It is best to add additional filters or use this
+  to hunt for anomalies
+level: low
+note: |
+  ### Technical Context
+  This detection rule identifies instances of non-interactive PowerShell execution where the parent process is an application that typically does not interact with users, such as `explorer.exe`. This behavior can indicate potential misuse of PowerShell for malicious purposes, as attackers may leverage non-interactive sessions to execute scripts without drawing attention. Malicious actors might use this technique to conduct various operations such as running payloads, performing reconnaissance, or executing endpoint persistence methods with minimal detection.
+
+  The relevant MITRE ATT&CK tactics for this rule include **Execution** (TA0002) due to the execution of commands via PowerShell, as well as specific techniques such as **Command-Line Interface (T1059.001)**, which covers command-line execution from PowerShell. The application of this rule helps teams identify unusual PowerShell activity potentially aligned with malicious campaigns.
+
+  Key data sources for this detection include **process creation events** that capture details about new processes, including command line arguments and parent process information. This telemetry is critical for distinguishing between legitimate administrative actions and potentially harmful activities.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Check for new `powershell.exe` or `pwsh.exe` processes spawned from non-user GUI parent processes. Pay special attention to the command line used to launch PowerShell for any suspicious parameters or scripts.
+
+  - **Analyze Context of Parent Processes**: Investigate the parent process (e.g., `explorer.exe`) to assess whether it is expected for the environment. Consider whether legitimate user activity or recent software behaviors could explain the observed PowerShell execution.
+
+  - **Check for Anomalies in User Behavior**: Examine if the user associated with the PowerShell execution has a valid need to run PowerShell in a non-interactive manner. Investigate recent changes in user privileges, access patterns, or unusual script usage.
+
+  - **Review Additional Logs for Correlation**: Correlate findings with other telemetry sources such as **Event Logs**, **Sysmon logs**, or **network traffic** to identify any associated malicious behaviors or confirm legitimate administrative tasks.
+
+  ### Prioritization
+  This alert is considered low severity due to the potential for false positives from benign administrative scripts that leverage PowerShell. However, it warrants investigation, especially when correlated with anomalous user actions or environments where such behavior is unexpected.
+
+  ### Blind Spots and Assumptions
+  There are gaps in detection coverage where variations in PowerShell execution methods or the use of obfuscation techniques may not be captured by this rule. The detection logic assumes that PowerShell processes will always have a GUI parent process, which may not apply to all environments. Additionally, for this rule to function optimally, accurate process creation logs must be available and logged consistently across relevant systems.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,50 @@
+title: AWS Console GetSigninToken Potential Abuse
+id: f8103686-e3e8-46f3-be72-65f7fcb4aa53
+status: test
+description: |
+  Detects potentially suspicious events involving "GetSigninToken".
+  An adversary using the "aws_consoler" tool can leverage this console API to create temporary federated credential that help obfuscate which AWS credential is compromised (the original access key) and enables the adversary to pivot from the AWS CLI to console sessions without the need for MFA using the new access key issued in this request.
+references:
+- https://github.com/NetSPI/aws_consoler
+- https://www.crowdstrike.com/blog/analysis-of-intrusion-campaign-targeting-telecom-and-bpo-companies/
+author: Chester Le Bron (@123Le_Bron)
+date: 2024-02-26
+tags:
+- attack.lateral-movement
+- attack.defense-evasion
+- attack.t1021.007
+- attack.t1550.001
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    eventSource: 'signin.amazonaws.com'
+    eventName: 'GetSigninToken'
+  filter_main_console_ua:
+    userAgent|contains: 'Jersey/${project.version}'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- GetSigninToken events will occur when using AWS SSO portal to login and will generate
+  false positives if you do not filter for the expected user agent(s), see filter.
+  Non-SSO configured roles would be abnormal and should be investigated.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potentially unauthorized use of the `GetSigninToken` API within AWS environments, particularly when leveraged by adversaries through tools such as "aws_consoler". This API can create temporary federated credentials that potentially facilitate lateral movement within the AWS environment while omitting multi-factor authentication (MFA) requirements. Attackers may utilize this capability to obscure the original compromised AWS access key and transition from AWS CLI commands to interactive console sessions, enabling broader access and increased operational capabilities.
+
+  The relevant MITRE ATT&CK techniques for this detection include Lateral Movement (T1021.007) and Defense Evasion (T1550.001). These techniques are aimed at exploiting legitimate processes or tools to gain further access or avoid detection, thus highlighting the importance of monitoring unusual API usage in cloud environments. The primary data source for capturing these events is AWS CloudTrail, which logs API calls and user activity within AWS accounts.
+
+  ### Investigation Steps
+  - **Review AWS CloudTrail Logs:** Start by examining CloudTrail logs for the `GetSigninToken` event to identify any suspicious usage patterns. Look specifically for anomalous user agents or IP addresses associated with these requests.
+  - **Analyze User Agent Strings:** Look for deviations in user agents that don’t match expected patterns, particularly filtering out legitimate AWS SSO portal logins, as indicated by the specified user agent filtering criteria.
+  - **Correlate with IAM Policies:** Investigate the user's IAM permissions or recent changes to roles or policies that may facilitate unauthorized access or modification of permissions related to token handling or session initiation.
+  - **Identify Related Activities:** Monitor for any additional suspicious activities around the same timeframe, including other AWS API calls like `AssumeRole` or changes in temporary security credentials, which might indicate a broader compromise.
+
+  ### Prioritization
+  This alert is assigned a medium severity due to the possibility of significant impact if an attacker successfully utilizes `GetSigninToken` to gain unauthorized access to sensitive resources in an AWS environment, especially considering the potential for lateral movement and evasion of security controls.
+
+  ### Blind Spots and Assumptions
+  The detection rule may not capture all instances of `GetSigninToken` events, particularly legitimate ones stemming from properly configured AWS SSO setups. An assumption made is that any deviations from expected user agents accurately indicate potentially malicious activity. Additionally, the effectiveness of this detection relies on the proper logging configuration and availability of CloudTrail logs. If CloudTrail is not correctly set up or if the logs are insufficiently retained, relevant events may be missed, leaving potential compromises undetected.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

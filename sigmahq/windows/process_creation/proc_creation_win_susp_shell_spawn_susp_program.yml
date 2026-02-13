@@ -1,0 +1,89 @@
+title: Windows Shell/Scripting Processes Spawning Suspicious Programs
+id: 3a6586ad-127a-4d3b-a677-1e6eacdf8fde
+status: test
+description: Detects suspicious child processes of a Windows shell and scripting processes
+  such as wscript, rundll32, powershell, mshta...etc.
+references:
+- https://mgreen27.github.io/posts/2018/04/02/DownloadCradle.html
+author: Florian Roth (Nextron Systems), Tim Shelton
+date: 2018-04-06
+modified: 2023-05-23
+tags:
+- attack.execution
+- attack.defense-evasion
+- attack.t1059.005
+- attack.t1059.001
+- attack.t1218
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith:
+    - '\mshta.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+            # - '\cmd.exe'  # too many false positives
+    - '\rundll32.exe'
+    - '\cscript.exe'
+    - '\wscript.exe'
+    - '\wmiprvse.exe'
+    - '\regsvr32.exe'
+    Image|endswith:
+    - '\schtasks.exe'
+    - '\nslookup.exe'
+    - '\certutil.exe'
+    - '\bitsadmin.exe'
+    - '\mshta.exe'
+  filter_ccmcache:
+    CurrentDirectory|contains: '\ccmcache\'
+  filter_amazon:
+    ParentCommandLine|contains:
+            # FP - Amazon Workspaces
+    - '\Program Files\Amazon\WorkSpacesConfig\Scripts\setup-scheduledtask.ps1'
+    - '\Program Files\Amazon\WorkSpacesConfig\Scripts\set-selfhealing.ps1'
+    - '\Program Files\Amazon\WorkSpacesConfig\Scripts\check-workspacehealth.ps1'
+    - '\nessus_'         # Tenable/Nessus VA Scanner
+  filter_nessus:
+    CommandLine|contains: '\nessus_'     # Tenable/Nessus VA Scanner
+  filter_sccm_install:
+    ParentImage|endswith: '\mshta.exe'
+    Image|endswith: '\mshta.exe'
+    ParentCommandLine|contains|all:
+    - 'C:\MEM_Configmgr_'
+    - '\splash.hta'
+    - '{1E460BD7-F1C3-4B2E-88BF-4E770A288AF5}'
+    CommandLine|contains|all:
+    - 'C:\MEM_Configmgr_'
+    - '\SMSSETUP\BIN\'
+    - '\autorun.hta'
+    - '{1E460BD7-F1C3-4B2E-88BF-4E770A288AF5}'
+  condition: selection and not 1 of filter_*
+falsepositives:
+- Administrative scripts
+- Microsoft SCCM
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious activity involving Windows shell and scripting processes that spawn suspicious child processes. Specific parent processes like `mshta.exe`, `powershell.exe`, and `rundll32.exe` are monitored to catch instances where they execute uncommon commands or tools that could indicate a security breach. Attackers often use these legitimate tools to perform actions such as downloading malware or executing scripts without raising immediate suspicion.
+
+  The rule aims to highlight activities that may be associated with various attack vectors, particularly with the *Execution* and *Defense Evasion* tactics from the MITRE ATT&CK framework. Relevant techniques include **T1059.001** (Command and Scripting Interpreter: Windows Command Shell), **T1059.005** (Command and Scripting Interpreter: Windows PowerShell), and **T1218** (Signing Process). Attackers leveraging these technologies may seek to install malware, escalate privileges, or perform lateral movement within the network.
+
+  Primary data sources for validating these activities include process creation logs, which capture how processes (both parent and child) interact. Additionally, command-line arguments, current directories, and associated images are crucial for identifying malicious intent behind the spawned processes.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Check for any process creation events involving `mshta.exe`, `powershell.exe`, `rundll32.exe`, and similar scripting processes. Focus on both the parent and child relationships to see what was executed and by whom.
+
+  - **Analyze Command-Line Arguments:** Investigate the command-line arguments for suspicious scripts or executables. Pay special attention to flags that are commonly used for malicious purposes (e.g., `-EncodedCommand` for PowerShell) and unusual paths.
+
+  - **Check Current Directory Context:** Ensure that the `CurrentDirectory` of the parent process does not point to common directories associated with legitimate business functions (like `C:\ccmcache\` for SCCM operations). If it does, verify if the behavior aligns with intended operations.
+
+  - **Correlate with Network Logs:** Look for any indicators of data exfiltration or callback connections that may correspond with the suspicious processes identified, especially if Powershell or scripts are detected initiating network connections.
+
+  ### Prioritization
+  This alert is classified as high severity due to the critical nature of potentially malicious processes utilizing widely trusted Windows applications. The likelihood of misuse of these tools by attackers, combined with their potential impact on system integrity and data security, necessitates prompt investigation.
+
+  ### Blind Spots and Assumptions
+  One gap in detection coverage includes potential evasion tactics employed by sophisticated attackers who may use legitimate administrative scripts to mask malicious activity. The detection rule assumes that malicious actors will not substitute legitimate tools with less commonly used executables, which could lead to false negatives. This alert relies on the proper logging and configuration of Windows process creation and command-line activities, highlighting the need for comprehensive logging strategies across the enterprise endpoint environment.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

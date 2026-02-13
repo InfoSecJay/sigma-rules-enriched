@@ -1,0 +1,86 @@
+title: Change PowerShell Policies to an Insecure Level
+id: 87e3c4e8-a6a8-4ad9-bb4f-46e7ff99a180
+related:
+- id: cf2e938e-9a3e-4fe8-a347-411642b28a9f     # ProcCreation Registry
+  type: similar
+- id: 61d0475c-173f-4844-86f7-f3eebae1c66b     # ScriptBlock
+  type: similar
+- id: fad91067-08c5-4d1a-8d8c-d96a21b37814     # Registry
+  type: similar
+status: test
+description: Detects changing the PowerShell script execution policy to a potentially
+  insecure level using the "-ExecutionPolicy" flag.
+references:
+- https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.4
+- https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4
+- https://adsecurity.org/?p=2604
+- https://thedfirreport.com/2021/11/01/from-zero-to-domain-admin/
+author: frack113
+date: 2021-11-01
+modified: 2025-10-07
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_img:
+  - OriginalFileName:
+    - 'powershell_ise.exe'
+    - 'PowerShell.EXE'
+    - 'pwsh.dll'
+  - Image|endswith:
+    - '\powershell_ise.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  selection_option:
+    CommandLine|contains:
+    - '-executionpolicy '
+    - ' -ep '
+    - ' -exec '
+  selection_level:
+    CommandLine|contains:
+    - 'Bypass'
+    - 'Unrestricted'
+  filter_main_powershell_core:
+    ParentImage:
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+    - 'C:\Windows\System32\msiexec.exe'
+    CommandLine|contains:
+    - '-NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\PowerShell\7\'
+    - '-NoProfile -ExecutionPolicy Bypass -File "C:\Program Files (x86)\PowerShell\7\'
+  filter_optional_avast:
+    ParentImage|contains:
+    - 'C:\Program Files\Avast Software\Avast\'
+    - 'C:\Program Files (x86)\Avast Software\Avast\'
+    - '\instup.exe'
+    CommandLine|contains:
+    - '-ExecutionPolicy ByPass -File "C:\Program Files\Avast Software\Avast'
+    - '-ExecutionPolicy ByPass -File "C:\Program Files (x86)\Avast Software\Avast\'
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Administrator scripts
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies attempts to change the PowerShell script execution policy to less secure settings using the `-ExecutionPolicy` flag. Attackers might leverage this capability to execute unauthorized scripts or perform malicious activities without being impeded by the default security policies. Common reasons for changing execution policies include facilitating the execution of payloads during exploits, lateral movement, or harvesting credentials from compromised systems.
+
+  The relevant MITRE ATT&CK tactics include **Execution (T1203)** and associated techniques like **Command and Scripting Interpreter - Windows PowerShell (T1059.001)**. These techniques highlight how attackers use scripting languages like PowerShell to gain execution control over victim machines. The primary sources of telemetry that will best provide evidence for this detection include process creation events, which will capture command-line parameters used to invoke PowerShell and any changes made to the execution policy.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Check for entries related to PowerShell (`powershell.exe`, `pwsh.exe`, and `powershell_ise.exe`) that contain `-ExecutionPolicy` in the command line arguments. Take note of any entries that specify `Bypass` or `Unrestricted` settings.
+
+  - **Analyze Parent Processes:** Investigate the parent processes for PowerShell executions, particularly those initiated by `msiexec.exe` or any unknown installers, to assess if they may relate to malicious or unauthorized activity.
+
+  - **Identify Anomalous Execution Contexts:** Correlate alerts with user accounts executing PowerShell with modified policies. Look for any deviations from normal operating behavior, particularly accounts that should not have been running scripts at that time.
+
+  - **Correlate with Other Security Alerts:** Cross-reference with alerts from other solutions like EDR or SIEM to find any corresponding indicators of compromise or lateral movement, which may suggest the execution policy change is part of a larger malicious activity.
+
+  ### Prioritization
+  This alert is considered medium severity due to the potential impact of allowing unauthorized script execution, which can lead to broader compromise and data exfiltration. The likelihood is heightened in environments where PowerShell is frequently utilized for legitimate administrative tasks.
+
+  ### Blind Spots and Assumptions
+  There are potential gaps in detection coverage regarding tools that may alter PowerShell execution policies without invoking standard command patterns, or scripts running in contexts that lack process creation logging due to policy configurations. The detection assumes that inter-process communications and the execution of scripts will follow the expected PowerShell execution patterns, which may not always be the case. Required logs include detailed process creation logs and sufficient logging settings that capture command line arguments accurately.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

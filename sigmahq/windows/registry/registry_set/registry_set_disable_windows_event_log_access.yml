@@ -1,0 +1,76 @@
+title: Windows Event Log Access Tampering Via Registry
+id: ba226dcf-d390-4642-b9af-b534872f1156
+status: experimental
+description: |
+  Detects changes to the Windows EventLog channel permission values. It focuses on changes to the Security Descriptor Definition Language (SDDL) string, as modifications to these values can restrict access to specific users or groups, potentially aiding in defense evasion by controlling who can view or modify a event log channel. Upon execution, the user shouldn't be able to access the event log channel via the event viewer or via utilities such as "Get-EventLog" or "wevtutil".
+references:
+- https://www.atomicredteam.io/atomic-red-team/atomics/T1562.002#atomic-test-8---modify-event-log-channel-access-permissions-via-registry---powershell
+- https://www.youtube.com/watch?v=uSYvHUVU8xY
+- https://learn.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-definition-language
+author: X__Junior
+date: 2025-01-16
+modified: 2025-08-16
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.defense-evasion
+- attack.t1547.001
+- attack.t1112
+logsource:
+  category: registry_set
+  product: windows
+detection:
+    # O:SYG:SYD:(D;;0x1;;;WD)
+    # O:BAG:SYD:(A;;0x2;;;S-1-15-2-1)(D;;0x1;;;WD)
+  selection_key_1:
+    TargetObject|contains: '\SYSTEM\CurrentControlSet\Services\EventLog\'
+    TargetObject|endswith: '\CustomSD'
+  selection_key_2:
+    TargetObject|contains:
+    - '\Policies\Microsoft\Windows\EventLog\'
+    - '\Microsoft\Windows\CurrentVersion\WINEVT\Channels'
+    TargetObject|endswith: '\ChannelAccess'
+  selection_details:
+  - Details|contains: 'D:(D;'
+  - Details|contains|all:
+    - 'D:('
+    - ')(D;'
+  filter_main_trustedinstaller:
+    Image: 'C:\Windows\servicing\TrustedInstaller.exe'
+  filter_main_tiworker:
+    Image|startswith: 'C:\Windows\WinSxS\'
+    Image|endswith: '\TiWorker.exe'
+  filter_optional_empty:
+    Image: ''
+  filter_optional_null:
+    Image:
+  condition: 1 of selection_key_* and selection_details and not 1 of filter_main_*
+    and not 1 of filter_optional_*
+falsepositives:
+- Administrative activity, still unlikely
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potential tampering with Windows Event Log access permissions by monitoring changes to the registry keys related to Event Log channels. Attackers may modify the Security Descriptor Definition Language (SDDL) strings to restrict or eliminate visibility of specific logs, potentially aiding in defense evasion. This behavior often occurs during stages of advanced persistent threat (APT) attacks, where the attacker seeks to maintain persistence while covering their tracks. By manipulating these permissions, an adversary can prevent system administrators from detecting malicious activities or unauthorized actions.
+
+  Relevant MITRE ATT&CK techniques include:
+  - **T1112**: Modify Registry
+  - **T1547.001**: Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
+  - **T1562.002**: Impair Defenses: Disable or Modify Tools
+
+  Primary data sources for this detection include:
+  - Registry change logs that capture modifications made to registry keys, specifically under `\SYSTEM\CurrentControlSet\Services\EventLog\`, as well as custom and channel access permissions locations.
+
+  ### Investigation Steps
+  - **Review Registry Logs**: Examine the registry logs for changes to the SDDL string in the specified Event Log channel paths, focusing on any suspicious entries that may indicate an unauthorized modification.
+  - **Correlate System Activity**: Analyze system process creation logs around the time of the registry change. Look for unexpected executions of `TrustedInstaller.exe`, `TiWorker.exe`, or other unknown processes that may have modified the keys.
+  - **Assess Event Log Isolation**: If the detection triggers an alert, attempt to access the affected event logs using `Get-EventLog` or `wevtutil`. If access is restricted, document the details and further investigate possible tampering.
+  - **Check User Accounts and Permissions**: Identify which user accounts made the modifications and correlate them to their respective permissions and roles. Investigate any anomalies, particularly if the modifications were made by non-administrative accounts.
+
+  ### Prioritization
+  The alert is classified as high severity due to the potential impact on organizational security. Unauthorized changes to event log access can significantly hinder incident detection and response, allowing attackers to operate without detection, thus increasing the likelihood of data exfiltration or further exploitation.
+
+  ### Blind Spots and Assumptions
+  This detection approach may not capture all instances of registry modifications if log retention policies are insufficient or if certain types of modifications are performed by trusted system processes. The rule assumes that all changes are logged accurately and that legitimate administrative changes are infrequent. Continuous monitoring of relevant registry paths is required for effective detection. Any system misconfigurations that prevent specific logs from being generated could lead to undetected tampering activities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

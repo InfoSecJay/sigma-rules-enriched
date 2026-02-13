@@ -1,0 +1,86 @@
+title: Potential Azure Browser SSO Abuse
+id: 50f852e6-af22-4c78-9ede-42ef36aa3453
+status: test
+description: |
+  Detects abusing Azure Browser SSO by requesting OAuth 2.0 refresh tokens for an Azure-AD-authenticated Windows user (i.e. the machine is joined to Azure AD and a user logs in with their Azure AD account) wanting to perform SSO authentication in the browser.
+  An attacker can use this to authenticate to Azure AD in a browser as that user.
+references:
+- https://posts.specterops.io/requesting-azure-ad-request-tokens-on-azure-ad-joined-machines-for-browser-sso-2b0409caad30
+author: Den Iuzvyk
+date: 2020-07-15
+modified: 2023-04-18
+tags:
+- attack.persistence
+- attack.defense-evasion
+- attack.privilege-escalation
+- attack.t1574.001
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded: 'C:\Windows\System32\MicrosoftAccountTokenProvider.dll'
+  filter_main_bgtaskhost:
+    Image|startswith:
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+    Image|endswith: '\BackgroundTaskHost.exe'
+        # CommandLine|contains: '-ServerNameBackgroundTaskHost.WebAccountProvider'
+  filter_optional_devenv:
+    Image|startswith:
+    - 'C:\Program Files\Microsoft Visual Studio\'
+    - 'C:\Program Files (x86)\Microsoft Visual Studio\'
+    Image|endswith: '\IDE\devenv.exe'
+  filter_optional_ie:
+    Image:
+    - 'C:\Program Files (x86)\Internet Explorer\iexplore.exe'
+    - 'C:\Program Files\Internet Explorer\iexplore.exe'
+  filter_optional_edge_1:
+  - Image|startswith: 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application\'
+  - Image|endswith: '\WindowsApps\MicrosoftEdge.exe'
+  - Image:
+    - 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+    - 'C:\Program Files\Microsoft\Edge\Application\msedge.exe'
+  filter_optional_edge_2:
+    Image|startswith:
+    - 'C:\Program Files (x86)\Microsoft\EdgeCore\'
+    - 'C:\Program Files\Microsoft\EdgeCore\'
+    Image|endswith:
+    - '\msedge.exe'
+    - '\msedgewebview2.exe'
+  filter_optional_onedrive:
+    Image|endswith: '\AppData\Local\Microsoft\OneDrive\OneDrive.exe'
+  filter_optional_null:
+    Image:
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- False positives are expected since this rules is only looking for the DLL load event.
+  This rule is better used in correlation with related activity
+level: low
+note: |
+  ### Technical Context
+  This detection rule identifies potential abuse of Azure Browser Single Sign-On (SSO) by monitoring requests for OAuth 2.0 refresh tokens on Azure Active Directory (Azure AD)-joined machines. Specifically, when a user logged in with their Azure AD account triggers the `MicrosoftAccountTokenProvider.dll`, an attacker could exploit this mechanism to authenticate as that user in the browser. This could lead to unauthorized access to critical resources and sensitive data.
+
+  The primary threat scenario here involves adversaries attempting to leverage compromised credentials or establish persistence within the environment by utilizing SSO capabilities. The attacker's objective is to gain seamless access to resources without direct phishing or credential theft, which can significantly facilitate further exploitation of the network or accessed systems.
+
+  Relevant MITRE ATT&CK tactics and techniques include:
+  - **Persistence** (TA0003)
+  - **Defense Evasion** (TA0005)
+  - **Privilege Escalation** (TA0004)
+  - **OAuth 2.0 Token Granting** (T1574.001)
+
+  Primary data sources for this detection include Windows image load logs, particularly focusing on the loading of `MicrosoftAccountTokenProvider.dll`, as well as any related authentication logs that may indicate unusual access patterns or sessions initiated from unexpected processes.
+
+  ### Investigation Steps
+  - **Review Image Load Events**: Examine logs for instances where `MicrosoftAccountTokenProvider.dll` is loaded, verifying if this event coincides with web browser activity.
+  - **Analyze Authentication Logs**: Investigate Azure AD authentication logs for any OAuth token requests that are not aligned with normal user activity or expected access patterns.
+  - **Correlate with Process Activity**: Look for process creations or command lines that indicate the execution of browsers (e.g., `msedge.exe`, `iexplore.exe`) around the time the DLL was loaded.
+  - **Assess User Context**: Check the account context under which the token request was made to identify any deviations from regular login behavior or unauthorized accounts.
+
+  ### Prioritization
+  This alert is considered low-level severity in an enterprise environment due to the false positive potential from normal user activity; however, it may indicate an attempted malicious use of legitimate access mechanisms, warranting further investigation.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage if logs from certain applications or their processes are not captured, or if the environment lacks detailed monitoring of browser behaviors and authentication logs. This detection logic assumes that the loading of the specific DLL without concurrent standard browser activity is indicative of suspicious behavior. Required configurations include proper logging of DLL loads and authentication events in Windows systems, ensuring that relevant log sources are enabled for effective monitoring.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

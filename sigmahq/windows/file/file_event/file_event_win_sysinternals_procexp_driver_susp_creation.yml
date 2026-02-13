@@ -1,0 +1,59 @@
+title: Process Explorer Driver Creation By Non-Sysinternals Binary
+id: de46c52b-0bf8-4936-a327-aace94f94ac6
+status: test
+description: |
+  Detects creation of the Process Explorer drivers by processes other than Process Explorer (procexp) itself.
+  Hack tools or malware may use the Process Explorer driver to elevate privileges, drops it to disk for a few moments, runs a service using that driver and removes it afterwards.
+references:
+- https://learn.microsoft.com/en-us/sysinternals/downloads/process-explorer
+- https://github.com/Yaxser/Backstab
+- https://www.elastic.co/security-labs/stopping-vulnerable-driver-attacks
+- https://news.sophos.com/en-us/2023/04/19/aukill-edr-killer-malware-abuses-process-explorer-driver/
+author: Florian Roth (Nextron Systems)
+date: 2023-05-05
+tags:
+- attack.persistence
+- attack.privilege-escalation
+- attack.t1068
+logsource:
+  product: windows
+  category: file_event
+detection:
+  selection:
+    TargetFilename|contains: '\PROCEXP'
+    TargetFilename|endswith: '.sys'
+  filter_main_process_explorer:
+    Image|endswith:
+    - '\procexp.exe'
+    - '\procexp64.exe'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Some false positives may occur with legitimate renamed process explorer binaries
+level: high
+note: |
+  ### Technical Context
+  This rule detects the creation of Windows drivers related to Process Explorer by processes that are not the legitimate Process Explorer executable (procexp or procexp64). Malware and hacking tools may exploit the Process Explorer driver to gain elevated privileges and run malicious code while attempting to cover their tracks by deleting the driver afterward. The underlying threat scenario involves attackers leveraging legitimate tools in ways that are not authorized, thereby facilitating persistence and privilege escalation within the target environment.
+
+  The relevant MITRE ATT&CK tactics for this detection are **Persistence (T1050)** and **Privilege Escalation (T1068)**. Attackers using techniques such as abusing drivers for privilege escalation can establish a foothold within the system, allowing them to execute arbitrary commands or install additional malware.
+
+  Primary data sources to review include:
+  - File system event logs to capture creation actions of driver files.
+  - Process creation events to identify unusual processes initiating driver creation.
+  - Windows event logs related to service installation to track service creation using these drivers.
+
+  ### Investigation Steps
+  - **Review File Creation Logs:** Investigate file event logs for the creation of `.sys` files in the `C:\Windows\System32\drivers` directory that include `PROCEXP` in their names, especially looking for timestamps and source processes.
+
+  - **Analyze Process Creation Events:** Check process creation logs to identify any processes that initiated the creation of `PROCEXP` drivers, focusing on the parent-child relationship for any unusual processes spawning these driver files.
+
+  - **Check for Service Installation Events:** Look into the Windows Event logs for any service installation events that can be linked to the detected driver creation, particularly focusing on services that have been set to run at startup.
+
+  - **Identify Legitimate vs. Malicious Activity:** Compare the detected instances against known legitimate use of Process Explorer in your environment, considering potential false positives that may arise from renamed binaries. Validate the legitimacy of the processes involved in driver creation.
+
+  ### Prioritization
+  Given that the creation of a Process Explorer driver by non-legitimate means can indicate an active attack attempting privilege escalation, this alert should be treated with high severity. The potential impact on the environment is significant, as it suggests that attackers may have escalated their privileges and established persistence mechanisms.
+
+  ### Blind Spots and Assumptions
+  This detection rule may miss cases where legitimate security tools are misconfigured or used inappropriately but still function as intended. The detection logic assumes that any driver creation involving `PROCEXP` by non-legitimate binaries signifies suspicious activity, which may not always be accurate. Additionally, this detection relies on the logging of file creation events and process creation logs; therefore, ensuring proper logging configurations are critical for the alert to function effectively and to provide comprehensive coverage.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

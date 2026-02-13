@@ -1,0 +1,140 @@
+title: Remote Thread Creation By Uncommon Source Image
+id: 66d31e5f-52d6-40a4-9615-002d3789a119
+related:
+- id: 02d1d718-dd13-41af-989d-ea85c7fab93f
+  type: derived
+status: test
+description: Detects uncommon processes creating remote threads.
+references:
+- Personal research, statistical analysis
+- https://lolbas-project.github.io
+author: Perez Diego (@darkquassar), oscd.community
+date: 2019-10-27
+modified: 2025-07-08
+tags:
+- attack.privilege-escalation
+- attack.defense-evasion
+- attack.t1055
+logsource:
+  product: windows
+  category: create_remote_thread
+detection:
+  selection:
+    SourceImage|endswith:
+    - '\explorer.exe'
+    - '\iexplore.exe'
+    - '\msiexec.exe'
+    - '\powerpnt.exe'
+    - '\schtasks.exe'
+    - '\winlogon.exe'
+  filter_main_winlogon_1:
+    SourceImage: 'C:\Windows\System32\winlogon.exe'
+    TargetImage:
+    - 'C:\Windows\System32\services.exe'         # happens on Windows 7
+    - 'C:\Windows\System32\wininit.exe'         # happens on Windows 7
+    - 'C:\Windows\System32\csrss.exe'         # multiple OS
+    - 'C:\Windows\System32\LogonUI.exe'         # multiple OS
+    - 'C:\Windows\System32\wlrmdr.exe'
+    - 'C:\Windows\System32\AtBroker.exe'
+    - 'C:\Windows\System32\dwm.exe'
+    - 'C:\Windows\System32\fontdrvhost.exe'
+    - 'C:\Windows\System32\userinit.exe'
+  filter_main_winlogon_2:
+    SourceImage: 'C:\Windows\System32\winlogon.exe'
+    TargetParentProcessId: 4
+  filter_main_schtasks_conhost:
+    SourceImage:
+    - 'C:\Windows\System32\schtasks.exe'
+    - 'C:\Windows\SysWOW64\schtasks.exe'
+    TargetImage: 'C:\Windows\System32\conhost.exe'
+  filter_main_explorer:
+    SourceImage: 'C:\Windows\explorer.exe'
+    TargetImage|startswith:
+    - 'C:\Program Files (x86)\'
+    - 'C:\Program Files\'
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+  filter_main_system:
+    TargetImage: 'System'
+  filter_main_msiexec_1:
+        # Note: MSI installers will trigger this
+    SourceImage|endswith: '\msiexec.exe'
+    TargetImage|contains:
+    - '\AppData\Local\'
+    - 'C:\Program Files (x86)\'
+    - 'C:\Program Files\'
+    - 'C:\Windows\Microsoft.NET\Framework64\'         # C:\Windows\Microsoft.NET\Framework\v4.0.30319\ngen.exe
+  filter_main_msiexec_2:
+    SourceImage|endswith: '\msiexec.exe'
+    TargetImage:
+    - 'C:\Windows\System32\msiexec.exe'
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+  filter_main_iexplore:
+    SourceImage: 'C:\Program Files\Internet Explorer\iexplore.exe'
+    TargetImage:
+    - 'C:\Program Files (x86)\Internet Explorer\iexplore.exe'
+    - 'C:\Windows\System32\rundll32.exe'
+  filter_main_powerpnt:
+    SourceImage|endswith: '\POWERPNT.EXE'
+    TargetImage|contains:
+    - 'C:\Program Files\Microsoft Office\'         # C:\Program Files\Microsoft Office\root\vfs\ProgramFilesCommonX64\Microsoft Shared\Office16\AI\ai.exe
+    - 'C:\Program Files (x86)\Microsoft Office\'
+  filter_optional_aurora_smartconsole1:
+    SourceImage: 'C:\Program Files\internet explorer\iexplore.exe'
+    SourceCommandLine|contains|all:
+    - 'https://'
+    - '.checkpoint.com/documents/'
+    - 'SmartConsole_OLH/'
+    - 'default.htm#cshid='
+  filter_optional_aurora_smartconsole2:
+    SourceImage: 'C:\Program Files\internet explorer\iexplore.exe'
+    SourceParentImage|startswith:
+    - 'C:\Program Files\'
+    - 'C:\Program Files (x86)\'
+    SourceParentImage|contains|all:
+    - '\CheckPoint\SmartConsole\'
+    - '\SmartConsole.exe'
+  filter_optional_powerpnt:
+        # Raised by the following issue: https://github.com/SigmaHQ/sigma/issues/2479
+    SourceImage|contains: '\Microsoft Office\'
+    SourceImage|endswith: '\POWERPNT.EXE'
+    TargetImage: 'C:\Windows\System32\csrss.exe'
+  filter_main_null:
+    TargetImage:
+  filter_main_empty:
+    TargetImage: ''
+  filter_optional_onedrive:
+    SourceImage: 'C:\Windows\explorer.exe'
+    TargetImage|endswith: '\AppData\Local\Microsoft\OneDrive\OneDrive.exe'
+  filter_optional_aurora:
+    SourceImage: 'C:\Windows\explorer.exe'
+    TargetImage|endswith: '\aurora-dashboard.exe'
+  filter_optional_officesetup:
+    SourceImage: 'C:\Windows\explorer.exe'
+    TargetImage|endswith: '\OfficeSetup.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- This rule is best put in testing first in order to create a baseline that reflects
+  the data in your environment.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies instances of uncommon processes that are creating remote threads in a Windows environment. Specifically, it focuses on the behavior where legitimate processes such as `explorer.exe`, `iexplore.exe`, and `msiexec.exe` initiate remote thread creation in critical system processes, which can be indicative of privilege escalation attempts or evasion tactics by attackers. The detection leverages telemetry related to process creation events to flag suspicious activity that could be part of a broader compromise or lateral movement within the network.
+
+  Attackers may employ this technique to infect processes that have higher privileges (like `services.exe` or `csrss.exe`) to maintain persistence, evade detection, or execute malicious payloads without being detected. The typical objectives include escalating privileges, maintaining access, or executing arbitrary code. This behavior can be directly linked to the MITRE ATT&CK technique T1055, which describes "Process Injection", a common technique used by various threat actors to manipulate system processes.
+
+  Key data sources that provide valuable evidence include Windows process creation logs, which can show legitimate versus illegitimate thread creation patterns, and security events that monitor for unusual command line arguments or execution paths.
+
+  ### Investigation Steps
+  - **Review Process Creation Events**: Examine logs for instances where uncommon processes are reported initiating remote threads, focusing on the source images defined in the rule.
+  - **Correlate to Network Activity**: Check network connections or communications initiated by the suspect processes. Investigating unusual outbound traffic may help confirm malicious intent.
+  - **Analyze Parent/Child Process Relationships**: Identify the parent processes associated with the detected actions. Unearth if these processes are legitimate or have been exploited to perform illicit activities.
+  - **Inspect Command Line Arguments**: Review command line usage related to these processes for suspicious parameters that may indicate attempts to obfuscate malicious activity.
+
+  ### Prioritization
+  This alert is considered medium severity due to the potential impact of privilege escalation and lateral movement in the enterprise environment. The likelihood of abuse for remote thread creation by common processes can lead to significant risks if leveraged by a malicious actor.
+
+  ### Blind Spots and Assumptions
+  The detection logic relies on specific process names and their behaviors, which means it may miss custom or rarely used applications that exhibit similar malicious behavior. There's an assumption that these processes are not used maliciously by trusted internal applications, which could lead to false positives. Ensuring logging is enabled for process creation and that the appropriate levels of Windows Event Logs are configured is essential for this alert to function correctly.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

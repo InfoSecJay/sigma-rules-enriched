@@ -1,0 +1,62 @@
+title: Devcon Execution Disabling VMware VMCI Device
+id: 85f520e7-6f5e-43ca-874c-222e5bf9c0de
+status: experimental
+description: |
+  Detects execution of devcon.exe with commands that disable the VMware Virtual Machine Communication Interface (VMCI) device.
+  This can be legitimate during VMware Tools troubleshooting or driver conflicts, but may also indicate malware attempting to hijack communication with the hardware via the VMCI device.
+  This has been used to facilitate VMware ESXi vulnerability exploits to escape VMs and execute code on the ESXi host.
+references:
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/devcon
+- https://communities.vmware.com/t5/VMware-Workstation-Pro/VMCI-driver-issues/td-p/2866060
+- https://github.com/search?q=devcon+disable+VMWVMCIHOSTDEV
+- https://huntress.com/blog/esxi-vm-escape-exploit
+author: Matt Anderson, Dray Agha, Anna Pham (Huntress)
+date: 2026-01-02
+tags:
+- attack.defense-evasion
+- attack.persistence
+- attack.privilege-escalation
+- attack.t1543.003
+- attack.t1562.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith: '\devcon.exe'
+  - OriginalFileName: 'DevCon.exe'
+  selection_action:
+    CommandLine|contains: ' disable '
+  selection_vmci_pci:
+    CommandLine|contains:
+    - '15AD&DEV_0740'         # VMware VMCI PCI device (Vendor 0x15AD = VMware, Device 0x0740 = VMCI)
+    - 'VMWVMCIHOSTDEV'         # VMware VMCI root host device driver name
+  condition: all of selection_*
+falsepositives:
+- Legitimate VMware administration, Tools installation/uninstallation, or troubleshooting
+  driver conflicts.
+- Automated scripts in virtualized environments for device cleanup.
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_devcon_disable_vmci_driver/info.yml
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of **devcon.exe** with specific commands aimed at disabling the **VMware Virtual Machine Communication Interface (VMCI)** device. While legitimate administrative activities such as troubleshooting VMware Tools may invoke these commands, malicious actors can exploit this behavior to manipulate VMCI communication with hardware, potentially allowing them to escape virtual machines (VMs) and execute arbitrary code on the ESXi host.
+
+  The suspected threat scenario involves attackers using this execution as a method for **privilege escalation** and **defense evasion**, permitting them increased control over the virtual environment. This aligns with the **MITRE ATT&CK** tactics of **Defense Evasion** (T1562) and **Persistence** (T1543.003), as well as **Privilege Escalation** techniques. The detection logic particularly focuses on identifying command-line inputs associated with the VMCI PCI device, indicating potentially malicious intent.
+
+  The primary data source for this detection comes from **process creation events** in Windows operating systems, which will log instances of the `devcon.exe` execution along with associated command-line parameters.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Examine logs for instances of `devcon.exe` execution, focusing on command-line arguments that contain 'disable' along with identifiers for the VMCI device.
+  - **Check Artifact Context**: Look for related processes or parent processes that invoked `devcon.exe` to understand the broader context of its execution, particularly any automated scripts or administrative tools in use.
+  - **Correlate with VMware Logs**: Investigate VMware-specific logs for any inconsistencies or alerts around the time of the `devcon.exe` execution. Look for records of VMCI device state changes or any related anomalies.
+  - **Assess VM Configuration Changes**: Analyze the configuration of any affected virtual machines to evaluate whether any unauthorized changes were made around the time of the event.
+
+  ### Prioritization
+  Given the potential for significant impact—such as unauthorized access to the ESXi host and execution of malicious code—this alert carries a **high severity**. The possibility of an attacker using this method to escape a VM makes it critical for immediate investigation.
+
+  ### Blind Spots and Assumptions
+  Possible gaps in detection coverage include scenarios where attackers might utilize alternative tools or techniques to disable the VMCI device, which may not be captured by this rule. The detection logic assumes that the `devcon.exe` execution is logged consistently and accurately where process creation events are enabled. Additionally, the alert requires appropriate configuration of logging settings in the Windows environment to function effectively, such as enabling detailed process command-line logging.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

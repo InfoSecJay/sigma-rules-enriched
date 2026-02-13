@@ -1,0 +1,61 @@
+title: ASLR Disabled Via Sysctl or Direct Syscall - Linux
+id: e497a24e-9345-4a62-9803-b06d7d7cb132
+status: experimental
+description: |
+  Detects actions that disable Address Space Layout Randomization (ASLR) in Linux, including:
+    - Use of the `personality` syscall with the ADDR_NO_RANDOMIZE flag (0x0040000)
+    - Modification of the /proc/sys/kernel/randomize_va_space file
+    - Execution of the `sysctl` command to set `kernel.randomize_va_space=0`
+  Disabling ASLR is often used by attackers during exploit development or to bypass memory protection mechanisms.
+  A successful use of these methods can reduce the effectiveness of ASLR and make memory corruption attacks more reliable.
+references:
+- https://github.com/CheraghiMilad/bypass-Neo23x0-auditd-config/blob/f1c478a37911a5447d5ffcd580f22b167bf3df14/personality-syscall/README.md
+- https://man7.org/linux/man-pages/man2/personality.2.html
+- https://manual.cs50.io/2/personality
+- https://linux-audit.com/linux-aslr-and-kernelrandomize_va_space-setting/
+author: Milad Cheraghi
+date: 2025-05-26
+modified: 2025-12-05
+tags:
+- attack.privilege-escalation
+- attack.defense-evasion
+- attack.t1562.001
+- attack.t1055.009
+logsource:
+  product: linux
+  service: auditd
+detection:
+  selection_syscall:
+    type: 'SYSCALL'
+    SYSCALL: 'personality'
+    a0: 40000
+  selection_sysctl:
+    type: 'EXECVE'
+    a0: 'sysctl'
+    a1: '-w'
+    a2: 'kernel.randomize_va_space=0'     # 0 = disable
+  condition: 1 of selection_*
+falsepositives:
+- Debugging or legitimate software testing
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies attempts to disable Address Space Layout Randomization (ASLR) on Linux systems through specific actions. ASLR is a memory management process that randomizes the address space locations of key data areas, making it more challenging for attackers to predict the location of system and application memory. Attackers aiming to exploit vulnerabilities may attempt to disable ASLR to improve the success rates of memory corruption attacks, such as buffer overflows, by providing a stable target memory layout.
+
+  The likely attacker objectives include creating a predictable memory structure that facilitates the execution of injected payloads, increasing the effectiveness of exploits during their operations. This activity primarily relates to the MITRE ATT&CK techniques such as "Privilege Escalation" (T1068), as disabling ASLR can allow attackers to escalate their privileges more easily, and "Defense Evasion" (T1562.001), as it aims to bypass memory protection mechanisms.
+
+  The primary data sources for effective detection are `auditd` logs that capture syscall activity and command executions on the system. Specific log entries associated with the `personality` syscall and the invocation of the `sysctl` command will provide valuable evidence of potential malicious behavior.
+
+  ### Investigation Steps
+  - **Review Audit Logs**: Collect and analyze `auditd` logs related to the `personality` syscall. Look for entries that indicate the use of the ADDR_NO_RANDOMIZE flag (0x0040000) to determine if ASLR has been disabled.
+  - **Examine Execution of Sysctl Commands**: Investigate any execution logs for the `sysctl` command, especially instances where `kernel.randomize_va_space=0` was set. Check for unusual command usage patterns or credentials used to execute this command.
+  - **Check for Unusual Processes**: Identify any processes that may have been active around the same time as the ASLR disabling activities. Look for known exploits or debugging tools that might indicate an internal test or an external compromise.
+  - **Validate System Configurations**: Ensure that system hardening configurations are in place to prevent unauthorized modifications to kernel parameters. Consult the configuration history to validate legitimate changes versus potential malicious activity.
+
+  ### Prioritization
+  This alert should be treated with high severity in an enterprise environment because disabling ASLR can significantly increase the risk of successful attacks, particularly against applications with known vulnerabilities. The likelihood of exploitation is heightened when an attacker has modified such crucial memory protection mechanisms, potentially leading to system compromise.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage if `auditd` is not correctly configured to log relevant syscalls or command executions, which relies on proper setup to function effectively. Additionally, the detection logic assumes that actions taken to disable ASLR are not part of legitimate processes, such as debugging or software testing, which could yield false positives. Ensuring consistent logging of `auditd` and `sysctl` command usage is crucial for the alert’s effectiveness.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

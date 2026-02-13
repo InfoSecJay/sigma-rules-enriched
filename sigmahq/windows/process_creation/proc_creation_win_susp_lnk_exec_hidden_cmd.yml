@@ -1,0 +1,66 @@
+title: Suspicious LNK Command-Line Padding with Whitespace Characters
+id: dd8756e7-a3a0-4768-b47e-8f545d1a751c
+status: experimental
+description: |
+  Detects exploitation of LNK file command-line length discrepancy, where attackers hide malicious commands beyond the 260-character UI limit while the actual command-line argument field supports 4096 characters using whitespace padding (e.g., 0x20, 0x09-0x0D).
+  Adversaries insert non-printable whitespace characters (e.g., Line Feed \x0A, Carriage Return \x0D) to pad the visible section of the LNK file, pushing malicious commands past the UI-visible boundary.
+  The hidden payload, executed at runtime but invisible in Windows Explorer properties, enables stealthy execution and evasion—commonly used for social engineering attacks.
+  This rule flags suspicious use of such padding observed in real-world attacks.
+references:
+- https://syedhasan010.medium.com/forensics-analysis-of-an-lnk-file-da68a98b8415
+- https://thehackernews.com/2025/03/unpatched-windows-zero-day-flaw.html
+- https://www.trendmicro.com/en_us/research/25/c/windows-shortcut-zero-day-exploit.html
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-03-19
+tags:
+- attack.initial-access
+- attack.execution
+- attack.t1204.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - ParentImage|endswith: '\explorer.exe'
+  - ParentCommandLine|contains: '.lnk'
+  selection_cmd:
+  - CommandLine|contains:
+    - '                 '            # Padding of SPACE (0x20)
+            # - '	'  # Horizontal Tab (0x9)
+    - '\u0009'
+    - '\u000A'           # Line Feed
+    - '\u0011'
+    - '\u0012'
+    - '\u0013'
+    - '\u000B'           # Vertical Tab
+    - '\u000C'            # \x0C
+    - '\u000D'            # \x0D
+  - CommandLine|re: '\n\n\n\n\n\n'       # In some cases \u000[ABCD] are represented as a newline in the eventlog
+  condition: all of selection_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious LNK file behavior utilizing command-line padding with whitespace characters, which can be indicative of social engineering attacks or exploitation attempts. Attackers may leverage this technique to obfuscate malicious commands beyond the standard 260-character limit displayed to users in Windows Explorer, effectively hiding harmful payloads within the additional characters. This advanced evasion tactic supports the execution of command arguments that are invisible to the victim, thereby increasing the likelihood of successful compromises.
+
+  The relevant MITRE ATT&CK tactics associated with this detection include **Initial Access (TA0001)** and **Execution (TA0002)**, particularly technique **T1204.002: Malicious File Execution**. The goal of these tactics is to establish a foothold in the system by executing payloads that the user is unaware of, leveraging legitimate system mechanisms like LNK files to deceive users.
+
+  Primary data sources that can provide supporting evidence for this detection include **process creation events** in Windows, which document the details of executed commands and their origins. These events will help identify instances where LNK files are improperly invoking hidden commands.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Analyze the process creation logs for instances where `explorer.exe` was the parent process and check for associated command-line arguments containing LNK files. Focus on identifying any unusual whitespace characters.
+
+  - **Examine LNK file Properties**: Utilize forensic analysis tools to inspect the properties of the suspicious LNK files. Verify whether the command-line arguments are padded with non-printable whitespace characters and document the findings.
+
+  - **Check User Behavior**: Investigate the context in which the LNK file was accessed or executed. Look for any unusual user behavior, such as unexpected downloads or execution of files from untrusted sources.
+
+  - **Correlate with Other Alerts**: Assess the findings in conjunction with other alerts to determine if there are broader patterns indicative of a targeted attack or if other malicious activities are occurring in parallel.
+
+  ### Prioritization
+  This alert should be considered high severity due to the potential impact of unnoticed malicious command execution, which can lead to significant data breaches or unauthorized access. The likelihood is increased in enterprises where users frequently receive or execute files from unknown or untrusted sources.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage as legitimate applications could also use LNK files with unusual command-line arguments, potentially generating false positives. The detection logic assumes that the primary execution pathway for malicious commands will involve LNK files executed through Explorer. Required logs for this rule to function include detailed process creation event logs that capture command-line arguments, which must be correctly configured to include non-printable character data.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

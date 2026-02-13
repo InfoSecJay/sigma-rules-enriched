@@ -1,0 +1,73 @@
+title: Service Binary in Suspicious Folder
+id: a07f0359-4c90-4dc4-a681-8ffea40b4f47
+related:
+- id: c0abc838-36b0-47c9-b3b3-a90c39455382
+  type: obsolete
+status: test
+description: Detect the creation of a service with a service binary located in a suspicious
+  directory
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+author: Florian Roth (Nextron Systems), frack113
+date: 2022-05-02
+modified: 2025-10-07
+tags:
+- attack.persistence
+- attack.defense-evasion
+- attack.t1112
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_service_start:
+    TargetObject|startswith: 'HKLM\System\CurrentControlSet\Services\'
+    TargetObject|endswith: '\Start'
+    Image|contains:
+    - '\Users\Public\'
+    - '\Perflogs\'
+    - '\ADMIN$\'
+    - '\Temp\'
+    Details:
+    - 'DWORD (0x00000000)'          # boot
+    - 'DWORD (0x00000001)'          # System
+    - 'DWORD (0x00000002)'          # Automatic
+            # 3 - Manual , 4 - Disabled
+  selection_service_imagepath:
+    TargetObject|startswith: 'HKLM\System\CurrentControlSet\Services\'
+    TargetObject|endswith: '\ImagePath'
+    Details|contains:
+    - '\Users\Public\'
+    - '\Perflogs\'
+    - '\ADMIN$\'
+    - '\Temp\'
+  filter_optional_avast:
+    Image|contains|all:     # Filter FP with Avast software
+    - '\Common Files\'
+    - '\Temp\'
+  filter_optional_mbamservice:
+    TargetObject|endswith: '\CurrentControlSet\Services\MBAMInstallerService\ImagePath'
+    Details|endswith: '\AppData\Local\Temp\MBAMInstallerService.exe"'
+    Image: 'C:\Windows\system32\services.exe'
+  condition: 1 of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This rule detects the creation of a Windows service that points to executable binaries located in suspicious directories, such as `\Users\Public\`, `\Perflogs\`, `\ADMIN$\`, and `\Temp\`. These directories are commonly leveraged by attackers to hide malicious payloads or binaries, which can facilitate persistence mechanisms within the target environment. The likely attacker objectives include maintaining control over a compromised system or evading detection by exploiting services, a tactic indicative of malware or unauthorized software installation.
+
+  The relevant MITRE ATT&CK tactics include **Persistence** (T1543), focusing on the establishment of a service to regain access to a system, and **Defense Evasion** (T1112), where the attacker attempts to bypass security controls by using non-standard paths for executable binaries. The primary data sources for this detection include registry set logs that capture changes to service configurations, specifically the service start types and associated image paths, revealing potential malicious activity.
+
+  ### Investigation Steps
+  - **Review Service Creation Logs:** Examine the logs for registry keys in `HKLM\System\CurrentControlSet\Services\` to identify any newly created services with binaries in the suspicious directories mentioned.
+  - **Analyze Service Parameters:** Check the `ImagePath` of any flagged services for unusual or known malicious binary paths, focusing on services that exhibit non-standard configurations or unexpected attributes.
+  - **Correlate with EDR Data:** Investigate endpoint detection data to look for indications of process creation or execution related to the identified services. This may include monitoring for any parent-child relationships arising from these processes.
+  - **Assess Network Traffic:** Evaluate any outbound connections or network traffic originating from the suspicious services, which may reveal communication with command-and-control servers or other malicious infrastructure.
+
+  ### Prioritization
+  This alert is considered high severity due to the potential impact of unauthorized services on system integrity. The likelihood of occurrence is significant, as attackers frequently exploit service binaries to establish persistence within networks.
+
+  ### Blind Spots and Assumptions
+  Detection may miss activities if logs are not enabled for services or if the service creation events occur in ways outside the specified filter criteria. Assumptions include the presence of typical Windows registry paths and that malicious actors are not using obfuscation techniques or relocating binaries to less suspicious locations. Proper logging configuration and monitoring of the Windows registry are essential for the accuracy of this detection logic to function optimally.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

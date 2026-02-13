@@ -1,0 +1,71 @@
+title: Cscript/Wscript Potentially Suspicious Child Process
+id: b6676963-0353-4f88-90f5-36c20d443c6a
+status: test
+description: |
+  Detects potentially suspicious child processes of Wscript/Cscript. These include processes such as rundll32 with uncommon exports or PowerShell spawning rundll32 or regsvr32.
+  Malware such as Pikabot and Qakbot were seen using similar techniques as well as many others.
+references:
+- Internal Research
+- https://github.com/pr0xylife/Pikabot/blob/fc58126127adf0f65e78f4eec59675523f48f086/Pikabot_30.10.2023.txt
+- https://github.com/pr0xylife/Pikabot/blob/fc58126127adf0f65e78f4eec59675523f48f086/Pikabot_22.12.2023.txt
+author: Nasreddine Bencherchali (Nextron Systems), Alejandro Houspanossian ('@lekz86')
+date: 2023-05-15
+modified: 2024-01-02
+tags:
+- attack.execution
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|endswith:
+    - '\wscript.exe'
+    - '\cscript.exe'
+  selection_cli_script_main:
+    Image|endswith:
+    - '\cmd.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    # Note: Add other combinations that are suspicious
+  selection_cli_script_option_mshta:
+    CommandLine|contains|all:
+    - 'mshta'
+    - 'http'
+  selection_cli_script_option_other:
+    CommandLine|contains:
+    - 'rundll32'
+    - 'regsvr32'
+    - 'msiexec'
+  selection_cli_standalone:
+    Image|endswith: '\rundll32.exe'
+  filter_main_rundll32_known_exports:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|contains:
+    - 'UpdatePerUserSystemParameters'
+    - 'PrintUIEntry'
+    - 'ClearMyTracksByProcess'
+  condition: selection_parent and ( selection_cli_standalone or (selection_cli_script_main
+    and 1 of selection_cli_script_option_*) ) and not 1 of filter_main_*
+falsepositives:
+- Some false positives might occur with admin or third party software scripts. Investigate
+  and apply additional filters accordingly.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potentially suspicious child processes spawned by Wscript and Cscript, specifically targeting instances where unconventional command line parameters or certain processes, such as rundll32 or regsvr32, are executed. Attackers often manipulate these scripting engines to run malicious payloads, and malware families like Pikabot and Qakbot are known to utilize similar strategies to evade detection and execute further attacks. In this context, the goal of a potential attacker may be to establish persistence, exfiltrate data, or escalate privileges within the enterprise environment.
+
+  Relevant MITRE ATT&CK tactics include **Execution (T1203)**, as the rule focuses on the execution of potentially harmful scripts, and techniques like **Process Injection (T1055)**, where common windows scripting tools are used to initiate malicious processes. Primary data sources for this detection include process creation logs from Windows, which provide vital insight into the parent-child relationship of processes and the associated command line arguments.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine Windows process creation logs to identify parent-child relationships involving Wscript.exe and Cscript.exe, along with their command line arguments for unusual activity.
+  - **Analyze Suspicious Command Lines:** Look for command lines that include rundll32, regsvr32, or mshta, particularly when invoked by common shells like cmd.exe or PowerShell, and assess their legitimacy.
+  - **Identify Known Good Processes:** Cross-reference the detected processes against known benign command line exports for rundll32 to filter out false positives, focusing on exports like UpdatePerUserSystemParameters and PrintUIEntry.
+  - **Check for Indicator Patterns:** Investigate any recurring patterns of suspicious command line usage or process spawning from Wscript/Cscript related to initial compromises and lateral movement behaviors.
+
+  ### Prioritization
+  The alert holds medium severity due to the significant risk posed by the unauthorized execution of scripts in an enterprise environment. Malicious actors can exploit these vectors to perform actions that may lead to data breaches or control over critical systems.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for legitimate administrative scripts that utilize Wscript or Cscript, leading to potential false positives. The detection logic assumes that any invocation of tools like rundll32 or regsvr32 through scripts is suspicious unless filtered by known safe exports. To ensure this alert functions properly, logging of process creation events must be enabled and adequately configured to capture comprehensive command line details across the environment.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

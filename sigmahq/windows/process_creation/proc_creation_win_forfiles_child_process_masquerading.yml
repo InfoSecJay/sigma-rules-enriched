@@ -1,0 +1,61 @@
+title: Forfiles.EXE Child Process Masquerading
+id: f53714ec-5077-420e-ad20-907ff9bb2958
+status: test
+description: |
+  Detects the execution of "forfiles" from a non-default location, in order to potentially spawn a custom "cmd.exe" from the current working directory.
+references:
+- https://www.hexacorn.com/blog/2023/12/31/1-little-known-secret-of-forfiles-exe/
+author: Nasreddine Bencherchali (Nextron Systems), Anish Bogati
+date: 2024-01-05
+tags:
+- attack.defense-evasion
+- attack.t1036
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+        # Notes:
+        #   - The parent must not have CLI options
+        #   - The Child Image must be named "cmd" as its hardcoded in the "forfiles" binary
+        #   - The Child CLI will always contains "/c echo" as its hardcoded in the original "forfiles" binary
+    ParentCommandLine|endswith:
+    - '.exe'
+    - '.exe"'
+    Image|endswith: '\cmd.exe'
+    CommandLine|startswith: '/c echo "'
+  filter_main_parent_not_sys:
+    ParentImage|contains:
+    - ':\Windows\System32\'
+    - ':\Windows\SysWOW64\'
+    ParentImage|endswith: '\forfiles.exe'
+    Image|contains:
+    - ':\Windows\System32\'
+    - ':\Windows\SysWOW64\'
+    Image|endswith: '\cmd.exe'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of `forfiles.exe` when it is launched from a non-standard location, potentially used to spawn an unauthorized instance of `cmd.exe`. Attackers may leverage this technique as part of a larger malicious operation, aiming to run arbitrary commands or scripts from the current working directory instead of the standard system directory. By doing so, they may evade traditional security measures and create a pathway for executing further exploits or evading detection.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion** (ID: TA0005), which could manifest through the technique of **Masquerading** (ID: T1036). Utilizing legitimate tools like `forfiles` to execute potentially harmful commands can obfuscate an attacker's actions, making it harder for security teams to recognize and respond to suspicious behavior. The primary telemetry sources that can provide evidence for this detection include process creation events, which track executable launches and their parent processes.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Analyze Windows process creation events for instances of `forfiles.exe` executed from non-default directories. Note the parent process and command line arguments for context.
+
+  - **Correlate Parent Process Activity:** Investigate the parent process associated with the `forfiles.exe` execution. Look for unusual command-line parameters and identify if it deviates from typical usage patterns.
+
+  - **Examine Command Execution History:** Check for subsequent `cmd.exe` executions that are spawned as children of `forfiles.exe`. Review their command lines, especially those starting with `/c echo`, to determine if malicious commands were executed.
+
+  - **Assess Endpoint Security Logs:** Utilize logs from EDR or antivirus solutions to see if there are any additional alerts or blocks associated with `forfiles.exe` or the spawned `cmd.exe`, providing further insight into potential compromises.
+
+  ### Prioritization
+  The alert carries a high severity level as the detection of unexpected process behavior involving legitimate system tools can indicate an active attempt by an attacker to evade detection and execute commands in a compromised environment, potentially leading to significant security breaches.
+
+  ### Blind Spots and Assumptions
+  This detection logic may have gaps in coverage for environments that lack comprehensive process monitoring or where `forfiles.exe` is legitimately used in non-standard scenarios. The rule assumes that all instances of `forfiles.exe` should be executed from system directories and may miss instances where attackers use alternative methods for execution. The proper logging of process creation events and accurate monitoring of command-line arguments are essential for this alert to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

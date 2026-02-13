@@ -1,0 +1,75 @@
+title: Uncommon Userinit Child Process
+id: 0a98a10c-685d-4ab0-bddc-b6bdd1d48458
+related:
+- id: 21d856f9-9281-4ded-9377-51a1a6e2a432
+  type: similar
+status: test
+description: Detects uncommon "userinit.exe" child processes, which could be a sign
+  of uncommon shells or login scripts used for persistence.
+references:
+- https://cocomelonc.github.io/persistence/2022/12/09/malware-pers-20.html
+- https://learn.microsoft.com/en-us/windows-server/administration/server-core/server-core-sconfig#powershell-is-the-default-shell-on-server-core
+author: Tom Ueltschi (@c_APT_ure), Tim Shelton
+date: 2019-01-12
+modified: 2023-11-14
+tags:
+- attack.privilege-escalation
+- attack.t1037.001
+- attack.persistence
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith: '\userinit.exe'
+  filter_main_explorer:
+    Image|endswith: ':\WINDOWS\explorer.exe'
+  filter_optional_logonscripts:
+    CommandLine|contains:
+    - 'netlogon.bat'
+    - 'UsrLogon.cmd'
+  filter_optional_windows_core:
+        # Note: This filter is mandatory on Windows Core machines as the default shell spawned by "userinit" is "powershell.exe".
+        # https://learn.microsoft.com/en-us/windows-server/administration/server-core/server-core-sconfig#powershell-is-the-default-shell-on-server-core
+    CommandLine: 'PowerShell.exe'
+  filter_optional_proquota:
+    Image|endswith:
+    - ':\Windows\System32\proquota.exe'
+    - ':\Windows\SysWOW64\proquota.exe'
+  filter_optional_citrix:
+    Image|endswith:
+            # As reported by https://github.com/SigmaHQ/sigma/issues/4569
+    - ':\Program Files (x86)\Citrix\HDX\bin\cmstart.exe'         # https://support.citrix.com/article/CTX983798/purpose-of-cmstart-command
+    - ':\Program Files (x86)\Citrix\HDX\bin\icast.exe'         # https://support.citrix.com/article/CTX983798/purpose-of-cmstart-command
+    - ':\Program Files (x86)\Citrix\System32\icast.exe'
+    - ':\Program Files\Citrix\HDX\bin\cmstart.exe'         # https://support.citrix.com/article/CTX983798/purpose-of-cmstart-command
+    - ':\Program Files\Citrix\HDX\bin\icast.exe'         # https://support.citrix.com/article/CTX983798/purpose-of-cmstart-command
+    - ':\Program Files\Citrix\System32\icast.exe'
+  filter_optional_image_null:
+    Image:
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate logon scripts or custom shells may trigger false positives. Apply additional
+  filters accordingly.
+level: high
+note: |
+  ### Technical Context
+  This detection rule focuses on identifying uncommon child processes spawned by the `userinit.exe` executable on Windows systems. The likely intention behind such activities is to establish persistence via non-default or malicious shells, login scripts, or other unauthorized executable files. Attackers may exploit the initialization process to gain unauthorized access or maintain persistence within a compromised environment. Monitoring for these types of child processes is critical as they can indicate lateral movement or privilege escalation activities tied to the misuse of legitimate login mechanisms.
+
+  The relevant MITRE ATT&CK tactics include **Persistence** (T1136) and **Privilege Escalation** (T1068), as the detection targets behavior that could allow an adversary to maintain access over an extended period and elevate privileges. By focusing on the child processes of `userinit.exe`, the rule captures anomalous behavior that might bypass normal security controls.
+
+  Primary data sources for this detection should include **process creation events**, which provide insights into the relationship between parent and child processes. These logs can help security teams trace potentially malicious activity originating from a legitimate system process.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine the process creation logs surrounding any detected instance of `userinit.exe` to identify possible unauthorized child processes that could indicate malicious activity.
+  - **Analyze Command Line Arguments:** Investigate the command line arguments associated with the child processes, particularly for known login scripts such as `netlogon.bat` or `UsrLogon.cmd`, as well as any unusual PowerShell commands or paths.
+  - **Check for Uncommon Parent Processes:** Look for any instances where `userinit.exe` is not being spawned by its expected parent, typically `explorer.exe`, as this could suggest potential tampering or exploitation attempts.
+  - **Correlate with User Logon Events:** Cross-reference the timestamps and accounts involved in the process creation events with user logon events to identify any anomalies that may suggest unauthorized access or misuse of legitimate accounts.
+
+  ### Prioritization
+  Given that this detection rule is designed to flag unusual activities associated with `userinit.exe`, it is classified as a high-severity alert in an enterprise environment. The potential for attackers to establish persistence and escalate privileges through these processes poses a significant threat to organizational security.
+
+  ### Blind Spots and Assumptions
+  This detection logic may miss legitimate administrative activities or custom login scripts that are considered benign within an organization's environment, leading to false positives. It is assumed that necessary logging is enabled at the appropriate levels to capture process creation events effectively. Additionally, the detection relies on a baseline understanding of normal user behavior; any deviations from these behaviors, as crafted by system administrators, may not be effectively accounted for without further contextual information. Continuous adaptation and refinement of the detection capabilities and filters are necessary to minimize noise while maintaining effective monitoring.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

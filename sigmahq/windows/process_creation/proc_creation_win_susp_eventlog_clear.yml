@@ -1,0 +1,102 @@
+title: Suspicious Eventlog Clearing or Configuration Change Activity
+id: cc36992a-4671-4f21-a91d-6c2b72a2edf5
+status: stable
+description: |
+  Detects the clearing or configuration tampering of EventLog using utilities such as "wevtutil", "powershell" and "wmic".
+  This technique were seen used by threat actors and ransomware strains in order to evade defenses.
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1070.001/T1070.001.md
+- https://eqllib.readthedocs.io/en/latest/analytics/5b223758-07d6-4100-9e11-238cfdd0fe97.html
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wevtutil
+- https://gist.github.com/fovtran/ac0624983c7722e80a8f5a4babb170ee
+- https://jdhnet.wordpress.com/2017/12/19/changing-the-location-of-the-windows-event-logs/
+- https://www.linkedin.com/posts/huntress-labs_when-a-sketchy-incident-hits-your-network-activity-7304940371078238208-Th_l/?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAJTlRcB28IaUtg03HUU-IdliwzoAL1flGc
+- https://stackoverflow.com/questions/66011412/how-to-clear-a-event-log-in-powershell-7
+- https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.eventing.reader.eventlogsession.clearlog?view=windowsdesktop-9.0&viewFallbackFrom=dotnet-plat-ext-5.0#System_Diagnostics_Eventing_Reader_EventLogSession_ClearLog_System_String_
+- https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.eventlog.clear
+author: Ecco, Daniil Yugoslavskiy, oscd.community, D3F7A5105, Swachchhanda Shrawan
+  Poudel (Nextron Systems)
+date: 2019-09-26
+modified: 2025-03-12
+tags:
+- attack.defense-evasion
+- attack.t1070.001
+- attack.t1562.002
+- car.2016-04-002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_wevtutil_img:
+  - Image|endswith: '\wevtutil.exe'
+  - OriginalFileName: 'wevtutil.exe'
+  selection_wevtutil_cmd:
+    CommandLine|contains:
+    - 'clear-log '                  # clears specified log
+    - ' cl '                        # short version of 'clear-log'
+    - 'set-log '                    # modifies config of specified log. could be uset to set it to a tiny size
+    - ' sl '                        # short version of 'set-log'
+    - 'lfn:'                        # change log file location and name
+  selection_other_ps_img:
+    Image|endswith:
+    - '\powershell.exe'
+    - '\powershell_ise.exe'
+    - '\pwsh.exe'
+  selection_other_ps_cmd:
+  - CommandLine|contains:
+    - 'Clear-EventLog '
+    - 'Remove-EventLog '
+    - 'Limit-EventLog '
+    - 'Clear-WinEvent '
+  - CommandLine|contains|all:
+    - 'Eventing.Reader.EventLogSession'           # [System.Diagnostics.Eventing.Reader.EventLogSession]::GlobalSession.ClearLog($_.LogName)
+    - 'ClearLog'
+  - CommandLine|contains|all:
+    - 'Diagnostics.EventLog'
+    - 'Clear'
+  selection_other_wmi:
+    Image|endswith:
+    - '\powershell.exe'
+    - '\powershell_ise.exe'
+    - '\pwsh.exe'
+    - '\wmic.exe'
+    CommandLine|contains: 'ClearEventLog'
+  filter_main_msiexec:
+        # Example seen during office update/installation:
+        #   ParentImage: C:\Windows\SysWOW64\msiexec.exe
+        #   CommandLine: "C:\WINDOWS\system32\wevtutil.exe" sl Microsoft-RMS-MSIPC/Debug /q:true /e:true /l:4 /rt:false
+    ParentImage:
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+    - 'C:\Windows\System32\msiexec.exe'
+    CommandLine|contains: ' sl '
+  condition: (all of selection_wevtutil_*) or (all of selection_other_ps_*) or (selection_other_wmi)
+    and not 1 of filter_main_*
+falsepositives:
+- Admin activity
+- Scripts and administrative tools used in the monitored environment
+- Maintenance activity
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious activity related to the clearing or tampering of Windows Event Logs using utilities like `wevtutil`, PowerShell, and WMI. Attackers often employ this technique to erase traces of their actions from logs, thereby evading detection and hindering forensics. Common scenarios include post-exploitation actions where an attacker seeks to cover their tracks after gaining unauthorized access to a system or during ransomware attacks that seek to complicate recovery efforts by obscuring the timeline of the attack.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion** and techniques such as T1070.001 (Indicator Removal on Host: File and Directory Permissions Modification) and T1562.002 (Impair Defenses: Disable or Modify Tools). These tactics help adversaries maintain their presence and evade security measures by manipulating log configurations.
+
+  Primary data sources for this detection include process creation events, which capture the execution of utilities, alongside command-line logs that show how these tools are being used. Monitoring system logs focusing on event clearing will provide key insights into suspicious activities that could indicate an ongoing breach.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine process creation logs for instances of `wevtutil.exe`, PowerShell, or WMI commands that indicate log tampering, focusing on command line parameters associated with clearing or modifying logs.
+
+  - **Analyze Command-Line Arguments:** Look for command-line arguments that include 'clear-log', 'remove-eventlog', or other clear event log commands across identified utilities to ensure that legitimate administrative tasks are not incorrectly flagged.
+
+  - **Collect Event Log Data:** Gather Event Log data within the timeframe of identified tampering attempts to assess what logs were altered or cleared, which will help reconstruct activities prior to manipulation.
+
+  - **Investigate Parent Process Relationships:** Trace the parent process associated with any suspicious log clearing activities, especially if launched from processes like `msiexec.exe`, to determine if these actions are part of a normal application installation or update versus malicious intent.
+
+  ### Prioritization
+  This alert is considered high severity due to the impact that successful event log clearing can have on incident response efforts and overall system integrity, as it may indicate ongoing malicious activity with a high likelihood of evasion of detection mechanisms.
+
+  ### Blind Spots and Assumptions
+  Potential blind spots include reliance on standard logging configurations, which may not capture all events, particularly if system logging policies have been altered by an attacker. The detection logic assumes that command-line activity can be indicative of malicious behavior, which may lead to false positives from legitimate administrative tasks. Moreover, it requires that appropriate logging is enabled and maintained for event creation, PowerShell usage, and WMI interactions for complete visibility.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

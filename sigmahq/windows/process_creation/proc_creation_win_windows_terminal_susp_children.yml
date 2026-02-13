@@ -1,0 +1,92 @@
+title: Suspicious WindowsTerminal Child Processes
+id: 8de89e52-f6e1-4b5b-afd1-41ecfa300d48
+status: test
+description: Detects suspicious children spawned via the Windows Terminal application
+  which could be a sign of persistence via WindowsTerminal (see references section)
+references:
+- https://persistence-info.github.io/Data/windowsterminalprofile.html
+- https://twitter.com/nas_bench/status/1550836225652686848
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-25
+modified: 2023-02-14
+tags:
+- attack.execution
+- attack.persistence
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|endswith:
+    - '\WindowsTerminal.exe'
+    - '\wt.exe'
+  selection_susp:
+  - Image|endswith:
+              # Add more LOLBINS
+    - '\rundll32.exe'
+    - '\regsvr32.exe'
+    - '\certutil.exe'
+    - '\cscript.exe'
+    - '\wscript.exe'
+    - '\csc.exe'
+  - Image|contains:
+              # Add more suspicious paths
+    - 'C:\Users\Public\'
+    - '\Downloads\'
+    - '\Desktop\'
+    - '\AppData\Local\Temp\'
+    - '\Windows\TEMP\'
+  - CommandLine|contains:
+              # Add more suspicious commandline
+    - ' iex '
+    - ' icm'
+    - 'Invoke-'
+    - 'Import-Module '
+    - 'ipmo '
+    - 'DownloadString('
+    - ' /c '
+    - ' /k '
+    - ' /r '
+  filter_builtin_visual_studio_shell:
+    CommandLine|contains|all:
+    - 'Import-Module'
+    - 'Microsoft.VisualStudio.DevShell.dll'
+    - 'Enter-VsDevShell'
+  filter_open_settings:
+    CommandLine|contains|all:
+    - '\AppData\Local\Packages\Microsoft.WindowsTerminal_'
+    - '\LocalState\settings.json'
+  filter_vsdevcmd:
+    CommandLine|contains|all:
+    - 'C:\Program Files\Microsoft Visual Studio\'
+    - '\Common7\Tools\VsDevCmd.bat'
+  condition: all of selection_* and not 1 of filter_*
+falsepositives:
+- Other legitimate "Windows Terminal" profiles
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious child processes spawned from the Windows Terminal application, specifically focusing on instances where common Windows legitimate binaries (LOLBins) are invoked. The threat scenario could involve an attacker leveraging Windows Terminal to execute undesirable or malicious commands within the environment, potentially aiming to establish persistence or execute harmful scripts without attracting significant attention. Attackers may exploit the versatility of terminal environments for tasks such as downloading further payloads, executing scripts, or maintaining access.
+
+  Relevant MITRE ATT&CK tactics and techniques associated with this behavior include:
+  - **Execution (T1203)**: This technique encompasses the execution of malicious code or scripts through various means, including command line and scripts executed via terminal environments.
+  - **Persistence (T1053)**: This indicates an attacker's ability to maintain footholds within the environment, which could be reflected via the methods used to spawn child processes from Windows Terminal.
+
+  Primary data sources for gathering evidence include process creation events in Windows, which provide insight into parent-child process relationships; command-line parameters executed within the terminal; and potentially monitoring unusual artifacts within the user file system, such as suspicious commands executed from known scripting hosts.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Analyze process creation events to identify instances where suspicious binaries (e.g., `rundll32.exe`, `certutil.exe`) have been spawned by `WindowsTerminal.exe` or `wt.exe`.
+
+  - **Examine Command Line Arguments**: Look into the command lines associated with the detected child processes. Investigate any occurrences of commands that suggest potentially malicious intent, such as commands including `Invoke-`, `Import-Module`, or those that initiate script execution.
+
+  - **Inspect User Activity and File Locations**: Check for unusual patterns regarding user activity, especially involving directories like `C:\Users\Public\`, `Downloads`, and `AppData\Local\Temp\`. Verify if commands suggest leveraging files from these locations for potentially illicit activities.
+
+  - **Correlate with Other Logs**: Cross-reference findings with other log sources such as network activities or endpoint telemetry (e.g., PowerShell logs, EDR telemetry) to identify if additional potentially malicious behaviors accompany the detected Windows Terminal activity.
+
+  ### Prioritization
+  This alert should be treated with medium priority due to the potential for significant impact; while the use of Windows Terminal is common for legitimate administrative tasks, abusive usage of terminal capabilities can lead to successful persistence and execution of further attacks within the enterprise environment.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited by legitimate usage of Windows Terminal for administrative or development tasks, leading to possible false positives. The detection logic assumes that certain child processes will not always trigger benign filters; thus, ensuring these profiles are well-defined is crucial. Dependencies include proper logging configurations for process creation events and adequate data retention policies to allow for thorough analysis during investigations.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

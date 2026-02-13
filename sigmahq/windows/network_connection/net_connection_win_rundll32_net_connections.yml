@@ -1,0 +1,70 @@
+title: Rundll32 Internet Connection
+id: cdc8da7d-c303-42f8-b08c-b4ab47230263
+status: test
+description: Detects a rundll32 that communicates with public IP addresses
+references:
+- https://www.hybrid-analysis.com/sample/759fb4c0091a78c5ee035715afe3084686a8493f39014aea72dae36869de9ff6?environmentId=100
+author: Florian Roth (Nextron Systems)
+date: 2017-11-04
+modified: 2024-03-13
+tags:
+- attack.defense-evasion
+- attack.t1218.011
+- attack.execution
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\rundll32.exe'
+    Initiated: 'true'
+  filter_main_local_ranges:
+    DestinationIp|cidr:
+    - '127.0.0.0/8'
+    - '10.0.0.0/8'
+    - '172.16.0.0/12'
+    - '192.168.0.0/16'
+    - '169.254.0.0/16'
+    - '::1/128'          # IPv6 loopback
+    - 'fe80::/10'          # IPv6 link-local addresses
+    - 'fc00::/7'          # IPv6 private addresses
+  filter_main_ms_ranges:
+    DestinationIp|cidr:
+    - '20.0.0.0/8'         # Microsoft range, caused some FPs
+    - '51.103.0.0/16'         # Microsoft AS8075 range, caused some FPs
+    - '51.104.0.0/16'         # Microsoft AS8075 range, caused some FPs
+    - '51.105.0.0/16'         # Microsoft AS8075 range, caused some FPs
+  filter_main_app_sdb:
+    CommandLine|endswith: '\system32\PcaSvc.dll,PcaPatchSdbTask'
+  filter_main_azure_managed:
+    SourceHostname|endswith: '.internal.cloudapp.net'
+  filter_main_svchost_update_processes:
+        # Note: This require "ParentImage" data enrichment.
+    ParentImage: 'C:\Windows\System32\svchost.exe'
+    DestinationPort: 443
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Communication to other corporate systems that use IP addresses from public address
+  spaces
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies instances where the `rundll32.exe` executable communicates with public IP addresses. Such behaviors may indicate malicious activity as `rundll32.exe` is often exploited by attackers to execute hidden payloads or execute functionalities that should remain under the radar. An attacker may use this tool to establish persistence, exfiltrate data, or connect back to their command and control (C2) infrastructure.
+
+  The relevant MITRE ATT&CK tactics for this detection include **Execution (T1203)**, as rundll32 is being used to execute code, and **Defense Evasion (T1218.011)**, as it may be trying to bypass security measures by masquerading its intent. In enterprise environments, this behavior is suspicious as legitimate operations typically don't involve `rundll32.exe` contacting external networks.
+
+  Primary data sources that can substantiate this detection include Windows network connection logs, which capture the destination IP and process information, ensuring that analysts can trace the source of the initiated connections for `rundll32.exe`.
+
+  ### Investigation Steps
+  - **Review Network Connection Logs:** Analyze Windows network connection logs for instances of `rundll32.exe` initiating connections to any IP addresses outside the defined internal ranges (e.g., non-corporate IPs).
+  - **Examine Process Creation Events:** Investigate process creation events related to `rundll32.exe`, focusing on the command line arguments to identify potentially malicious payloads or abnormal usage patterns.
+  - **Check Parent Process Relationships:** Assess the parent process of any detected `rundll32.exe` instances, particularly looking for `svchost.exe`, which may indicate that the execution was initiated through a potentially compromised service.
+  - **Conduct IP Reputation Checks:** Perform lookups against threat intelligence databases to understand the reputation of identified external IP addresses and ascertain if they are associated with known malicious actors.
+
+  ### Prioritization
+  The severity of this alert is medium due to the potential for significant data exfiltration or system compromise stemming from `rundll32.exe` contacting unknown external resources. While this activity is not inherently malicious, its context and deviation from normal operational patterns warrant prompt investigation and analysis.
+
+  ### Blind Spots and Assumptions
+  Detection relies heavily on the availability of thorough network connection logs and accurate process information, including parent process details. There may be gaps if the logs do not capture certain outbound connections, or if `rundll32.exe` is erroneously executed as part of legitimate applications. Additionally, the detection logic assumes that the organization has strict controls on outbound connections to public IP ranges, and such communications would be uncommon. If legitimate corporate applications or services connect to these IPs, false positives may arise, necessitating further tuning of detection parameters.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

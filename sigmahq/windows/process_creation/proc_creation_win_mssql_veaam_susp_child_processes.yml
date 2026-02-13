@@ -1,0 +1,74 @@
+title: Suspicious Child Process Of Veeam Dabatase
+id: d55b793d-f847-4eea-b59a-5ab09908ac90
+related:
+- id: 869b9ca7-9ea2-4a5a-8325-e80e62f75445
+  type: similar
+status: test
+description: Detects suspicious child processes of the Veeam service process. This
+  could indicate potential RCE or SQL Injection.
+references:
+- https://labs.withsecure.com/publications/fin7-target-veeam-servers
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-04
+tags:
+- attack.initial-access
+- attack.persistence
+- attack.privilege-escalation
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|endswith: '\sqlservr.exe'
+    ParentCommandLine|contains: 'VEEAMSQL'
+  selection_child_1:
+    Image|endswith:
+    - '\cmd.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    - '\wsl.exe'
+    - '\wt.exe'
+    CommandLine|contains:
+    - '-ex '
+    - 'bypass'
+    - 'cscript'
+    - 'DownloadString'
+    - 'http://'
+    - 'https://'
+    - 'mshta'
+    - 'regsvr32'
+    - 'rundll32'
+    - 'wscript'
+    - 'copy '
+  selection_child_2:
+    Image|endswith:
+    - '\net.exe'
+    - '\net1.exe'
+    - '\netstat.exe'
+    - '\nltest.exe'
+    - '\ping.exe'
+    - '\tasklist.exe'
+    - '\whoami.exe'
+  condition: selection_parent and 1 of selection_child_*
+level: critical
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious child processes spawned by the Veeam SQL service (`sqlservr.exe`). The presence of unusual command-line patterns or known exploitation commands may indicate remote code execution (RCE) attempts or SQL injection activities targeting the Veeam backup infrastructure. Attackers aiming to gain unauthorized access to systems typically exploit services such as Veeam to elevate their privileges or access sensitive data, thereby threatening the integrity and availability of enterprise backups.
+
+  The relevant MITRE ATT&CK tactics include **Initial Access** (TA0001), through which attackers may gain foothold; **Persistence** (TA0003), reflecting their efforts to maintain access; and **Privilege Escalation** (TA0004), which emphasizes their goal of escalating their privileges within the network. The techniques most applicable here include **Remote Code Execution (T1203)** and **SQL Injection (T1190)**, as the alert can signify exploitation attempts aiming for unauthorized execution or data manipulation.
+
+  Primary data sources for analyzing this detection include **process creation events** from the Windows operating system, which can provide insight into the parent and child process relationships, as well as command line arguments used during execution.
+
+  ### Investigation Steps
+  - **Examine Process Creation Logs**: Review logs for `sqlservr.exe` as a parent process and look for child processes with suspicious command-line arguments, which may indicate malicious activity.
+  - **Analyze Command-Line Parameters**: Focus on child processes such as `cmd.exe`, `powershell.exe`, and those with keywords like `-ex`, `bypass`, or commands that suggest scripting or network operations to understand the context of execution.
+  - **Investigate Network Traffic**: Monitor for any outbound connections initiated by these child processes to URLs that may suggest command-and-control behavior, including any connections to suspicious IP addresses.
+  - **Review System and Application Logs**: Correlate the process execution events with other system logs (e.g., Veeam application logs) to identify any abnormal behavior or patterns that could help determine the scope or impact of the potential compromise.
+
+  ### Prioritization
+  The alert is classified as critical due to the potential impact of unauthorized access to backup systems, which can severely compromise data integrity and availability. Given the critical role of Veeam in data protection, any suspicious activity warrants immediate investigation.
+
+  ### Blind Spots and Assumptions
+  This detection might miss scenarios where the malicious execution path uses non-standard filenames or tools not included in the command-line patterns. It assumes that process creation logs are fully enabled and sent to the monitoring systems for analysis. Additionally, if security settings or logging mechanisms for Veeam services are misconfigured or absent, this rule may not trigger alerts effectively. The overall detection effectiveness relies heavily on comprehensive logging configurations that capture process creation events across the Windows environment, especially in domain-controlled networks.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,126 @@
+title: Suspicious SYSTEM User Process Creation
+id: 2617e7ed-adb7-40ba-b0f3-8f9945fe6c09
+status: test
+description: Detects a suspicious process creation as SYSTEM user (suspicious program
+  or command line parameter)
+references:
+- Internal Research
+- https://tools.thehacker.recipes/mimikatz/modules
+author: Florian Roth (Nextron Systems), David ANDRE (additional keywords)
+date: 2021-12-20
+modified: 2025-10-19
+tags:
+- attack.credential-access
+- attack.defense-evasion
+- attack.privilege-escalation
+- attack.t1134
+- attack.t1003
+- attack.t1027
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    IntegrityLevel:
+    - 'System'
+    - 'S-1-16-16384'
+    User|contains:     # covers many language settings
+    - 'AUTHORI'
+    - 'AUTORI'
+  selection_special:
+  - Image|endswith:
+    - '\calc.exe'
+    - '\cscript.exe'
+    - '\forfiles.exe'
+    - '\hh.exe'
+    - '\mshta.exe'
+    - '\ping.exe'
+    - '\wscript.exe'
+  - CommandLine|re: 'net\s+user\s+'
+  - CommandLine|contains:
+              # - 'sc stop ' # stops a system service # causes FPs
+    - ' -NoP '            # Often used in malicious PowerShell commands
+    - ' -W Hidden '            # Often used in malicious PowerShell commands
+    - ' -decode '            # Used with certutil
+    - ' /decode '            # Used with certutil
+    - ' /urlcache '            # Used with certutil
+    - ' -urlcache '            # Used with certutil
+    - ' -e* JAB'            # PowerShell encoded commands
+    - ' -e* SUVYI'            # PowerShell encoded commands
+    - ' -e* SQBFAFgA'            # PowerShell encoded commands
+    - ' -e* aWV4I'            # PowerShell encoded commands
+    - ' -e* IAB'            # PowerShell encoded commands
+    - ' -e* PAA'            # PowerShell encoded commands
+    - ' -e* aQBlAHgA'            # PowerShell encoded commands
+    - 'vssadmin delete shadows'            # Ransomware
+    - 'reg SAVE HKLM'            # save registry SAM - syskey extraction
+    - ' -ma '            # ProcDump
+    - 'Microsoft\Windows\CurrentVersion\Run'            # Run key in command line - often in combination with REG ADD
+    - '.downloadstring('            # PowerShell download command
+    - '.downloadfile('            # PowerShell download command
+    - ' /ticket:'            # Rubeus
+    - 'dpapi::'               # Mimikatz
+    - 'event::clear'                  # Mimikatz
+    - 'event::drop'               # Mimikatz
+    - 'id::modify'                # Mimikatz
+    - 'kerberos::'                 # Mimikatz
+    - 'lsadump::'                # Mimikatz
+    - 'misc::'               # Mimikatz
+    - 'privilege::'                 # Mimikatz
+    - 'rpc::'                # Mimikatz
+    - 'sekurlsa::'                 # Mimikatz
+    - 'sid::'                  # Mimikatz
+    - 'token::'                # Mimikatz
+    - 'vault::cred'               # Mimikatz
+    - 'vault::list'               # Mimikatz
+    - ' p::d '            # Mimikatz
+    - ';iex('            # PowerShell IEX
+    - 'MiniDump'            # Process dumping method apart from procdump
+  filter_main_ping:
+    CommandLine|contains|all:
+    - 'ping'
+    - '127.0.0.1'
+    - ' -n '
+  filter_vs:
+    Image|endswith: '\PING.EXE'
+    ParentCommandLine|contains: '\DismFoDInstall.cmd'
+  filter_config_mgr:
+    ParentImage|contains: ':\Packages\Plugins\Microsoft.GuestConfiguration.ConfigurationforWindows\'
+  filter_java:
+    ParentImage|contains:
+    - ':\Program Files (x86)\Java\'
+    - ':\Program Files\Java\'
+    ParentImage|endswith: '\bin\javaws.exe'
+    Image|contains:
+    - ':\Program Files (x86)\Java\'
+    - ':\Program Files\Java\'
+    Image|endswith: '\bin\jp2launcher.exe'
+    CommandLine|contains: ' -ma '
+  condition: all of selection* and not 1 of filter_*
+falsepositives:
+- Administrative activity
+- Scripts and administrative tools used in the monitored environment
+- Monitoring activity
+level: high
+note: |
+  ### Technical Context
+  This detection rule targets the creation of processes running under the SYSTEM user account with suspicious characteristics, which may indicate malicious activity. The rule specifically looks for certain process images, command line parameters, and behaviors associated with known tools used in credential access, privilege escalation, and defense evasion. Attackers often aim to leverage high-privileged accounts like SYSTEM to execute commands, manipulate system configurations, or extract sensitive information without drawing attention.
+
+  The relevant MITRE ATT&CK tactics include **Credential Access (TA0006)**, particularly techniques like **Credential Dumping (T1003)**, where attackers harvest credential information; **Privilege Escalation (TA0004)** indicated by **Exploitation of Vulnerability (T1068)**; and **Defense Evasion (TA0005)**, particularly through the use of tools such as Mimikatz or encoded PowerShell commands (Techniques T1134 and T1027, respectively). The primary data sources for this detection rule include process creation events from Windows logs, which can provide insights into new processes initiated by potentially unauthorized means.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Examine the Windows Event Log for process creation events (Event ID 4688) that correspond to the suspicious command line arguments or images defined in the detection rule. Focus on entries where the user context is SYSTEM.
+
+  - **Analyze Command Line Arguments**: Investigate the command line parameters of processes created under the SYSTEM user, looking for specific flags or commands that hint at exploitation techniques or misuse, such as PowerShell encoded commands or Mimikatz usage patterns.
+
+  - **Cross-reference with Known Tools**: Use threat intelligence or internal research to correlate the suspicious processes against common attack tools like Mimikatz. Pay special attention to terms associated with credential dumping and privilege escalation.
+
+  - **Check for Anomalous Parent-Child Relationships**: Inspect the parent processes of the flagged SYSTEM processes to identify any suspicious parent-child relationships, which may suggest the process was spawned by an unusual source or has been initiated by an attack tool.
+
+  ### Prioritization
+  This alert should be prioritized as high severity due to the potential impact of SYSTEM-level processes executing unauthorized or malicious activities, which can lead to significant security breaches and data compromise within an enterprise environment.
+
+  ### Blind Spots and Assumptions
+  One gap in detection coverage may arise from legitimate administrative activities that also utilize SYSTEM-level processes, potentially leading to false positives. The detection logic assumes that command line arguments and process images associated with malicious actions are consistent with known patterns; however, attackers may use obfuscation or vary their methods to evade detection. Required log configurations must include comprehensive Windows process creation logs (Event ID 4688) for this alert to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

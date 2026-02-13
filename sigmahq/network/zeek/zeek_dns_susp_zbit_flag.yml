@@ -1,0 +1,78 @@
+title: Suspicious DNS Z Flag Bit Set
+id: ede05abc-2c9e-4624-9944-9ff17fdc0bf5
+status: test
+description: |
+  The DNS Z flag is bit within the DNS protocol header that is, per the IETF design, meant to be used reserved (unused).
+  Although recently it has been used in DNSSec, the value being set to anything other than 0 should be rare.
+  Otherwise if it is set to non 0 and DNSSec is being used, then excluding the legitimate domains is low effort and high reward.
+  Determine if multiple of these files were accessed in a short period of time to further enhance the possibility of seeing if this was a one off or the possibility of larger sensitive file gathering.
+  This Sigma query is designed to accompany the Corelight Threat Hunting Guide, which can be found here: https://www3.corelight.com/corelights-introductory-guide-to-threat-hunting-with-zeek-bro-logs'
+references:
+- https://twitter.com/neu5ron/status/1346245602502443009
+- https://tdm.socprime.com/tdm/info/eLbyj4JjI15v#sigma
+- https://tools.ietf.org/html/rfc2929#section-2.1
+- https://www.netresec.com/?page=Blog&month=2021-01&post=Finding-Targeted-SUNBURST-Victims-with-pDNS
+author: '@neu5ron, SOC Prime Team, Corelight'
+date: 2021-05-04
+modified: 2022-11-29
+tags:
+- attack.t1095
+- attack.t1571
+- attack.command-and-control
+logsource:
+  product: zeek
+  service: dns
+detection:
+  z_flag_unset:
+    Z: 0
+  most_probable_valid_domain:
+    query|contains: '.'
+  exclude_tlds:
+    query|endswith:
+    - '.arpa'
+    - '.local'
+    - '.ultradns.net'
+    - '.twtrdns.net'
+    - '.azuredns-prd.info'
+    - '.azure-dns.com'
+    - '.azuredns-ff.info'
+    - '.azuredns-ff.org'
+    - '.azuregov-dns.org'
+  exclude_query_types:
+    qtype_name:
+    - 'ns'
+    - 'mx'
+  exclude_responses:
+    answers|endswith: '\\x00'
+  exclude_netbios:
+    id.resp_p:
+    - 137
+    - 138
+    - 139
+  condition: not z_flag_unset and most_probable_valid_domain and not (exclude_tlds
+    or exclude_query_types or exclude_responses or exclude_netbios)
+falsepositives:
+- 'Internal or legitimate external domains using DNSSec. Verify if these are legitimate
+  DNSSec domains and then exclude them.'
+- 'If you work in a Public Sector then it may be good to exclude things like endswith
+  ".edu", ".gov" and or ".mil"'
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the use of the DNS Z flag, which is typically reserved for future use according to the IETF design. In standard DNS queries, the Z flag should consistently have a value of 0. The presence of non-zero values indicates potential misuse by attackers leveraging DNS for command-and-control (C2) communication or exfiltration of sensitive information. Attackers may exploit this capability to obscure their activities in environments where DNS traffic is monitored, thus achieving their objectives with reduced detection likelihood.
+
+  The relevant MITRE ATT&CK techniques associated with this detection include **T1095 - Non-Standard Port Usage** and **T1571 - Application Layer Protocol**. These techniques reflect the use of DNS for malicious purposes, often involving covert channels to exfiltrate data or maintain persistence in a target environment. Primary data sources for this investigation include DNS logs from Zeek, which may reveal suspicious patterns in DNS queries that deviate from typical behavior.
+
+  ### Investigation Steps
+  - **Review DNS Query Logs**: Analyze the DNS logs from the Zeek platform for any queries that have a non-zero Z flag and check for multiple occurrences over a short timeframe, as this may indicate malicious activity.
+  - **Inspect Frequently Accessed Domains**: Identify any domains queried with a set Z flag and categorize them to determine if they belong to known legitimate entities or exhibit behavior typical of C2 communication.
+  - **Correlate with Network Activity**: Examine related network traffic for additional context, specifically looking for unusual outbound connections or large volumes of data being sent to the identified suspicious domains.
+  - **Assess for Known Threat Indicators**: Cross-reference any domains that are flagged with existing threat intelligence sources to determine if they are associated with known malicious activity or threat actors.
+
+  ### Prioritization
+  Given the potential for data exfiltration or establishing an external command-and-control infrastructure, alerts generated from this detection rule should be considered medium severity. The presence of non-standard behaviors in DNS queries poses a risk to sensitive data and system integrity, warranting timely investigation.
+
+  ### Blind Spots and Assumptions
+  There are inherent gaps in detecting all forms of DNS misuse due to the dynamic nature of domain registrations and the flexibility of attackers in crafting DNS queries. This rule assumes that the presence of a non-zero Z flag in DNS queries is indicative of nefarious activity, but legitimate use cases—especially within DNSSec implementations—may occur. Sufficient logging of DNS queries with detailed information about each request is essential for this alert to function correctly, necessitating the appropriate configuration of the Zeek logging infrastructure.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

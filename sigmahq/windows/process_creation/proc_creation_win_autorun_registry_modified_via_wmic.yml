@@ -1,0 +1,89 @@
+title: Suspicious Autorun Registry Modified via WMI
+id: c80e66d8-1780-48a9-b412-46663fd21ac0
+status: experimental
+description: |
+  Detects suspicious activity where the WMIC process is used to create an autorun registry entry via reg.exe, which is often indicative of persistence mechanisms employed by malware.
+references:
+- Internal Research
+- https://github.com/HackTricks-wiki/hacktricks/blob/e4c7b21b8f36c97c35b7c622732b38a189ce18f7/src/windows-hardening/windows-local-privilege-escalation/privilege-escalation-with-autorun-binaries.md
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-02-17
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1547.001
+- attack.t1047
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_execution_img:
+  - Image|endswith: '\wmic.exe'
+  - OriginalFileName: 'wmic.exe'       # wmic process call create 'reg.exe add HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run /v Desktops /t REG_SZ /d "\"C:\Users\user\AppData\Roaming\Microsoft\tre\Desktops.exe\" random" /f'
+  - ParentImage|endswith: '\wmiprvse.exe'
+  selection_execution_cmd:
+    CommandLine|contains|all:
+    - 'reg'
+    - ' add '
+    CommandLine|contains:
+    - '\Software\Microsoft\Windows\CurrentVersion\Run'
+    - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run'
+    - '\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run'
+  selection_suspicious_paths_1:
+    CommandLine|contains:
+    - ':\Perflogs'
+    - :\ProgramData'
+    - ':\Windows\Temp'
+    - ':\Temp'
+    - '\AppData\Local\Temp'
+    - '\AppData\Roaming'
+    - ':\$Recycle.bin'
+    - ':\Users\Default'
+    - ':\Users\public'
+    - '%temp%'
+    - '%tmp%'
+    - '%Public%'
+    - '%AppData%'
+  selection_suspicious_paths_user_1:
+    CommandLine|contains: ':\Users\'
+  selection_suspicious_paths_user_2:
+    CommandLine|contains:
+    - '\Favorites'
+    - '\Favourites'
+    - '\Contacts'
+    - '\Music'
+    - '\Pictures'
+    - '\Documents'
+    - '\Photos'
+  condition: all of selection_execution_* and (selection_suspicious_paths_1 or (all
+    of selection_suspicious_paths_user_*))
+falsepositives:
+- Legitimate administrative activity or software installations
+level: high
+note: |
+  ### Technical Context
+  This detection rule is designed to identify potentially malicious activities where the Windows Management Instrumentation Command-line (WMIC) tool is used to manipulate the registry, specifically creating autorun entries that could allow for persistence by malware. The use of `reg.exe` to add entries into the registry under paths such as `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` can significantly increase the risk of malware being able to automatically execute whenever a user logs on. The primary tactic this detection addresses is **Persistence**, specifically via the **Registry Run Keys / Startup Folder** technique (T1547.001).
+
+  The threat scenario typically involves an attacker or malware leveraging WMIC, a legitimate administrative tool, to establish persistence on a compromised system. Their objective is to maintain access even after system reboots or user logoffs, which is particularly concerning in an enterprise environment where user systems may be frequently rebooted or updated. The detection logic also includes consideration for potentially obfuscated or disguised file paths, suggesting that attackers may attempt to hide their activities among legitimate user paths to avoid detection.
+
+  Relevant MITRE ATT&CK tactics/techniques:
+  - **Persistence** (TA0003)
+  - **Registry Run Keys / Startup Folder** (T1547.001)
+  - **System Information Discovery** (T1047)
+
+  Primary data sources include process creation events, specifically the logs detailing the invocations of the `wmic.exe` process along with its command line arguments.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Examine logs for instances of `wmic.exe` being executed, particularly focusing on command line arguments that include `reg` and the paths specified in the alert. Note the parent process, which should be `wmiprvse.exe`, to confirm the execution context.
+  - **Analyze Registry Changes**: Investigate the registry for any recent modifications to the specified autorun paths (e.g., `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`). Look for suspicious entries, particularly those that reference executable files in non-standard directories.
+  - **Check User Activity**: Verify whether the user associated with the changes has a legitimate reason to modify the autorun settings. This includes ancillary analysis of the user's recent activities to identify any anomalies or signs of compromise.
+  - **Utilize EDR Solutions**: If available, leverage Endpoint Detection and Response (EDR) tools to gather additional context around the detected process execution, including file hashes and potential indicators of compromise (IOCs) that may be linked with malicious activity.
+
+  ### Prioritization
+  This alert is categorized with high severity due to the significant impact of establishing persistence on a compromised host. The likelihood of this activity indicates an ongoing threat, which could lead to further exploitation or data exfiltration within the enterprise environment.
+
+  ### Blind Spots and Assumptions
+  Detection logic may not capture all persistence mechanisms as it specifically targets manipulations through WMIC with `reg.exe`. There may be gaps in monitoring for similar actions that use alternative methods or tools to achieve persistence (e.g., PowerShell or scripts). The alert assumes that logging is appropriately configured for process creation and that WMIC usage is being monitored, which may not be the case in all environments. Specifically, sufficient logging for WMI events and detailed process execution should be in place for this alert to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

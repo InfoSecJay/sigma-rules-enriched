@@ -1,0 +1,119 @@
+title: Potential Active Directory Reconnaissance/Enumeration Via LDAP
+id: 31d68132-4038-47c7-8f8e-635a39a7c174
+status: test
+description: Detects potential Active Directory enumeration via LDAP
+references:
+- https://techcommunity.microsoft.com/t5/microsoft-defender-for-endpoint/hunting-for-reconnaissance-activities-using-ldap-search-filters/ba-p/824726
+- https://github.com/PowerShellMafia/PowerSploit/blob/d943001a7defb5e0d1657085a77a0e78609be58f/Recon/PowerView.ps1
+- https://github.com/BloodHoundAD/SharpHound3/blob/7d96b991b1887ff50349ce59c80980bc0d95c86a/SharpHound3/LdapBuilder.cs
+- https://medium.com/falconforce/falconfriday-detecting-active-directory-data-collection-0xff21-c22d1a57494c
+- https://github.com/fox-it/BloodHound.py/blob/d65eb614831cd30f26028ccb072f5e77ca287e0b/bloodhound/ad/domain.py#L427
+- https://ipurple.team/2024/07/15/sharphound-detection/
+author: Adeem Mawani
+date: 2021-06-22
+modified: 2025-07-04
+tags:
+- attack.discovery
+- attack.t1069.002
+- attack.t1087.002
+- attack.t1482
+logsource:
+  product: windows
+  service: ldap
+  definition: 'Requirements: Microsoft-Windows-LDAP-Client/Debug ETW logging'
+detection:
+  generic_search:
+    EventID: 30
+    SearchFilter|contains:
+    - '(groupType:1.2.840.113556.1.4.803:=2147483648)'
+    - '(groupType:1.2.840.113556.1.4.803:=2147483656)'
+    - '(groupType:1.2.840.113556.1.4.803:=2147483652)'
+    - '(groupType:1.2.840.113556.1.4.803:=2147483650)'
+    - '(sAMAccountType=805306369)'
+    - '(sAMAccountType=805306368)'
+    - '(sAMAccountType=536870913)'
+    - '(sAMAccountType=536870912)'
+    - '(sAMAccountType=268435457)'
+    - '(sAMAccountType=268435456)'
+    - '(objectCategory=groupPolicyContainer)'
+    - '(objectCategory=organizationalUnit)'
+            # - '(objectCategory=Computer)' Prone to false positives
+    - '(objectCategory=nTDSDSA)'
+    - '(objectCategory=server)'
+    - '(objectCategory=domain)'
+    - '(objectCategory=person)'
+    - '(objectCategory=group)'
+    - '(objectCategory=user)'
+    - '(objectClass=trustedDomain)'
+    - '(objectClass=computer)'
+    - '(objectClass=server)'
+    - '(objectClass=group)'
+    - '(objectClass=user)'
+    - '(primaryGroupID=521)'
+    - '(primaryGroupID=516)'
+    - '(primaryGroupID=515)'
+    - '(primaryGroupID=512)'
+    - 'Domain Admins'
+    - 'objectGUID=\*'
+    - '(schemaIDGUID=\*)'
+    - 'admincount=1'
+  distinguished_name_enumeration:
+    EventID: 30
+    SearchFilter: '(objectclass=\*)'
+    DistinguishedName|contains:
+    - 'CN=Domain Admins'
+    - 'CN=Enterprise Admins'
+    - 'CN=Group Policy Creator Owners'
+  suspicious_flag:
+    EventID: 30
+    SearchFilter|contains:
+    - '(userAccountControl:1.2.840.113556.1.4.803:=4194304)'
+    - '(userAccountControl:1.2.840.113556.1.4.803:=2097152)'
+    - '!(userAccountControl:1.2.840.113556.1.4.803:=1048574)'
+    - '(userAccountControl:1.2.840.113556.1.4.803:=524288)'
+    - '(userAccountControl:1.2.840.113556.1.4.803:=65536)'
+    - '(userAccountControl:1.2.840.113556.1.4.803:=8192)'
+    - '(userAccountControl:1.2.840.113556.1.4.803:=544)'
+    - '!(UserAccountControl:1.2.840.113556.1.4.803:=2)'
+    - 'msDS-AllowedToActOnBehalfOfOtherIdentity'
+    - 'msDS-AllowedToDelegateTo'
+    - 'msDS-GroupManagedServiceAccount'
+    - '(accountExpires=9223372036854775807)'
+    - '(accountExpires=0)'
+    - '(adminCount=1)'
+    - 'ms-MCS-AdmPwd'
+  narrow_down_filter:
+    EventID: 30
+    SearchFilter|contains:
+    - '(domainSid=*)'
+    - '(objectSid=*)'
+  condition: (generic_search and not narrow_down_filter) or suspicious_flag or distinguished_name_enumeration
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potential Active Directory reconnaissance and enumeration activities through LDAP (Lightweight Directory Access Protocol). Attackers often utilize LDAP to gather information about users, groups, and organizational structures within a network, facilitating further intrusions or privilege escalations. By querying Active Directory, malicious actors may aim to collect sensitive data, such as account privileges and group memberships, which can be critical in planning subsequent attacks.
+
+  The relevant MITRE ATT&CK tactics and techniques include:
+  - **Discovery** (TA0007)
+    - **Active Directory Enumeration** (T1087.002)
+    - **Account Discovery** (T1087)
+    - **Network Service Scanning** (T1018)
+
+  The best evidence for this detection will come from Microsoft Windows LDAP client logs where the Event ID 30 captures LDAP search activities, particularly filtering for attributes associated with groups and accounts. Furthermore, these searches can often be indicative of attempts to identify high-privilege accounts or sensitive system configurations.
+
+  ### Investigation Steps
+  - **Review LDAP Query Logs**: Start by examining the LDAP bind and query logs (Event ID 30) for any suspicious search filters that could indicate reconnaissance activity, focusing on filters targeting sensitive groups and elevated privileges.
+
+  - **Analyze User Account Control Flags**: Investigate the `userAccountControl` attributes of the accounts returned in LDAP queries, looking for unusual flags that suggest heightened privileges or misconfigurations, such as those allowing accounts to act on behalf of others.
+
+  - **Identify Security Groups**: Check for queries specifically targeting the membership of privileged groups, such as "Domain Admins" or "Enterprise Admins," to confirm potential interest in high-value targets.
+
+  - **Cross-reference with Audit Logs**: Correlate findings with other logs, such as process creation events and authentication logs, to assess if queried accounts were subjected to additional suspicious activities post-enumeration.
+
+  ### Prioritization
+  The severity of this alert is medium because while the reconnaissance itself may not directly result in an attack, it indicates preparatory work by potential threat actors. The underlying goal typically involves high-impact outcomes such as privilege escalation or lateral movement, raising concerns for enterprise security.
+
+  ### Blind Spots and Assumptions
+  This detection may not capture all LDAP enumeration attempts, as attackers can obfuscate their activities or utilize legitimate tools under atypical parameters. The detection logic assumes that LDAP client debug logging is enabled and properly configured to capture relevant queries. Environments that do not log these events may lack visibility into reconnaissance activities, creating a gap in detection capabilities. Additionally, this rule may generate false positives in cases of legitimate administrative tasks that involve querying user attributes.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

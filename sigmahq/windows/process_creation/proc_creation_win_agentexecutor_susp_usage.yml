@@ -1,0 +1,70 @@
+title: Suspicious AgentExecutor PowerShell Execution
+id: c0b40568-b1e9-4b03-8d6c-b096da6da9ab
+related:
+- id: 7efd2c8d-8b18-45b7-947d-adfe9ed04f61
+  type: similar
+status: test
+description: Detects execution of the AgentExecutor.exe binary. Which can be abused
+  as a LOLBIN to execute powershell scripts with the ExecutionPolicy "Bypass" or any
+  binary named "powershell.exe" located in the path provided by 6th positional argument
+author: Nasreddine Bencherchali (Nextron Systems), memory-shards
+references:
+- https://twitter.com/lefterispan/status/1286259016436514816
+- https://lolbas-project.github.io/lolbas/OtherMSBinaries/Agentexecutor/
+- https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension
+- https://twitter.com/jseerden/status/1247985304667066373/photo/1
+date: 2022-12-24
+modified: 2024-08-07
+tags:
+- attack.defense-evasion
+- attack.t1218
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith: '\AgentExecutor.exe'
+  - OriginalFileName: 'AgentExecutor.exe'
+  selection_cli:
+        # Example:
+        #   AgentExecutor.exe -powershell [scriptPath] [outputFilePath] [errorFilePath] [timeoutFilePath] [timeoutSeconds] [powershellPath] [enforceSignatureCheck] [runAs32BitOn64]
+        # Note:
+        #   - If [timeoutSeconds] is NULL then it defaults to 60000
+        #   - If [enforceSignatureCheck] is:
+        #       - "NULL" or "1" then a PowerShell instance is spawned with the args: "-NoProfile -executionPolicy allsigned -file "
+        #       - Else a PowerShell instance is spawned with the args: "-NoProfile -executionPolicy bypass -file "
+        #   - [powershellPath] is always concatendated to "powershell.exe"
+    CommandLine|contains:
+    - ' -powershell'         # Also covers the "-powershellDetection" flag
+    - ' -remediationScript'
+  filter_main_pwsh:
+    CommandLine|contains:
+    - 'C:\Windows\System32\WindowsPowerShell\v1.0\'
+    - 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\'
+  filter_main_intune:
+    ParentImage|endswith: '\Microsoft.Management.Services.IntuneWindowsAgent.exe'
+  condition: all of selection_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of the AgentExecutor.exe binary, a legitimate Windows tool often misused by threat actors to execute PowerShell scripts while bypassing execution policies. AgentExecutor can serve as a living-off-the-land binary (LOLBIN) and might be employed in various malicious scenarios, such as executing arbitrary PowerShell commands for data exfiltration, lateral movement, or payload delivery. Attackers may leverage this technique to evade detection by traditional security mechanisms that monitor for direct PowerShell execution.
+
+  The use of AgentExecutor.exe aligns with specific MITRE ATT&CK tactics and techniques, particularly under the categories of **Defense Evasion** (T1070 - Indicator Removal on Host) and **Command and Control** (T1218 - Signed Binary Proxy Execution). This highlights its potential role in bypassing security measures and facilitating communication with external resources while masking the actual intent of the operation.
+
+  Key data sources for this detection include process creation logs that capture both the invocation of AgentExecutor.exe and its command-line parameters, particularly concerning the use of PowerShell. Monitoring for anomalous command-line parameters is crucial, as these can denote suspicious activity linked to the exploitation of the AgentExecutor binary.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Collect logs of process creation events that detail the execution of AgentExecutor.exe, focusing on instances where the command line includes `-powershell` or `-remediationScript`.
+  - **Analyze Command Line Arguments**: Investigate the command-line parameters passed to AgentExecutor.exe, specifically looking for the use of the bypass option in execution policies or unusual PowerShell script paths that may indicate unauthorized use.
+  - **Correlate with Other Event Logs**: Check for any associated logs, such as PowerShell logs, security logs, and endpoint activity, to identify any related suspicious behavior indicating lateral movement or data retrieval.
+  - **Investigate Parent Processes**: Examine the parent processes invoking AgentExecutor.exe, particularly if the parent is identified as an Intune agent or other trusted applications, to ascertain if the execution was legitimate or malformed activity.
+
+  ### Prioritization
+  The alert is categorized as high severity due to the significant risks posed by the misuse of AgentExecutor.exe. Its potential to facilitate malicious PowerShell execution under the radar makes it a critical finding that warrants immediate attention.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited by environments where logging is not fully enabled or certain processes are excluded from monitoring. The detection logic assumes the presence of adequate visibility into process creation logs and command-line parameters. For the alert to function effectively, it is essential that command-line logging is enabled and that AgentExecutor.exe is observed in real-time to differentiate between legitimate administrative actions and potential misuse.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

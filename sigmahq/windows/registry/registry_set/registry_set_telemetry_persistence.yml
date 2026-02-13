@@ -1,0 +1,76 @@
+title: Potential Registry Persistence Attempt Via Windows Telemetry
+id: 73a883d0-0348-4be4-a8d8-51031c2564f8
+related:
+- id: 4e8d5fd3-c959-441f-a941-f73d0cdcdca5
+  type: obsolete
+status: test
+description: |
+  Detects potential persistence behavior using the windows telemetry registry key.
+  Windows telemetry makes use of the binary CompatTelRunner.exe to run a variety of commands and perform the actual telemetry collections.
+  This binary was created to be easily extensible, and to that end, it relies on the registry to instruct on which commands to run.
+  The problem is, it will run any arbitrary command without restriction of location or type.
+references:
+- https://www.trustedsec.com/blog/abusing-windows-telemetry-for-persistence/
+author: Lednyov Alexey, oscd.community, Sreeman
+date: 2020-10-16
+modified: 2023-08-17
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1053.005
+logsource:
+  category: registry_set
+  product: windows
+  definition: 'Requirements: Sysmon config that monitors \SOFTWARE\Microsoft\Windows
+    NT\CurrentVersion\AppCompatFlags\TelemetryController subkey of the HKLM hives'
+detection:
+  selection:
+    TargetObject|contains: '\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController\'
+    TargetObject|endswith: '\Command'
+    Details|contains:
+    - '.bat'
+    - '.bin'
+    - '.cmd'
+    - '.dat'
+    - '.dll'
+    - '.exe'
+    - '.hta'
+    - '.jar'
+    - '.js'
+    - '.msi'
+    - '.ps'
+    - '.sh'
+    - '.vb'
+  filter_main_generic:
+    Details|contains:
+    - '\system32\CompatTelRunner.exe'
+    - '\system32\DeviceCensus.exe'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule aims to identify potential persistence mechanisms that leverage the Windows telemetry feature. It focuses on the manipulation of the registry key associated with Windows telemetry, specifically the `TelemetryController` subkey. Attackers may exploit the `CompatTelRunner.exe` binary, which executes arbitrary commands as specified in the registry, to establish persistent access to a compromised system. Such behavior could be part of a broader tactic involving privilege escalation, execution, and persistence to maintain control over the target environment.
+
+  The likely objective of an attacker utilizing this method is to ensure covert long-term access to the system without raising alarms. By inserting malicious commands into the telemetry registry, they can facilitate the execution of harmful payloads or scripts every time the telemetry process runs. This falls under the MITRE ATT&CK tactics of **Persistence (T1547)** and **Execution (TA0002)**, specifically technique **T1053.005 (Scheduled Task/Job: Windows Management Instrumentation (WMI) Job)**.
+
+  Primary data sources include registry modification logs, specifically those that capture changes to the `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController` key. Configurations should utilize Sysmon to effectively monitor and log such registry actions.
+
+  ### Investigation Steps
+  - **Review Registry Logs:** Examine registry logs for changes to `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController` for any unexpected modifications or key creations, especially entries containing command file extensions such as `.exe`, `.bat`, or `.dll`.
+
+  - **Analyze Sysmon Events:** Query Sysmon logs for events related to process creation events involving `CompatTelRunner.exe` and `DeviceCensus.exe`. Focus on identifying when these processes were executed along with the command parameters they used.
+
+  - **Investigate Related Processes:** Look for unusual parent-child relationships involving `CompatTelRunner.exe`, checking if it spawned unexpected child processes, particularly those not typically associated with legitimate telemetry tasks.
+
+  - **Correlate with User Activity:** Assess the user accounts associated with registry modifications and process executions. Check for anomalous user behavior or privilege escalation attempts that may correlate with the telemetry command logging.
+
+  ### Prioritization
+  This alert is classified as high severity due to the significant potential impact of establishing persistence on a system. Exploiting telemetry for malicious purposes can lead to unauthorized access and data breaches, posing a serious risk to the organization’s cybersecurity posture.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited if Sysmon is not properly configured to monitor the specific registry path and events. This rule assumes that all relevant telemetry registry modifications are captured by the logging infrastructure in place. Additionally, the detection logic may yield false positives if legitimate applications modify the telemetry registry for valid purposes. Proper logging of all registry changes is essential for this rule to function effectively, including ensuring Sysmon is deployed consistently across all endpoints.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

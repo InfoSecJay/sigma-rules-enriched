@@ -1,0 +1,67 @@
+title: Potential AD User Enumeration From Non-Machine Account
+id: ab6bffca-beff-4baa-af11-6733f296d57a
+status: test
+description: Detects read access to a domain user from a non-machine account
+references:
+- https://www.specterops.io/assets/resources/an_ace_up_the_sleeve.pdf
+- http://www.stuffithoughtiknew.com/2019/02/detecting-bloodhound.html
+- https://learn.microsoft.com/en-us/windows/win32/adschema/attributes-all     # For further investigation of the accessed properties
+- https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4662
+author: Maxime Thiebaut (@0xThiebaut)
+date: 2020-03-30
+modified: 2022-11-08
+tags:
+- attack.discovery
+- attack.t1087.002
+logsource:
+  product: windows
+  service: security
+  definition: 'Requirements: The "Read all properties" permission on the user object
+    needs to be audited for the "Everyone" principal'
+detection:
+  selection:
+    EventID: 4662
+        # Using contains as the data commonly is structured as "%{bf967aba-0de6-11d0-a285-00aa003049e2}"
+        # The user class (https://learn.microsoft.com/en-us/windows/win32/adschema/c-user)
+    ObjectType|contains: 'bf967aba-0de6-11d0-a285-00aa003049e2'
+    AccessMask|endswith:
+            # Note: Since the Access Mask can have more than once permission we need to add all permutations that include the READ property
+    - '1?'         # This covers all access masks that are 1 bytes or shorter and the "Read Property" itself
+    - '3?'         # Read Property + Write Property
+    - '4?'         # Read Property + Delete Tree
+    - '7?'         # Read Property + Write Property + Delete Tree
+    - '9?'         # Read Property + List Object
+    - 'B?'         # Read Property + Write Property + List Object
+    - 'D?'         # Read Property + Delete Tree + List Object
+    - 'F?'         # Covers usage of all possible 2 bytes permissions with any or none of the single byte permissions
+  filter_main_machine_accounts:
+    SubjectUserName|endswith: '$'     # Exclude machine accounts
+  filter_main_msql:
+    SubjectUserName|startswith: 'MSOL_'     # https://learn.microsoft.com/en-us/azure/active-directory/hybrid/reference-connect-accounts-permissions#ad-ds-connector-account
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Administrators configuring new users.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies attempts to enumerate Active Directory (AD) user accounts by non-machine accounts, which may indicate an attacker's reconnaissance efforts. Attackers often seek to gather information about user accounts, roles, and permissions to facilitate later stages of an attack, such as privilege escalation or lateral movement. The use of non-machine accounts for this type of enumeration may suggest that an external entity is probing the environment, potentially with malicious intent.
+
+  The relevant MITRE ATT&CK tactics and techniques for this activity include:
+  - **Discovery** (TA0007): The overarching tactic that encompasses techniques to gather information about the environment.
+  - **User Discovery** (T1087): This specific technique involves enumerating user accounts to gain insight into the organization's structure and user roles, which can help attackers identify targets for exploitation.
+
+  The primary data source for this detection is Windows Security Event logs, specifically Event ID 4662, which logs detailed information about access to AD objects and their properties. Analysts may also want to examine any additional logs relevant to user authentication and directory service access.
+
+  ### Investigation Steps
+  - **Review LDAP Access Logs:** Examine logs for read access requests to user objects, focusing on those made by non-machine accounts to identify patterns indicative of enumeration attempts.
+  - **Analyze Event ID 4662 Logs:** Investigate the specific Event ID 4662 entries that triggered the alert, focusing on attributes accessed and the context of the requests to determine the nature of the enumeration.
+  - **Correlate with User Accounts:** Cross-reference the accounts that performed the enumeration and the objects they accessed with a list of users within your AD to identify anomalous activity or accounts with unexpected permissions.
+  - **Monitor for Subsequent Activity:** Implement follow-up monitoring for any accounts identified during the investigation that may exhibit additional suspicious behavior or access attempts, particularly in areas related to lateral movement or privilege escalation.
+
+  ### Prioritization
+  This alert has medium severity due to the potential for an attacker to gain critical information about user accounts, which could facilitate further exploitation. Its likelihood is elevated in environments where sensitive data or administrative accounts exist, making early detection and response essential to mitigating the threat.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited if the auditing of user object access is not properly configured, particularly if the "Read all properties" permission is not monitored. The detection logic assumes that all relevant accounts are subject to scrutiny and that appropriate auditing settings have been applied across the AD environment. Additionally, environments with high volumes of legitimate administrative activity (such as routine user creation or modification) might see false positives if alerts are not fine-tuned to account for this!
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

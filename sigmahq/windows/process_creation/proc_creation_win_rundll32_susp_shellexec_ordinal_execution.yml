@@ -1,0 +1,92 @@
+title: Suspicious ShellExec_RunDLL Call Via Ordinal
+id: 8823e85d-31d8-473e-b7f4-92da070f0fc6
+related:
+- id: d87bd452-6da1-456e-8155-7dc988157b7d
+  type: derived
+status: test
+description: |
+  Detects suspicious call to the "ShellExec_RunDLL" exported function of SHELL32.DLL through the ordinal number to launch other commands.
+  Adversary might only use the ordinal number in order to bypass existing detection that alert on usage of ShellExec_RunDLL on CommandLine.
+references:
+- https://redcanary.com/blog/raspberry-robin/
+- https://www.microsoft.com/en-us/security/blog/2022/10/27/raspberry-robin-worm-part-of-larger-ecosystem-facilitating-pre-ransomware-activity/
+- https://github.com/SigmaHQ/sigma/issues/1009
+- https://strontic.github.io/xcyclopedia/library/shell32.dll-65DA072F25DE83D9F83653E3FEA3644D.html
+author: Swachchhanda Shrawan Poudel
+date: 2024-12-01
+tags:
+- attack.defense-evasion
+- attack.t1218.011
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent_img:
+    ParentCommandLine|contains: 'SHELL32.DLL'
+  selection_parent_ordinal:
+    ParentCommandLine|contains:
+            # Note: The ordinal number may differ depending on the DLL version
+            # Example: rundll32 SHELL32.DLL,#572 "cmd.exe" "/c calc.exe"
+    - '#568'
+    - '#570'
+    - '#572'
+    - '#576'
+  selection_susp_cli_parent:
+        # Note: Add additional binaries and suspicious paths to increase coverage
+  - ParentCommandLine|contains:
+    - 'comspec'
+    - 'iex'
+    - 'Invoke-'
+    - 'msiexec'
+    - 'odbcconf'
+    - 'regsvr32'
+  - ParentCommandLine|contains:
+    - '\Desktop\'
+    - '\ProgramData\'
+    - '\Temp\'
+    - '\Users\Public\'
+  selection_susp_child_img:
+    Image|endswith:
+    - '\bash.exe'
+    - '\bitsadmin.exe'
+    - '\cmd.exe'
+    - '\cscript.exe'
+    - '\curl.exe'
+    - '\mshta.exe'
+    - '\msiexec.exe'
+    - '\msxsl.exe'
+    - '\odbcconf.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    - '\regsvr32.exe'
+    - '\schtasks.exe'
+    - '\wmic.exe'
+    - '\wscript.exe'
+  condition: all of selection_parent_* and 1 of selection_susp_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious usage of the `ShellExec_RunDLL` function from `SHELL32.DLL` through ordinal calls, which attackers may leverage to execute arbitrary commands while avoiding conventional detection methods that monitor command-line arguments. The targeted threat scenario often includes pre-ransomware activities or exploitation frameworks where adversaries seek to quietly execute malicious payloads, leading to potential system compromise or data breaches.
+
+  Relevant MITRE ATT&CK tactics include **Defense Evasion** and **Execution**, with the technique ID **T1218.011** specifically covering the execution of processes via `rundll32` and similar functions. An organization should focus on monitoring process creation events associated with the execution of commonly abused binaries like `cmd.exe` and `powershell.exe`, especially when initiated through unusual parent commands referencing SHELL32.DLL and ordinal values.
+
+  The primary data source for this detection is **process creation events** on Windows systems, which provide detailed logs regarding command lines, parent-child relationships in process initiation, and the context within which these components are executed.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Check for any instances of `rundll32 SHELL32.DLL` with the specified ordinal numbers appearing in the command lines. Look for any associated suspicious parent processes that may indicate an attack vector.
+
+  - **Analyze Parent Command Lines**: Examine the parent command lines for unusual patterns or the use of common scripting engines (e.g., PowerShell, WMI) which might indicate attempts to evade detection.
+
+  - **Correlate with Known Command Patterns**: Identify correlations between the observed activity and recognized command execution patterns showing signs of abuse, such as execution from temporary directories or user profiles that are atypical for administrative tasks.
+
+  - **Cross-reference with Threat Intelligence**: Use threat intelligence sources to understand if this specific behavior has been linked to known malware or attacker profiles, such as the Raspberry Robin worm, which utilizes similar techniques for malicious intent.
+
+  ### Prioritization
+  This alert should be prioritized as **high severity** due to the potential for serious compromise associated with evading detection mechanisms. The ability of an adversary to execute commands stealthily can lead to broader exploitation efforts within an organization.
+
+  ### Blind Spots and Assumptions
+  One main gap in detection coverage is the potential for legitimate administrative tasks to generate similar command lines, leading to false positives in a busy environment. Furthermore, this detection logic assumes that all relevant process creation logs are enabled and collected from Windows hosts. If logging configurations are inadequate, or if newer ordinal values are utilized in future attacks, detection effectiveness may be diminished.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

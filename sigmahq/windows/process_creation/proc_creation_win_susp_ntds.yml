@@ -1,0 +1,94 @@
+title: Suspicious Process Patterns NTDS.DIT Exfil
+id: 8bc64091-6875-4881-aaf9-7bd25b5dda08
+status: test
+description: Detects suspicious process patterns used in NTDS.DIT exfiltration
+references:
+- https://www.ired.team/offensive-security/credential-access-and-credential-dumping/ntds.dit-enumeration
+- https://www.n00py.io/2022/03/manipulating-user-passwords-without-mimikatz/
+- https://pentestlab.blog/tag/ntds-dit/
+- https://github.com/samratashok/nishang/blob/414ee1104526d7057f9adaeee196d91ae447283e/Gather/Copy-VSS.ps1
+- https://github.com/zcgonvh/NTDSDumpEx
+- https://github.com/rapid7/metasploit-framework/blob/d297adcebb5c1df6fe30b12ca79b161deb71571c/data/post/powershell/NTDSgrab.ps1
+- https://blog.talosintelligence.com/2022/08/recent-cyber-attack.html?m=1
+author: Florian Roth (Nextron Systems)
+date: 2022-03-11
+modified: 2022-11-10
+tags:
+- attack.credential-access
+- attack.t1003.003
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_tool:
+        # https://github.com/zcgonvh/NTDSDumpEx
+  - Image|endswith:
+    - '\NTDSDump.exe'
+    - '\NTDSDumpEx.exe'
+  - CommandLine|contains|all:
+              # ntdsdumpex.exe -d ntds.dit -o hash.txt -s system.hiv
+    - 'ntds.dit'
+    - 'system.hiv'
+  - CommandLine|contains: 'NTDSgrab.ps1'
+  selection_oneliner_1:
+        # powershell "ntdsutil.exe 'ac i ntds' 'ifm' 'create full c:\temp' q q"
+    CommandLine|contains|all:
+    - 'ac i ntds'
+    - 'create full'
+  selection_onliner_2:
+        # cmd.exe /c copy z:\windows\ntds\ntds.dit c:\exfil\ntds.dit
+    CommandLine|contains|all:
+    - '/c copy '
+    - '\windows\ntds\ntds.dit'
+  selection_onliner_3:
+        # ntdsutil "activate instance ntds" "ifm" "create full c:\windows\temp\data\" "quit" "quit"
+    CommandLine|contains|all:
+    - 'activate instance ntds'
+    - 'create full'
+  selection_powershell:
+    CommandLine|contains|all:
+    - 'powershell'
+    - 'ntds.dit'
+  set1_selection_ntds_dit:
+    CommandLine|contains: 'ntds.dit'
+  set1_selection_image_folder:
+  - ParentImage|contains:
+    - '\apache'
+    - '\tomcat'
+    - '\AppData\'
+    - '\Temp\'
+    - '\Public\'
+    - '\PerfLogs\'
+  - Image|contains:
+    - '\apache'
+    - '\tomcat'
+    - '\AppData\'
+    - '\Temp\'
+    - '\Public\'
+    - '\PerfLogs\'
+  condition: 1 of selection* or all of set1*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This rule detects suspicious processes associated with the exfiltration of the NTDS.DIT file, a critical Active Directory database structure that contains sensitive information about user accounts and their associated credentials. Attackers may target NTDS.DIT to extract user credentials, gain unauthorized access, and laterally move within a network, posing significant security threats to the organization. The detection logic specifically looks for known tools and techniques involved in the enumeration and copying of NTDS.DIT, which are frequently used in credential dumping attacks.
+
+  The main tactics associated with this rule include **Credential Access** (TA0031) and the technique **Credential Dumping: NTDS** (T1003.003), which focuses on acquiring credentials from the NTDS.DIT file. Primary data sources for detecting these activities are Windows process creation logs, which capture various command-line arguments and image paths that signal potential unauthorized activities related to Active Directory database access.
+
+  ### Investigation Steps
+  - **Review Process Creation Events**: Investigate the process creation logs for instances of `NTDSDump.exe`, `NTDSDumpEx.exe`, and associated command lines indicating NTDS.DIT access attempts. Look for unusual parent-child process relationships that indicate malicious behavior.
+
+  - **Analyze Command Line Arguments**: Pay particular attention to command-line arguments that include `ntds.dit` and `system.hiv`. These may indicate attempts to manipulate or exfiltrate the NTDS.DIT file.
+
+  - **Check Access Logs**: Examine relevant file access logs for NTDS.DIT, especially any unauthorized read or copy actions. Look for evidence of tools typically used in credential dumping such as `PowerShell` scripts or commands aiming to create full copies of the NTDS database.
+
+  - **Identify Related Artifacts**: Collect and analyze any scripts or executables running on the system, focusing on known malicious scripts that reference NTDS analysis or dumping, such as `NTDSgrab.ps1` or any PowerShell commands invoking `ntdsutil`.
+
+  ### Prioritization
+  The alert is marked as high severity due to the critical nature of the NTDS.DIT file; successful exfiltration could lead to severe compromises of user accounts and administrative access across the organization. The likelihood of exploitation using the techniques captured in this detection is significant, as credential dumping is a common tactic in advanced persistent threat scenarios.
+
+  ### Blind Spots and Assumptions
+  There are potential gaps in detection coverage if the logs for PowerShell execution or process creation events are not adequately configured or collected. The detection logic assumes that processes related to NTDS manipulation will appear in standard logging formats. Any changes to logging configurations or the use of non-standard tools could evade detection. It is essential that all relevant endpoint logging is operational and configured to capture detailed process invocation data for this alert to work effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

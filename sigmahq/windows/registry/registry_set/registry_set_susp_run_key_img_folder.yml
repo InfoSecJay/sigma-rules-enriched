@@ -1,0 +1,93 @@
+title: New RUN Key Pointing to Suspicious Folder
+id: 02ee49e2-e294-4d0f-9278-f5b3212fc588
+status: experimental
+description: Detects suspicious new RUN key element pointing to an executable in a
+  suspicious folder
+references:
+- https://www.fireeye.com/blog/threat-research/2018/08/fin7-pursuing-an-enigmatic-and-evasive-global-criminal-operation.html
+- https://github.com/HackTricks-wiki/hacktricks/blob/e4c7b21b8f36c97c35b7c622732b38a189ce18f7/src/windows-hardening/windows-local-privilege-escalation/privilege-escalation-with-autorun-binaries.md
+author: Florian Roth (Nextron Systems), Markus Neis, Sander Wiebing, Swachchhanda
+  Shrawan Poudel (Nextron Systems)
+date: 2018-08-25
+modified: 2025-10-06
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1547.001
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_target:
+    TargetObject|contains:
+    - '\Software\Microsoft\Windows\CurrentVersion\Run'
+    - '\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run'
+    - '\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run'
+  selection_suspicious_paths_1:
+    Details|contains:
+    - ':\Perflogs'
+    - :\ProgramData'
+    - ':\Windows\Temp'
+    - ':\Temp'
+    - '\AppData\Local\Temp'
+    - '\AppData\Roaming'
+    - ':\$Recycle.bin'
+    - ':\Users\Default'
+    - ':\Users\public'
+    - '%temp%'
+    - '%tmp%'
+    - '%Public%'
+    - '%AppData%'
+  selection_suspicious_paths_user_1:
+    Details|contains: ':\Users\'
+  selection_suspicious_paths_user_2:
+    Details|contains:
+    - '\Favorites'
+    - '\Favourites'
+    - '\Contacts'
+    - '\Music'
+    - '\Pictures'
+    - '\Documents'
+    - '\Photos'
+  filter_main_windows_update:
+    TargetObject|contains: '\Microsoft\Windows\CurrentVersion\RunOnce\'
+    Image|startswith: 'C:\Windows\SoftwareDistribution\Download\'
+    Details|contains|all:
+    - 'rundll32.exe '
+    - 'C:\WINDOWS\system32\advpack.dll,DelNodeRunDLL32'
+    Details|contains:
+    - '\AppData\Local\Temp\'
+    - 'C:\Windows\Temp\'
+  filter_optional_spotify:
+    Image|endswith:
+    - 'C:\Program Files\Spotify\Spotify.exe'
+    - 'C:\Program Files (x86)\Spotify\Spotify.exe'
+    - '\AppData\Roaming\Spotify\Spotify.exe'
+    TargetObject|endswith: 'SOFTWARE\Microsoft\Windows\CurrentVersion\Run\Spotify'
+    Details|endswith: 'Spotify.exe --autostart --minimized'
+  condition: selection_target and (selection_suspicious_paths_1 or (all of selection_suspicious_paths_user_*
+    )) and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Software using weird folders for updates
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the creation of new entries in the Windows Run registry key that point to executable files located in suspicious folders. It is particularly focused on entries that lead to executables in commonly abused locations such as temporary directories or unusual user profile folders. Attackers often leverage these locations for persistence mechanisms, making this rule essential for identifying potential malicious activity.
+
+  The primary threat scenario involves an attacker aiming to maintain persistence on a compromised system by adding a malicious executable to the registry run keys. This technique allows the malicious software to execute automatically upon user logon, thereby achieving longevity and continuous access to the victim's environment. In the context of MITRE ATT&CK, this behavior aligns with the tactics of **Persistence** (TA0003) and **Privilege Escalation** (TA0004), specifically employing the technique **Boot or Logon Autostart Execution: Registry Run Keys/Startup Folder** (T1547.001).
+
+  Effective telemetry sources for this detection include Windows registry change logs, security event logs related to system start-up activities, and process creation events, which can provide comprehensive visibility into potentially harmful changes to the system environment.
+
+  ### Investigation Steps
+  - **Review Registry Changes:** Examine the Windows registry logs for newly created entries pointing to suspicious folders within the Run key locations specified in the rule.
+  - **Analyze Process Creation Events:** Investigate any recent process executions linked to the identified suspicious registry entries, looking for unusual command-line arguments or execution paths that indicate malicious intent.
+  - **Cross-Reference Path Locations:** Correlate observed paths with common threat intelligence sources to identify known malicious software associated with the suspicious directories flagged by the detection.
+  - **Assess User Activity and Context:** Analyze user actions and system logs leading up to the registry modifications to determine if legitimate software or user behavior explains the new run entry, or if it may indicate unauthorized access.
+
+  ### Prioritization
+  The severity of this alert is high due to the risk that a newly added Run key entry could allow an attacker to regain access or maintain control over a compromised system. The likelihood of exploitation is significant, especially in environments that manage sensitive data or critical systems.
+
+  ### Blind Spots and Assumptions
+  This detection logic may not effectively capture all malicious activity, especially if attackers deploy persistence mechanisms in less common registry locations or implement obfuscation techniques to disguise executable paths. It assumes that the relevant logs are configured to capture registry changes and that log retention policies are sufficient for tracing back suspicious activity. Additionally, this rule may generate false positives from legitimate software using non-standard directories for auto-start functionality, which may require additional contextual analysis from the security team.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

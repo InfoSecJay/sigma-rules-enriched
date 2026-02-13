@@ -1,0 +1,59 @@
+title: Visual Studio Code Tunnel Shell Execution
+id: f4a623c2-4ef5-4c33-b811-0642f702c9f1
+status: test
+description: Detects the execution of a shell (powershell, bash, wsl...) via Visual
+  Studio Code tunnel. Attackers can abuse this functionality to establish a C2 channel
+  and execute arbitrary commands on the system.
+references:
+- https://ipfyx.fr/post/visual-studio-code-tunnel/
+- https://badoption.eu/blog/2023/01/31/code_c2.html
+- https://code.visualstudio.com/docs/remote/tunnels
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-10-25
+tags:
+- attack.command-and-control
+- attack.t1071.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|contains: '\servers\Stable-'
+    ParentImage|endswith: '\server\node.exe'
+    ParentCommandLine|contains: '.vscode-server'     # Technically one can host its own local server instead of using the VsCode one. And that would probably change the name (requires further research)
+    # Note: Child processes (ie: shells) can be whatever technically (with some efforts)
+  selection_child_1:
+    Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    CommandLine|contains: '\terminal\browser\media\shellIntegration.ps1'
+  selection_child_2:
+    Image|endswith:
+    - '\wsl.exe'
+    - '\bash.exe'
+  condition: selection_parent and 1 of selection_child_*
+falsepositives:
+- Legitimate use of Visual Studio Code tunnel and running code from there
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of shell processes such as PowerShell, Bash, or WSL initiated through Visual Studio Code (VS Code) tunnels. Attackers may exploit this functionality to establish command and control (C2) channels and execute arbitrary commands within the victim environment. The use of VS Code tunnels can obfuscate malicious activity by blending in with legitimate development workflows, thus making detection challenging.
+
+  The primary objective of attackers using this tactic is to gain remote access to systems and carry out further compromise or lateral movement without raising immediate suspicion. Relevant MITRE ATT&CK tactics include **Command and Control (T1071.001)**, which covers application layer protocol usage for C2, and potentially **Execution (T1203)** if the execution of scripts is involved. The primary data sources that will provide valuable evidence include process creation logs, specifically Windows event logs detailing parent and child process relationships.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Investigate Windows process creation events focusing on instances where a process has a parent image containing '\servers\Stable-' and ends with '\server\node.exe'. Identify related shell executions under the corresponding parent process.
+
+  - **Analyze Command Line Arguments**: Check the command line arguments for processes discovered in the previous step, specifically looking for patterns that involve the execution of `.vscode-server`, as well as any invocation of PowerShell scripts via `\terminal\browser\media\shellIntegration.ps1`.
+
+  - **Correlate with Network Activity**: Examine any outbound network connections originating from the identified shell processes. Pay particular attention to connections that may indicate C2 communication, including unusual endpoints or protocols.
+
+  - **Evaluate User Anomalies**: Investigate the user account(s) associated with the suspicious process executions. Check for anomalous behavior such as logins from unusual locations or at odd hours that may complement the detected activity.
+
+  ### Prioritization
+  The alert's severity is medium, as while the execution via VS Code tunnels can be indicative of legitimate development work, the potential for malicious use to establish a C2 channel warrants prompt investigation, particularly in environments where code deployment and execution are tightly controlled.
+
+  ### Blind Spots and Assumptions
+  This detection logic may miss legitimate use cases of VS Code tunnels that involve running scripts in safe and approved contexts. Assumptions are made that the specific parent and child process relationships will consistently display the same patterns being monitored, which may not account for variations in legitimate development tasks. The detection relies on having comprehensive process creation logs enabled; if such logging is not fully configured within the environment, detection may fail for genuine malicious use.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

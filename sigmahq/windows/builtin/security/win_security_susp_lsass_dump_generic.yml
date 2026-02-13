@@ -1,0 +1,140 @@
+title: Potentially Suspicious AccessMask Requested From LSASS
+id: 4a1b6da0-d94f-4fc3-98fc-2d9cb9e5ee76
+status: test
+description: Detects process handle on LSASS process with certain access mask
+references:
+- https://web.archive.org/web/20230208123920/https://cyberwardog.blogspot.com/2017/03/chronicles-of-threat-hunter-hunting-for_22.html
+- https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
+author: Roberto Rodriguez, Teymur Kheirkhabarov, Dimitrios Slamaris, Mark Russinovich,
+  Aleksey Potapov, oscd.community (update)
+date: 2019-11-01
+modified: 2023-12-19
+tags:
+- attack.credential-access
+- car.2019-04-004
+- attack.t1003.001
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_1:
+    EventID: 4656     # A handle to an object was requested.
+    ObjectName|endswith: '\lsass.exe'
+    AccessMask|contains:
+    - '0x40'
+    - '0x1400'
+            # - '0x1000'  # minimum access requirements to query basic info from service
+    - '0x100000'
+    - '0x1410'            # car.2019-04-004
+    - '0x1010'            # car.2019-04-004
+    - '0x1438'            # car.2019-04-004
+    - '0x143a'            # car.2019-04-004
+    - '0x1418'            # car.2019-04-004
+    - '0x1f0fff'
+    - '0x1f1fff'
+    - '0x1f2fff'
+    - '0x1f3fff'
+  selection_2:
+    EventID: 4663     # An attempt was made to access an object
+    ObjectName|endswith: '\lsass.exe'
+    AccessList|contains:
+    - '4484'
+    - '4416'
+  filter_main_specific:
+    ProcessName|endswith:
+    - '\csrss.exe'
+    - '\GamingServices.exe'
+    - '\lsm.exe'
+    - '\MicrosoftEdgeUpdate.exe'
+    - '\minionhost.exe'          # Cyberreason
+    - '\MRT.exe'                 # MS Malware Removal Tool
+    - '\MsMpEng.exe'             # Defender
+    - '\perfmon.exe'
+    - '\procexp.exe'
+    - '\procexp64.exe'
+    - '\svchost.exe'
+    - '\taskmgr.exe'
+    - '\thor.exe'                # THOR
+    - '\thor64.exe'              # THOR
+    - '\vmtoolsd.exe'
+    - '\VsTskMgr.exe'            # McAfee Enterprise
+    - '\wininit.exe'
+    - '\wmiprvse.exe'
+    - 'RtkAudUService64'         # https://medium.com/falconforce/the-curious-case-of-realtek-and-lsass-33fc0c8482ff
+    ProcessName|contains:
+    - ':\Program Files (x86)\'
+    - ':\Program Files\'
+    - ':\ProgramData\Microsoft\Windows Defender\Platform\'
+    - ':\Windows\SysNative\'
+    - ':\Windows\System32\'
+    - ':\Windows\SysWow64\'
+    - ':\Windows\Temp\asgard2-agent\'
+  filter_main_generic:
+    ProcessName|contains: ':\Program Files'      # too many false positives with legitimate AV and EDR solutions
+  filter_main_exact:
+    ProcessName|endswith:
+    - ':\Windows\System32\taskhostw.exe'
+    - ':\Windows\System32\msiexec.exe'
+    - ':\Windows\CCM\CcmExec.exe'
+  filter_main_sysmon:
+    ProcessName|endswith: ':\Windows\Sysmon64.exe'
+    AccessList|contains: '%%4484'
+  filter_main_aurora:
+    ProcessName|contains: ':\Windows\Temp\asgard2-agent-sc\aurora\'
+    ProcessName|endswith: '\aurora-agent-64.exe'
+    AccessList|contains: '%%4484'
+  filter_main_scenarioengine:
+        # Example: C:\a70de9569c3a5aa22184ef52a890177b\x64\SCENARIOENGINE.EXE
+    ProcessName|endswith: '\x64\SCENARIOENGINE.EXE'
+    AccessList|contains: '%%4484'
+  filter_main_avira1:
+    ProcessName|contains|all:
+    - ':\Users\'
+    - '\AppData\Local\Temp\is-'
+    ProcessName|endswith: '\avira_system_speedup.tmp'
+    AccessList|contains: '%%4484'
+  filter_main_avira2:
+    ProcessName|contains: ':\Windows\Temp\'
+    ProcessName|endswith: '\avira_speedup_setup_update.tmp'
+    AccessList|contains: '%%4484'
+  filter_main_snmp:
+    ProcessName|endswith: ':\Windows\System32\snmp.exe'
+    AccessList|contains: '%%4484'
+  filter_main_googleupdate:
+    ProcessName|contains: ':\Windows\SystemTemp\'
+    ProcessName|endswith: '\GoogleUpdate.exe'
+    AccessList|contains: '%%4484'
+  filter_optional_procmon:
+    ProcessName|endswith:
+    - '\procmon64.exe'
+    - '\procmon.exe'
+    AccessList|contains: '%%4484'
+  condition: 1 of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate software accessing LSASS process for legitimate reason; update the whitelist
+  with it
+level: medium
+note: |
+  ### Technical Context
+  This detection rule targets potentially suspicious access requests to the Local Security Authority Subsystem Service (LSASS) process, specifically by monitoring the AccessMask of handle requests. LSASS is a critical Windows component responsible for enforcing the security policy on the system, handling authentication, and managing access tokens. Attackers often target LSASS with the intention of stealing credentials and gaining elevated privileges, making it a prime target for credential dumping tools like Mimikatz and similar malware.
+
+  The rule identifies AccessMask values that are commonly associated with attempts to read sensitive information from memory, reflecting the objectives of unauthorized actors looking to extract user credentials or system secrets. The relevant MITRE ATT&CK techniques include *Credential Dumping* (T1003) and *Credential Dumping via LSASS* (T1003.001), indicating specific exploit methods used by attackers to gain unauthorized access to sensitive account information.
+
+  Primary data sources that will yield the most relevant information include Windows event logs (particularly Event IDs 4656 and 4663), which provide insights into object access and can indicate malfeasant activity around LSASS. Monitoring these events enables Security Operations Center (SOC) teams to promptly identify and respond to potential credential harvesting attempts.
+
+  ### Investigation Steps
+  - **Review Event Logs**: Examine Windows Security event logs, particularly Event IDs 4656 and 4663, to identify unauthorized access attempts to the LSASS process. Look specifically for the AccessMasks indicated in the detection logic.
+
+  - **Analyze Process Context**: Check the process context of any alerts. Identify the parent process and investigate the execution path of the process attempting access to LSASS. Legitimate processes should not typically request such high levels of access.
+
+  - **Correlate with User Behavior**: Assess the accessing user or system account's typical activity. Look for anomalies, such as access requests by accounts that usually operate without admin privileges or during odd hours.
+
+  - **Investigate Historical Data**: If available, perform a retrospective analysis on previous access attempts to LSASS. Utilize SIEM tools to assess trends and identify if similar patterns have occurred in the past, indicating potential ongoing malicious activity.
+
+  ### Prioritization
+  This alert should be treated with medium severity, given that unauthorized attempts to access LSASS can indicate imminent risks of credential theft, which could lead to further escalation and data breaches in an enterprise environment. Rapid identification and response to such alerts are crucial to mitigating damage and preserving system integrity.
+
+  ### Blind Spots and Assumptions
+  While the detection logic is designed to identify suspicious access patterns, there are inherent gaps in coverage, particularly with legitimate administrative actions or operational systems that may require elevated access to LSASS for valid purposes. Assumptions are based on the presumption that certain processes should not legitimately access LSASS with the specified AccessMasks. Proper log configurations are essential; without appropriate auditing of event logs, especially for Event ID 4656 and 4663, the detection rule may not function, leading to a blind spot in monitoring LSASS access requests.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

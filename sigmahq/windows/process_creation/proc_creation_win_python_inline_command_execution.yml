@@ -1,0 +1,83 @@
+title: Python Inline Command Execution
+id: 899133d5-4d7c-4a7f-94ee-27355c879d90
+status: test
+description: Detects execution of python using the "-c" flag. This is could be used
+  as a way to launch a reverse shell or execute live python code.
+references:
+- https://docs.python.org/3/using/cmdline.html#cmdoption-c
+- https://www.revshells.com/
+- https://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-02
+modified: 2025-10-07
+tags:
+- attack.execution
+- attack.t1059
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - OriginalFileName: 'python.exe'
+  - Image|endswith:
+    - 'python.exe'           # no \ bc of e.g. ipython.exe
+    - 'python3.exe'
+    - 'python2.exe'
+  selection_cli:
+    CommandLine|contains: ' -c'
+  filter_main_python_1:   # Based on baseline
+    ParentImage|startswith:
+    - 'C:\Program Files\Python'
+    - 'C:\Program Files (x86)\Python'
+    ParentImage|endswith: '\python.exe'
+    ParentCommandLine|contains: '-E -s -m ensurepip -U --default-pip'
+  filter_main_python_trace:   # Based on baseline
+    ParentImage|startswith:
+    - 'C:\Program Files\Python'
+    - 'C:\Program Files (x86)\Python'
+    CommandLine|contains|all:
+            # CommandLine: \"C:\\Program Files\\Python312\\python.exe\" -W ignore::DeprecationWarning -c \"\nimport runpy\nimport sys\nsys.path = ['C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\tmpdakwn6aj\\\\pip-23.2.1-py3-none-any.whl'] + sys.path\nsys.argv[1:] = ['install', '--no-cache-dir', '--no-index', '--find-links', 'C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\tmpdakwn6aj', '--upgrade', 'pip']\nrunpy.run_module(\\\"pip\\\", run_name=\\\"__main__\\\", alter_sys=True)\n\
+    - '-W ignore::DeprecationWarning'
+    - "['install', '--no-cache-dir', '--no-index', '--find-links',"
+    - "'--upgrade', 'pip'"
+  filter_optional_vscode:
+  - ParentImage|endswith: '\AppData\Local\Programs\Microsoft VS Code\Code.exe'
+  - ParentImage:
+    - 'C:\Program Files\Microsoft VS Code\Code.exe'
+    - 'C:\Program Files (x86)\Microsoft VS Code\Code.exe'
+  filter_optional_pip:
+    CommandLine|contains|all:
+    - '<pip-setuptools-caller>'
+    - 'exec(compile('
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Python libraries that use a flag starting with "-c". Filter according to your environment
+level: medium
+note: |
+  ### Technical Context
+  This detection rule focuses on identifying the execution of Python with the `-c` command-line flag, which allows execution of Python code directly from the command line. Attackers may leverage this functionality to execute arbitrary commands, potentially spawning reverse shells or executing other malicious scripts. The capability to execute code in this manner poses a significant risk, as it could allow an attacker to gain further access or control over compromised systems.
+
+  In a targeted attack scenario, an adversary may exploit this feature to run malicious payloads that can facilitate lateral movement, data exfiltration, or credential harvesting within the enterprise's environment. By utilizing Python in such a way, the attacker may blend the execution within normal operational activity, trying to evade detection.
+
+  Relevant MITRE ATT&CK tactics include:
+  - **Execution** - T1059 (Command and Scripting Interpreter: Python)
+
+  The primary data sources for this detection include:
+  - Process creation logs, which provide information on executed commands and the associated parent processes (e.g., PowerShell, cmd.exe).
+
+  ### Investigation Steps
+  - **Review Process Creation Events:** Start by examining process creation logs where Python executables such as `python.exe` or `python3.exe` are initiated with the `-c` flag. Look for unusual command strings that deviate from expected behavior.
+
+  - **Analyze Parent Process:** Investigate the parent process associated with the Python execution to determine how the command was initiated. Check if it correlates with other suspicious activities or known attacker tools.
+
+  - **Correlate with Other Telemetry:** Cross-reference findings with other telemetry sources, such as EDR logs or network traffic, to identify any outbound connections or API calls to external services that may indicate data exfiltration or command-and-control communications.
+
+  - **Filter False Positives:** Evaluate the context of any detected instances against normal user behavior and application usage patterns in your environment. It is important to distinguish between legitimate use of Python for automation or development and potential malicious activity.
+
+  ### Prioritization
+  The alert is of medium severity because, while the use of the `-c` flag can indicate benign operations, its application for executing malicious code is particularly concerning. Given the potential for operational disruption and data loss, timely investigation is necessary.
+
+  ### Blind Spots and Assumptions
+  Gaps in detection coverage may arise from legitimate applications that utilize the Python `-c` flag for valid purposes, leading to false positives that could distract responders from true threats. The detection logic assumes that the executed Python command is not typically associated with the standard operational procedures of users within the organization. Required logs include comprehensive process creation logs, which must capture enough details about command-line arguments and parent processes for the detection to be effective. Specific configurations may need to be adjusted to reduce false positives based on the organization's Python usage policies and common command-line practices.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

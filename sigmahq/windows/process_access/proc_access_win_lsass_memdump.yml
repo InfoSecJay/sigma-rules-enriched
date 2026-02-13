@@ -1,0 +1,80 @@
+title: Potential Credential Dumping Activity Via LSASS
+id: 5ef9853e-4d0e-4a70-846f-a9ca37d876da
+status: test
+description: |
+  Detects process access requests to the LSASS process with specific call trace calls and access masks.
+  This behaviour is expressed by many credential dumping tools such as Mimikatz, NanoDump, Invoke-Mimikatz, Procdump and even the Taskmgr dumping feature.
+references:
+- https://web.archive.org/web/20230329170326/https://blog.menasec.net/2019/02/threat-hunting-21-procdump-or-taskmgr.html
+- https://web.archive.org/web/20230208123920/https://cyberwardog.blogspot.com/2017/03/chronicles-of-threat-hunter-hunting-for_22.html
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1003.001/T1003.001.md
+- https://research.splunk.com/endpoint/windows_possible_credential_dumping/
+author: Samir Bousseaden, Michael Haag
+date: 2019-04-03
+modified: 2024-03-02
+tags:
+- attack.credential-access
+- attack.t1003.001
+- attack.s0002
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith: '\lsass.exe'
+    GrantedAccess|contains:
+    - '0x1038'
+    - '0x1438'
+    - '0x143a'
+    - '0x1fffff'         # Too many false positives
+            # - '0x01000'  # Too many false positives
+            # - '0x1010'   # Too many false positives
+            # - '0x1400'  # Too many false positives
+            # - '0x1410' # Too many false positives
+            # - '0x40'   # Too many false positives
+    CallTrace|contains:
+    - 'dbgcore.dll'
+    - 'dbghelp.dll'
+    - 'kernel32.dll'
+    - 'kernelbase.dll'
+    - 'ntdll.dll'
+  filter_main_system_user:
+    SourceUser|contains:     # Covers many language settings
+    - 'AUTHORI'
+    - 'AUTORI'
+  filter_optional_thor:
+    CallTrace|contains|all:
+    - ':\Windows\Temp\asgard2-agent\'
+    - '\thor\thor64.exe+'
+    - '|UNKNOWN('
+    GrantedAccess: '0x103800'
+  filter_optional_sysmon:
+    SourceImage|endswith: ':\Windows\Sysmon64.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule targets potential credential dumping activities specifically involving the LSASS (Local Security Authority Subsystem Service) process on Windows systems. Credential dumping is a common tactic employed by attackers to extract sensitive information, such as user credentials and authentication tokens, typically enabling further lateral movement within a network. Tools such as Mimikatz, NanoDump, and Procdump often facilitate this behavior, indicating high-risk scenarios often associated with advanced persistent threats (APTs) and initial access tactics.
+
+  The primary objective of such attacks is to gain unauthorized access to systems and resources by leveraging stolen credentials, which can lead to escalation of privileges and extensive compromise across enterprise environments. The relevant MITRE ATT&CK tactics and techniques involved include "Credential Access" (TA0006) and specifically "OS Credential Dumping" (T1003.001).
+
+  The best evidence for detecting this activity will originate from process access logs, particularly those capturing calls made to the LSASS process, as well as system logs that track granted access rights and the call trace for processes that interact with LSASS.
+
+  ### Investigation Steps
+  - **Review Process Access Logs**: Examine logs specifically for process access events targeting 'lsass.exe'. Look for unusual access requests that correspond with the access masks specified in the detection logic.
+
+  - **Analyze Call Trace Information**: Investigate the call trace for processes accessing LSASS. Pay attention to entries originating from 'dbgcore.dll', 'dbghelp.dll', and others outlined in the detection rule to identify signs of credential dumping tools or malicious activity.
+
+  - **Correlate Source User Actions**: Check the privileges associated with the SourceUser of the detected activity. Look for discrepancies, especially if the user does not typically require access to LSASS, which may indicate unauthorized attempts to dump credentials.
+
+  - **Investigate Related Artifacts**: Search for additional related artifacts such as suspicious execution of known credential dumping tools (e.g., Mimikatz, Procdump) or unusual applications running in a Windows Temp directory that may be involved in the dumping process.
+
+  ### Prioritization
+  This alert should be prioritized as medium severity due to the potential impact of credential theft leading to unauthorized access across the enterprise. The likelihood of such activity occurring is significant, especially in environments targeted by sophisticated adversaries.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for custom or lesser-known credential dumping tools that do not exhibit the typical call signatures or access patterns. The detection logic assumes that process access logs are adequately configured to capture relevant events, and any restrictions in logging settings could result in missed detections. Additionally, the effectiveness of this detection relies on comprehensive monitoring of the LSASS process and the accurate tuning of access masks to minimize false positives.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

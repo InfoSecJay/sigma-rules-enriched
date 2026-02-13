@@ -1,0 +1,105 @@
+title: Scheduled TaskCache Change by Uncommon Program
+id: 4720b7df-40c3-48fd-bbdf-fd4b3c464f0d
+status: test
+description: Monitor the creation of a new key under 'TaskCache' when a new scheduled
+  task is registered by a process that is not svchost.exe, which is suspicious
+references:
+- https://thedfirreport.com/2021/03/29/sodinokibi-aka-revil-ransomware/
+- https://labs.f-secure.com/blog/scheduled-task-tampering/
+author: Syed Hasan (@syedhasan009)
+date: 2021-06-18
+modified: 2025-10-22
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1053
+- attack.t1053.005
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|contains: 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\'
+  filter_main_empty:
+    Details: '(Empty)'
+  filter_main_null:
+    Details:
+  filter_main_other:
+    TargetObject|contains:
+    - 'Microsoft\Windows\UpdateOrchestrator'
+    - 'Microsoft\Windows\SoftwareProtectionPlatform\SvcRestartTask\Index'
+    - 'Microsoft\Windows\Flighting\OneSettings\RefreshCache\Index'
+  filter_main_mousocoreworker:
+    Image|endswith: 'C:\Windows\System32\MoUsoCoreWorker.exe'
+  filter_main_services:
+    Image|endswith: 'C:\Windows\System32\services.exe'
+  filter_main_tiworker:
+    Image|startswith: 'C:\Windows\'
+    Image|endswith: '\TiWorker.exe'
+  filter_main_svchost:
+    Image: 'C:\WINDOWS\system32\svchost.exe'
+  filter_main_ngen:
+    Image|startswith: 'C:\Windows\Microsoft.NET\Framework'     # \Framework\ and \Framework64\
+    Image|endswith: '\ngen.exe'
+    TargetObject|contains:
+    - '\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks\{B66B135D-DA06-4FC4-95F8-7458E1D10129}'
+    - '\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\.NET
+      Framework\.NET Framework NGEN'
+  filter_main_office:
+    Image:
+    - 'C:\Program Files\Microsoft Office\root\Integration\Integrator.exe'
+    - 'C:\Program Files (x86)\Microsoft Office\root\Integration\Integrator.exe'
+    - 'C:\Program Files\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'
+    - 'C:\Program Files (x86)\Common Files\microsoft shared\ClickToRun\OfficeC2RClient.exe'
+  filter_main_msiexec:
+    Image: 'C:\Windows\System32\msiexec.exe'
+  filter_main_explorer:
+    Image: 'C:\Windows\explorer.exe'
+    TargetObject|contains: '\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\Microsoft\Windows\PLA\Server
+      Manager Performance Monitor\'
+  filter_main_system:
+    Image: 'System'
+  filter_main_runtimebroker:
+    Image: 'C:\Windows\System32\RuntimeBroker.exe'
+  filter_optional_dropbox_updater:
+    Image:
+    - 'C:\Program Files (x86)\Dropbox\Update\DropboxUpdate.exe'
+    - 'C:\Program Files\Dropbox\Update\DropboxUpdate.exe'
+  filter_optional_edge:
+    Image|endswith:
+    - 'C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe'
+    - 'C:\Program Files\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe'
+  filter_optional_onedrive:
+    Image|endswith:
+    - 'C:\Program Files (x86)\Microsoft OneDrive\OneDrive.exe'
+    - 'C:\Program Files\Microsoft OneDrive\OneDrive.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the creation of a new key under 'TaskCache' in the Windows Registry when a scheduled task is registered by a process that does not belong to expected legitimate programs like `svchost.exe`. The goal of this detection is to uncover potential malicious activities such as the installation of persistence mechanisms by attackers using uncommon processes or tools. Threat actors often utilize scheduled task manipulation for persistence or execution, making it crucial to monitor these events.
+
+  The underlying threat scenario involves attackers deploying malware that attempts to create or modify scheduled tasks to maintain access or execute payloads at specified intervals. This behavior is commonly seen in various malware families, including ransomware like Sodinokibi (REvil), which is known for utilizing scheduled tasks to enable its operations.
+
+  Relevant MITRE ATT&CK techniques include:
+  - **T1053:** Scheduled Task/Job
+  - **T1053.005:** Scheduled Task/Job: Windows Task Scheduler
+
+  Primary data sources for detecting this activity include Windows Registry logs, particularly focusing on the 'TaskCache' registry path.
+
+  ### Investigation Steps
+  - **Review Registry Changes:** Investigate any alterations made to the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` path, noting any suspicious keys created outside of expected processes.
+  - **Analyze Process Creation Events:** Examine process creation logs to identify any processes that triggered the task creation. Pay attention to processes not typically associated with task scheduling, such as non-system executables.
+  - **Cross-reference with Known Legitimate Tasks:** Compare the observed task creation against a list of legitimate scheduled tasks in your environment to identify anomalies or unknown entities.
+  - **Investigate Follow-on Behavior:** Check for any subsequent actions or tasks initiated by the newly created scheduled task, including command execution or unusual network connections.
+
+  ### Prioritization
+  This alert is classified as high severity due to its potential to indicate malicious behavior that could lead to persistence and further compromise of the network. Given that scheduled tasks can facilitate long-term access and execution of malicious code, quick identification and investigation are essential.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for legitimate applications that also create tasks under similar Registry keys, potentially leading to false positives. The detection logic assumes that uncommon processes are intrinsically suspicious when creating scheduled tasks but does not account for legitimate edge cases. It also requires comprehensive logging of Registry changes to ensure accurate detection, which must be appropriately configured and maintained across all endpoints.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

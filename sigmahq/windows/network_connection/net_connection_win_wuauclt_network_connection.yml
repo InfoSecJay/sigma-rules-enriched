@@ -1,0 +1,78 @@
+title: Potentially Suspicious Wuauclt Network Connection
+id: c649a6c7-cd8c-4a78-9c04-000fc76df954
+status: test
+description: |
+  Detects the use of the Windows Update Client binary (wuauclt.exe) to proxy execute code and making network connections.
+  One could easily make the DLL spawn a new process and inject to it to proxy the network connection and bypass this rule.
+references:
+- https://dtm.uk/wuauclt/
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2020-10-12
+modified: 2024-03-12
+tags:
+- attack.defense-evasion
+- attack.t1218
+logsource:
+  category: network_connection
+  product: windows
+  definition: 'Requirements: The CommandLine field enrichment is required in order
+    for this rule to be used.'
+detection:
+  selection:
+    Image|contains: 'wuauclt'
+    CommandLine|contains: ' /RunHandlerComServer'
+    # "C:\WINDOWS\uus\AMD64\wuauclt.exe" /DeploymentHandlerFullPath \\?\C:\Windows\UUS\AMD64\UpdateDeploy.dll /ClassId aaa256e1-5b21-4993-9188-18f07ccb3b98 /RunHandlerComServer
+  filter_main_ip:
+    DestinationIp|cidr:     # Ranges excluded based on https://github.com/SigmaHQ/sigma/blob/0f176092326ab9d1e19384d30224e5f29f760d82/rules/windows/network_connection/net_connection_win_dllhost_net_connections.yml
+    - '127.0.0.0/8'
+    - '10.0.0.0/8'
+    - '169.254.0.0/16'          # link-local address
+    - '172.16.0.0/12'
+    - '192.168.0.0/16'
+    - '::1/128'          # IPv6 loopback
+    - 'fe80::/10'          # IPv6 link-local addresses
+    - 'fc00::/7'          # IPv6 private addresses
+  filter_main_msrange:    # Sysmon
+    DestinationIp|cidr:
+    - '20.184.0.0/13'         # Microsoft Corporation
+    - '20.192.0.0/10'         # Microsoft Corporation
+    - '23.79.0.0/16'         # Microsoft Corporation
+    - '51.10.0.0/15'
+    - '51.103.0.0/16'         # Microsoft Corporation
+    - '51.104.0.0/15'         # Microsoft Corporation
+    - '52.224.0.0/11'         # Microsoft Corporation
+  filter_main_uus:
+    CommandLine|contains:
+    - ':\Windows\UUS\Packages\Preview\amd64\updatedeploy.dll /ClassId'
+    - ':\Windows\UUS\amd64\UpdateDeploy.dll /ClassId'
+  filter_main_winsxs:
+    CommandLine|contains|all:
+    - ':\Windows\WinSxS\'
+    - '\UpdateDeploy.dll /ClassId '
+  filter_main_cli_null:
+    CommandLine:
+  filter_main_cli_empty:
+    CommandLine: ''
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule captures potentially suspicious activities involving the Windows Update Client executable (wuauclt.exe) making network connections in a manner indicative of proxy code execution. The goal of an attacker using this technique may include evading detection by embedding malicious payloads within legitimate system processes, such as those managed by the Windows Update Client. This tactic may be employed to establish command-and-control (C2) communication or to exfiltrate data, all while operating under the guise of normal operating system behavior.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0005), where adversaries attempt to evade detection and achieve their objectives undetected, notably through techniques like Process Injection (T1055) and Lateral Movement (T1075). The particular technique related to this detection is **Application Layer Protocol** (T1071), where attackers communicate over benign protocols. The primary data source for this detection comes from network connection logs, specifically those capturing command-line arguments associated with the `wuauclt.exe` process.
+
+  ### Investigation Steps
+  - **Review Network Connection Logs:** Analyze network connection logs for instances of `wuauclt.exe` initiating outbound connections, especially those that do not target known Microsoft IP ranges, as these could indicate malicious activity.
+  - **Examine Command-Line Arguments:** Investigate the command-line parameters used with the `wuauclt.exe` process, looking specifically for unusual or suspicious flags such as `/RunHandlerComServer`, which may indicate an attempt to harness the application for malicious purposes.
+  - **Analyze Parent-Child Process Relationships:** Use process monitoring tools to evaluate the relationships between `wuauclt.exe` and parent processes. Look for abnormal process hierarchies that could signify process injection tactics.
+  - **Correlate with EDR Data:** Utilize endpoint detection and response (EDR) solutions to review historical activity surrounding the `wuauclt.exe` executable, particularly focusing on any detected behavioral anomalies around the time of the suspicious connections.
+
+  ### Prioritization
+  This alert is categorized as medium severity due to the potential risk involved should an attacker successfully exploit the `wuauclt.exe` process for malicious purposes. Given the common use of this executable in legitimate operations, its abuse for command execution poses a credible threat to the organization's security posture.
+
+  ### Blind Spots and Assumptions
+  There are potential gaps in detection coverage, particularly if the `wuauclt.exe` process is not monitored consistently or if related network and command-line logs are not adequately captured. This detection rule assumes that command-line enrichment is enabled in logs. Additionally, the efficacy of this detection relies on thorough logging of network connections and accurate reporting of command-line arguments related to process execution, which may not be present in all environments.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

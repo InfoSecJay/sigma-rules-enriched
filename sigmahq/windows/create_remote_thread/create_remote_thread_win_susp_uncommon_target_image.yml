@@ -1,0 +1,80 @@
+title: Remote Thread Creation In Uncommon Target Image
+id: a1a144b7-5c9b-4853-a559-2172be8d4a03
+related:
+- id: f016c716-754a-467f-a39e-63c06f773987
+  type: obsolete
+status: test
+description: Detects uncommon target processes for remote thread creation
+references:
+- https://web.archive.org/web/20220319032520/https://blog.redbluepurple.io/offensive-research/bypassing-injection-detection
+author: Florian Roth (Nextron Systems)
+date: 2022-03-16
+modified: 2025-07-04
+tags:
+- attack.defense-evasion
+- attack.privilege-escalation
+- attack.t1055.003
+logsource:
+  product: windows
+  category: create_remote_thread
+detection:
+  selection:
+    TargetImage|endswith:
+    - '\calc.exe'
+    - '\calculator.exe'
+    - '\mspaint.exe'
+    - '\notepad.exe'
+    - '\ping.exe'
+    - '\sethc.exe'
+    - '\spoolsv.exe'
+    - '\wordpad.exe'
+    - '\write.exe'
+  filter_main_csrss:
+    SourceImage: 'C:\Windows\System32\csrss.exe'
+  filter_main_notepad:
+    SourceImage:
+    - 'C:\Windows\System32\explorer.exe'
+    - 'C:\Windows\System32\OpenWith.exe'
+    TargetImage: 'C:\Windows\System32\notepad.exe'
+  filter_main_sethc:
+    SourceImage: 'C:\Windows\System32\AtBroker.exe'
+    TargetImage: 'C:\Windows\System32\Sethc.exe'
+  filter_optional_aurora_1:
+    StartFunction: 'EtwpNotificationThread'
+  filter_optional_aurora_2:
+    SourceImage|contains: 'unknown process'
+  filter_optional_vmtoolsd:
+    SourceImage: 'C:\Program Files\VMware\VMware Tools\vmtoolsd.exe'
+    StartFunction: 'GetCommandLineW'
+    TargetImage:
+    - 'C:\Windows\System32\notepad.exe'
+    - 'C:\Windows\System32\spoolsv.exe'
+  filter_optional_xerox_pjems:
+    SourceImage: 'C:\Program Files\Xerox\XeroxPrintExperience\CommonFiles\XeroxPrintJobEventManagerService.exe'
+    StartFunction: 'LoadLibraryW'
+    TargetImage: 'C:\Windows\System32\spoolsv.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies instances of remote thread creation targeting uncommon or suspicious processes in a Windows environment. Remote thread creation is often used by attackers for code injection, allowing them to execute malicious code in the context of another process without raising alarms. Common attacker objectives include privilege escalation, lateral movement, and evasion of security controls. The specific processes targeted by this rule, such as `calc.exe`, `notepad.exe`, and `spoolsv.exe`, are generally benign but can be leveraged by adversaries to carry out attacks like credential dumping or executing payloads within trusted applications.
+
+  This detection aligns with several MITRE ATT&CK tactics, primarily under Defense Evasion (TA0030) and Privilege Escalation (TA0004), specifically with the technique T1055.003 (Process Injection: Thread Injection). By focusing on remote thread creation in processes typically not used for such purposes, this rule enhances the detection capabilities for threats that aim to circumvent traditional security measures.
+
+  The primary data source for this detection is the Windows event logs related to process creation (particularly in the context of remote thread activities), which provide essential details on source and target images involved in thread creation attempts.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Analyze Windows Event ID 593 and relevant process creation logs to identify the source and target images involved in remote thread creation. Look for entries that match the suspicious target processes defined in the rule.
+  - **Correlate with User Activity:** Investigate user activities leading up to the event. Cross-reference human-operated sessions based on authentication logs and session creation times to determine if the actions were legitimate.
+  - **Examine Suspect Source Processes:** Inspect the characteristics of the source processes that initiated the remote thread creation. Look for unusual or unexpected behaviors such as unknown or suspicious application names, or account usage patterns that deviate from normal operations.
+  - **Assess Privilege Levels:** Determine the privilege levels of the initiating user and processes. Elevated permissions in conjunction with remote thread creation activities can indicate potential malicious intent, necessitating further scrutiny.
+
+  ### Prioritization
+  This alert should be treated with medium priority due to the potential for significant impact if exploited by an adversary. Remote thread creation can lead to privilege escalation and lateral movement within a network. Given that the targeted processes are typically trusted applications, the likelihood of an attacker leveraging this technique warrants quick investigation.
+
+  ### Blind Spots and Assumptions
+  One gap in detection coverage may arise from environments where logging for process creation events is not enabled or configured correctly. Additionally, the detection logic assumes that legitimate applications cannot engage in remote thread creation for the specified targets without raising suspicion. However, benign applications might occasionally perform remote thread injections during normal operation, leading to possible false positives. Proper logging of Windows process creation events and system configurations ensuring their availability are critical for this detection to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

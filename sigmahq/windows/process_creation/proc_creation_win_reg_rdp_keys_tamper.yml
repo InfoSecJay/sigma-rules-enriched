@@ -1,0 +1,95 @@
+title: Potential Tampering With RDP Related Registry Keys Via Reg.EXE
+id: 0d5675be-bc88-4172-86d3-1e96a4476536
+status: test
+description: Detects the execution of "reg.exe" for enabling/disabling the RDP service
+  on the host by tampering with the 'CurrentControlSet\Control\Terminal Server' values
+references:
+- https://thedfirreport.com/2022/02/21/qbot-and-zerologon-lead-to-full-domain-compromise/
+- http://etutorials.org/Microsoft+Products/microsoft+windows+server+2003+terminal+services/Chapter+6+Registry/Registry+Keys+for+Terminal+Services/     # Contain description for most of the keys mentioned here (check it out if you want more information
+- http://woshub.com/rds-shadow-how-to-connect-to-a-user-session-in-windows-server-2012-r2/     # Related to the Shadow RPD technique
+- https://admx.help/HKLM/SOFTWARE/Policies/Microsoft/Windows%20NT/Terminal%20Services     # Contain description for most of the keys mentioned here (check it out if you want more information)
+- https://bazaar.abuse.ch/sample/6f3aa9362d72e806490a8abce245331030d1ab5ac77e400dd475748236a6cc81/
+- https://blog.sekoia.io/darkgate-internals/
+- https://blog.talosintelligence.com/understanding-the-phobos-affiliate-structure/
+- https://github.com/redcanaryco/atomic-red-team/blob/02c7d02fe1f1feb0fc7944550408ea8224273994/atomics/T1112/T1112.md#atomic-test-63---disable-remote-desktop-anti-alias-setting-through-registry
+- https://github.com/redcanaryco/atomic-red-team/blob/02c7d02fe1f1feb0fc7944550408ea8224273994/atomics/T1112/T1112.md#atomic-test-64---disable-remote-desktop-security-settings-through-registry
+- https://github.com/redcanaryco/atomic-red-team/blob/dd526047b8c399c312fee47d1e6fb531164da54d/atomics/T1112/T1112.yaml#L790
+- https://learn.microsoft.com/en-us/windows-hardware/customize/desktop/unattend/microsoft-windows-terminalservices-rdp-winstationextensions-securitylayer
+- https://threathunterplaybook.com/hunts/windows/190407-RegModEnableRDPConnections/notebook.html
+- https://twitter.com/SagieSec/status/1469001618863624194?t=HRf0eA0W1YYzkTSHb-Ky1A&s=03     # Related to the Shadow RPD technique
+- https://web.archive.org/web/20200929062532/https://blog.menasec.net/2019/02/threat-hunting-rdp-hijacking-via.html     # Related to RDP hijacking via the "ServiceDll" key
+- https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
+author: pH-T (Nextron Systems), @Kostastsale, TheDFIRReport
+date: 2022-02-12
+modified: 2025-11-22
+tags:
+- attack.persistence
+- attack.defense-evasion
+- attack.lateral-movement
+- attack.t1021.001
+- attack.t1112
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_main_img:
+  - Image|endswith: '\reg.exe'
+  - OriginalFileName: 'reg.exe'
+  selection_main_cli:
+    CommandLine|contains|all:
+    - ' add '
+    - '\CurrentControlSet\Control\Terminal Server'
+    - 'REG_DWORD'
+    - ' /f'
+  selection_values_1:
+    CommandLine|contains|all:
+    - 'Licensing Core'
+    - 'EnableConcurrentSessions'
+  selection_values_2:
+    CommandLine|contains:
+    - 'AllowTSConnections'
+    - 'fDenyTSConnections'
+    - 'fEnableWinStation'
+    - 'fSingleSessionPerUser'
+    - 'IdleWinStationPoolCount'
+    - 'MaxInstanceCount'
+    - 'SecurityLayer'
+    - 'TSAdvertise'
+    - 'TSAppCompat'
+    - 'TSEnabled'
+    - 'TSUserEnabled'
+    - 'WinStations\RDP-Tcp'
+  filter_main_values_tls:
+    CommandLine|contains|all:
+    - 'SecurityLayer'
+    - '02'          # TLS Enabled
+  condition: all of selection_main_* and 1 of selection_values_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potential tampering with Remote Desktop Protocol (RDP) settings on Windows systems through the use of "reg.exe". It detects commands that modify critical registry values associated with RDP functionality, specifically within the path `CurrentControlSet\Control\Terminal Server`. Attackers may manipulate these settings to enable unauthorized remote access or to evade detection while maintaining remote control over compromised systems.
+
+  The primary threat scenario involves an attacker using registry modifications to disable security features of RDP, thereby enabling easier lateral movement within a network or establishing persistent access to specific systems. This behavior can be indicative of various threat actors attempting to exploit vulnerabilities related to RDP, which is commonly targeted in ransomware attacks and unauthorized access scenarios.
+
+  The relevant MITRE ATT&CK tactics and techniques include:
+  - **T1076: Remote Desktop Protocol (RDP)**
+  - **T1021.001: Remote Services: Remote Desktop Protocol**
+  - **T1112: Modify Registry**
+
+  The best telemetry sources for this detection event include process creation logs, specifically focusing on the execution of reg.exe and associated command line details, which can reveal illicit changes to the terminal services configuration.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Check the logs for instances of `reg.exe` execution, focusing on the command line arguments to identify any modifications to RDP-related registry keys.
+  - **Analyze Registry Changes**: Investigate the specific registry keys within `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentControlSet\Control\Terminal Server` for unauthorized changes to RDP settings and confirm any suspicious values that might indicate tampering.
+  - **Correlate User Activity**: Examine user accounts that executed the reg.exe command to determine if the activity aligns with normal user behavior or if it coincides with potential compromised accounts.
+  - **Identify Associated Network Activity**: Look for unusual network connections or remote access activities around the time reg.exe was executed, particularly any RDP sessions that may have originated from unexpected sources.
+
+  ### Prioritization
+  The severity of this alert is high due to the potential for significant impact on the enterprise's security posture. Tampering with RDP settings can allow attackers unauthorized access and control over systems, representing a serious risk for data exfiltration or network compromise.
+
+  ### Blind Spots and Assumptions
+  This detection relies on the presence of adequate process creation logging to capture the execution of `reg.exe` with specific command line parameters. If logging is not enabled or if certain command line configurations are obfuscated or altered, critical evidence may be missed. Additionally, the detection logic assumes that all instances of reg.exe execution for these keys are malicious; legitimate administrative activities may inadvertently trigger this rule.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

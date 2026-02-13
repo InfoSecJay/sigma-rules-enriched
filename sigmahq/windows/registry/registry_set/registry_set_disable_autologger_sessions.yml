@@ -1,0 +1,62 @@
+title: Potential AutoLogger Sessions Tampering
+id: f37b4bce-49d0-4087-9f5b-58bffda77316
+status: test
+description: Detects tampering with autologger trace sessions which is a technique
+  used by attackers to disable logging
+references:
+- https://twitter.com/MichalKoczwara/status/1553634816016498688
+- https://thedfirreport.com/2021/10/18/icedid-to-xinglocker-ransomware-in-24-hours/
+- https://i.blackhat.com/EU-21/Wednesday/EU-21-Teodorescu-Veni-No-Vidi-No-Vici-Attacks-On-ETW-Blind-EDRs.pdf
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-01
+modified: 2025-10-07
+tags:
+- attack.defense-evasion
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_main:
+    TargetObject|contains: '\System\CurrentControlSet\Control\WMI\Autologger\'
+  selection_values:
+    TargetObject|contains:     # We only care about some autologger to avoid FP. Add more if you need
+    - '\EventLog-'
+    - '\Defender'
+    TargetObject|endswith:
+    - '\Enable'
+    - '\Start'
+    Details: DWORD (0x00000000)
+  filter_main_wevtutil:
+    Image: 'C:\Windows\system32\wevtutil.exe'
+  filter_main_defender:
+    Image|startswith:
+    - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+    - 'C:\Program Files\Windows Defender\'
+    - 'C:\Program Files (x86)\Windows Defender\'
+    Image|endswith: '\MsMpEng.exe'
+    TargetObject|contains:
+    - '\DefenderApiLogger\'
+    - '\DefenderAuditLogger\'
+  condition: all of selection_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This rule detects potential tampering with autologger trace sessions on Windows systems. Attackers often manipulate logging mechanisms to evade detection while performing malicious activities, such as initial access or data exfiltration. By disabling or altering autologger settings, attackers can hide their tracks, making post-incident investigations difficult. The suspected actions may include modifications to logging settings for the Windows Event Log or Defender logs, which are crucial for maintaining visibility in a network environment.
+
+  The threat family associated with this behavior aligns with tactics and techniques aimed at defense evasion, specifically under the MITRE ATT&CK framework. Notable tactics are [Defense Evasion (TA0005)](https://attack.mitre.org/tactics/TA0005/) and the specific technique of [Indicator Removal on Host (T1112)](https://attack.mitre.org/techniques/T1112/). The primary telemetry sources that will provide evidence of such tampering include Windows registry logs tracking modifications to autologger settings, as well as Windows event logs that could reflect unexpected log behavior.
+
+  ### Investigation Steps
+  - **Review Registry Changes:** Examine the Windows registry logs for any unauthorized modifications to the paths under `\System\CurrentControlSet\Control\WMI\Autologger\` to identify potential tampering events.
+  - **Analyze Event Logs:** Investigate Windows Event Logs, particularly for any unusual alterations, such as those related to the autologgers listed in the detection logic. Look for unexpected `EventLog-` or `Defender` figures.
+  - **Monitor wevtutil Usage:** Check for suspicious executions of `wevtutil.exe`, focusing on command line parameters that could indicate attempts to disable or interfere with log functions.
+  - **Investigate Defender API Logs:** Review changes in logs related to Defender API and Audit Logger. Specifically search for modifications to logging settings that could indicate attempts to reduce visibility or hinder detection.
+
+  ### Prioritization
+  The alert bears high severity due to the critical nature of logging in incident response and the potential impact of successful evasion techniques employed by an adversary. Given that tampering with logging mechanisms can lead to undetected malicious activities, immediate investigation is warranted.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage if logging configurations are not standardized across the enterprise environment. The detection logic assumes that registry modifications can reliably indicate tampering, but legitimate administrative changes may trigger false positives. It requires correctly configured and actively monitored Windows registry logs, as well as sufficient permissions to audit these changes effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

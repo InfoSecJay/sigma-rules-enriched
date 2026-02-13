@@ -1,0 +1,92 @@
+title: HackTool - Potential Impacket Lateral Movement Activity
+id: 10c14723-61c7-4c75-92ca-9af245723ad2
+related:
+- id: e31f89f7-36fb-4697-8ab6-48823708353b
+  type: obsolete
+status: stable
+description: Detects wmiexec/dcomexec/atexec/smbexec from Impacket framework
+references:
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/wmiexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/atexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/smbexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/dcomexec.py
+- https://www.elastic.co/guide/en/security/current/suspicious-cmd-execution-via-wmi.html
+author: Ecco, oscd.community, Jonhnathan Ribeiro, Tim Rauch
+date: 2019-09-03
+modified: 2023-02-21
+tags:
+- attack.execution
+- attack.t1047
+- attack.lateral-movement
+- attack.t1021.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_other:
+        # *** wmiexec.py
+        #    parent is wmiprvse.exe
+        #    examples:
+        #       cmd.exe /Q /c whoami 1> \\127.0.0.1\ADMIN$\__1567439113.54 2>&1
+        #       cmd.exe /Q /c cd  1> \\127.0.0.1\ADMIN$\__1567439113.54 2>&1
+        # *** dcomexec.py -object MMC20
+        #   parent is mmc.exe
+        #   example:
+        #       "C:\Windows\System32\cmd.exe" /Q /c cd  1> \\127.0.0.1\ADMIN$\__1567442499.05 2>&1
+        # *** dcomexec.py -object ShellBrowserWindow
+        #  runs %SystemRoot%\System32\rundll32.exe shell32.dll,SHCreateLocalServerRunDll {c08afd90-f2a1-11d1-8455-00a0c91f3880} but parent command is explorer.exe
+        #  example:
+        #   "C:\Windows\System32\cmd.exe" /Q /c cd \ 1> \\127.0.0.1\ADMIN$\__1567520103.71 2>&1
+        # *** smbexec.py
+        #   parent is services.exe
+        #   example:
+        #       C:\Windows\system32\cmd.exe /Q /c echo tasklist ^> \\127.0.0.1\C$\__output 2^>^&1 > C:\Windows\TEMP\execute.bat & C:\Windows\system32\cmd.exe /Q /c C:\Windows\TEMP\execute.bat & del C:\Windows\TEMP\execute.bat
+    ParentImage|endswith:
+    - '\wmiprvse.exe'                # wmiexec
+    - '\mmc.exe'                # dcomexec MMC
+    - '\explorer.exe'                # dcomexec ShellBrowserWindow
+    - '\services.exe'                # smbexec
+    CommandLine|contains|all:
+    - 'cmd.exe'
+    - '/Q'
+    - '/c'
+    - '\\\\127.0.0.1\\'
+    - '&1'
+  selection_atexec:
+    ParentCommandLine|contains:
+    - 'svchost.exe -k netsvcs'               # atexec on win10 (parent is "C:\Windows\system32\svchost.exe -k netsvcs")
+    - 'taskeng.exe'               # atexec on win7 (parent is "taskeng.exe {AFA79333-694C-4BEE-910E-E57D9A3518F6} S-1-5-18:NT AUTHORITY\System:Service:")
+            # cmd.exe /C tasklist /m > C:\Windows\Temp\bAJrYQtL.tmp 2>&1
+    CommandLine|contains|all:
+    - 'cmd.exe'
+    - '/C'
+    - 'Windows\Temp\'
+    - '&1'
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule is designed to identify potential lateral movement activities using tools from the Impacket framework, specifically focusing on techniques such as wmiexec, dcomexec, atexec, and smbexec. These methods are commonly employed by attackers to execute commands on remote systems without user interaction, allowing them to navigate through an environment stealthily. The focus of this detection lies in identifying suspicious command execution patterns that leverage Windows management tools, which could indicate unauthorized attempts to escalate privileges or move laterally within a network.
+
+  The threat scenario often involves an attacker gaining initial access to a target system and subsequently using these techniques to interact with additional systems within the network. This could enable them to execute malicious commands, extract sensitive data, or further compromise systems, achieving objectives that align with lateral movement tactics. The relevant MITRE ATT&CK tactics include **Execution** (T1203, T1021.001) for executing commands and **Lateral Movement** (T1021.003) for accessing other systems across the network.
+
+  Primary data sources for detecting these activities include process creation logs, which can provide insights into command execution on Windows systems, as well as related telemetry that captures command-line usage and parent-child process relationships.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Investigate Windows process creation logs to identify instances where the following parent processes are involved: `wmiprvse.exe`, `mmc.exe`, `explorer.exe`, and `services.exe`. Look for associated command-line parameters that match the specified patterns indicative of Impacket tool usage.
+
+  - **Analyze Command-Line Arguments:** Specifically, focus on command lines with `cmd.exe` that include `/Q`, `/C`, and references to UNC paths (e.g., `\\127.0.0.1\`). Pay attention to unusual arguments that may indicate unauthorized command execution.
+
+  - **Check for Anomalous Parent Processes:** Verify the context in which commands are executed by examining the parent processes of commands. Investigate any instances of `svchost.exe -k netsvcs` or `taskeng.exe`, particularly if their command lines involve interactions with temporary files or should not typically be observed.
+
+  - **Correlate with Network Traffic:** If available, analyze network logs for any anomalous SMB or WMI traffic that corresponds with the detected execution instances. Look for unusual external connections or internal communications that could complement the suspicious activity.
+
+  ### Prioritization
+  This alert is classified as high severity due to the significant risk associated with lateral movement activities using tools like Impacket. Successful exploitation could lead to extensive network compromise, data breaches, and prolonged undetected presence within the environment.
+
+  ### Blind Spots and Assumptions
+  The detection coverage may be limited in environments where logging is not adequately configured, especially for process creation or network activity. The detection logic assumes typical command-line patterns for Impacket tools and may miss custom or obfuscated command executions. Proper logging configurations, including detailed process command line logging and network monitoring, are essential for this alert to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,85 @@
+title: Uncommon New Firewall Rule Added In Windows Firewall Exception List
+id: cde0a575-7d3d-4a49-9817-b8004a7bf105
+status: test
+description: Detects when a rule has been added to the Windows Firewall exception
+  list
+references:
+- https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/dd364427(v=ws.10)
+author: frack113
+date: 2022-02-19
+modified: 2025-10-08
+tags:
+- attack.defense-evasion
+- attack.t1562.004
+logsource:
+  product: windows
+  service: firewall-as
+detection:
+  selection:
+    EventID:
+    - 2004         # A rule has been added to the Windows Defender Firewall exception list
+    - 2071         # A rule has been added to the Windows Defender Firewall exception list. (Windows 11)
+    - 2097
+  filter_main_block:
+    Action: 2     # Block
+  filter_main_generic:
+    ApplicationPath|startswith:
+    - 'C:\Program Files (x86)\'
+    - 'C:\Program Files\'
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+    - 'C:\Windows\WinSxS\'
+  filter_main_covered_paths:
+        # This filter is added to avoid duplicate alerting from 9e2575e7-2cb9-4da1-adc8-ed94221dca5e
+    ApplicationPath|contains:
+    - 'C:\PerfLogs\'
+    - 'C:\Temp\'
+    - 'C:\Tmp\'
+    - 'C:\Users\Public\'
+    - 'C:\Windows\Tasks\'
+    - 'C:\Windows\Temp\'
+    - '\AppData\Local\Temp\'
+  filter_main_system_dllhost:
+    ApplicationPath: 'System'
+    ModifyingApplication: 'C:\Windows\System32\dllhost.exe'
+  filter_main_tiworker:
+    ModifyingApplication|startswith: 'C:\Windows\WinSxS\'
+    ModifyingApplication|endswith: '\TiWorker.exe'
+  filter_main_null:
+    ApplicationPath:
+  filter_optional_no_path:
+        # This filter filters a lot of FPs related to Windows Services
+    ModifyingApplication:
+    - 'C:\Windows\System32\svchost.exe'
+    - 'C:\Windows\System32\dllhost.exe'
+    ApplicationPath: ''
+  filter_optional_msmpeng:
+  - ModifyingApplication|startswith:
+    - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+    - 'C:\Program Files\Windows Defender\'
+    ModifyingApplication|endswith: '\MsMpEng.exe'
+  - ApplicationPath|startswith:
+    - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+    - 'C:\Program Files\Windows Defender\'
+    ApplicationPath|endswith: '\MsMpEng.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies when a new rule is added to the Windows Firewall exception list, which can indicate potential unauthorized access attempts or misconfigurations that might be exploited by adversaries. Attackers may add firewall exceptions to allow their malicious traffic to bypass security controls, facilitating data exfiltration or lateral movement within the network. The presence of new rules, particularly those allowing inbound traffic that is not in alignment with security policies, raises concerns about the integrity of the host's security posture.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion** (ID: T1562) and the technique **Disable or Modify Security Tools** (ID: T1562.004), as attackers may seek to modify firewall rules to evade detection by established security measures. Logging from Windows Firewall (Event ID 2004, 2071, and 2097) serves as the primary data source, offering critical insights into changes in firewall configurations that could be indicative of malicious activity.
+
+  ### Investigation Steps
+  - **Review Firewall Change Events:** Analyze Windows Firewall logs for Event IDs 2004, 2071, and 2097 to identify the specific changes made and the applications involved in modifying the firewall rules.
+  - **Identify Source Applications:** Check the `ModifyingApplication` field for any unusual or unauthorized applications that may have adjusted the firewall settings, focusing on anything outside the standard system applications.
+  - **Consult Application Whitelisting:** Cross-reference the applications and paths associated with the new rule against an application whitelist to ascertain if the modifications align with known and trusted applications.
+  - **Monitor Network Traffic:** Use network analysis tools to monitor traffic patterns post-modification, specifically looking for any unexpected inbound or outbound connections that could signal exploitation of the newly created exceptions.
+
+  ### Prioritization
+  This alert is considered medium priority because unauthorized changes to firewall rules can lead to significant security risks, enabling potential data breaches or lateral movement. Organizations must address such potential threats promptly to maintain a robust security posture.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for firewall modifications made by legitimate administrative actions, which could result in false positives. The detection logic assumes that all modifications to the firewall exception list should be scrutinized, even if they come from trusted applications. Required logs for the alert to function effectively include real-time or regularly updated Windows Firewall event logs, which must be appropriately configured to capture relevant events in a timely manner.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

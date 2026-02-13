@@ -1,0 +1,63 @@
+title: COM Hijacking via TreatAs
+id: dc5c24af-6995-49b2-86eb-a9ff62199e82
+status: test
+description: Detect modification of TreatAs key to enable "rundll32.exe -sta" command
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/40b77d63808dd4f4eafb83949805636735a1fd15/atomics/T1546.015/T1546.015.md
+- https://www.youtube.com/watch?v=3gz1QmiMhss&t=1251s
+author: frack113
+date: 2022-08-28
+modified: 2025-07-11
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1546.015
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|endswith: 'TreatAs\(Default)'
+  filter_office:
+    Image|startswith: 'C:\Program Files\Common Files\Microsoft Shared\ClickToRun\'
+    Image|endswith: '\OfficeClickToRun.exe'
+  filter_office2:
+    Image:
+    - 'C:\Program Files\Microsoft Office\root\integration\integrator.exe'
+    - 'C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe'
+  filter_svchost:
+        # Example of target object by svchost
+        # TargetObject: HKLM\SOFTWARE\Microsoft\MsixRegistryCompatibility\Package\Microsoft.Paint_11.2208.6.0_x64__8wekyb3d8bbwe\User\SOFTWARE\Classes\CLSID\{0003000A-0000-0000-C000-000000000046}\TreatAs\(Default)
+        # TargetObject: HKU\S-1-5-21-1000000000-000000000-000000000-0000_Classes\CLSID\{0003000A-0000-0000-C000-000000000046}\TreatAs\(Default)
+    Image: 'C:\Windows\system32\svchost.exe'
+  filter_misexec:
+        # This FP has been seen during installation/updates
+    Image:
+    - 'C:\Windows\system32\msiexec.exe'
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+  condition: selection and not 1 of filter_*
+falsepositives:
+- Legitimate use
+level: medium
+note: |
+  ### Technical Context
+  This detection rule aims to identify potential COM (Component Object Model) hijacking through modifications of the `TreatAs` registry key, which allows attackers to redirect calls to different binaries such as `rundll32.exe`. This behavior is typically employed by malicious actors to execute arbitrary commands or malicious payloads while disguising the activity within legitimate processes. Attackers may leverage COM hijacking as a persistence mechanism or for privilege escalation, aiming to exploit trusted executables to carry out their objectives without raising alarms.
+
+  In terms of the MITRE ATT&CK framework, this rule specifically targets the technique **T1546.015: Component Object Model Hijacking** under the tactics of **Persistence** and **Privilege Escalation**. The primary data sources needed for this detection include Windows registry set logs, which can reveal abnormal modifications, particularly concerning known legitimate executables like `rundll32.exe`, `svchost.exe`, and various Microsoft Office integration processes.
+
+  ### Investigation Steps
+  - **Review Registry Changes:** Examine recent changes to the `TreatAs(Default)` registry key for any alterations linked to suspicious applications or processes. Pay special attention to changes that coincide with execution times of `rundll32.exe`.
+
+  - **Analyze Process Executions:** Check process creation logs for instances of `rundll32.exe` being executed along with parameters that point to unusual local file paths or scripts, especially after registry modifications.
+
+  - **Correlate with Legitimate Activities:** Cross-reference registry modifications and process executions with legitimate activities, such as software installations or updates, to rule out false positives.
+
+  - **Investigate Parent-Child Process Relationships:** Assess parent-child relationships for the observed processes to identify any suspicious invocation patterns that may indicate exploitation attempts.
+
+  ### Prioritization
+  This alert should be considered medium risk due to the potential for privilege escalation or unauthorized persistence enabled by COM hijacking. In an enterprise environment, such behavior can facilitate significant security breaches if left unaddressed.
+
+  ### Blind Spots and Assumptions
+  A gap in detection coverage may arise from legitimate applications modifying the `TreatAs` registry key, which can lead to false positives. The detection logic assumes the presence of specific Windows applications and may not account for custom or less common software environments. Additionally, proper logging configurations for Windows registry changes are needed to ensure effective capture of the relevant telemetry for this alert to function correctly.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

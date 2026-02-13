@@ -1,0 +1,85 @@
+title: Bad Opsec Defaults Sacrificial Processes With Improper Arguments
+id: a7c3d773-caef-227e-a7e7-c2f13c622329
+related:
+- id: f5647edc-a7bf-4737-ab50-ef8c60dc3add
+  type: obsolete
+status: test
+description: |
+  Detects attackers using tooling with bad opsec defaults.
+  E.g. spawning a sacrificial process to inject a capability into the process without taking into account how the process is normally run.
+  One trivial example of this is using rundll32.exe without arguments as a sacrificial process (default in CS, now highlighted by c2lint), running WerFault without arguments (Kraken - credit am0nsec), and other examples.
+references:
+- https://blog.malwarebytes.com/malwarebytes-news/2020/10/kraken-attack-abuses-wer-service/
+- https://www.cobaltstrike.com/help-opsec
+- https://twitter.com/CyberRaiju/status/1251492025678983169
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/regsvr32
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/rundll32
+- https://learn.microsoft.com/en-us/dotnet/framework/tools/regasm-exe-assembly-registration-tool
+- https://learn.microsoft.com/en-us/dotnet/framework/tools/regsvcs-exe-net-services-installation-tool
+author: Oleg Kolesnikov @securonix invrep_de, oscd.community, Florian Roth (Nextron
+  Systems), Christian Burkard (Nextron Systems)
+date: 2020-10-23
+modified: 2024-08-15
+tags:
+- attack.defense-evasion
+- attack.t1218.011
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_werfault:
+    Image|endswith: '\WerFault.exe'
+    CommandLine|endswith: 'WerFault.exe'
+  selection_rundll32:
+    Image|endswith: '\rundll32.exe'
+    CommandLine|endswith: 'rundll32.exe'
+  selection_regsvcs:
+    Image|endswith: '\regsvcs.exe'
+    CommandLine|endswith: 'regsvcs.exe'
+  selection_regasm:
+    Image|endswith: '\regasm.exe'
+    CommandLine|endswith: 'regasm.exe'
+  selection_regsvr32:
+    Image|endswith: '\regsvr32.exe'
+    CommandLine|endswith: 'regsvr32.exe'
+  filter_optional_edge_update:
+    ParentImage|contains: '\AppData\Local\Microsoft\EdgeUpdate\Install\{'
+    Image|endswith: '\rundll32.exe'
+    CommandLine|endswith: 'rundll32.exe'
+  filter_optional_chromium_installer:
+        # As reported in https://github.com/SigmaHQ/sigma/issues/4570 and others
+    ParentImage|contains:
+    - '\AppData\Local\BraveSoftware\Brave-Browser\Application\'
+    - '\AppData\Local\Google\Chrome\Application\'
+    ParentImage|endswith: '\Installer\setup.exe'
+    ParentCommandLine|contains: '--uninstall '
+    Image|endswith: '\rundll32.exe'
+    CommandLine|endswith: 'rundll32.exe'
+  condition: 1 of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Unlikely
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies suspicious usage of Windows processes that are commonly exploited by attackers due to their poor operational security (opsec) defaults. Specifically, it targets scenarios where process arguments are not appropriately defined, as seen when using tools like `rundll32.exe`, `WerFault.exe`, `regsvr32.exe`, and others in a manner inconsistent with legitimate usage. Attackers may employ these processes to load malicious payloads or execute commands under the guise of legitimate system activity, thereby evading detection and attaining unauthorized access.
+
+  The threat landscape surrounding this behavior includes tactics such as **Defense Evasion** (TA1203) and specific techniques like **Masquerading** (T1036.003) and **Exploitation for Client Execution** (T1203). By leveraging these known processes with improper arguments, attackers can potentially achieve their goals of persistence, privilege escalation, or lateral movement within an enterprise network.
+
+  Key data sources for gathering relevant evidence include **process creation logs**, which can provide insights into command line arguments and parent-child relationship of processes, as well as **Windows Event Logs** that detail process activity on endpoints.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Analyze any recent instances of `rundll32.exe`, `WerFault.exe`, and other identified processes. Pay close attention to command line arguments and identify any anomalies based on expected behavior.
+
+  - **Correlate with Parent Processes**: Investigate the parent processes that invoked these suspicious executions. Determine if a legitimate application triggered the execution or if it may indicate a compromise.
+
+  - **Examine File and Network Activity**: Check for unusual file or network activity associated with the triggering processes. Look for indications of data exfiltration, lateral movement, or download of additional malicious payloads.
+
+  - **Cross-reference with Known Threat Indicators**: Utilize threat intelligence feeds to compare observed processes and command line patterns against known malicious signatures or behaviors associated with tools like Cobalt Strike or Kraken.
+
+  ### Prioritization
+  This alert is considered high severity because the exploitation of legitimate system processes for malicious purposes can lead to significant impact, including unauthorized system access, data breaches, or disruption of critical services. The frequency and subtlety of such techniques elevate the threat level, making quick response essential.
+
+  ### Blind Spots and Assumptions
+  The detection logic assumes that improper arguments are not part of legitimate use cases, which may result in false negatives if legitimate software utilizes these processes with unconventional arguments. Additionally, the rule's effectiveness relies on comprehensive logging configurations, such as those capturing all process creation events. Environments lacking such detailed logging may miss critical indicators of malicious activity, creating gaps in detection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

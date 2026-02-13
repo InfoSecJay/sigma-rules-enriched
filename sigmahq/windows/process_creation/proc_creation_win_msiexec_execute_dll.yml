@@ -1,0 +1,60 @@
+title: Suspicious Msiexec Execute Arbitrary DLL
+id: 6f4191bb-912b-48a8-9ce7-682769541e6d
+status: test
+description: |
+  Adversaries may abuse msiexec.exe to proxy execution of malicious payloads.
+  Msiexec.exe is the command-line utility for the Windows Installer and is thus commonly associated with executing installation packages (.msi)
+references:
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/msiexec
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1218.007/T1218.007.md
+- https://twitter.com/_st0pp3r_/status/1583914515996897281
+author: frack113
+date: 2022-01-16
+modified: 2024-03-13
+tags:
+- attack.defense-evasion
+- attack.t1218.007
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\msiexec.exe'
+    CommandLine|contains|windash: ' -y'
+  filter_apple:
+    CommandLine|contains:
+    - '\MsiExec.exe" /Y "C:\Program Files\Bonjour\mdnsNSP.dll'
+    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Bonjour\mdnsNSP.dll'
+    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Apple Software Update\ScriptingObjectModel.dll'
+    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Apple Software Update\SoftwareUpdateAdmin.dll'
+    - '\MsiExec.exe" /Y "C:\Windows\CCM\'
+    - '\MsiExec.exe" /Y C:\Windows\CCM\'         # also need non-quoted execution
+    - '\MsiExec.exe" -Y "C:\Program Files\Bonjour\mdnsNSP.dll'
+    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Bonjour\mdnsNSP.dll'
+    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Apple Software Update\ScriptingObjectModel.dll'
+    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Apple Software Update\SoftwareUpdateAdmin.dll'
+    - '\MsiExec.exe" -Y "C:\Windows\CCM\'
+    - '\MsiExec.exe" -Y C:\Windows\CCM\'         # also need non-quoted execution
+  condition: selection and not 1 of filter_*
+falsepositives:
+- Legitimate script
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious use of `msiexec.exe`, a Windows Installer command-line utility, which is commonly exploited by adversaries to execute arbitrary Dynamic Link Libraries (DLLs) under the guise of installing legitimate software. Attackers may leverage this technique to perform actions such as deploying malware or executing backdoors while evading traditional security methods. The presence of specific command line arguments, particularly the `-Y` switch, suggests that the attacker is attempting to bypass certain checks normally enforced during the installation process.
+
+  The relevant MITRE ATT&CK tactics for this rule include **Defense Evasion** (T1203) and **Execution** (T1218.007). The exploitation of `msiexec.exe` can indicate an attacker's objective to stealthily execute code without raising alarms. Data sources critical for this detection include process creation events which provide insight into the command-line arguments used during execution and help to discover potentially unauthorized or unusual use of system utilities.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Check the process creation events for instances of `msiexec.exe` with associated command-line arguments that include the `-Y` switch, paying particular attention to any DLL paths listed in the command line.
+  - **Correlate with Application Logs:** Cross-reference the identified events with application logs that might indicate legitimate software installations around the same time to discern if the executed commands correlate with known installations.
+  - **Examine Security Events:** Look for additional security events that could indicate escalated privileges or failed execution attempts which may suggest a larger attack on the system.
+  - **Assess File Integrity:** Investigate any identified DLLs to verify their legitimacy and consider whether they have been altered or replaced by a known malicious variant.
+
+  ### Prioritization
+  This alert holds medium severity due to the potential implications of arbitrary code execution and misuse of trusted systems. Given the commonality of DLL-based attacks in enterprise environments, timely investigation is crucial to preventing potential breaches or system compromises.
+
+  ### Blind Spots and Assumptions
+  A significant gap in detection could arise if command-line logging is disabled or if the environment does not capture all `msiexec.exe` executions. The detection logic assumes that the presence of DLL paths in the command line is indicative of malicious behavior, which may not account for legitimate use in all scenarios. Additionally, to effectively trigger this alert, proper logging configurations must be established to capture detailed process creation metrics and command-line arguments.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

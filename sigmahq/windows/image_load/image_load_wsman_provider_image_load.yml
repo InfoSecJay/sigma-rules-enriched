@@ -1,0 +1,102 @@
+title: Suspicious WSMAN Provider Image Loads
+id: ad1f4bb9-8dfb-4765-adb6-2a7cfb6c0f94
+status: test
+description: Detects signs of potential use of the WSMAN provider from uncommon processes
+  locally and remote execution.
+references:
+- https://twitter.com/chadtilbury/status/1275851297770610688
+- https://bohops.com/2020/05/12/ws-management-com-another-approach-for-winrm-lateral-movement/
+- https://learn.microsoft.com/en-us/windows/win32/winrm/windows-remote-management-architecture
+- https://github.com/bohops/WSMan-WinRM
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2020-06-24
+modified: 2025-10-17
+tags:
+- attack.execution
+- attack.t1059.001
+- attack.lateral-movement
+- attack.t1021.003
+logsource:
+  category: image_load
+  product: windows
+detection:
+  request_client:
+  - ImageLoaded|endswith:
+    - '\WsmSvc.dll'
+    - '\WsmAuto.dll'
+    - '\Microsoft.WSMan.Management.ni.dll'
+  - OriginalFileName:
+    - 'WsmSvc.dll'
+    - 'WSMANAUTOMATION.DLL'
+    - 'Microsoft.WSMan.Management.dll'
+  respond_server:
+    Image|endswith: '\svchost.exe'
+    OriginalFileName: 'WsmWmiPl.dll'
+  filter_general:
+    Image:
+    - 'C:\Program Files (x86)\PowerShell\6\pwsh.exe'
+    - 'C:\Program Files (x86)\PowerShell\7\pwsh.exe'
+    - 'C:\Program Files\PowerShell\6\pwsh.exe'
+    - 'C:\Program Files\PowerShell\7\pwsh.exe'
+    - 'C:\Windows\System32\sdiagnhost.exe'
+    - 'C:\Windows\System32\services.exe'
+    - 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell_ise.exe'
+    - 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+  filter_svchost:   # not available in Sysmon data, but Aurora logs
+    CommandLine|contains:
+    - 'svchost.exe -k netsvcs -p -s BITS'
+    - 'svchost.exe -k GraphicsPerfSvcGroup -s GraphicsPerfSvc'
+    - 'svchost.exe -k NetworkService -p -s Wecsvc'
+    - 'svchost.exe -k netsvcs'
+  filter_mscorsvw:   # Image: C:\Windows\Microsoft.NET\Framework64\v4.0.30319\mscorsvw.exe
+    Image|startswith:
+    - 'C:\Windows\Microsoft.NET\Framework64\v'
+    - 'C:\Windows\Microsoft.NET\Framework\v'
+    - 'C:\Windows\Microsoft.NET\FrameworkArm\v'
+    - 'C:\Windows\Microsoft.NET\FrameworkArm64\v'
+    Image|endswith: '\mscorsvw.exe'
+  filter_svr_2019:
+    Image:
+    - 'C:\Windows\System32\Configure-SMRemoting.exe'
+    - 'C:\Windows\System32\ServerManager.exe'
+  filter_nextron:
+    Image|startswith: 'C:\Windows\Temp\asgard2-agent\'
+  filter_citrix:
+    Image|startswith: 'C:\Program Files\Citrix\'
+  filter_upgrade:
+    Image|startswith: 'C:\$WINDOWS.~BT\Sources\'
+  filter_mmc:
+    Image|endswith: '\mmc.exe'
+  svchost:
+    Image|endswith: '\svchost.exe'
+  commandline_null:
+    CommandLine:
+  condition: ( request_client or respond_server ) and not 1 of filter* and not ( svchost
+    and commandline_null )
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This rule detects suspicious loading of Windows Remote Management (WSMAN) provider-related images, particularly through uncommon processes that may indicate lateral movement or remote execution attempts by an attacker. The primary objective of such activities is often to pivot inside a target network or execute commands remotely without detection, which is a common tactic employed by threat actors to maintain access to compromised systems.
+
+  The rule is associated with several MITRE ATT&CK techniques, notably **Execution (T1059.001)**, which pertains to command-line scripting, and **Lateral Movement (T1021.003)**, focused on remote services such as WMI and WinRM. The detection logic focuses on specific images and their origins, filtering out common processes to reduce false positives and highlight more anomalous behaviors.
+
+  The primary data sources for the alert include image load events from Windows, particularly those related to WSMAN components (e.g., `WsmSvc.dll`, `WsmAuto.dll`). Analysis of process creation events will provide critical context surrounding the execution of suspicious images, and logs from event monitoring tools can uncover potential misuse of legitimate services.
+
+  ### Investigation Steps
+  - **Review Image Load Events**: Check logs for instances of `WsmSvc.dll`, `WsmAuto.dll`, and other listed images being loaded by processes that are not typical for such components. This can help identify unusual execution contexts.
+
+  - **Analyze Process Creation Logs**: Inspect detailed process creation logs around the same timestamps. Pay special attention to any command-line arguments used with processes loading WSMAN components to look for malicious intent.
+
+  - **Check for Remote Access Patterns**: Review any recent remote access logs or scheduled tasks that interact with WinRM or WMI, including any commands that may be leveraging these services unexpectedly.
+
+  - **Correlate with User Activities**: Investigate user accounts associated with the suspicious actions. Look for patterns consistent with unauthorized access or lateral movement, such as the use of administrative accounts performing actions outside normal business hours.
+
+  ### Prioritization
+  This alert is rated as **medium severity** because the detection of WSMAN-related images loaded by uncommon processes could indicate an attempt at lateral movement within an enterprise environment. While not definitive proof of an attack, it suggests possible malicious activity that warrants further investigation.
+
+  ### Blind Spots and Assumptions
+  Current detection logic may miss sophisticated evasion techniques such as custom image loading or the use of non-standard processes. The assumption is also made that relevant logging is enabled and that comprehensive process creation and image load logs are maintained, which may not be the case in all environments. Additionally, accurate detection relies on the presence of telemetry data from endpoints and sufficient monitoring configurations, particularly around Windows services and remote management activities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,62 @@
+title: Suspicious Ping/Del Command Combination
+id: 54786ddc-5b8a-11ed-9b6a-0242ac120002
+status: test
+description: Detects a method often used by ransomware. Which combines the "ping"
+  to wait a couple of seconds and then "del" to delete the file in question. Its used
+  to hide the file responsible for the initial infection for example
+references:
+- https://blog.sygnia.co/kaseya-ransomware-supply-chain-attack
+- https://media.kasperskycontenthub.com/wp-content/uploads/sites/43/2022/06/23093553/Common-TTPs-of-the-modern-ransomware_low-res.pdf
+- https://www.acronis.com/en-us/blog/posts/lockbit-ransomware/
+- https://symantec-enterprise-blogs.security.com/blogs/threat-intelligence/blackbyte-exbyte-ransomware
+author: Ilya Krestinichev
+date: 2022-11-03
+modified: 2024-03-05
+tags:
+- attack.defense-evasion
+- attack.t1070.004
+logsource:
+  category: process_creation
+  product: windows
+detection:
+    # Note: In the case of sysmon and similar logging utilities, see this discussion https://github.com/SigmaHQ/sigma/discussions/4277
+    # Example: "C:\Windows\System32\cmd.exe"  /C ping 127.0.0.7 -n 3 > Nul & fsutil file setZeroData offset=0 length=524288 "C:\Users\User\Desktop\lockbit\lockbit.exe" & Del /f /q "C:\Users\User\Desktop\lockbit\lockbit.exe".
+  selection_count:
+    CommandLine|contains|windash: ' -n '
+  selection_nul:
+    CommandLine|contains: 'Nul'     # Covers "> Nul" and ">Nul "
+  selection_del_param:
+    CommandLine|contains|windash:
+    - ' -f '
+    - ' -q '
+  selection_all:
+    CommandLine|contains|all:
+    - 'ping'         # Covers "ping" and "ping.exe"
+    - 'del '
+  condition: all of selection_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This rule detects a specific command-line behavior that is often associated with ransomware operations. The behavior involves using the `ping` command to introduce a delay before executing the `del` command, which deletes the file responsible for the initial infection. By utilizing this technique, attackers attempt to conceal their malicious activities, thereby evading detection from security monitoring tools. The typical objective for an attacker employing this strategy is to prevent analysts from identifying and analyzing the malware before it can execute further malicious actions.
+
+  Relevant MITRE ATT&CK tactics and techniques include:
+  - **Tactic: Defense Evasion** (ID: TA0005)
+  - **Technique: Indicator Removal on Host** (ID: T1070.004)
+
+  The primary data sources for this detection rule include **process creation events** from Windows systems. By watching the command line arguments used during the execution of processes, security teams can identify patterns associated with suspicious behaviors, such as the sequence of commands indicated in this rule.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine the process creation events for instances where the command line includes `ping` and `del` commands, particularly looking for the specified arguments and patterns that match the detection logic.
+  - **Correlate with Network Activity:** Check for any unusual outbound network activity or connections that coincide with the timestamps of the detected command executions, as this could indicate data exfiltration attempts.
+  - **Analyze File Changes:** Investigate the file system for any recent deletions or changes to files, particularly focusing on the locations where malware is commonly dropped, like user desktop folders or temporary directories.
+  - **Conduct Endpoint Forensics:** Perform a deeper forensic analysis on the affected endpoints for any signs of ransomware behaviors, such as enqueued processes, registry changes, or traces left by the malware after execution.
+
+  ### Prioritization
+  Given the nature of this behavior being indicative of ransomware activity and its potential to cause significant damage through data encryption or deletion, alerts of this kind should be treated with high severity. The likelihood of occurrence in an enterprise environment is moderate to high, especially when considering current threat landscape trends.
+
+  ### Blind Spots and Assumptions
+  This detection logic may miss scenarios where attackers utilize similar command sequences but manipulate them slightly to evade detection, such as using alternative commands or obfuscation techniques. The rule assumes that process creation logging is enabled and properly configured on the endpoints. Additionally, this detection requires real-time monitoring of command-line arguments to function effectively, which may not be available in all environments. If these logs are not sufficiently retained, the ability to investigate past incidents might be compromised.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

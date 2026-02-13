@@ -1,0 +1,76 @@
+title: Python Initiated Connection
+id: bef0bc5a-b9ae-425d-85c6-7b2d705980c6
+status: test
+description: Detects a Python process initiating a network connection. While this
+  often relates to package installation, it can also indicate a potential malicious
+  script communicating with a C&C server.
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1046/T1046.md#atomic-test-4---port-scan-using-python
+- https://pypi.org/project/scapy/
+author: frack113
+date: 2021-12-10
+modified: 2025-03-05
+tags:
+- attack.discovery
+- attack.t1046
+logsource:
+  category: network_connection
+  product: windows
+  definition: 'Requirements: Field enrichment is required for the filters to work.
+    As field such as CommandLine and ParentImage are not available by default on this
+    event type'
+detection:
+  selection:
+    Initiated: 'true'
+    Image|contains|all:
+    - '\python'
+    - '.exe'
+  filter_optional_conda:
+        # Related to anaconda updates. Command example: "conda update conda"
+        # This filter will only work with aurora agent enriched data as Sysmon EID 3 doesn't contain CommandLine nor ParentImage
+    ParentImage: C:\ProgramData\Anaconda3\Scripts\conda.exe
+    CommandLine|contains|all:
+    - ':\ProgramData\Anaconda3\Scripts\conda-script.py'
+    - 'update'
+  filter_optional_conda_jupyter_notebook:
+        # Related to anaconda opening an instance of Jupyter Notebook
+        # This filter will only work with aurora agent enriched data as Sysmon EID 3 doesn't contain CommandLine nor ParentImage
+    ParentImage: C:\ProgramData\Anaconda3\python.exe
+    CommandLine|contains: 'C:\ProgramData\Anaconda3\Scripts\jupyter-notebook-script.py'
+  filter_main_local_communication:
+        # This could be caused when launching an instance of Jupyter Notebook locally for example but can also be caused by other instances of python opening sockets locally etc. So comment this out if you want to monitor for those instances
+    DestinationIp: 127.0.0.1
+    SourceIp: 127.0.0.1
+  filter_main_pip:
+    CommandLine|contains|all:
+    - 'pip.exe'
+    - 'install'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate python scripts using the socket library or similar will trigger this.
+  Apply additional filters and perform an initial baseline before deploying.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies instances where a Python process initiates a network connection. While such behavior is common during legitimate package installations or local development, it can also indicate malicious activity, such as a script attempting to communicate with a command and control (C&C) server. Attackers may use Python scripts to execute remote commands or exfiltrate data, leveraging the language's wide acceptance and rich library ecosystem.
+
+  Relevant MITRE ATT&CK tactics include **Discovery** (TA0007) and techniques such as **Network Discovery** (T1046), which focuses on an attacker attempting to identify devices and services on a network. Malicious use cases could involve scanning for vulnerabilities, probing for open ports, or establishing a reverse shell, thereby facilitating unauthorized access or data exfiltration.
+
+  Primary data sources necessary for this detection include network connection logs from firewalls or IDS/IPS systems, which record outbound connections, as well as telemetry from systems running Python that can provide insights into process execution and command-line arguments.
+
+  ### Investigation Steps
+  - **Review Network Logs:** Analyze outbound connection logs to identify suspicious IP addresses or unusual communication patterns established by Python processes, especially to known malicious domains or C&C infrastructure.
+
+  - **Examine Process Details:** Investigate the parent process of the Python executables to trace back any potentially malicious activity or unauthorized script execution, focusing on the command-line arguments used.
+
+  - **Correlate with Threat Intelligence:** Cross-reference any identified IP addresses or domains with threat intelligence sources to determine if they are associated with known malicious activity or actors.
+
+  - **Analyze System Behavior:** Look for abnormal patterns or metrics related to Python processes, such as unusual execution times or volumes of data transmitted that might suggest data exfiltration or the execution of a worm or other malware.
+
+  ### Prioritization
+  This alert holds a medium severity in an enterprise context due to the potential for Python processes to be misused for malicious activities, which can lead to significant security breaches or data leaks. The likelihood of such attacks is increasing, as threat actors often leverage scripting languages to bypass traditional security measures.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited in environments lacking comprehensive logging for all Python executions or if network traffic is filtered inappropriately. The detection logic assumes that network connections initiated by Python processes outside typical behaviors (such as package management) warrant further investigation. Required logs include enriched network connection details (e.g., command line and parent process information) that may not be available by default, necessitating appropriate logging configurations and the use of agents capable of capturing this data effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

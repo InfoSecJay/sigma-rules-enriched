@@ -1,0 +1,53 @@
+title: Kerberoasting Activity - Initial Query
+id: d04ae2b8-ad54-4de0-bd87-4bc1da66aa59
+status: test
+description: |
+  This rule will collect the data needed to start looking into possible kerberoasting activity.
+  Further analysis or computation within the query is needed focusing on requests from one specific host/IP towards multiple service names within a time period of 5 seconds.
+  You can then set a threshold for the number of requests and time between the requests to turn this into an alert.
+references:
+- https://www.trustedsec.com/blog/art_of_kerberoast/
+- https://adsecurity.org/?p=3513
+author: '@kostastsale'
+date: 2022-01-21
+modified: 2025-10-19
+tags:
+- attack.credential-access
+- attack.t1558.003
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4769
+    Status: '0x0'     # Translated as status from failure code field. Query only for successes
+    TicketEncryptionType: '0x17'     # RC4 ticket encryption type
+  filter_main_krbtgt:
+    ServiceName|endswith:
+    - 'krbtgt'         # Ignore requests for the krbtgt service
+    - '$'         # Ignore requests from service names that end with $ which are associated with genuine kerberos traffic
+  filter_main_machine_accounts:
+    TargetUserName|contains: '$@'     # Ignore requests from machines
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Legacy applications.
+level: medium
+note: |
+  ### Technical Context
+  This detection rule focuses on identifying potential kerberoasting activities by monitoring for specific Kerberos ticket request events within a Windows environment. Kerberoasting is an attack technique used by malicious actors to exploit weaknesses in the Kerberos authentication protocol. Attackers seek to extract ticket-granting service (TGS) tickets for service accounts, allowing them to later perform offline brute-force attacks to obtain plaintext passwords. This rule is crucial for early detection of credential dumping and lateral movement scenarios in an enterprise environment.
+
+  The primary MITRE ATT&CK tactics relevant to this rule include **Credential Access (TA0006)** and more specifically the technique **T1558.003: Kerberoasting**. The alert is triggered by detecting Event ID 4769, which indicates a TGS request. This activity can suggest that an attacker is probing for service accounts potentially vulnerable to password extraction. The primary data sources that provide evidence for these requests include Windows security event logs, specifically those capturing Kerberos ticket requests.
+
+  ### Investigation Steps
+  - **Review Event Logs:** Analyze Windows Security Event logs for Event ID 4769 corresponding to TGS requests. Pay particular attention to the `ServiceName` for signs of multiple requests made by a specific host or IP address within a short time interval.
+  - **Check Ticket Encryption Types:** Confirm that the requests are utilizing the RC4 encryption type (TicketEncryptionType '0x17'), as this is a common target for kerberoasting efforts.
+  - **Correlate with Service Accounts:** Identify the service accounts associated with the service names requested. Cross-reference any findings with known or expected service account lists to determine legitimate versus suspicious requests.
+  - **Temporal Analysis:** Assess the timing of the requests. A pattern of multiple requests from one source targeting various services in rapid succession (within 5 seconds) may indicate malicious intent and should be escalated for further investigation.
+
+  ### Prioritization
+  This alert is considered medium severity due to the potential for significant impact on the security posture of the organization if successful credentials are obtained. Given that kerberoasting can lead to unauthorized access, its likelihood warrants prompt attention and investigation.
+
+  ### Blind Spots and Assumptions
+  Detection logic assumes access to comprehensive Windows event logs, specifically those containing Kerberos ticket requests (Event ID 4769). There are gaps in coverage if logging is not properly configured or if legacy applications generate false positives that align with expected TGS request patterns. Additionally, requests made by legitimate automated processes or applications may not be fully distinguishable without contextual information on service accounts and their usage patterns.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

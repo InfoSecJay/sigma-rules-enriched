@@ -1,0 +1,63 @@
+title: Potential PowerShell Execution Policy Tampering
+id: fad91067-08c5-4d1a-8d8c-d96a21b37814
+related:
+- id: cf2e938e-9a3e-4fe8-a347-411642b28a9f     # Registry
+  type: similar
+- id: 87e3c4e8-a6a8-4ad9-bb4f-46e7ff99a180     # ProcCreation Cmdlet
+  type: similar
+- id: 61d0475c-173f-4844-86f7-f3eebae1c66b     # PowerShell ScriptBlock
+  type: similar
+status: test
+description: Detects changes to the PowerShell execution policy in order to bypass
+  signing requirements for script execution
+references:
+- https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.3
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-01-11
+modified: 2023-12-14
+tags:
+- attack.defense-evasion
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|endswith:
+            # Note for future readers: For PowerShell 7+ the ExecutionPolicy is handled via a setting file due to the fact that PWSH7 is available for mac and linux
+            # Attackers can create a per-user setting file (powershell.config.json) and set the execution policy there
+            # Learn more here: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_powershell_config?view=powershell-7.3
+    - '\ShellIds\Microsoft.PowerShell\ExecutionPolicy'
+    - '\Policies\Microsoft\Windows\PowerShell\ExecutionPolicy'
+    Details|contains:
+    - 'Bypass'
+    - 'Unrestricted'
+  filter_main_svchost:
+        # Note: We filter out "svchost" to avoid FP with changes using "gpedit" for example.
+    Image|contains:
+    - ':\Windows\System32\'
+    - ':\Windows\SysWOW64\'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potential tampering with the PowerShell execution policy, which can allow malicious actors to bypass script signing requirements. Attackers frequently leverage this capability to execute unauthorized scripts that may be designed for various purposes, including data exfiltration, lateral movement, or privilege escalation. By altering the execution policy to "Bypass" or "Unrestricted," the attacker may execute their scripts without restrictions, making detection and prevention significantly more difficult.
+
+  The relevant MITRE ATT&CK tactics associated with this behavior include **Defense Evasion** (TA0060), as the attempt to change the execution policy is a direct effort to escape detection. The associated techniques include **Application Layer Protocol** (T1071) and **Software Deployment Tools** (T1073), as unauthorized scripts may use legitimate tools and processes to execute malicious commands.
+
+  Primary data sources that can confirm this activity include **Windows Registry logs**, which record changes to execution policies, as well as **Event Logs** that track process creation events related to PowerShell.
+
+  ### Investigation Steps
+  - **Review Registry Logs**: Check for any modifications to the PowerShell execution policy registry keys located at `\ShellIds\Microsoft.PowerShell\ExecutionPolicy` and `\Policies\Microsoft\Windows\PowerShell\ExecutionPolicy` to identify unauthorized changes.
+  - **Analyze PowerShell Activity**: Investigate PowerShell logs for executions where the execution policy was set to "Bypass" or "Unrestricted." Pay special attention to any unusual or unexpected command sequences.
+  - **Inspect Process Creation Events**: Examine logs from the process creation events to see if the changes correlate with the launching of suspicious PowerShell processes (e.g., those originating from non-standard locations).
+  - **Correlate with User Behavior**: Assess user actions surrounding the time of the registry change to determine if legitimate administrative actions occurred, or whether there’s evidence of abnormal user behavior suggesting an attack.
+
+  ### Prioritization
+  Alerts for this detection rule should be considered medium priority due to the potential for significant impact. A successful bypass of script signing would allow an attacker to execute malicious scripts undetected, raising the urgency for immediate investigation, especially within environments where PowerShell is frequently utilized for automation and administrative tasks.
+
+  ### Blind Spots and Assumptions
+  There are inherent gaps in detection coverage, as this rule may not catch execution policy changes that occur without direct registry interaction, such as through Group Policy or in environments using PowerShell 7+ where configurations are managed via `powershell.config.json`. The detection logic assumes that logs are enabled for registry access and process creation and requires them to be retained for sufficient periods to capture potential tampering incidents. Without these logs, the rule may miss legitimate administrative changes conducted through authorized methods.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,71 @@
+title: Linux Command History Tampering
+id: fdc88d25-96fb-4b7c-9633-c0e417fdbd4e
+status: test
+description: |
+  Detects commands that try to clear or tamper with the Linux command history.
+  This technique is used by threat actors in order to evade defenses and execute commands without them being recorded in files such as "bash_history" or "zsh_history".
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1070.003/T1070.003.md
+- https://www.hackers-arise.com/post/2016/06/20/covering-your-bash-shell-tracks-antiforensics
+- https://www.cadosecurity.com/spinning-yarn-a-new-linux-malware-campaign-targets-docker-apache-hadoop-redis-and-confluence/
+author: Patrick Bareiss
+date: 2019-03-24
+modified: 2024-04-17
+tags:
+- attack.defense-evasion
+- attack.t1070.003
+# Example config for this one (place it in .bash_profile):
+#  (is_empty=false; inotifywait -m .bash_history | while read file; do if [ $(wc -l <.bash_history) -lt 1  ]; then if  [ "$is_empty" = false ]; then logger -i -p local5.info -t empty_bash_history "$USER : ~/.bash_history is empty "; is_empty=true; fi; else is_empty=false;  fi;  done ) &
+#  It monitors the size of .bash_history and log the words "empty_bash_history" whenever a previously not empty bash_history becomes empty
+#  We define an empty file as a document with 0 or 1 lines (it can be a line with only one space character for example)
+#  It has two advantages over the version suggested by Patrick Bareiss  :
+#    - it is not relative to the exact command used to clear .bash_history : for instance Caldera uses "> .bash_history" to clear the history and this is not one the commands listed here. We can't be exhaustive for all the possibilities !
+#    - the method suggested by Patrick Bareiss logs all the commands entered directly in a bash shell. therefore it may miss some events (for instance it doesn't log the commands launched from a Caldera agent). Here if .bash_history is cleared, it will always be detected
+logsource:
+  product: linux
+detection:
+  keywords:
+  - 'cat /dev/null >*sh_history'
+  - 'cat /dev/zero >*sh_history'
+  - 'chattr +i*sh_history'
+  - 'echo "" >*sh_history'
+  - 'empty_bash_history'
+  - 'export HISTFILESIZE=0'
+  - 'history -c'
+  - 'history -w'
+  - 'ln -sf /dev/null *sh_history'
+  - 'ln -sf /dev/zero *sh_history'
+  - 'rm *sh_history'
+  - 'shopt -ou history'
+  - 'shopt -uo history'
+  - 'shred *sh_history'
+  - 'truncate -s0 *sh_history'
+        # - 'unset HISTFILE'  # prone to false positives
+  condition: keywords
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potential tampering with Linux command history files. Attackers often employ techniques to clear or manipulate command history logs, such as `.bash_history` and `.zsh_history`, as a method of evading security measures and obscuring their actions on compromised systems. By using commands that manipulate or truncate these history files, a threat actor can execute malicious commands without leaving a trace, thereby hindering forensic investigations and incident response efforts.
+
+  The primary objectives for an attacker might include establishing persistent access, conducting lateral movement, or executing payloads without being recorded. Relevant MITRE ATT&CK techniques associated with this behavior include `T1070.003: Timestomp`, which focuses on defense evasion by manipulating timestamps and file properties. The attacker's ability to hide their activities effectively escalates the risk and potential damage to the organization's environment, necessitating a vigilant defensive posture.
+
+  The main data sources to investigate include process execution logs, shell command logs, and audit logs from logging mechanisms for shell activities. These logs provide insight into command invocations and modifications to history files, serving as critical evidence in identifying malicious tampering activities.
+
+  ### Investigation Steps
+  - **Review Command Execution Logs:** Analyze process creation events to identify any unauthorized or unusual commands related to clearing or modifying shell history files.
+
+  - **Inspect Shell History Files:** Locate and examine `.bash_history` and `.zsh_history` files to identify any unexpected modifications or truncations. Ensure that system logs can reveal if these files were altered during suspicious time frames.
+
+  - **Check for File System Integrity Changes:** Utilize file integrity monitoring tools to detect changes to critical files, including history files. Look for indicators that servers or endpoints are being manipulated to hide traces.
+
+  - **Correlate with User Login Activity:** Analyze user authentication and login activity to determine whether the command history manipulation correlates with unusual access patterns or unauthorized privilege escalations.
+
+  ### Prioritization
+  The severity of this alert is high due to its implications for ongoing attacks. Manipulating command history can indicate sophisticated evasion tactics that threaten the integrity of the organization's normal operations and security posture, making it crucial to investigate promptly.
+
+  ### Blind Spots and Assumptions
+  This detection may have gaps, particularly if log retention policies limit the timeframes for reviewing command history or if logging mechanisms are not standardized across systems. Additionally, the detection logic assumes that the command history files are being monitored correctly and that logs are enabled for all relevant shell activities. Required configurations include proper logging of command executions and monitoring for changes to history files, which must be validated in advance of rule deployment to ensure optimal effectiveness.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

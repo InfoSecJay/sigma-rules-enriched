@@ -1,0 +1,106 @@
+title: Cmd Launched with Hidden Start Flags to Suspicious Targets
+id: 5a6b7c8d-9e0f-1a2b-3c4d-5e6f7a8b9c0d
+status: experimental
+description: |
+  Detects cmd.exe executing commands with the "start" utility using "/b" (no window) or "/min" (minimized) flags.
+  To reduce false positives from standard background tasks, detection is restricted to scenarios where the target is a known script extension or located in suspicious temporary/public directories.
+  This technique was observed in Chaos, DarkSide, and Emotet malware campaigns.
+references:
+- https://www.fortinet.com/blog/threat-research/evolution-of-chaos-ransomware-faster-smarter-and-more-dangerous
+- https://www.fortinet.com/blog/threat-research/newly-discovered-function-in-darkside-ransomware-variant-targets-disk-partitions
+- https://www.fortinet.com/blog/threat-research/ms-office-files-involved-in-emotet-trojan-campaign-pt-one
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/start
+tags:
+- attack.defense-evasion
+- attack.t1564.003
+author: Vladan Sekulic, Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-01-24
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_cmd_img:
+  - Image|endswith: '\cmd.exe'
+  - OriginalFileName: 'Cmd.Exe'
+  selection_cmd_hidden_start_1:
+    CommandLine|contains|windash:
+    - 'start '
+    - 'start/b'
+    - 'start/min'
+  selection_cmd_hidden_start_2:
+    CommandLine|contains|windash:
+    - '/b '
+    - '/b"'
+    - '/min '
+    - '/min"'
+  selection_cli_uncommon_location:
+    CommandLine|contains:
+    - ':\Perflogs\'
+    - ':\Temp\'
+    - ':\Users\Default\'
+    - ':\Windows\Temp\'
+    - '\AppData\Roaming\'
+    - '\Contacts\'
+    - '\Documents\'
+    - '\Downloads\'
+    - '\Favorites\'
+    - '\Favourites\'
+    - '\inetpub\'
+    - '\Music\'
+    - '\Photos\'
+    - '\Temporary Internet\'
+    - '\Users\Public\'
+    - '\Videos\'
+  selection_cli_susp_extension:
+    CommandLine|contains:
+    - '.bat'
+    - '.cmd'
+    - '.cpl'
+    - '.hta'
+    - '.js'
+    - '.ps1'
+    - '.scr'
+    - '.vbe'
+    - '.vbs'
+  selection_cli_susp_pattern:
+    CommandLine|contains:
+    - ' -nop '
+    - ' -sta '
+    - '.downloadfile('         # PowerShell download command
+    - '.downloadstring('         # PowerShell download command
+    - '-noni '
+    - '-w hidden '
+  condition: all of selection_cmd_* and 1 of selection_cli_*
+falsepositives:
+- Legitimate administrative scripts running from temporary folders.
+- Niche software updaters utilizing hidden batch files in ProgramData.
+level: medium # Can be increased after an initial baseline and tuning
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_cmd_launched_with_hidden_start_flag/info.yml
+note: |
+  ### Technical Context
+  This detection rule identifies instances where `cmd.exe` is launched using the "start" command with hidden flags (either `/b` for no window or `/min` for minimized). This method has been commonly employed by various malware families, including Chaos, DarkSide, and Emotet, to execute commands surreptitiously. The rule is designed to minimize false positives by only alerting on commands targeting known script file extensions or located in suspicious directories such as `Temp`, `AppData`, or `Public`.
+
+  The likely attacker objectives revolve around stealthy execution of malicious payloads or scripts that could facilitate further compromise, persistence, or lateral movement within a network. Attackers might employ these tactics to evade detection while executing commands that could, for instance, download additional malware, escalate privileges, or manipulate system configurations.
+
+  Relevant MITRE ATT&CK tactics/techniques for this detection include:
+  - **Defense Evasion (T1564.003)**: "Hide Command or Data".
+
+  Primary data sources for evidence gathering include:
+  - Process creation logs, which can provide insight into command execution.
+  - Command line arguments logged at process invocation, revealing the commands and flags used.
+  - User activity logs or escalation attempts which may provide context around the execution of potentially harmful scripts.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Investigate the relevant process creation events for `cmd.exe` executions, focusing particularly on command lines that include the "start" utility with hidden flags.
+  - **Analyze Command Line Arguments**: Pay particular attention to command line patterns that could indicate scripted behavior or automation, such as those involving suspicious extensions (`.ps1`, `.vbs`, etc.) or embedded obfuscation flags.
+  - **Verify Script Source Locations**: Examine the directories from which these commands are being executed. Look for atypical source locations, such as temporary or public folders, which may indicate malicious intent.
+  - **Cross-Reference Known Threats**: If malware indicators related to Chaos, DarkSide, or Emotet are available, compare them against the logged command invocations for additional threat context.
+
+  ### Prioritization
+  This alert should be treated with medium priority within an enterprise environment due to the potential for stealthy command execution indicative of malicious activity, especially given the targets of known malware families.
+
+  ### Blind Spots and Assumptions
+  This detection may miss legitimate administrative tasks executed under the guise of automation or maintenance when using hidden command options in temporary folders. The rule assumes that appropriate logging mechanisms are in place to capture detailed command line arguments and process executions. Additionally, it relies on the identification of suspicious file extensions and directories; hence, modification of those artifacts or the use of non-standard directories could evade detection. Proper logging of both command-line arguments and process creation events is essential for the alert to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

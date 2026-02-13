@@ -1,0 +1,74 @@
+title: Meterpreter or Cobalt Strike Getsystem Service Installation - Security
+id: ecbc5e16-58e0-4521-9c60-eb9a7ea4ad34
+related:
+- id: 843544a7-56e0-4dcc-a44f-5cc266dd97d6
+  type: derived
+status: test
+description: Detects the use of getsystem Meterpreter/Cobalt Strike command by detecting
+  a specific service installation
+references:
+- https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+- https://blog.cobaltstrike.com/2014/04/02/what-happens-when-i-type-getsystem/
+author: Teymur Kheirkhabarov, Ecco, Florian Roth (Nextron Systems)
+date: 2019-10-26
+modified: 2023-11-15
+tags:
+- attack.defense-evasion
+- attack.privilege-escalation
+- attack.t1134.001
+- attack.t1134.002
+logsource:
+  product: windows
+  service: security
+  definition: The 'System Security Extension' audit subcategory need to be enabled
+    to log the EID 4697
+detection:
+  selection_eid:
+    EventID: 4697
+  selection_cli_cmd:
+        # meterpreter getsystem technique 1: cmd.exe /c echo 559891bb017 > \\.\pipe\5e120a
+        # cobaltstrike getsystem technique 1: %COMSPEC% /c echo 559891bb017 > \\.\pipe\5e120a
+        # cobaltstrike getsystem technique 1b (expanded %COMSPEC%): %COMSPEC% /c echo 559891bb017 > \\.\pipe\5e120a
+    ServiceFileName|contains|all:
+    - '/c'
+    - 'echo'
+    - '\pipe\'
+    ServiceFileName|contains:
+    - 'cmd'
+    - '%COMSPEC%'
+  selection_cli_rundll:
+        # meterpreter getsystem technique 2: rundll32.exe C:\Users\test\AppData\Local\Temp\tmexsn.dll,a /p:tmexsn
+    ServiceFileName|contains|all:
+    - 'rundll32'
+    - '.dll,a'
+    - '/p:'
+  selection_cli_share:
+    ServiceFileName|startswith: '\\\\127.0.0.1\\ADMIN$\'      # https://twitter.com/svch0st/status/1413688851877416960?lang=en
+  condition: selection_eid and 1 of selection_cli_*
+falsepositives:
+- Unlikely
+level: high
+note: |
+  ### Technical Context
+  This detection rule aims to identify the use of the `getsystem` command in Meterpreter and Cobalt Strike operations, which is commonly employed by attackers for privilege escalation in Windows environments. The `getsystem` command attempts to elevate the privileges of the session to that of the SYSTEM user, granting the attacker full access to the machine. Attackers likely aim to bypass user-level permissions and manipulate the system for further exploitation or lateral movement within the network. Effective use of this technique can significantly compromise system integrity and security.
+
+  The relevant MITRE ATT&CK tactics/techniques associated with this detection include:
+  - **Privilege Escalation (TA0004)**
+    - **GetSystem (T1134.001)**: Achieving SYSTEM privileges through various exploitation methods.
+    - **Service Execution (T1134.002)**: Utilizing the creation of services to execute arbitrary code with elevated privileges.
+
+  Primary data sources for this detection include Windows Security logs—specifically, Event ID 4697, which logs the creation of a new service, along with command line arguments that may indicate malicious activity.
+
+  ### Investigation Steps
+  - **Review Security Logs:** Check Windows Security Event ID 4697 for new service installations that could indicate the use of the `getsystem` command. Pay attention to the `ServiceFileName` field for suspicious patterns.
+  - **Analyze Command-Line Arguments:** Look for command lines that leverage `cmd.exe` or `rundll32.exe`, specifically those containing strings like `/c`, `echo`, `\pipe\`, and `.dll,a` which could suggest exploitation attempts.
+  - **Correlate with Other Events:** Use the SIEM to correlate the timing of newly created services with previous suspicious activities, such as unauthorized access attempts or reconnaissance behavior within the environment.
+  - **Investigate Network Connections:** If the creation of a service is detected from a shared path (`\\127.0.0.1\ADMIN$`), analyze any related SMB connections and the originating IP address to confirm if it's linked to known infrastructure.
+
+  ### Prioritization
+  This alert is classified as high severity due to the potential impact of privilege escalation, which can allow attackers to gain control over critical systems and perform unauthorized actions, increasing the risk to the integrity and availability of enterprise assets.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage if the `System Security Extension` audit subcategory is not enabled, as this would prevent Event ID 4697 from being logged. The detection logic assumes that the command executions remain straightforward and do not employ more sophisticated obfuscation techniques that could evade detection. Additionally, it relies heavily on proper configuration of logging and monitoring systems to ensure timely and accurate evidence collection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

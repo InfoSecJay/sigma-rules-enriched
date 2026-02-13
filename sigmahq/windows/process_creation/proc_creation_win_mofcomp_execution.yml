@@ -1,0 +1,70 @@
+title: Potential Suspicious Mofcomp Execution
+id: 1dd05363-104e-4b4a-b963-196a534b03a1
+status: test
+description: |
+  Detects execution of the "mofcomp" utility as a child of a suspicious shell or script running utility or by having a suspicious path in the commandline.
+  The "mofcomp" utility parses a file containing MOF statements and adds the classes and class instances defined in the file to the WMI repository.
+  Attackers abuse this utility to install malicious MOF scripts
+references:
+- https://thedfirreport.com/2022/07/11/select-xmrig-from-sqlserver/
+- https://github.com/The-DFIR-Report/Sigma-Rules/blob/75260568a7ffe61b2458ca05f6f25914efb44337/win_mofcomp_execution.yml
+- https://learn.microsoft.com/en-us/windows/win32/wmisdk/mofcomp
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-12
+modified: 2023-04-11
+tags:
+- attack.defense-evasion
+- attack.t1218
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith: '\mofcomp.exe'
+  - OriginalFileName: 'mofcomp.exe'
+  selection_case:
+  - ParentImage|endswith:
+    - '\cmd.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    - '\wsl.exe'
+    - '\wscript.exe'
+    - '\cscript.exe'
+  - CommandLine|contains:
+    - '\AppData\Local\Temp'
+    - '\Users\Public\'
+    - '\WINDOWS\Temp\'
+    - '%temp%'
+    - '%tmp%'
+    - '%appdata%'
+  filter_main_wmiprvse:
+    ParentImage: 'C:\Windows\System32\wbem\WmiPrvSE.exe'
+    CommandLine|contains: 'C:\Windows\TEMP\'
+    CommandLine|endswith: '.mof'
+  filter_optional_null_parent:
+        # Sometimes the parent information isn't available from the Microsoft-Windows-Security-Auditing provider.
+    CommandLine|contains: 'C:\Windows\TEMP\'
+    CommandLine|endswith: '.mof'
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule targets the execution of the `mofcomp` utility, which is used for compiling Managed Object Format (MOF) files into the Windows Management Instrumentation (WMI) repository. Attackers often exploit this legitimate tool to execute malicious scripts disguised as MOF files, potentially leading to unauthorized access and control over the system. The rule focuses on identifying suspicious invocations of `mofcomp` through potentially nefarious parent processes or problematic command-line arguments that indicate the use of temporary directories, often utilized for hiding malicious activities.
+
+  The possible adversary objectives may include executing payloads to establish persistence, escalate privileges, or execute unauthorized actions within a compromised environment — activities that fall under the MITRE ATT&CK framework tactics of Defense Evasion (TA0005) and Execution (TA0002). Techniques specifically related to this detection are T1218 ("System Binary Proxy Execution"), as malicious actors may use `mofcomp` to bypass traditional detection mechanisms while leveraging a trusted system binary. Primary evidence sources for this detection include process creation logs and command-line arguments that capture how executables are called.
+
+  ### Investigation Steps
+  - **Review Process Logs**: Analyze process creation logs to identify instances of `mofcomp.exe` being executed. Pay particular attention to the parent processes involved, compensating for any missing parent execution information.
+  - **Examine Command-Line Arguments**: Investigate the command-line arguments for `mofcomp` executions that contain suspicious file paths or temp directories (like `%temp%`, `%appdata%`, or direct references to `C:\Windows\TEMP\`).
+  - **Cross-Reference Parent Processes**: Validate the legitimacy of the calling process (e.g., `cmd.exe`, `powershell.exe`, etc.) to determine if the execution is consistent with expected administrative activity or indicates possible malicious behavior.
+  - **Collect WMI Logs**: If available, gather WMI-related logs to identify changes made to the WMI repository, tracking newly added classes or instances which may indicate malicious intent linked to the observed `mofcomp` execution.
+
+  ### Prioritization
+  Given that the misuse of the `mofcomp` utility typically indicates a malicious attempt to manipulate WMI for unauthorized control, this alert has high severity. The potential impact includes compromising sensitive systems with the capability for further lateral movement within the enterprise.
+
+  ### Blind Spots and Assumptions
+  Potential detection gaps may include scenarios where `mofcomp` is executed without proper logging enabled or where command lines are obscured through obfuscation techniques. The alert's logic assumes that the parent process information will be available for context; in some instances, this data may not be captured, particularly in environments with non-standard logging configurations. It is crucial that process creation logging is enabled and appropriately configured to ensure comprehensive visibility for this detection rule to function effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

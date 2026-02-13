@@ -1,0 +1,58 @@
+title: HackTool - HandleKatz Duplicating LSASS Handle
+id: b1bd3a59-c1fd-4860-9f40-4dd161a7d1f5
+status: test
+description: Detects HandleKatz opening LSASS to duplicate its handle to later dump
+  the memory without opening any new handles
+references:
+- https://github.com/codewhitesec/HandleKatz
+author: Bhabesh Raj (rule), @thefLinkk
+date: 2022-06-27
+modified: 2023-11-28
+tags:
+- attack.execution
+- attack.t1106
+- attack.defense-evasion
+- attack.t1003.001
+- attack.credential-access
+logsource:
+  category: process_access
+  product: windows
+detection:
+  selection:
+    TargetImage|endswith: '\lsass.exe'     # Theoretically, can be any benign process holding handle to LSASS
+    GrantedAccess: '0x1440'     # Only PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_QUERY_INFORMATION
+        # Example: C:\Windows\SYSTEM32\ntdll.dll+9d234\|UNKNOWN(00000000001C119B)
+    CallTrace|startswith: 'C:\Windows\System32\ntdll.dll+'
+    CallTrace|contains: '|UNKNOWN('
+    CallTrace|endswith: ')'
+  condition: selection
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the use of HandleKatz, a tool commonly employed by attackers to duplicate a handle to the Local Security Authority Subsystem Service (LSASS) process. By manipulating this handle, an adversary can dump the LSASS memory without generating new handles, thereby attempting to bypass security mechanisms that monitor for direct interactions with LSASS. The objective of this technique is typically to extract sensitive credentials stored in memory, which can then be utilized for further exploitation, including lateral movement within the network.
+
+  Relevant MITRE ATT&CK techniques associated with this detection rule include:
+  - **T1106**: Execution using a valid account
+  - **T1003.001**: Credential Dumping: LSASS Memory
+  - **Defense Evasion**
+
+  Primary data sources that would provide evidence for this rule include process access logs that capture the handle manipulation activities targeting the LSASS process, which can manifest through granted access types like `PROCESS_DUP_HANDLE` and `PROCESS_QUERY_INFORMATION`.
+
+  ### Investigation Steps
+  - **Review Process Access Logs**: Examine logs for any entries involving `lsass.exe`, specifically focusing on cases where the `GrantedAccess` value indicates handle duplication or limited querying rights.
+
+  - **Analyze Call Trace Data**: Investigate the call trace associated with the logged events to confirm that the access pattern matches attempts to read or duplicate LSASS handles, focusing on logs with `CallTrace` starting with `C:\Windows\System32\ntdll.dll+`.
+
+  - **Correlate with User Activity**: Determine if the events correlate with legitimate administrative actions or unusual user behavior that may indicate compromised credentials or unauthorized access attempts.
+
+  - **Check for Additional Anomalies**: Look for other red flags such as elevated privileges being used in conjunction with the detected handle duplication, which may suggest improper escalation tactics.
+
+  ### Prioritization
+  The alert is classified as high severity due to the critical nature of LSASS in storing sensitive authentication information. Successful exploitation can lead to credential dumping, which poses a significant threat to network security and can facilitate further malicious actions.
+
+  ### Blind Spots and Assumptions
+  One potential gap in detection coverage is the possibility of variations in how similar techniques may be executed beyond just those logged here, including other benign processes interacting with LSASS. This detection assumes that the sufficient logging of process access and handle manipulations is enabled and that no prior legitimate handles have been duplicated for valid purposes. Any misconfiguration in logging settings or lack of comprehensive process monitoring may hinder the alert's functionality.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

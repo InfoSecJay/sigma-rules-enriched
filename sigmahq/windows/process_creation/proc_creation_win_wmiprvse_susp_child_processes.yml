@@ -1,0 +1,88 @@
+title: Suspicious WmiPrvSE Child Process
+id: 8a582fe2-0882-4b89-a82a-da6b2dc32937
+related:
+- id: 692f0bec-83ba-4d04-af7e-e884a96059b6
+  type: similar
+- id: d21374ff-f574-44a7-9998-4a8c8bf33d7d
+  type: similar
+- id: 18cf6cf0-39b0-4c22-9593-e244bdc9a2d4
+  type: obsolete
+status: test
+description: Detects suspicious and uncommon child processes of WmiPrvSE
+references:
+- https://thedfirreport.com/2021/03/29/sodinokibi-aka-revil-ransomware/
+- https://github.com/vadim-hunter/Detection-Ideas-Rules/blob/02bcbfc2bfb8b4da601bb30de0344ae453aa1afe/Threat%20Intelligence/The%20DFIR%20Report/20210329_Sodinokibi_(aka_REvil)_Ransomware.yaml
+- https://blog.osarmor.com/319/onenote-attachment-delivers-asyncrat-malware/
+- https://twitter.com/ForensicITGuy/status/1334734244120309760
+author: Vadim Khrykov (ThreatIntel), Cyb3rEng, Florian Roth (Nextron Systems)
+date: 2021-08-23
+modified: 2023-11-10
+tags:
+- attack.execution
+- attack.defense-evasion
+- attack.t1047
+- attack.t1204.002
+- attack.t1218.010
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection_parent:
+    ParentImage|endswith: '\wbem\WmiPrvSE.exe'
+  selection_children_1:
+        # TODO: Add more LOLBINs or suspicious processes that make sens in your environment
+    Image|endswith:
+    - '\certutil.exe'
+    - '\cscript.exe'
+    - '\mshta.exe'
+    - '\msiexec.exe'
+    - '\regsvr32.exe'
+    - '\rundll32.exe'
+    - '\verclsid.exe'
+    - '\wscript.exe'
+  selection_children_2:
+        # This is in a separate selection due to the nature of FP generated with CMD
+    Image|endswith: '\cmd.exe'
+    CommandLine|contains:
+    - 'cscript'
+    - 'mshta'
+    - 'powershell'
+    - 'pwsh'
+    - 'regsvr32'
+    - 'rundll32'
+    - 'wscript'
+  filter_main_werfault:
+    Image|endswith: '\WerFault.exe'
+  filter_main_wmiprvse:
+    Image|endswith: '\WmiPrvSE.exe'     # In some legitimate case WmiPrvSE was seen spawning itself
+  filter_main_msiexec:
+    Image|endswith: '\msiexec.exe'
+    CommandLine|contains: '/i '
+  condition: selection_parent and 1 of selection_children_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the creation of uncommon child processes originating from the Windows Management Instrumentation (WMI) provider service, WmiPrvSE.exe. Malicious actors often exploit WMI to execute commands or payloads on victim systems, as it can bypass traditional security controls. The detection is primarily based on observing unusual process behavior, suggesting possible misuse of systems to execute scripts or download malware using familiar tools.
+
+  The threat scenario revolves around the exploitation of WMI by attackers to gain initial access or maintain persistence within a target environment. Attackers, such as those from the Sodinokibi/REvil ransomware group, may use similar techniques to execute malicious scripts that can facilitate lateral movement or deploy additional payloads. The MITRE ATT&CK tactics relevant to this detection include **Execution** (T1204.002 - User Execution: Malicious File), and **Defense Evasion** (T1047 - Windows Management Instrumentation).
+
+  The primary data source for this rule is the process creation events on Windows endpoints, which provide insights into parent-child process relationships and command lines executed, allowing for detection of these suspicious activities.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine Windows process creation logs to find instances of WmiPrvSE.exe spawning processes like certutil.exe, cscript.exe, or other listed executables. Look for unusual command-line arguments associated with these processes.
+
+  - **Analyze Parent-Child Relationships:** Investigate the parent-child relationship in the process tree to ascertain the legitimacy of processes spawned by WmiPrvSE.exe. Focus on identifying any other unexpected parent processes that might indicate compromise.
+
+  - **Correlate with Alerting Tools:** Use SIEM or EDR platforms to correlate alerts related to WmiPrvSE.exe with known malicious indicators or behaviors. Determine if similar findings have been observed across other systems within the network.
+
+  - **Check User Context:** Validate the user context under which the suspicious processes were executed. Identifying if these operations were initiated by high-privilege users or service accounts can provide additional insights into potential malicious intent.
+
+  ### Prioritization
+  The alert is considered high severity due to the potential for significant impact on the organization, including data exfiltration, network compromise, or complete system takeover. The likelihood is elevated, as malicious use of WMI for executing scripts is a common technique employed by advanced persistent threats and ransomware groups.
+
+  ### Blind Spots and Assumptions
+  This detection rule may not capture all instances of legitimate use of WMI, particularly in environments where WMI is heavily utilized for automation or management tasks. The detection logic assumes that processes commonly abused (such as those listed) will not be used legitimately in conjunction with WmiPrvSE.exe. Required logs include detailed process creation events, and configurations must ensure that such logs are enabled and appropriately retained for analysis.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

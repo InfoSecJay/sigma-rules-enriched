@@ -1,0 +1,117 @@
+title: Removal of Potential COM Hijacking Registry Keys
+id: 96f697b0-b499-4e5d-9908-a67bec11cdb6
+status: test
+description: |
+  Detects any deletion of entries in ".*\shell\open\command" registry keys.
+  These registry keys might have been used for COM hijacking activities by a threat actor or an attacker and the deletion could indicate steps to remove its tracks.
+references:
+- https://github.com/OTRF/detection-hackathon-apt29/issues/7
+- https://github.com/OTRF/ThreatHunter-Playbook/blob/2d4257f630f4c9770f78d0c1df059f891ffc3fec/docs/evals/apt29/detections/3.C.1_22A46621-7A92-48C1-81BF-B3937EB4FDC3.md
+- https://learn.microsoft.com/en-us/windows/win32/shell/launch
+- https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iexecutecommand
+- https://learn.microsoft.com/en-us/windows/win32/shell/shell-and-managed-code
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
+date: 2020-05-02
+modified: 2025-10-07
+tags:
+- attack.persistence
+- attack.defense-evasion
+- attack.t1112
+logsource:
+  product: windows
+  category: registry_delete
+detection:
+  selection:
+    TargetObject|endswith: '\shell\open\command'
+  filter_main_explorer:
+    Image|endswith: 'C:\Windows\explorer.exe'
+  filter_main_svchost:
+    Image: 'C:\Windows\system32\svchost.exe'
+  filter_main_msiexec:
+    Image:
+    - 'C:\Windows\System32\msiexec.exe'
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+  filter_main_generic_prorams:
+    Image|startswith:
+    - 'C:\Program Files\'
+    - 'C:\Program Files (x86)\'
+  filter_main_openwith:
+    Image: 'C:\Windows\System32\OpenWith.exe'
+  filter_optional_dropbox:
+    Image|endswith: '\Dropbox.exe'
+        # We don't use the HKCR anchor as it could be logged as a different variation (HKEY_CLASSES_ROOT)
+    TargetObject|contains: '\Dropbox.'
+  filter_optional_wireshark:
+    Image|endswith: '\AppData\Local\Temp\Wireshark_uninstaller.exe'
+        # We don't use the HKCR anchor as it could be logged as a different variation (HKEY_CLASSES_ROOT)
+    TargetObject|contains: '\wireshark-capture-file\'
+  filter_optional_peazip:
+    Image|contains: 'peazip'
+        # We don't use the HKCR anchor as it could be logged as a different variation (HKEY_CLASSES_ROOT)
+    TargetObject|contains: '\PeaZip.'
+  filter_optional_everything:
+    Image|endswith: '\Everything.exe'
+        # We don't use the HKCR anchor as it could be logged as a different variation (HKEY_CLASSES_ROOT)
+    TargetObject|contains: '\Everything.'
+  filter_optional_uninstallers:
+        # This image path is linked with different uninstallers when running as admin unfortunately
+    Image|startswith: 'C:\Windows\Installer\MSI'
+  filter_optional_java:
+    Image|startswith: 'C:\Program Files (x86)\Java\'
+    Image|endswith: '\installer.exe'
+    TargetObject|contains: '\Classes\WOW6432Node\CLSID\{4299124F-F2C3-41b4-9C73-9236B2AD0E8F}'
+  filter_optional_edgeupdate:
+    Image|contains: '\Microsoft\EdgeUpdate\Install'
+  filter_optional_avira:
+    Image:
+    - 'C:\Program Files (x86)\Avira\Antivirus\'
+    - 'C:\Program Files\Avira\Antivirus\'
+    TargetObject|endswith:
+    - '\CLSID\{305CA226-D286-468e-B848-2B2E8E697B74}\Shell\Open\Command'
+    - '\AntiVir.Keyfile\shell\open\command'
+  filter_optional_installer_temp:
+  - Image|contains|all:
+    - 'AppData\Local\Temp'
+    - '\setup.exe'
+  - Image|contains|all:
+    - '\Temp\is-'
+    - '\target.tmp'
+  filter_optional_ninite:
+    Image|endswith: '\ninite.exe'
+  filter_optional_discord:
+    Image|endswith: '\reg.exe'
+    TargetObject|endswith: '\Discord\shell\open\command'
+  filter_optional_spotify:
+    Image|endswith: '\Spotify.exe'
+    TargetObject|endswith: '\Spotify\shell\open\command'
+  filter_optional_eclipse:
+    Image|endswith: 'C:\eclipse\eclipse.exe'
+    TargetObject|contains: '_Classes\eclipse+'
+  filter_optional_teamviewer:
+    Image|contains|all:
+    - '\Temp'
+    - '\TeamViewer'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate software (un)installations are known to cause false positives. Please
+  add them as a filter when encountered
+level: medium
+note: |
+  ### Technical Context
+  This detection rule targets potential attempts to cover up COM hijacking activities by identifying deletions of registry entries within the `.*\shell\open\command` path. COM (Component Object Model) hijacking can allow attackers to gain control of how applications are launched on Windows systems, which can lead to malicious code execution. By removing specific registry keys, an attacker may aim to erase their tracks after compromising a system, thereby hindering detection efforts.
+
+  The relevant MITRE ATT&CK tactics associated with this behavior include **Persistence (T1547)** and **Defense Evasion (T1112)**, which highlights the use of registry modifications for malicious purposes and the intent to evade detection. The primary data source for this rule is registry deletion logs, specifically those capturing modifications to the Windows registry that are significant for application control.
+
+  ### Investigation Steps
+  - **Review Registry Deletion Logs**: Collect logs specifically for deletions in the registry paths related to `.*\shell\open\command` to detect potential malicious activity.
+  - **Analyze Process Execution**: Cross-reference registry deletion events with process creation events to identify any suspicious applications executing around the same time that may be involved in the deletion.
+  - **Examine Related Applications**: Look for any known legitimate applications that might be falsely triggering the detection and adjust filters accordingly to reduce false positives.
+  - **Conduct Additional Threat Intelligence Checks**: Investigate threat intelligence sources for any reported incidents or known malware families utilizing COM hijacking techniques, correlating the findings with the detection events.
+
+  ### Prioritization
+  Due to the high potential impact of a successful COM hijacking attack on enterprise environments and the likelihood of attackers using such methods to maintain persistence and evade detection, this alert is assigned medium severity. Prompt investigation is essential to determine if malicious activity has occurred.
+
+  ### Blind Spots and Assumptions
+  One significant gap in detection coverage is the possibility of legitimate software modifications yielding false positives, especially during application installations or updates. The detection logic assumes the presence of logs for all deletion activities in the targeted registry keys; if logging is improperly configured or missing, detection may fail. Additionally, sufficient context surrounding application behavior and system changes may be necessary to distinguish malicious intent from benign actions.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

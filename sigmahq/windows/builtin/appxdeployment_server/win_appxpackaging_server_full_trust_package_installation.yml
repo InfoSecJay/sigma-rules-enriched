@@ -1,0 +1,67 @@
+title: Windows AppX Deployment Full Trust Package Installation
+id: e54279c7-4910-4e2c-902c-c56a25b549f6
+status: experimental
+description: Detects the installation of MSIX/AppX packages with full trust privileges
+  which run with elevated privileges outside normal AppX container restrictions
+references:
+- https://www.splunk.com/en_us/blog/security/msix-weaponization-threat-detection-splunk.html
+author: Michael Haag, Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-11-03
+tags:
+- attack.defense-evasion
+- attack.execution
+- attack.t1204.002
+- attack.t1553.005
+logsource:
+  product: windows
+  service: appxdeployment-server
+detection:
+  selection:
+    EventID: 400
+    HasFullTrust: true
+  filter_main_legitpath:
+    PackageSourceUri|startswith:
+    - 'file:///C:/Program%20Files/'
+    - 'file:///C:/Program%20Files%20(x86)/'
+  filter_main_microsoft:
+  - PackageSourceUri|startswith: 'https://go.microsoft.com/fwlink/?linkid'
+  - PackageSourceUri|contains:
+    - '.cdn.microsoft.com'
+    - '.cdn.office.net/'
+  filter_main_callerprocess:
+    CallingProcess|startswith:
+    - 'sysprep.exe'
+    - 'svchost.exe,AppReadiness'
+  filter_optional_x_update:
+    PackageSourceUri|startswith: 'x-windowsupdate://'
+  filter_optional_microsoftclient:
+    PackageFullName|startswith: 'MicrosoftWindows.Client.'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Some legitimate applications installation which have been missed from filtering
+  can generate fps, thus baselining and tuning is recommended before deploying to
+  production
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the installation of MSIX/AppX packages with elevated full trust privileges, which run outside the boundaries of normal AppX container restrictions. The potential threat scenario involves an attacker using these packages to exploit elevated privileges on Windows systems, thereby gaining unauthorized access to sensitive data or potentially compromising the integrity of the operating system. Attackers may leverage this capability to deploy malicious applications disguised as benign software, facilitating persistence and lateral movement within the environment.
+
+  Relevant MITRE ATT&CK techniques associated with this behavior include:
+  - **Execution: User Execution (T1204.002)** - Exploiting user interaction to execute malicious applications.
+  - **Defense Evasion: MSIX Weaponization (T1553.005)** - Utilizing the weaponization of MSIX packages to evade defenses and execute malicious content.
+
+  Primary sources of telemetry for detecting this behavior include logs from the AppX Deployment Server, specifically focused on Event ID 400, as it records details on AppX package installations and their characteristics, including trust levels and source URIs.
+
+  ### Investigation Steps
+  - **Review Event Logs**: Investigate Event ID 400 logs from the AppX Deployment Server to identify instances of MSIX/AppX packages being installed with full trust privileges.
+  - **Analyze Package Sources**: Examine the `PackageSourceUri` of the installed applications to ensure that they originate from trusted sources; look for URIs that do not match the expected legitimate paths.
+  - **Inspect Calling Processes**: Check the `CallingProcess` associated with the installation events. Notable processes like `sysprep.exe` and `svchost.exe` should raise suspicion if they are involved in unusual package installations.
+  - **Validate Installed Applications**: Compare installed applications to a whitelist of approved MSIX/AppX packages to help identify unauthorized or potentially malicious installations.
+
+  ### Prioritization
+  The alert is classified as medium severity due to the potential for elevated privileges to lead to significant security incidents if exploited. The likelihood of this type of attack occurring is increasing as attackers continue to leverage legitimate tools and applications for malicious purposes.
+
+  ### Blind Spots and Assumptions
+  This detection rule may not cover all potential attack vectors, as some malicious MSIX/AppX installations may originate from less common sources, leading to false negatives. The logic assumes that legitimate applications that fall outside the defined filtering criteria are malicious, which could generate false positives. For the detection to function effectively, it requires proper logging from the AppX Deployment Server and a baseline of legitimate application behavior to differentiate between benign and malicious activity.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

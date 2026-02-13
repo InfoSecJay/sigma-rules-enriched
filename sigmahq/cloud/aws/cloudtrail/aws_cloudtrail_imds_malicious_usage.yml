@@ -1,0 +1,59 @@
+title: Malicious Usage Of IMDS Credentials Outside Of AWS Infrastructure
+id: 352a918a-34d8-4882-8470-44830c507aa3
+status: test
+description: |
+  Detects when an instance identity has taken an action that isn't inside SSM.
+  This can indicate that a compromised EC2 instance is being used as a pivot point.
+references:
+- https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-identity-roles.html
+- https://ermetic.com/blog/aws/aws-ec2-imds-what-you-need-to-know/
+- https://www.packetmischief.ca/2023/07/31/amazon-ec2-credential-exfiltration-how-it-happens-and-how-to-mitigate-it/#lifting-credentials-from-imds-this-is-why-we-cant-have-nice-things
+author: jamesc-grafana
+date: 2024-07-11
+tags:
+- attack.privilege-escalation
+- attack.defense-evasion
+- attack.initial-access
+- attack.persistence
+- attack.t1078
+- attack.t1078.002
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    userIdentity.arn|re: '.+:assumed-role/aws:.+'
+  filter_main_generic:
+  - eventSource: 'ssm.amazonaws.com'
+  - eventName: 'RegisterManagedInstance'
+  - sourceIPAddress: 'AWS Internal'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- A team has configured an EC2 instance to use instance profiles that grant the option
+  for the EC2 instance to talk to other AWS Services
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies potentially malicious usage of AWS Instance Metadata Service (IMDS) credentials when an EC2 instance performs actions outside the expected scope of AWS Systems Manager (SSM). The primary threat scenario involves an attacker who has compromised an EC2 instance and is leveraging its permissions to access AWS services, potentially moving laterally within the organization's infrastructure or exfiltrating data. The attacker may aim to exploit the privileges associated with the instance to escalate accesses, maintain persistence, or gather sensitive information.
+
+  Relevant MITRE ATT&CK tactics and techniques associated with this activity include:
+  - **Initial Access (TA0001)**: Gaining initial access through exploiting vulnerabilities in cloud environments.
+  - **Privilege Escalation (TA0004)**: Taking advantage of the EC2 instance's roles to access sensitive resources.
+  - **Persistence (TA0003)**: Maintaining access through the EC2 instance's identity.
+  - **Command and Control (TA0011)**: Utilizing compromised instances as pivot points for command and control operations.
+
+  The primary data sources for this detection include **AWS CloudTrail logs**, which provide detailed records of API calls made within the AWS environment, including those involving SSM and IMDS.
+
+  ### Investigation Steps
+  - **Review CloudTrail Logs**: Check the CloudTrail logs for events made by the user identity associated with the EC2 instance, specifically looking for actions taken outside SSM context.
+  - **Analyze Event Sources and Actions**: Focus on the eventSource field to ensure that the actions initiated are legitimate AWS operations, and identify any calls that occur with the potential misuse of IMDS credentials.
+  - **Correlate with Network Traffic**: Inspect network traffic logs to observe any requests being made from the EC2 instance to external endpoints, which may indicate attempts to exfiltrate data or reach out to command and control servers.
+  - **Investigate EC2 Instance Roles and Permissions**: Evaluate the IAM roles and policies attached to the EC2 instance to understand the scope of its permissions and identify any excessive privileges that may lead to security risks.
+
+  ### Prioritization
+  The alert is rated as high severity due to the significant risk posed by compromised EC2 instances potentially facilitating lateral movement, privilege escalation, and data exfiltration within the AWS cloud environment. Given the critical nature of resources often exposed in these scenarios, prompt investigation is essential.
+
+  ### Blind Spots and Assumptions
+  A potential gap in detection coverage may arise if instances are configured to legitimately interact with other AWS services, which could lead to false positives. The detection logic assumes that such interactions are only valid when occurring within the expected contexts of SSM. Additionally, logging configurations must ensure that all relevant CloudTrail events are captured, especially those relating to actions taken by managed instances. If CloudTrail logs are not enabled or not comprehensive, the detection may miss essential telemetry for effective investigation.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,81 @@
+title: Conhost Spawned By Uncommon Parent Process
+id: cbb9e3d1-2386-4e59-912e-62f1484f7a89
+status: test
+description: Detects when the Console Window Host (conhost.exe) process is spawned
+  by an uncommon parent process, which could be indicative of potential code injection
+  activity.
+references:
+- https://www.elastic.co/guide/en/security/current/conhost-spawned-by-suspicious-parent-process.html
+author: Tim Rauch, Elastic (idea)
+date: 2022-09-28
+modified: 2025-03-06
+tags:
+- attack.execution
+- attack.t1059
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\conhost.exe'
+    ParentImage|endswith:
+    - '\explorer.exe'
+            # - '\csrss.exe'  # Legitimate parent as seen in EchoTrail https://www.echotrail.io/insights/search/csrss.exe
+            # - '\ctfmon.exe'  # Seen several times in a testing environment
+            # - '\dllhost.exe'  # FP on clean system from grandparent 'svchost.exe -k DcomLaunch -p'
+    - '\lsass.exe'
+    - '\regsvr32.exe'
+    - '\rundll32.exe'
+    - '\services.exe'
+    - '\smss.exe'
+    - '\spoolsv.exe'
+    - '\svchost.exe'
+    - '\userinit.exe'
+            # - '\wermgr.exe'  # Legitimate parent as seen in EchoTrail https://www.echotrail.io/insights/search/wermgr.exe
+    - '\wininit.exe'
+    - '\winlogon.exe'
+  filter_main_svchost:
+    ParentCommandLine|contains:
+    - '-k apphost -s AppHostSvc'
+    - '-k imgsvc'
+    - '-k localService -p -s RemoteRegistry'
+    - '-k LocalSystemNetworkRestricted -p -s NgcSvc'
+    - '-k NetSvcs -p -s NcaSvc'
+    - '-k netsvcs -p -s NetSetupSvc'
+    - '-k netsvcs -p -s wlidsvc'
+    - '-k NetworkService -p -s DoSvc'
+    - '-k wsappx -p -s AppXSvc'
+    - '-k wsappx -p -s ClipSVC'
+    - '-k wusvcs -p -s WaaSMedicSvc'
+  filter_optional_dropbox:
+    ParentCommandLine|contains:
+    - 'C:\Program Files (x86)\Dropbox\Client\'
+    - 'C:\Program Files\Dropbox\Client\'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: medium
+note: |
+  ### Technical Context
+  This detection rule is designed to identify instances where the Console Window Host process (`conhost.exe`) is spawned by an uncommon parent process. This behavior can signify potential code injection or other malicious activity, particularly as `conhost.exe` is typically spawned by benign processes such as Windows Explorer or legitimate services. Attackers may utilize code injection techniques to execute payloads discreetly, leveraging `conhost.exe` to avoid detection by traditional security measures.
+
+  The likely attacker objective in this scenario is to execute arbitrary commands in a stealthy manner, potentially leading to further compromise of the system or lateral movement within the network. Relevant MITRE ATT&CK tactics and techniques include Execution (TA0002), particularly technique T1059, which encompasses command-line execution that may be leveraged during exploitation activities.
+
+  The primary data sources that will contain actionable evidence for this rule include process creation events, which document the relationships between processes, as well as command line execution logs that can provide context on how the `conhost.exe` was triggered.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Examine process creation events to identify instances of `conhost.exe` being spawned, specifically noting the parent process and command line arguments in relation to the suspicious patterns outlined in the detection rule.
+
+  - **Analyze Parent Process Details**: For each detected `conhost.exe` spawn, investigate the parent process to determine its legitimacy. Pay particular attention to parents such as `lsass.exe`, `svchost.exe`, or `rundll32.exe`, which are not common for spawning `conhost.exe`.
+
+  - **Inspect Command Line Arguments**: Check for command line arguments associated with the parent processes. Specific flags within the command can offer insights into potentially malicious behaviors—look for known commands often exploited in attacks (e.g., those related to Windows services).
+
+  - **Cross-reference with Threat Intelligence**: Utilize threat intelligence feeds to augment investigation efforts. Compare the behavior of the identified processes against known indicators of compromise (IOCs) from threat actors utilizing code injection methodologies.
+
+  ### Prioritization
+  This alert is considered medium severity in an enterprise environment due to the potential risk it poses. While not every instance of `conhost.exe` may indicate malicious activity, spawning from uncommon parent processes warrants prompt investigation, as it can signify a broader security incident.
+
+  ### Blind Spots and Assumptions
+  One potential gap in detection coverage lies in the reliance on certain parent processes that might change based on specific environment configurations or software installations—if unusual software employs similar behaviors, it may lead to false negatives or positives. The detection logic assumes that not all rare parent processes indicate malignancy; thus, additional context is necessary for accurate threat assessment. Furthermore, this alert requires comprehensive process creation logging to be enabled; if logs are not retained or are incomplete, the capabilities of this detection will be hindered.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

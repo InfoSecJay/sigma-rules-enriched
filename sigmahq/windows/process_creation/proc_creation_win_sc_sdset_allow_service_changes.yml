@@ -1,0 +1,65 @@
+title: Allow Service Access Using Security Descriptor Tampering Via Sc.EXE
+id: 6c8fbee5-dee8-49bc-851d-c3142d02aa47
+related:
+- id: a537cfc3-4297-4789-92b5-345bfd845ad0     # Generic SD tampering
+  type: similar
+status: test
+description: Detects suspicious DACL modifications to allow access to a service from
+  a suspicious trustee. This can be used to override access restrictions set by previous
+  ACLs.
+references:
+- https://twitter.com/0gtweet/status/1628720819537936386
+- https://itconnect.uw.edu/tools-services-support/it-systems-infrastructure/msinf/other-help/understanding-sddl-syntax/
+- https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-strings
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-02-28
+modified: 2025-10-22
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1543.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_sc:
+  - Image|endswith: '\sc.exe'
+  - OriginalFileName: 'sc.exe'
+  selection_sdset:
+    CommandLine|contains|all:
+    - 'sdset'
+    - 'A;'         # Allow Access
+  selection_trustee:
+    CommandLine|contains:
+    - ';IU'         # Interactively logged-on user
+    - ';SU'         # Service logon user
+    - ';BA'         # Built-in administrators
+    - ';SY'         # Local system
+    - ';WD'         # Everyone
+  filter_optional_hexnode:
+    ParentImage: 'C:\Hexnode\Hexnode Agent\Current\HexnodeAgent.exe'
+  condition: all of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies suspicious modifications to the Discretionary Access Control List (DACL) of Windows services through the use of the `sc.exe` command. Attackers may attempt to exploit these modifications to elevate privileges or maintain persistence by granting unauthorized access to a service. By tampering with security descriptors, they can override previously set access restrictions, allowing potentially malicious or unwanted users to interact with sensitive services.
+
+  The threat scenario generally involves an attacker positioning themselves to gain higher privileges within a system by leveraging the built-in administrative capabilities of Windows. This behavior aligns with the MITRE ATT&CK techniques for privilege escalation and persistence, specifically T1543.003 (Create or Modify System Process: Windows Services). Analysts should focus on identifying actions where a seemingly legitimate process is manipulated to create new attack surfaces or reinforce existing ones.
+
+  The primary data sources that will provide valuable insights include process creation events, particularly those related to `sc.exe`, which is indicative of service control commands, and Windows security logs that track modifications to DACLs.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine logs for process creation events tied to `sc.exe`. Ensure to filter for the original filename to verify the integrity of the process.
+  - **Analyze Command Line Arguments:** Scrutinize the command line parameters used with `sc.exe`, particularly for any instances of `sdset` combined with permission granting identifiers (e.g., `;IU`, `;SU`, `;BA`, `;SY`, or `;WD`).
+  - **Investigate Service Access Modifications:** Look into the security descriptor settings of the affected service to identify unauthorized changes to DACLs, focusing on modifications that appear atypical when compared to baseline configurations.
+  - **Check for Parent Process Relationships:** Determine if a suspicious parent process, such as `HexnodeAgent.exe`, is involved in the execution of `sc.exe` commands that manipulate service DACLs to assess potential command and control activities.
+
+  ### Prioritization
+  The alert's severity is considered high due to the potential impact of unauthorized service access and privilege escalation, which could lead to extensive system compromise and data exfiltration. This risk is amplified by the likelihood of adversaries employing these tactics in an enterprise environment.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited if logging for process creation events is not enabled or if certain command executions are obfuscated. The detection logic assumes that unauthorized modifications to service DACLs will be made through common and recognizable command line constructs using `sc.exe`. Additionally, necessary configurations include the enablement of detailed process logging and the collection of Windows Security Event logs, which are crucial for tracking security descriptor modifications.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

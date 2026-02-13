@@ -1,0 +1,52 @@
+title: Bpfdoor TCP Ports Redirect
+id: 70b4156e-50fc-4523-aa50-c9dddf1993fc
+status: test
+description: |
+  All TCP traffic on particular port from attacker is routed to different port. ex. '/sbin/iptables -t nat -D PREROUTING -p tcp -s 192.168.1.1 --dport 22 -j REDIRECT --to-ports 42392'
+  The traffic looks like encrypted SSH communications going to TCP port 22, but in reality is being directed to the shell port once it hits the iptables rule for the attacker host only.
+references:
+- https://www.sandflysecurity.com/blog/bpfdoor-an-evasive-linux-backdoor-technical-analysis/
+- https://www.elastic.co/security-labs/a-peek-behind-the-bpfdoor
+author: Rafal Piasecki
+date: 2022-08-10
+tags:
+- attack.defense-evasion
+- attack.t1562.004
+logsource:
+  product: linux
+  service: auditd
+detection:
+  cmd:
+    type: 'EXECVE'
+    a0|endswith: 'iptables'
+    a1: '-t'
+    a2: 'nat'
+  keywords:
+  - '--to-ports 42'
+  - '--to-ports 43'
+  condition: cmd and keywords
+falsepositives:
+- Legitimate ports redirect
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies potential malicious redirection of TCP traffic using the Linux `iptables` command, specifically targeting configurations that reroute incoming connections from commonly used ports (e.g., SSH) to an attacker-controlled port. An attacker may employ this technique to stealthily capture or manipulate network traffic, masquerading malicious activity as legitimate sessions. The goal is to gain unauthorized access or exfiltrate data without detection.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion (T1562)**, particularly the sub-technique **T1562.004 (Network Traffic Redirection)**. The technique represents a common tactic used by attackers to evade detection systems and maintain access while obscuring their activities. Primary data sources for detection include logs from the **Linux audit framework (auditd)**, which captures command execution events that involve the `iptables` command.
+
+  ### Investigation Steps
+  - **Review Audit Logs:** Check the `auditd` logs for any instances of the `iptables` command being executed, particularly focusing on entries that utilize the `-t nat` option and include `--to-ports`. Pay special attention to any unusual source IPs or requests to common ports.
+
+  - **Trace Network Connections:** Utilize network monitoring tools to analyze live network traffic for any suspicious redirection patterns. Look for outgoing connections on ports typically associated with legitimate services (e.g., port 22 for SSH) that could instead be targeting an unusual destination.
+
+  - **Analyze System Configurations:** Inspect the configuration of `iptables` on the host to identify any atypical rules that have been added recently or that reroute specific ports. Document and compare these rules with expected baseline configurations.
+
+  - **Correlate with Other Logs:** Cross-reference the findings from audit logs with other telemetry data sources, such as application logs or intrusion detection system (IDS) alerts, to identify any concurrent suspicious activities that may indicate exploitation by an attacker.
+
+  ### Prioritization
+  The severity of this alert is medium in an enterprise environment, given that successful TCP port redirection can lead to unauthorized access and data breaches. The likelihood of detection is moderate since such tactics can be concealed within legitimate network traffic, presenting a continuous risk to security.
+
+  ### Blind Spots and Assumptions
+  This detection logic may miss instances of legitimate port redirection configured by network administrators for valid purposes, leading to potential false positives. Additionally, it assumes all command executions related to `iptables` are logged appropriately by the audit system. If audit logging is not uniformly configured or missing from certain systems, detection will not function effectively. Proper configuration of the auditd service and monitoring all relevant command execution logs are critical for ensuring comprehensive coverage.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

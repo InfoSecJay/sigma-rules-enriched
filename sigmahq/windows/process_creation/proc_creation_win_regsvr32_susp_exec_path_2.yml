@@ -1,0 +1,86 @@
+title: Regsvr32 Execution From Highly Suspicious Location
+id: 327ff235-94eb-4f06-b9de-aaee571324be
+status: test
+description: Detects execution of regsvr32 where the DLL is located in a highly suspicious
+  locations
+references:
+- Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2023-05-26
+tags:
+- attack.defense-evasion
+- attack.t1218.010
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith: '\regsvr32.exe'
+  - OriginalFileName: 'REGSVR32.EXE'
+  selection_path_1:
+    CommandLine|contains:
+    - ':\PerfLogs\'
+    - ':\Temp\'
+    - '\Windows\Registration\CRMLog'
+    - '\Windows\System32\com\dmp\'
+    - '\Windows\System32\FxsTmp\'
+    - '\Windows\System32\Microsoft\Crypto\RSA\MachineKeys\'
+    - '\Windows\System32\spool\drivers\color\'
+    - '\Windows\System32\spool\PRINTERS\'
+    - '\Windows\System32\spool\SERVERS\'
+    - '\Windows\System32\Tasks_Migrated\'
+    - '\Windows\System32\Tasks\Microsoft\Windows\SyncCenter\'
+    - '\Windows\SysWOW64\com\dmp\'
+    - '\Windows\SysWOW64\FxsTmp\'
+    - '\Windows\SysWOW64\Tasks\Microsoft\Windows\PLA\System\'
+    - '\Windows\SysWOW64\Tasks\Microsoft\Windows\SyncCenter\'
+    - '\Windows\Tasks\'
+    - '\Windows\Tracing\'
+  selection_path_2:
+    CommandLine|contains:
+            # This is to avoid collisions with CLI starting with "C:\"
+    - ' "C:\'
+    - ' C:\'
+    - " 'C:\\"
+    - 'D:\'
+  selection_exclude_known_dirs:
+    CommandLine|contains:
+            # Note: add additional locations that are related to third party applications
+    - 'C:\Program Files (x86)\'
+    - 'C:\Program Files\'
+    - 'C:\ProgramData\'
+    - 'C:\Users\'
+            # Note: The space added here are to avoid collisions with the "regsvr32" binary full path
+    - ' C:\Windows\'
+    - ' "C:\Windows\'
+    - " 'C:\\Windows\\"
+  filter_main_empty:
+    CommandLine: ''
+  filter_main_null:
+    CommandLine:
+  condition: selection_img and (selection_path_1 or (selection_path_2 and not selection_exclude_known_dirs))
+    and not 1 of filter_main_*
+falsepositives:
+- Unlikely
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies attempts to execute `regsvr32.exe` from locations deemed highly suspicious within a Windows environment. `regsvr32.exe` is a legitimate Windows tool used to register and unregister OLE (Object Linking and Embedding) controls, primarily DLL files. However, attackers may exploit this tool for malicious purposes, such as loading malicious DLLs from uncommon paths to evade detection by traditional security solutions.
+
+  The typical threat scenario involves an adversary using `regsvr32.exe` to execute a malicious payload, potentially as part of a larger attack strategy aimed at establishing persistence, moving laterally within the network, or executing code remotely. The attacker might leverage this behavior to bypass common security measures that monitor typical application paths for unauthorized activity. The relevant MITRE ATT&CK techniques include **Defense Evasion (TA0005)** and **User Execution (T1203)** as adversaries seek to use trusted system binaries for execution. The specific technique related to this rule is **Regsvr32 (T1218.010)**.
+
+  Primary data sources for this detection include process creation events that capture command-line execution details, allowing for the identification of unusual execution paths and the assessment of whether the command line contains DLL registrations from non-standard directories.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs**: Analyze recent logs for instances of `regsvr32.exe` execution, focusing on command-line arguments that reveal the paths from which the execution originated.
+  - **Examine Suspicious Directories**: Investigate the contents of the directories listed in the detection logic (e.g., `C:\PerfLogs\`, `C:\Temp\`) to determine if any DLLs or artifacts appear suspicious or indicative of compromise.
+  - **Check for Persistence Mechanisms**: Look for scheduled tasks or startup entries that reference `regsvr32.exe` or any associated DLLs, particularly in non-traditional locations, which could indicate an attempt to maintain persistence within the environment.
+  - **Cross-reference with Known Threats**: Utilize threat intelligence sources to compare any identified DLLs with known malicious samples or threat actor methodologies to assess potential risk.
+
+  ### Prioritization
+  The alert is classified as high severity due to the potential impact of unauthorized code execution and the likelihood of compromise when `regsvr32.exe` is executed from suspicious locations. Successful exploitation could lead to data loss, lateral movement, or further escalation within the network.
+
+  ### Blind Spots and Assumptions
+  One notable gap in detection coverage can arise from scenarios where `regsvr32.exe` is invoked from legitimate paths, especially when used correctly for administrative purposes. The detection logic assumes that any execution from specified suspicious directories merits attention and potential malice. Adequate logging must be enabled for process creation events, and the detection must be fine-tuned to minimize false positives from legitimate administrative actions that may involve `regsvr32.exe`.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,0 +1,89 @@
+title: Copy From Or To Admin Share Or Sysvol Folder
+id: 855bc8b5-2ae8-402e-a9ed-b889e6df1900
+status: test
+description: Detects a copy command or a copy utility execution to or from an Admin
+  share or remote
+references:
+- https://twitter.com/SBousseaden/status/1211636381086339073
+- https://drive.google.com/file/d/1lKya3_mLnR3UQuCoiYruO3qgu052_iS_/view
+- https://www.elastic.co/guide/en/security/current/remote-file-copy-to-a-hidden-share.html
+- https://www.microsoft.com/en-us/security/blog/2022/10/18/defenders-beware-a-case-for-post-ransomware-investigations/
+author: Florian Roth (Nextron Systems), oscd.community, Teymur Kheirkhabarov @HeirhabarovT,
+  Zach Stanford @svch0st, Nasreddine Bencherchali
+date: 2019-12-30
+modified: 2025-10-22
+tags:
+- attack.lateral-movement
+- attack.collection
+- attack.exfiltration
+- attack.t1039
+- attack.t1048
+- attack.t1021.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_target:
+    CommandLine|contains:
+    - '\\\\*\\*$'         # example \\SVR_NAME\ADMIN$
+    - '\Sysvol\'
+  selection_other_tools:
+  - Image|endswith:
+    - '\robocopy.exe'
+    - '\xcopy.exe'
+  - OriginalFileName:
+    - 'robocopy.exe'
+    - 'XCOPY.EXE'
+  selection_cmd_img:
+  - Image|endswith: '\cmd.exe'
+  - OriginalFileName: 'Cmd.Exe'
+  selection_cmd_cli:
+    CommandLine|contains: 'copy'
+  selection_pwsh_img:
+  - Image|contains:
+    - '\powershell_ise.exe'
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'powershell_ise.exe'
+    - 'PowerShell.EXE'
+    - 'pwsh.dll'
+  selection_pwsh_cli:
+    CommandLine|contains:
+    - 'copy-item'
+    - 'copy '
+    - 'cpi '
+    - ' cp '
+    - 'move '
+    - ' move-item'
+    - ' mi '
+    - ' mv '
+  condition: selection_target and (selection_other_tools or all of selection_cmd_*
+    or all of selection_pwsh_*)
+falsepositives:
+- Administrative scripts
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies attempts to copy files to or from administrative shares (like ADMIN$ or SYSVOL) on Windows systems, which could indicate a lateral movement, data exfiltration, or collection activity by an attacker. Attackers often leverage these administrative shares for unauthorized access to sensitive data or to move laterally within a network, aiming to escalate privileges or perform reconnaissance. The successful use of this technique could compromise user data or lead to further exploitation of the network environment.
+
+  Relevant MITRE ATT&CK techniques include Lateral Movement (T1021.002) for using administrative shares, Collection (T1039) for gathering files, and Exfiltration Over Command and Control Channel (T1048), although data exfiltration here may be focused on internal data movement rather than external transfer, depending on the context. This highlights the risk of misusing trusted administrative tools by unauthorized parties.
+
+  Primary data sources for this detection include process creation events, which log executed commands and applications, as well as file share access logs if available. The rule specifically analyzes command-line execution patterns that involve copying operations directed at sensitive share locations.
+
+  ### Investigation Steps
+  - **Review Process Creation Events:** Check for any `cmd.exe`, `PowerShell`, `robocopy`, or `xcopy` processes that show evidence of copying files to or from ADMIN$ or SYSVOL shares. Pay attention to the full command-line used for execution.
+
+  - **Analyze Command-Line Arguments:** Look for command-line arguments associated with file copy commands (e.g., `copy`, `copy-item`, or `move`) that involve access to administrative shares. Consider the context of the process initiator.
+
+  - **Inspect Access Logs for Administrative Shares:** If possible, review logs from the administrative shares to determine the source, destination, and timing of access. Look for unexpected use or patterns that fall outside normal administrative activities.
+
+  - **Correlate with User Activity:** Cross-reference with user activity logs to check if access attempts align with specific tasks typical for administrative users. Unusual access by non-administrative accounts should be flagged for further scrutiny.
+
+  ### Prioritization
+  This alert should be considered medium to high severity in enterprise environments due to the potential risk of lateral movement and data exfiltration. Unauthorized access to administrative shares can indicate a significant security breach and should be treated with a sense of urgency, particularly if identified in a sensitive environment or during critical operational hours.
+
+  ### Blind Spots and Assumptions
+  Detection coverage may be limited if appropriate logging settings are not enabled on both endpoints and file share access. The rule assumes that the command-line execution data is preserved and accessible for analysis. Additionally, false positives may arise from legitimate administrative scripts or authorized maintenance activities, which necessitate a contextual review of the alerts. It’s critical that logs from the administrative shares are maintained and monitored to realize the full potential of this detection logic.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

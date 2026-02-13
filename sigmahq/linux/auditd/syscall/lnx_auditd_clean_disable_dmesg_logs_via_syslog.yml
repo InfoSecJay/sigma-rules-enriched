@@ -1,0 +1,62 @@
+title: Clear or Disable Kernel Ring Buffer Logs via Syslog Syscall
+id: eca5e022-d368-4043-98e5-9736fb01f72f
+status: experimental
+description: |
+  Detects the use of the `syslog` syscall with action code 5 (SYSLOG_ACTION_CLEAR),
+  (4 is SYSLOG_ACTION_READ_CLEAR and 6 is SYSLOG_ACTION_CONSOLE_OFF) which clears the kernel
+  ring buffer (dmesg logs). This can be used by attackers to hide traces after exploitation
+  or privilege escalation. A common technique is running `dmesg -c`, which triggers this syscall internally.
+references:
+- https://man7.org/linux/man-pages/man2/syslog.2.html
+- https://man7.org/linux/man-pages/man1/dmesg.1.html
+author: Milad Cheraghi
+date: 2025-05-27
+modified: 2025-12-05
+tags:
+- attack.defense-evasion
+- attack.t1070.002
+logsource:
+  product: linux
+  service: auditd
+  definition: |
+    Required auditd configuration:
+    -a always,exit -F arch=b64 -S syslog -F a0=4 -k clear_dmesg_logs
+    -a always,exit -F arch=b64 -S syslog -F a0=5 -k clear_dmesg_logs
+    -a always,exit -F arch=b64 -S syslog -F a0=6 -k disable_dmesg_logs
+    -a always,exit -F arch=b32 -S syslog -F a0=4 -k clear_dmesg_logs
+    -a always,exit -F arch=b32 -S syslog -F a0=5 -k clear_dmesg_logs
+    -a always,exit -F arch=b32 -S syslog -F a0=6 -k disable_dmesg_logs
+detection:
+  selection:
+    type: 'SYSCALL'
+    SYSCALL: 'syslog'
+    a0:
+    - 4         # SYSLOG_ACTION_READ_CLEAR : Read and clear log
+    - 5         # SYSLOG_ACTION_CLEAR: Clear kernel ring buffer (without reading)
+    - 6         # SYSLOG_ACTION_CONSOLE_OFF: Disable logging to console
+  condition: selection
+falsepositives:
+- System administrators or scripts that intentionally clear logs
+- Debugging scripts
+level: medium
+note: |
+  ### Technical Context
+  This detection rule identifies the use of the `syslog` syscall with specific action codes that can result in the clearing or manipulation of Linux kernel ring buffer logs (commonly accessed via the `dmesg` command). Attackers may exploit this method to erase evidence of their activity after executing malicious actions or escalating privileges within a compromised system. By running commands like `dmesg -c`, malicious actors aim to hide their tracks, making it difficult for defenders to identify the intrusion or subsequent actions performed.
+
+  The relevant MITRE ATT&CK tactics include **Defense Evasion** (ID: TA0005), where adversaries attempt to evade detection mechanisms, and more specifically **Indicator Removal on Host** (ID: T1070.002), which focuses on the techniques used to erase information from system logs. This behavior raises critical concerns; therefore, monitoring for such actions is crucial to maintaining the integrity of system logs and detecting possible intrusions.
+
+  The primary data source for this detection is **auditd logs** configured to capture syscall activities involving `syslog`. These logs can provide detailed information about the context in which the clearing or disabling of logs occurred.
+
+  ### Investigation Steps
+  - **Review Audit Logs**: Check `auditd` logs for syscall entries related to `syslog` with action codes 4, 5, or 6. Focus on timestamps around potential suspicious activity.
+  - **Analyze User Activity**: Investigate the user or process that issued the `syslog` command. Look for unusual account behavior or a compromised account that could explain unauthorized log manipulation.
+  - **Inspect Command History**: Examine shell history files (e.g., `.bash_history`) for commands that may have been executed alongside the syscall. This can provide context on what actions the attacker was attempting to obfuscate.
+  - **Correlate with Other Alerts**: Cross-reference findings with other alert logs or SIEM data that might indicate exploitation or privilege escalation activities prior to the log clearance.
+
+  ### Prioritization
+  This alert is assigned medium severity due to the critical nature of system logs in forensic investigations. The likelihood of abuse by threat actors combined with the potential impact of losing log data makes this a significant concern for enterprise environments.
+
+  ### Blind Spots and Assumptions
+  This detection rule relies on the proper configuration of auditd to log syscall actions, which may not always be implemented in every environment. There is a potential gap if attackers possess sufficient privileges and remove or manipulate logs before they are recorded. Additionally, the alert assumes that legitimate administrative actions are not being performed concurrently, as this could lead to false positives if syscalls are used for benign purposes such as debugging or maintenance work.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

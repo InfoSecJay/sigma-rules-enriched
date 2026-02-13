@@ -1,0 +1,60 @@
+title: Suspicious Schtasks Execution AppData Folder
+id: c5c00f49-b3f9-45a6-997e-cfdecc6e1967
+status: test
+description: 'Detects the creation of a schtask that executes a file from C:\Users\<USER>\AppData\Local'
+references:
+- https://thedfirreport.com/2022/02/21/qbot-and-zerologon-lead-to-full-domain-compromise/
+author: pH-T (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+date: 2022-03-15
+modified: 2022-07-28
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1053.005
+- attack.t1059.001
+logsource:
+  product: windows
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '\schtasks.exe'
+    CommandLine|contains|all:
+    - '/Create'
+    - '/RU'
+    - '/TR'
+    - 'C:\Users\'
+    - '\AppData\Local\'
+    CommandLine|contains:
+    - 'NT AUT'         # This covers the usual NT AUTHORITY\SYSTEM
+    - ' SYSTEM '         # SYSTEM is a valid value for schtasks hence it gets it's own value with space
+  filter:
+        # FP from test set in SIGMA
+    ParentImage|contains|all:
+    - '\AppData\Local\Temp\'
+    - 'TeamViewer_.exe'
+    Image|endswith: '\schtasks.exe'
+    CommandLine|contains: '/TN TVInstallRestore'
+  condition: selection and not filter
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+  This detection rule identifies the suspicious execution of the `schtasks.exe` command that creates a scheduled task pointing to an executable located within the `C:\Users\<USER>\AppData\Local` directory. The threat scenario often involves an adversary attempting to establish persistence or perform privilege escalation by executing malicious payloads from user-specific locations that are inherently less monitored. Attackers may leverage this technique to invoke malware or script execution during system startup or user login without alerting defensive measures.
+
+  Relevant MITRE ATT&CK techniques include **T1053.005** (Scheduled Task/Job: Scheduled Task Creation) under the **Persistence** tactic and **T1059.001** (Command and Scripting Interpreter: PowerShell) under the **Execution** tactic. The payload’s execution from user-specific folders like AppData often signifies an intent to remain undetected, as these locations are commonly ignored by security controls. The primary data sources for gathering evidence include **process creation logs**, which capture the invocation of `schtasks.exe`, and any associated command-line arguments revealing potentially malicious behavior.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Examine logs for entries related to `schtasks.exe` execution. Pay close attention to command-line arguments that indicate suspicious behavior, particularly those targeting the AppData folder.
+  - **Analyze Scheduled Tasks:** Investigate created scheduled tasks listed in the system, focusing on those pointing to executables in user directories, which might continue to execute malicious instructions over time.
+  - **Investigate Parent Processes:** Check the parent processes for the execution of `schtasks.exe`, especially those originating from temporary directories, which can indicate an initialization from a legitimate application that may be compromised.
+  - **Verify User Activity Context:** Correlate the timing of the suspicious scheduled task with user activity logs, determining if the user was logged in at the time of creation and if there are any other indicators of compromise related to the account.
+
+  ### Prioritization
+  Due to the potential for establishing persistence alongside privilege escalation tactics, this alert is classified as high severity. The likelihood of a successful exploitation event leading to full domain compromise or data exfiltration necessitates immediate attention.
+
+  ### Blind Spots and Assumptions
+  This detection logic assumes that all process creation logs are being captured accurately and that any scheduled tasks executed via schtasks are legitimate unless proven suspicious. Potential blind spots may arise if auditing is not sufficiently enabled or if user directories are excluded from monitoring policies, limiting visibility into file execution attempts from these locations. It's critical that logging mechanisms are configured to ensure comprehensive capture of the process creation events and corresponding command-line arguments for effective threat detection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

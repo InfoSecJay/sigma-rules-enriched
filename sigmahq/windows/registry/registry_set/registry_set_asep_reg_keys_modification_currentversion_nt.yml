@@ -1,0 +1,132 @@
+title: CurrentVersion NT Autorun Keys Modification
+id: cbf93e5d-ca6c-4722-8bea-e9119007c248
+related:
+- id: 17f878b8-9968-4578-b814-c4217fc5768c
+  type: obsolete
+status: test
+description: Detects modification of autostart extensibility point (ASEP) in registry.
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
+- https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
+- https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d     # a list with registry keys
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin,
+  oscd.community, Tim Shelton, frack113 (split)
+date: 2019-10-25
+modified: 2025-10-22
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1547.001
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection_nt_current_version_base:
+    TargetObject|contains: '\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+  selection_nt_current_version:
+    TargetObject|contains:
+    - '\Winlogon\VmApplet'
+    - '\Winlogon\Userinit'
+    - '\Winlogon\Taskman'
+    - '\Winlogon\Shell'
+    - '\Winlogon\GpExtensions'
+    - '\Winlogon\AppSetup'
+    - '\Winlogon\AlternateShells\AvailableShells'
+    - '\Windows\IconServiceLib'
+    - '\Windows\Appinit_Dlls'
+    - '\Image File Execution Options'         # Covered in better details in 36803969-5421-41ec-b92f-8500f79c23b0
+    - '\Font Drivers'
+    - '\Drivers32'
+    - '\Windows\Run'
+    - '\Windows\Load'
+  filter_main_empty:
+    Details: '(Empty)'
+  filter_main_null:
+    Details:
+  filter_main_poqexec:
+    Image: 'C:\Windows\System32\poqexec.exe'
+  filter_main_legitimate_subkey:    # Legitimately used subkeys of \Image File Execution Options, which are not used for persistence (see https://pentestlab.blog/2020/01/13/persistence-image-file-execution-options-injection/)
+    TargetObject|contains: '\Image File Execution Options\'
+    TargetObject|endswith:
+    - '\DisableExceptionChainValidation'
+    - '\MitigationOptions'
+  filter_main_security_extension_dc:
+    Image: 'C:\Windows\system32\svchost.exe'
+    TargetObject|contains:
+    - '\Winlogon\GPExtensions\{827D319E-6EAC-11D2-A4EA-00C04F79F83A}\PreviousPolicyAreas'
+    - '\Winlogon\GPExtensions\{827D319E-6EAC-11D2-A4EA-00C04F79F83A}\MaxNoGPOListChangesInterval'
+    Details:
+    - 'DWORD (0x00000001)'
+    - 'DWORD (0x00000009)'
+    - 'DWORD (0x000003c0)'
+  filter_main_runtimebroker:
+    Image: 'C:\Windows\System32\RuntimeBroker.exe'
+    TargetObject|contains: '\runtimebroker.exe\Microsoft.Windows.ShellExperienceHost'
+  filter_optional_edge:
+    Image|startswith: 'C:\Program Files (x86)\Microsoft\Temp\'
+    Image|endswith: '\MicrosoftEdgeUpdate.exe'
+  filter_optional_avguard:
+    Image|startswith:
+    - 'C:\Program Files (x86)\Avira\Antivirus\avguard.exe'
+    - 'C:\Program Files\Avira\Antivirus\avguard.exe'
+    TargetObject|contains: 'SOFTWARE\WOW6432Node\Avira\Antivirus\Overwrite_Keys\HKEY_LOCAL_MACHINE\Software\Microsoft\Windows
+      NT\CurrentVersion\Winlogon\'
+    TargetObject|endswith:
+    - '\userinit\UseAsDefault'
+    - '\shell\UseAsDefault'
+    Details:
+    - 'explorer.exe'
+    - 'C:\Windows\system32\userinit.exe,'
+  filter_optional_msoffice:
+  - TargetObject|contains:
+    - '\ClickToRunStore\HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\'
+    - '\ClickToRun\REGISTRY\MACHINE\Software\Microsoft\Windows NT\CurrentVersion\'
+  - Image:
+    - 'C:\Program Files\Microsoft Office\root\integration\integrator.exe'
+    - 'C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe'
+  filter_optional_officeclicktorun:
+    Image|startswith:
+    - 'C:\Program Files\Common Files\Microsoft Shared\ClickToRun\'
+    - 'C:\Program Files\Common Files\Microsoft Shared\ClickToRun\Updates\'
+    Image|endswith: '\OfficeClickToRun.exe'
+  filter_optional_ngen:
+    Image|startswith: 'C:\Windows\Microsoft.NET\Framework'
+    Image|endswith: '\ngen.exe'
+  filter_optional_onedrive:
+    Image|endswith: '\AppData\Local\Microsoft\OneDrive\StandaloneUpdater\OneDriveSetup.exe'
+    TargetObject|endswith: '\Microsoft\Windows\CurrentVersion\RunOnce\Delete Cached
+      Update Binary'
+    Details|startswith: 'C:\Windows\system32\cmd.exe /q /c del /q "C:\Users\'
+    Details|endswith: '\AppData\Local\Microsoft\OneDrive\Update\OneDriveSetup.exe"'
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate software automatically (mostly, during installation) sets up autorun
+  keys for legitimate reason
+- Legitimate administrator sets up autorun keys for legitimate reason
+level: medium
+note: |
+  ### Technical Context
+  This detection rule focuses on tracking modifications to autostart extensibility points (ASEPs) within the Windows Registry, specifically under the path `\SOFTWARE\Microsoft\Windows NT\CurrentVersion`. These modifications can indicate intentions to maintain persistence on a system, often exploited by attackers to ensure their malicious software or tasks run automatically when a user logs in. Such actions are typically performed for the purpose of maintaining access to a compromised system, executing payloads, or facilitating further attacks.
+
+  Attackers leveraging autorun keys often aim to achieve persistence within a target environment, making it challenging for organizations to remove threats. This behavior correlates with two prevalent MITRE ATT&CK techniques:
+  - **T1547.001: Boot or Logon Autostart Execution: Registry Run Keys/Startup Folder** which specifically deals with the manipulation of autorun keys.
+  - **T1060: Registry Run Keys/Startup Folder** utilized to execute malware upon system startup.
+
+  The primary data sources of interest for this detection rule are **Windows Registry logs**, particularly those that record changes to specific keys and values that relate to the autostart configuration.
+
+  ### Investigation Steps
+  - **Review Registry Logs**: Start by examining Windows Registry logs for changes to the `\SOFTWARE\Microsoft\Windows NT\CurrentVersion` path, specifically for any unauthorized or unexpected modifications to autorun keys.
+
+  - **Verify Affected Processes**: Investigate the process that triggered the modification. Check for the associated image path and identify if it’s a legitimate process or if it originated from a suspicious location indicating potential malicious intent.
+
+  - **Assess User and System Impact**: Analyze user sessions and system logs around the time of the modification to determine if any specific user accounts or system behaviors could indicate compromised environments or abnormal actions.
+
+  - **Correlate with Other Security Events**: Look for patterns or correlations with other security events in your SIEM or EDR, such as failed login attempts, other registry modifications, or known indicators of compromise related to persistence mechanisms.
+
+  ### Prioritization
+  This alert is marked as medium severity due to the potential of autorun modifications indicating an elevated risk of ongoing compromise within the enterprise. The likelihood of impact is significant since persistence mechanisms are common tactics utilized by adversaries to maintain control over systems post-exploitation.
+
+  ### Blind Spots and Assumptions
+  There are inherent gaps in detection coverage, particularly in environments where automated tools modify registry keys for legitimate purposes, leading to possible false positives. The detection logic assumes that tools performing legitimate autorun configurations would not generate alerts, though this is not always safe to assume. Effective logging must be enabled for registry modifications to ensure complete visibility for the alert to function correctly. This may include enhanced logging settings to capture all relevant modifications to the Windows Registry.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

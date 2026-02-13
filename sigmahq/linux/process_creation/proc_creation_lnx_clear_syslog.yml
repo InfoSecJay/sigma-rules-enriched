@@ -1,0 +1,112 @@
+title: Syslog Clearing or Removal Via System Utilities
+id: 3fcc9b35-39e4-44c0-a2ad-9e82b6902b31
+status: test
+description: |
+  Detects specific commands commonly used to remove or empty the syslog. Which is a technique often used by attacker as a method to hide their tracks
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1070.002/T1070.002.md
+- https://www.virustotal.com/gui/file/54d60fd58d7fa3475fa123985bfc1594df26da25c1f5fbc7dfdba15876dd8ac5/behavior
+author: Max Altgelt (Nextron Systems), Roberto Rodriguez (Cyb3rWard0g), OTR (Open
+  Threat Research), MSTIC
+date: 2021-10-15
+modified: 2025-10-15
+tags:
+- attack.defense-evasion
+- attack.t1070.002
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection_file:
+    CommandLine|contains: '/var/log/syslog'
+  selection_command_rm:
+        # Examples:
+        #   rm -f /var/log/syslog
+    Image|endswith: '/rm'
+    CommandLine|contains:
+    - ' -r '
+    - ' -f '
+    - ' -rf '
+    - '/var/log/syslog'         # We use this to avoid re-writing a separate selection
+  selection_command_unlink:
+        # Examples:
+        #   unlink /var/log/syslog
+    Image|endswith: '/unlink'
+  selection_command_mv:
+        # Examples:
+        #   mv /var/log/syslog
+    Image|endswith: '/mv'
+  selection_command_truncate:
+        # Examples:
+        #   truncate --size 0 /var/log/syslog
+    Image|endswith: '/truncate'
+    CommandLine|contains|all:
+    - '0 '
+    - '/var/log/syslog'         # We use this to avoid re-writing a separate selection
+    CommandLine|contains:
+    - '-s '
+    - '-c '
+    - '--size'
+  selection_command_ln:
+        # Examples:
+        #   ln -sfn /dev/null /var/log/syslog
+    Image|endswith: '/ln'
+    CommandLine|contains|all:
+    - '/dev/null '
+    - '/var/log/syslog'         # We use this to avoid re-writing a separate selection
+    CommandLine|contains:
+    - '-sf '
+    - '-sfn '
+    - '-sfT '
+  selection_command_cp:
+        # Examples:
+        #   cp /dev/null /var/log/syslog
+    Image|endswith: '/cp'
+    CommandLine|contains: '/dev/null'
+  selection_command_shred:
+        # Examples:
+        #   shred -u /var/log/syslog
+    Image|endswith: '/shred'
+    CommandLine|contains: '-u '
+  selection_unique_other:
+    CommandLine|contains:
+    - ' > /var/log/syslog'
+    - ' >/var/log/syslog'
+    - ' >| /var/log/syslog'          # redirection empties w spacing, noclobber
+    - ': > /var/log/syslog'
+    - ':> /var/log/syslog'
+    - ':>/var/log/syslog'
+    - '>|/var/log/syslog'
+  selection_unique_journalctl:
+    CommandLine|contains:
+    - 'journalctl --vacuum'
+    - 'journalctl --rotate'         # archives current journal files and creates new empty ones
+  condition: (selection_file and 1 of selection_command_*) or 1 of selection_unique_*
+falsepositives:
+- Log rotation.
+- Maintenance.
+level: high
+note: |
+  ### Technical Context
+  This rule detects a variety of system commands that can be employed to manipulate, truncate, or remove syslog files on Linux systems. Attackers may utilize these commands to delete or obscure log entries after unauthorized activities, a tactic commonly referred to as "log clearing." By eliminating evidence of their actions, such as network intrusions or privilege escalations, they aim to avoid detection and maintain persistent access. The detection focuses on specific Linux commands such as `rm`, `mv`, `unlink`, and `truncate`, which are often used in log tampering scenarios.
+
+  The relevant MITRE ATT&CK tactics for this rule are **Defense Evasion** (T1070) and specifically **T1070.002: Indicator Removal on Host**. These tactics describe methods used by adversaries to erase traces of their activities on compromised systems, thereby preventing security monitoring efforts from identifying malicious behavior.
+
+  Primary sources of data for this detection include **process creation logs** that contain command-line arguments, capturing the execution of these malicious commands. Rich context can also be gleaned from system logs that record log file accesses and modifications.
+
+  ### Investigation Steps
+  - **Review process creation logs**: Check for 'linux process creation' logs and focus on commands that involve accessing or modifying `/var/log/syslog`, paying special attention to related command-line arguments.
+
+  - **Analyze syslog modifications**: Investigate any recent changes to syslog files, such as timestamps and associated processes. Validate whether legitimate log rotation or maintenance occurred.
+
+  - **Correlate with user activity**: Look for unexpected user behavior or unusual system activity leading up to the log clearing command's execution. Note any processes that may indicate a prior compromise.
+
+  - **Examine file system changes**: Assess file integrity and history of log files using tools that can detect unauthorized changes, helping to understand the full scope of the incident.
+
+  ### Prioritization
+  This alert holds a high severity in an enterprise environment due to the potential for significant operational impact from concealed malicious activities. The likelihood of such actions occurring in a system compromised by an attacker underscores the urgency of investigating these alerts.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for benign activities, such as legitimate log rotation or scheduled maintenance that could trigger false positives. The detection logic assumes the presence of standard log entries and process creation monitoring; however, if logging is misconfigured or if there is a lack of visibility into process execution, malicious activities may go undetected. It's essential that appropriate logging configurations are in place to capture relevant event data accurately.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
