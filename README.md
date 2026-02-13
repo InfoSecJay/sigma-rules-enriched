@@ -21,8 +21,9 @@ A [GitHub Actions workflow](.github/workflows/enrich-rules.yml) runs daily:
 
 ```
 sigma-rules-enriched/
-  sigmahq/          # Enriched SigmaHQ rules (mirrors rules/ directory structure)
-  lolrmm/           # Enriched LOLRMM Sigma rules
+  sigmahq/                    # Enriched SigmaHQ rules (mirrors rules/ directory structure)
+  sigmahq-emerging-threats/   # Enriched SigmaHQ Emerging Threats rules
+  lolrmm/                     # Enriched LOLRMM Sigma rules
 ```
 
 ## Setup

@@ -1,0 +1,141 @@
+title: Mint Sandstorm - AsperaFaspex Suspicious Process Execution
+id: 91048c0d-5b81-4b85-a099-c9ee4fb87979
+status: test
+description: Detects suspicious execution from AsperaFaspex as seen used by Mint Sandstorm
+references:
+- https://www.microsoft.com/en-us/security/blog/2023/04/18/nation-state-threat-actor-mint-sandstorm-refines-tradecraft-to-attack-high-value-targets/
+author: Nasreddine Bencherchali (Nextron Systems), MSTIC (idea)
+date: 2023-04-20
+modified: 2023-04-25
+tags:
+- attack.execution
+- detection.emerging-threats
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|contains|all:
+    - 'aspera'
+    - '\ruby'
+  selection_special_child_powershell_img:
+    Image|endswith:
+    - '\powershell.exe'
+    - '\powershell_ise.exe'
+  selection_special_child_powershell_cli:
+  - CommandLine|contains:
+    - ' echo '
+    - '-dumpmode'
+    - '-ssh'
+    - '.dmp'
+    - 'add-MpPreference'
+    - 'adscredentials'
+    - 'bitsadmin'
+    - 'certutil'
+    - 'csvhost.exe'
+    - 'DownloadFile'
+    - 'DownloadString'
+    - 'dsquery'
+    - 'ekern.exe'
+    - 'FromBase64String'
+    - 'iex '
+    - 'iex('
+    - 'Invoke-Expression'
+    - 'Invoke-WebRequest'
+    - 'localgroup administrators'
+    - 'net group'
+    - 'net user'
+    - 'o365accountconfiguration'
+    - 'query session'
+    - 'samaccountname='
+    - 'set-MpPreference'
+    - 'svhost.exe'
+    - 'System.IO.Compression'
+    - 'System.IO.MemoryStream'
+    - 'usoprivate'
+    - 'usoshared'
+    - 'whoami'
+  - CommandLine|re: '[-/–][Ee^]{1,2}[ncodema^]*\s[A-Za-z0-9+/=]{15,}'
+  selection_special_child_lsass_1:
+    CommandLine|contains: 'lsass'
+  selection_special_child_lsass_2:
+    CommandLine|contains:
+    - 'procdump'
+    - 'tasklist'
+    - 'findstr'
+  selection_child_wget:
+    Image|endswith: '\wget.exe'
+    CommandLine|contains: 'http'
+  selection_child_curl:
+    Image|endswith: '\curl.exe'
+    CommandLine|contains: 'http'
+  selection_child_script:
+    CommandLine|contains:
+    - 'E:jscript'
+    - 'e:vbscript'
+  selection_child_localgroup:
+    CommandLine|contains|all:
+    - 'localgroup Administrators'
+    - '/add'
+  selection_child_net:
+    CommandLine|contains: 'net'     # Covers net1
+    CommandLine|contains|all:
+    - 'user'
+    - '/add'
+  selection_child_reg:
+  - CommandLine|contains|all:
+    - 'reg add'
+    - 'DisableAntiSpyware'
+    - '\Microsoft\Windows Defender'
+  - CommandLine|contains|all:
+    - 'reg add'
+    - 'DisableRestrictedAdmin'
+    - 'CurrentControlSet\Control\Lsa'
+  selection_child_wmic_1:
+    CommandLine|contains|all:
+    - 'wmic'
+    - 'process call create'
+  selection_child_wmic_2:
+    CommandLine|contains|all:
+    - 'wmic'
+    - 'delete'
+    - 'shadowcopy'
+  selection_child_vssadmin:
+    CommandLine|contains|all:
+    - 'vssadmin'
+    - 'delete'
+    - 'shadows'
+  selection_child_wbadmin:
+    CommandLine|contains|all:
+    - 'wbadmin'
+    - 'delete'
+    - 'catalog'
+  condition: selection_parent and (all of selection_special_child_powershell_* or
+    all of selection_special_child_lsass_* or 1 of selection_child_*)
+falsepositives:
+- Unlikely
+level: critical
+note: |
+  ### Technical Context
+  This detection rule targets suspicious process executions stemming from the AsperaFaspex application, which has been linked to the threat actor Mint Sandstorm. The rule identifies various command-line activities that are commonly associated with the execution of PowerShell scripts and other potentially malicious commands executed in a Windows environment. The objective of an attacker leveraging this method could be data exfiltration, lateral movement, or privilege escalation, particularly as Mint Sandstorm is known for targeting high-value organizations.
+
+  The rule specifically correlates with multiple tactics and techniques outlined in the MITRE ATT&CK framework. Notably, it relates to "Execution" (T1203) since it detects when malicious commands or scripts are executed via unusual parent processes. Additionally, the technique "PowerShell" (T1086) is particularly relevant due to the exploitation of PowerShell to execute scripts from AsperaFaspex, connecting this behavior to a broader set of attack vectors used by threat actors for executing arbitrary commands on compromised systems.
+
+  Primary data sources for detecting these activities typically include Windows process creation logs, which detail the execution of processes and their command-line arguments, providing key evidence for understanding the context of any suspicious behavior.
+
+  ### Investigation Steps
+  - **Review Process Creation Logs:** Investigate Windows Event Logs for process creation events where the parent image contains "aspera" or similar identifiers, focusing on related child processes like PowerShell, wget, or curl.
+
+  - **Analyze Command Line Arguments:** Examine the command-line arguments of identified processes to identify any suspicious patterns such as calls to 'Invoke-WebRequest', 'DownloadFile', or other common indicators of malicious activity.
+
+  - **Check for Privilege Escalation Attempts:** Look for execution patterns that involve commands for adding users to local groups or misuse of administrative command tools such as 'net', 'reg add', or 'vssadmin', which may indicate attempts to escalate privileges.
+
+  - **Cross-reference with Threat Intelligence:** Validate occurrences with external threat intelligence sources to correlate with known indicators of compromise (IOCs) associated with Mint Sandstorm, assessing whether the observed behaviors fit the threat profile.
+
+  ### Prioritization
+  Given the critical nature of the alert, it is imperative to prioritize it in the enterprise environment due to the likely significant impact of a successful breach by a nation-state actor utilizing these techniques. The frequency of such behaviors indicates a high likelihood of occurrence, necessitating swift analyst action.
+
+  ### Blind Spots and Assumptions
+  There may be gaps in detection coverage for obfuscated command-line execution or use of alternative scripting languages that are not captured by this rule. The detection logic assumes that relevant logs, particularly process creation and command-line arguments, are sufficiently verbose and configured to capture all necessary data, which may not always be the case in all environments. Thus, ensuring comprehensive logging and monitoring for potential evasive techniques employed by attackers is essential for effective detection.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
