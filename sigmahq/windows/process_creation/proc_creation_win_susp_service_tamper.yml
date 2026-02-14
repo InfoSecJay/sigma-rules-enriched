@@ -296,23 +296,42 @@ falsepositives:
   process launching this command and not removing the entry
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potentially malicious activities involving the tampering of critical Windows services through the execution of specific command-line tools like `net`, `sc`, and `PowerShell`. The detection focuses on behaviors that are indicative of an attacker’s attempts to disable or disrupt essential services, such as antivirus solutions or backup services, which are common tactics used in ransomware operations. The typical attacker objective is to create a more favorable environment by removing defenses, thereby increasing the likelihood of successful data encryption or exfiltration.
 
-  The relevant MITRE ATT&CK tactics involved in this scenario are **Defense Evasion** (T1489), where attackers aim to evade detection by disabling security controls, and **Impact** (T1562.001), which relates to the disruption of services and critical systems. These techniques are often leveraged by ransomware groups aiming to disable defenses before executing their main payload.
+  This Sigma rule detects potentially malicious behavior where processes like `net`, `sc`, or `PowerShell` are used to manipulate critical Windows services, such as disabling or stopping antivirus and backup services. The likely attacker objective is to disrupt security measures and maintain persistence or execution control, particularly in the context of ransomware engagements. This behavior aligns with the MITRE ATT&CK tactics of Defense Evasion (ID: T1562.001) and Impact (ID: T1489).
 
-  The primary data sources for monitoring these activities are **process creation events**, which log the execution of commands and the tools used by attackers, along with **Windows Service logs** that provide details on service states and configurations.
+  The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If these actions are confirmed to be malicious, they pose a significant risk to the organization's security posture, particularly if they result in disabling protective measures. Importantly, this detection does NOT confirm that the actions were malicious on their own; context, such as the parent process and user behavior, is essential for accurate assessment.
+
+  ---
 
   ### Investigation Steps
-  - **Collect Process Creation Events:** Review recent process creation logs to identify instances of `net.exe`, `sc.exe`, `PowerShell.exe`, or other related binaries being executed, particularly those with command-line arguments suggesting service manipulation.
-  - **Analyze Service State Changes:** Investigate any changes in the state of critical Windows services, such as whether services were stopped or disabled during the timeframe of suspicious processes.
-  - **Audit Command-Line Parameters:** Pay attention to command-line parameters related to service management (e.g., `stop`, `pause`, `remove`, or `start=disabled`) to validate intent behind the command execution.
-  - **Correlate User Activity:** Link the activities to user accounts, especially those with administrative privileges, and check for any anomalous behavior in the context of normal operations.
+
+  - **Review process details:** Examine Security Event ID 4688 and Sysmon Event ID 1 for the detected process creation events. Look specifically at the `Image` and `CommandLine` fields to verify if they correspond to unauthorized commands to critical services.
+
+  - **Verify service status:** Use PowerShell or system tools to check the status of services referenced in the alert (e.g., Antivirus services, Backup services). Compare logged service manipulations against expected operational behaviors (e.g., legitimate service updates).
+
+  - **Identify suspicious parent processes:** Investigate the parent process of the detected commands using the `ParentImage` field in the process logs. Legitimate administrative operations may show up (e.g., Windows Management Tools), whereas unusual parent processes could indicate malicious activity.
+
+  - **Check execution context:** Analyze user context associated with the command execution in the process logs. If commands were executed by non-administrative users or unusual user accounts, it could indicate malicious intent.
+
+  - **Correlate with threat intelligence:** Cross-reference the behavior against known ransomware tactics and Common Vulnerabilities and Exposures (CVEs) to identify if the observed commands have been previously linked to active adversaries or campaigns.
+
+  - **Conduct a post-incident analysis:** If confirmed malicious, examine for potential data exfiltration or further lateral movement using artifact analysis, such as logon events (Event ID 4624) and file access logs, particularly focusing on sensitive directories.
+
+  ---
 
   ### Prioritization
-  Given the potential impact of service disruption on enterprise operations and the likelihood of this behavior aligning with ransomware tactics, this alert should be treated with a high level of urgency. Rapid identification and response are crucial to mitigate the risks associated with service tampering.
+
+  Given the high security impact of potential disruptions to critical services, this alert is classified as high severity. The likelihood of malicious abuse is considerable, especially given the increasing exploitation of service tampering techniques for ransomware attacks, making this behavior commonly weaponized.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection may not cover scripted or automated tasks performed by legitimate administrative tools that also use similar commands, leading to potential false positives. The rule assumes that logging for process creation and Windows services is configured correctly and that necessary permissions for monitoring these logs are in place. Additionally, it relies on specific binaries being present; if an attacker uses a different method or custom tools to manipulate services, these actions may evade detection.
+
+  Detection limitations include potential evasion techniques like using legitimate administrative accounts to carry out service manipulation, which may create false negatives. Reliable detection requires comprehensive logging of process creation and command-line arguments. Legitimate activities may include scheduled service updates or legitimate administrative tasks. A companion detection rule monitoring for unusual file creations or modifications during service manipulation (e.g., Event ID 5145 for file access) could strengthen overall detection capabilities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -30,26 +30,40 @@ falsepositives:
   test if GPO push doesn't trigger FP
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify the installation of root certificates via PowerShell on Windows systems. Adversaries may use this technique to install malicious root certificates to establish trusted connections to their infrastructure, potentially leading to man-in-the-middle attacks. The presence of these certificates allows unauthorized access to encrypted traffic, thereby bypassing normal security warnings and controls.
 
-  The relevant MITRE ATT&CK tactics and techniques include **Defense Evasion (T1562)** and **Trusted Relationship (T1553.004)**. Attackers strive to embed themselves within trusted relationships or obscure their activities to avoid detection, making this detection crucial for identifying potential threats.
+  This rule detects the installation of a root certificate on a Windows system via PowerShell commands. Installations of root certificates can indicate an adversary's attempt to establish trust in their own malicious infrastructure, thereby preventing the user or system from recognizing potentially harmful connections. The likely objective is to facilitate MITRE ATT&CK technique T1553.004 (Root Certificate Installation) to ensure secure communication with adversarial servers without triggering alerts.
 
-  Primary data sources for effective detection include PowerShell script block logs, which capture the content of scripts executed on Windows systems, as well as audit logs that might indicate changes to the certificate store.
+  Primary telemetry sources for this detection include PowerShell script block logs, specifically looking for the `ScriptBlockText` that indicates commands for moving items to `Cert:\LocalMachine\Root` or importing certificates into the root store. If this behavior is indeed malicious, it could lead to further network compromise or data exfiltration. Notably, this detection does NOT confirm that a compromised system has been successfully exploited, as legitimate instances of root certificate installation (e.g., by IT personnel) may occur as well.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Examine PowerShell script block logs for any entries that contain `Move-Item` targeting the `Cert:\LocalMachine\Root` path or the `Import-Certificate` command indicating installation of new root certificates.
 
-  - **Analyze Certificate Store Changes:** Check the Windows certificate store for any recent modifications to the root certificate authorities. Look for certificates that are unknown to your organization.
+  - **Check PowerShell Execution Logs**: Review PowerShell script block logs (Event ID 4104) for `ScriptBlockText` containing 'Move-Item' or 'Import-Certificate'. Evaluate the user context and execution environment for indications of unauthorized access.
 
-  - **Investigate Network Connections:** Monitor for outbound connections to suspicious or unrecognized domains that may correlate with the newly installed root certificates, as these could be hosts controlled by attackers.
+  - **Assess user credentials**: Investigate the account executing the PowerShell commands. Verify if it belongs to a legitimate user or service account (+evaluate role permissions), as unauthorized accounts executing these commands can be a high-confidence indicator of malicious activity.
 
-  - **Validate Corporate Certificate Policies:** Ensure that the installation of corporate root certificates is in line with organizational policies. Investigate any installations that do not match standard operating procedures or have not been authorized by IT.
+  - **Identify the certificate**: If root certificates were added, analyze associated certificate details (e.g., issuer, expiration date) by querying the local certificate store using commands like `Get-ChildItem Cert:\LocalMachine\Root`. Check for certificates from unknown or suspicious issuers.
+
+  - **Review corporate exceptions**: Compare incidents against company policies for root CA management. Validate if the addition aligns with IT processes and user roles to distinguish between legitimate administrative actions and malicious installations.
+
+  - **Monitor network traffic**: Employ network telemetry to look for connections to untrusted IP addresses that may correspond to the adversary's infrastructure. Identify DNS queries associated with newly installed certificates to verify if connections are being made.
+
+  ---
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of a compromised root certificate. The likelihood of this threat is elevated in environments where adversaries are focused on establishing persistent access or executing man-in-the-middle attacks.
+
+  This alert should be treated with medium severity, as the impact of unauthorized root certificate installations can compromise the confidentiality and integrity of secure communications. The likelihood of malicious exploitation is moderate, given that similar techniques are common in targeted attacks. This behavior is known to be weaponized in various attack scenarios, where adversaries seek to maintain persistent access.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if script block logging is not enabled on all systems, which can lead to undetected root certificate installations. The detection logic assumes that benign activities, such as legitimate certificate installations by IT personnel, will not trigger the rule, but false positives may still occur. Additionally, proper log collection and retention policies must be configured to capture the necessary events for accurate detection.
+
+  Detection may be limited if PowerShell logging is not correctly configured or compliant with organizational standards, as it relies on script block logging to capture events. Legitimate activities that could trigger this alert include corporate IT personnel installing root certificates for trusted vendors, potentially creating false positives. Related detections include monitoring for certificate requests via Windows Event ID 4659 (Certificate Services) to strengthen coverage of certificate-related activities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

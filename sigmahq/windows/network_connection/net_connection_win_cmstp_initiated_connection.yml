@@ -35,23 +35,42 @@ falsepositives:
 # Note: Please report any false positive seen in the wild to help tune the rule.
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies outbound network connections initiated by `cmstp.exe`, a Windows component typically used for installing and configuring connection manager profiles. While `cmstp.exe` can be a legitimate tool, its use for making outbound connections is uncommon and may indicate malicious activity, such as the execution of unauthorized scripts or payloads that leverage this process to communicate with external command and control servers. Attackers may use `cmstp.exe` to bypass security measures due to its trusted nature in Windows environments.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Defense Evasion** (T1203) and **Execution** (T1218.003), as the tool may be utilized by adversaries to achieve these objectives. Analysts should investigate any detected instances of `cmstp.exe` initiating network traffic, as this can signify attempts to exfiltrate data or establish persistence through external communication channels.
+  This rule detects outbound network connections initiated by `cmstp.exe`, a legitimate Windows utility responsible for connection manager profiles. Unsanctioned use of `cmstp.exe` by an adversary typically aims to bypass security controls while executing malicious payloads, exploiting its capabilities to create and manage connections. This behavior falls under the MITRE ATT&CK tactic of Defense Evasion (T1203) and the technique of AppCert DLLs (T1218.003).
 
-  Key data sources for this detection include **network connection logs** that capture outbound traffic details, as well as **endpoint telemetry** that records process execution, which can help in validating the legitimacy of the connection attempts.
+  The primary telemetry source for this detection includes network connection logs, specifically monitoring for process creation that indicates an outbound call through `cmstp.exe`. If malicious, such connections can lead to data exfiltration or unauthorized access to external resources. Importantly, this detection does NOT confirm that the activity is malicious on its own; it requires further investigation to understand the context behind the outbound connection.
+
+  ---
 
   ### Investigation Steps
-  - **Review Network Connection Logs:** Analyze network traffic logs to identify any unusual outbound connections initiated by `cmstp.exe`, focusing on the destination IP addresses and domains involved in the communication.
-  - **Examine Process Execution Logs:** Check endpoint logs for instances of `cmstp.exe` execution and correlate the timestamps with network activity to determine the contextual relationship between the two events.
-  - **Check for Anomalous Commands:** Investigate any command-line arguments used with `cmstp.exe`. Malicious actors might include scripted payloads or unusual directives aimed at unusual execution paths.
-  - **Assess Endpoint Security Alerts:** Review EDR alerts or any other endpoint security notifications correlated with the detection to determine if additional malicious activity is occurring on the affected host.
+
+  - **Check the Event ID 4688 logs**: Look for Process Creation events where `cmstp.exe` is noted as the Image Name. Verify if this execution was legitimate based on the user context and the working directory. Standard execution should not have an unusual parent process.
+
+  - **Analyze outbound connection logs**: Review the corresponding network logs for connections initiated by `cmstp.exe` (look for Log Type: Windows Firewall with Advanced Security). Focus on destination IPs; connections to known threat infrastructure or external IPs not in a whitelist can indicate malicious activity.
+
+  - **Review recent software installs or changes**: Investigate the system for recent alterations, particularly focusing on network configurations related to connection profiles. Unscheduled changes by unauthorized users can signal a compromise.
+
+  - **Identify benign use cases**: Legitimate usage of `cmstp.exe` typically involves configuring or managing VPNs or other corporate network connections initiated by administrative scripts or policies. Check for such historical evidence in the system logs.
+
+  - **Correlate with other security events**: Cross-reference findings with periodic endpoint detection logs for suspicious activity (e.g., Security Event ID 4624 for logon attempts) that happened around the same timeframe. High-volume logon attempts preceding the outbound connection can indicate credential stuffing or exploitation.
+
+  - **Look for expected execution patterns**: Identify whether `cmstp.exe` was executed directly by users versus by other untrusted or unusual processes. Unexpected parent-child relationships, especially involving system or unknown processes before the invocation of `cmstp.exe`, warrant closer inspection.
+
+  ---
 
   ### Prioritization
-  This alert is marked as high severity due to the potential for `cmstp.exe` to be exploited for malicious purposes, aligning with prevalent attack strategies that favor tools capable of evading detection. The likelihood of legitimate use in this context is low, making any such alerts warrant immediate investigation.
+
+  This alert is rated high severity due to the potential for significant impact on network integrity if `cmstp.exe` is utilized by an adversary for malicious purposes. The likelihood of abuse is high, as `cmstp.exe` can enable evasion of security mechanisms and is not commonly observed initiating outbound connections in normal operations.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may include scenarios where `cmstp.exe` was used in conjunction with obfuscation techniques, such as renaming or modifying its binary, which could evade logging configurations. The detection logic assumes that outbound connections from `cmstp.exe` are inherently suspicious; however, there might be specific valid cases in certain environments. The rule's effectiveness relies on proper logging of network connections and process executions, and any configurations that omit these types of telemetry may result in undetected instances of malicious activity.
+
+  Detection may be limited by configuring firewall or network logs that do not capture all outbound connections adequately. Attackers may use alternative legitimate tools or methods to mask their activities under normal operational behaviors, making it challenging to ascertain intent. Legitimate usage, such as network configuration changes or profile updates, can trigger these alerts, creating false positives. Additionally, companion detections involving script execution or unexpected process trees (e.g., `powershell.exe`, WMI activity) can help enhance comprehensive coverage against potential malicious behaviors.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

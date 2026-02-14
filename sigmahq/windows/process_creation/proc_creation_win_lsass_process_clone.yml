@@ -26,23 +26,40 @@ falsepositives:
 - Unknown
 level: critical
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potential credential dumping activities by monitoring for suspicious instances of the Local Security Authority Subsystem Service (LSASS) process. Credential dumping is a technique used by attackers to harvest credentials stored in memory, allowing them to gain unauthorized access to sensitive systems and data. The rule looks for process clones of LSASS, particularly when the child process is created from an LSASS parent, which is commonly associated with malicious behavior, such as executing tools like Mimikatz or using Windows credential access methods.
 
-  Attackers exploiting this vulnerability typically aim to extract user credentials, thereby escalating privileges within a network. This can lead to lateral movement, where they navigate through systems undetected. The relevant MITRE ATT&CK tactics involved include "Credential Access" (TA0006), specifically the techniques "Credential Dumping" (T1003) and "LSASS Memory" (T1003.001).
+  This Sigma rule detects cloning of the Local Security Authority Subsystem Service (LSASS) process, a common method employed by adversaries to harvest credentials from Windows systems. The primary objective behind this activity is to exfiltrate sensitive authentication information, which can be leveraged for lateral movement or initial access into additional systems. This behavior aligns with the MITRE ATT&CK framework under the tactic "Credential Access" and technique "Credential Dumping" (T1003, T1003.001).
 
-  The primary data sources for this detection include process creation logs from Windows event logs, which record details about newly initiated processes, their parent processes, and associated user accounts. This information is crucial for identifying potentially malicious clones of LSASS.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically focusing on Event ID 4688 (Process Creation) and Sysmon Event ID 1. If the cloning of LSASS is confirmed to be malicious, the impact could be severe, potentially leading to unauthorized access to critical systems and data breaches. It is important to note that this detection alone does not confirm malicious intent; legitimate software processes may also clone LSASS in some contexts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine Windows process creation events to identify any suspicious LSASS process clones. Focus on parent-child relationships where the parent is lsass.exe.
-  - **Analyze Memory Dumps**: If available, capture and analyze memory dumps of the LSASS process to look for unauthorized access and potential credential extraction tools like Mimikatz.
-  - **Correlate User Activity**: Investigate user activity around the time of the event. Look for unusual logins or changes in access patterns that may indicate compromise or preparation for credential dumping.
-  - **Check Security Logs for Anomalies**: Review other security logs (e.g., security events related to elevated privileges or failed logins) to find correlating events that support the suspicion of credential dumping.
+
+  - **Check for process cloning activity**: Review Security Event ID 4688 logs for process creations with the Image path ending in `\Windows\System32\lsass.exe`. Look for ParentImage indicating that the process is spawned from `lsass.exe`.
+
+  - **Identify unusual parent processes**: Investigate the ParentImage of the LSASS clone. If parent processes are legitimate administrative tools or applications (e.g., task managers or legitimate security tools), this may indicate benign activity; otherwise, it could point to malicious intent.
+
+  - **Analyze command-line arguments**: For the identified LSASS clone processes, check Sysmon Event ID 1 for any unusual command-line arguments that might indicate credential theft programs or other suspicious behavior.
+
+  - **Correlate with known credential dumping tools**: Cross-reference the detected cloning with any indicators of compromise from threat intelligence regarding known credential dumping tools such as Mimikatz. Look for the execution of these tools in Event ID 4688 logs.
+
+  - **Review Asset Criticality**: Assess the role of the affected host. If the host is a domain controller or an endpoint with elevated privileges, prioritize this investigation due to higher potential impacts.
+
+  - **Identify legitimate processes**: Clearly document known administrative actions or applications that are allowed to clone LSASS, such as certain antivirus programs or system maintenance tools, to enhance context during the investigation.
+
+  ---
 
   ### Prioritization
-  This alert is high priority due to the critical nature of credential dumping, which can directly lead to significant breaches in security and loss of sensitive data. As attackers can leverage stolen credentials to perform lateral movement, swift investigation and response are essential in mitigating further risks.
+
+  Given that the affected system often contains sensitive credentials, LSASS process clones are of critical severity. The likelihood of malicious use is high, as credential dumping is a well-known attack vector. This behavior is commonly weaponized in various attack scenarios, heightening the need for prompt investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is the reliance on process creation logs, which may not capture all instances of the lsass.exe process being cloned if logging configurations aren't fully optimized. The detection logic assumes that any LSASS process clone is suspicious, which might lead to false positives from benign administrative tasks. To ensure accurate detection, it is essential to have the appropriate logging configurations in place, including a comprehensive capture of process creation events and detailed auditing of privileged account activities.
+
+  Detection of LSASS process cloning may lead to false positives, especially from legitimate applications used in administrative contexts that also mimic this behavior. Properly configured logging sources, including Sysmon with detailed process logging enabled, are essential for effective detection. Additionally, benign management tools might inadvertently trigger this rule, complicating the assessment. Correlate alerts with detections from other sources, such as MDE or EDR telemetry focused on suspicious process behavior, to enhance overall situational awareness.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

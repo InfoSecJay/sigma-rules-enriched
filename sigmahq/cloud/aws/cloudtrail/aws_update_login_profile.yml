@@ -27,23 +27,42 @@ falsepositives:
 - Legitimate user account administration
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies modifications to AWS user login profiles, specifically focusing on when one user changes the login credentials of another. Such activity typically indicates an attacker with the necessary permissions leveraging the "iam:UpdateLoginProfile" capability to gain unauthorized access to other user accounts within an AWS environment. By altering login profiles, attackers may bypass existing security measures, impersonate legitimate users, and execute malicious operations under their credentials.
 
-  The primary threat scenario involves a compromised AWS account or a malicious insider with escalating privileges, using these changes to conduct further reconnaissance or launch attacks. Modifying login profiles can serve various malicious objectives, including account Takeover and unauthorized data access. This behavior aligns with several relevant MITRE ATT&CK tactics and techniques, notably **Persistence** (T1098 - Account Manipulation) and **Privilege Escalation**.
+  This rule detects changes made to AWS user login profiles through the `iam:UpdateLoginProfile` API. The likely attacker objective is to gain unauthorized access to the AWS Management Console by changing the passwords of other users, thereby enabling further actions within the environment. The relevant MITRE ATT&CK technique is Privilege Escalation via the `User Credentials` manipulation (T1098).
 
-  The best evidence for detecting this behavior can be sourced from AWS CloudTrail logs, which capture all API interactions with the IAM service, including login profile updates.
+  Primary telemetry comes from AWS CloudTrail logs, specifically tracking any `UpdateLoginProfile` event. A malicious change to a user's login profile can allow an adversary to bypass authentication safeguards and potentially compromise sensitive resources. This detection does NOT confirm that an unauthorized account compromise occurred, as legitimate administrative activities can trigger similar events.
+
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Check AWS CloudTrail logs for `UpdateLoginProfile` events. Pay attention to timestamps and user identities involved in these changes, especially looking for any anomalies.
-  - **Identify User Identity Changes**: Investigate the user accounts whose profiles were altered. Determine if there’s a connection between these changes and any reported security incidents or suspicious activities.
-  - **Audit Permissions**: Examine the IAM permissions associated with the user making the changes. Identify if they have legitimate reasons for possessing the "iam:UpdateLoginProfile" privilege or if this is indicative of privilege escalation.
-  - **Correlate with Other Activities**: Look for related suspicious activities in the AWS environment, such as unusual console logins or failed authentication attempts, to gauge if this modification is part of a broader unauthorized access attempt.
+
+  - **Verify the user modification request source:** Check CloudTrail logs for the `UpdateLoginProfile` API call. Look for suspect `userIdentity.arn` which may indicate an unusual login path (e.g., unfamiliar IP addresses or geographic locations).
+
+  - **Identify the affected user accounts:** Review the `requestParameters.userName` field in the CloudTrail log entry to determine which user’s login profile was modified. Compare this against your organization's user account matrix.
+
+  - **Assess login activity of the modified account:** Investigate the login history of the affected user(s) to confirm if they have logged in recently and if the access was legitimate. Check for AWS CloudTrail `ConsoleLogin` events associated with the affected user.
+
+  - **Document legitimate administrative actions:** Consult your IAM and administration policies to ascertain if this password change aligns with expected administrative tasks. If done through an authorized process or on a scheduled basis, it may be benign.
+
+  - **Look for indicators of account compromise:** Analyze the account activity logs for the IAM user executing the password change. Look for any recent unauthorized AWS services access attempts or unusual CloudTrail event patterns linked with that IAM user.
+
+  - **Review any IAM policy changes:** Verify if any IAM policies were modified recently that grant elevated privileges to the user initiating the change. Search through CloudTrail logs for `PutUserPolicy`, `AttachUserPolicy`, or `DetachUserPolicy` events.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is high due to the potential for misuse of credentials and unauthorized access to sensitive resources. Given the critical nature of AWS accounts in cloud infrastructures, any changes to user login profiles may indicate escalating privilege abuse or account takeover, necessitating immediate investigation.
+
+  This alert has a high severity due to the inherent risks associated with unauthorized password changes in cloud environments. The affected system's criticality may be significant if it involves users with access to sensitive or high-value resources, and this behavior is a common tactic used by adversaries to exploit AWS accounts and escalate privileges.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection coverage, especially in dynamic environments where legitimate user account administration might also trigger similar events. The detection logic assumes that all user actions relying on the `iam:UpdateLoginProfile` permission are worth flagging, disregarding the context of potential legitimate administrative changes. For optimal alert functionality, organizations must ensure comprehensive logging is enabled for AWS CloudTrail, specifically monitoring IAM-related events to capture all relevant activities effectively.
+
+  Detection may miss attempts where an attacker uses shared accounts or impersonates legitimate users. Ensure that AWS CloudTrail logging is fully enabled for comprehensive coverage and consider the use of multi-factor authentication (MFA) to mitigate risks. Legitimate administrative functions may trigger this alert during user management tasks. A related detection to consider is monitoring for the `DeleteLoginProfile` API call, which can also indicate malicious intent if occurring alongside other suspicious activities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

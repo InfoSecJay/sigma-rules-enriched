@@ -29,26 +29,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects an attempt to bypass User Account Control (UAC) using the `IEInstal.exe` process, which is associated with a technique known as UACMe. UAC bypass techniques are often employed by attackers to escalate privileges within a system without raising immediate alerts. In this scenario, the attacker may exploit weaknesses in UAC to execute arbitrary code with elevated privileges, enabling them to perform malicious actions, such as installing malware or exfiltrating sensitive data after gaining administrative access.
 
-  Relevant MITRE ATT&CK tactics for this detection include:
-  - **Defense Evasion** (TA0005)
-  - **Privilege Escalation** (TA0004)
-  The specific technique detected here is **Bypass User Account Control** (T1548.002), which illustrates the attacker’s strategy to execute processes with higher privileges than those initially granted.
+  This Sigma rule detects potential User Account Control (UAC) bypass attempts leveraging `ieinstal.exe` as a parent process for `consent.exe`, which is utilized for elevated permissions in Windows environments. The likely attacker objective is to achieve privilege escalation, allowing them to execute code with higher permissions than originally granted. This behavior aligns with the MITRE ATT&CK techniques for Defense Evasion (T1548.002 - Bypass User Account Control).
 
-  The primary data sources for this detection are Windows process creation logs. These logs provide insights into newly created processes, their parent-child relationships, and the integrity levels of processes, which are crucial for identifying UAC bypass attempts.
+  The primary telemetry sources include Windows process creation logs, specifically Security Event IDs 4688 and Sysmon Event ID 1, which capture details about process execution, parent-child relationships, integrity levels, and image paths. Should this detection prove true, it could indicate a significant breach of system integrity, potentially allowing adversaries to execute malicious code without proper user consent. However, this detection alone does not confirm that a compromise has occurred, as it may include benign instances of `consent.exe` being invoked for legitimate administrative purposes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze Windows process creation logs around the time of the alert. Look for `consent.exe` executions with a parent process of `ieinstal.exe` and verify the integrity levels associated with both processes.
-  - **Correlate User Activity**: Check user activity prior to the event to identify any suspicious behavior patterns or unauthorized actions that could suggest privilege escalation or potential compromise.
-  - **Monitor for Other UAC Bypass Techniques**: Conduct a broader search for other UAC bypass methods in the environment to assess the likelihood of concurrent attacks or ongoing malicious activities.
-  - **Analyze System Configurations**: Ensure that Windows security settings regarding UAC are properly configured to prevent bypass attempts. Investigate if there have been any unauthorized changes to these settings.
+
+  - **Identify the process inheritance**: Review Security Event ID 4688 for `consent.exe` with a parent process of `ieinstal.exe`. Look for the Image Path field to confirm the presence of `\AppData\Local\Temp\ieinstal.exe`.
+
+  - **Check integrity level**: Validate the integrity level associated with the `consent.exe` process. Ensure that it reads either 'High' or 'System' (SIDs: S-1-16-16384 or S-1-16-12288), as legitimate consent processes typically operate under lower integrity levels.
+
+  - **Cross-reference with legitimate behavior**: Search process creation logs for expected activity by known applications that use `consent.exe` legitimately (e.g., Windows updates or trusted installers) to rule out benign execution.
+
+  - **Analyze existing processes**: Investigate if `ieinstal.exe` was executed recently by checking Event ID 4688. Investigate unusual execution paths and timestamps, focusing on potentially suspicious timeframes or missing elements in command-line arguments.
+
+  - **Correlate with other telemetry sources**: Confirm the presence of evidence in Sysmon logs, focusing on Event ID 10 (ProcessAccess) to see if any abnormal access attempts are logged against `consent.exe`.
+
+  - **Monitor for follow-on activity**: Utilize EDR tools to review any subsequent processes spawned from `consent.exe`. Look for unusual network connections or file writes that may indicate malicious behavior post-execution.
+
+  ---
 
   ### Prioritization
-  This alert is categorized as high severity due to the potential impact of successful UAC bypass attempts. If exploited, an attacker could gain significant control over the system, leading to data breaches or further infiltration of the enterprise network.
+
+  This alert should be prioritized as high due to its potential impact on systems where privilege escalation could enable further exploits or lateral movement within the network. The likelihood of abuse is significantly increased as the behavior demonstrated is a known method for bypassing UAC controls, which are often weaponized in targeted attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage can be limited if process creation logs are not adequately collected or if the environment uses alternative methods for UAC implementations. The detection logic assumes that `ieinstal.exe` is employed as a parent process for elevating privileges and does not account for potential obfuscation methods attackers might use. Additionally, logs must include comprehensive process creation events for this detection to function effectively, making it critical that logging configurations are correctly set up to capture all relevant activities.
+
+  This detection may be limited by the absence of comprehensive logging across all potential UAC bypass methods. Evasion techniques, such as altering `ieinstal.exe` to use different filenames or modifying its execution path, could bypass this detection. Additionally, legitimate administrative tasks may inadvertently trigger this alert, particularly in environments with frequent elevation of privileges. Related detections such as unusual process chains involving `PowerShell` and `WMI` can provide supplementary context to flag potential misuse.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

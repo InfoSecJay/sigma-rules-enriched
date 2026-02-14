@@ -40,30 +40,42 @@ falsepositives:
 - Rare intended use of hidden services
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the misuse of the `Set-Service` PowerShell cmdlet to alter the Security Descriptor of a Windows service, effectively allowing it to be hidden from standard service utilities like `sc.exe` and `Get-Service`. Such behavior is typically associated with an attacker’s objective to conceal malicious services on a compromised host, thereby evading detection from both automated monitoring solutions and human administrators. This technique is indicative of persistence and defense evasion strategies employed by threat actors.
 
-  The relevant MITRE ATT&CK tactics and techniques include:
-  - **Persistence** (TA0003) - Establishing a foothold that outlives system reboots.
-  - **Defense Evasion** (TA0005) - Manipulating tools to evade detection, specifically through the use of command-line tools to obfuscate noxious behavior.
-  - **Privilege Escalation** (TA0004) - Misusing elevated permissions granted through service management to enhance control over a compromised environment.
-  - **T1574.011 - Service Registry Permissions Weakness** - Exploiting service registry permissions to manipulate how the service appears or operates.
+  This detection seeks to identify the use of the `Set-Service` PowerShell cmdlet, specifically aimed at modifying service security descriptors to hide services from management tools like `sc.exe` and `Get-Service`. The likely objective of an attacker using this technique is to maintain persistence and evade detection by obscuring malicious services from standard monitoring practices. This behavior aligns with the MITRE ATT&CK technique T1574.011 - "Hide Services".
 
-  Primary data sources for this detection include process creation events that capture PowerShell command execution, as well as system logs detailing service configuration changes.
+  The primary telemetry sources include Windows Process Creation logs (Event ID 4688) and potentially Sysmon Event ID 1 logs. The security impact of a successful attack could be severe, allowing an adversary to embed their presence in a way that is difficult to detect, potentially leading to prolonged unauthorized access. Importantly, this detection does not confirm full compromise or malicious intent on its own—legitimate administrators may also use this cmdlet under certain circumstances.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze logs for instances of `pwsh.exe` executing with the `Set-Service` cmdlet. Look for command lines that include the `-SecurityDescriptorSddl` parameter as this indicates the modification of the service's security permissions.
 
-  - **Analyze Service Configuration**: Use tools (e.g., PowerShell or the GUI) to investigate the properties of services on the affected host. Pay careful attention to any services that do not appear in default queries or have atypical security descriptors.
+  - **Review process creation logs:** Check for Windows Event ID 4688 logs for the execution of `pwsh.exe`. Focus on the CommandLine field for strings containing `Set-Service` and `DCLCWPDTSD` to find high-confidence indicators of malicious activity.
 
-  - **Inspect Related Event Logs**: Check Windows Event Logs, particularly the Security Event Log for Event IDs that may correlate with service modifications or access attempts around the time of detection.
+  - **Examine the command line arguments:** Analyze the CommandLine field in Event ID 4688 for the `Set-Service` usage, particularly looking for `-SecurityDescriptorSddl` or `-sd`. Malicious instances will likely display complex SDDL strings, indicating attempts to obscure service visibility.
 
-  - **Correlate with User Activity**: Determine the user context under which the PowerShell command was executed. Analyze user permissions and recent activity for any anomalies that may indicate compromise.
+  - **Identify legitimate usage patterns:** Review the system for expected administrative usage of `Set-Service`. Legitimate administrators may use it infrequently and for valid service management tasks, contrasting with suspicious and frequent, complex arguments typical of adversarial behavior.
+
+  - **Correlate with service configuration data:** Check services using `Get-Service` or equivalent management utilities to compare the visibility of services against the expected output. Look for discrepancies where services should be visible but are not.
+
+  - **Assess event logs for related activities:** Look for Event ID 4698 logs which may indicate the creation of new scheduled tasks that could relate to the usage of hidden services, potentially indicating broader persistence strategies.
+
+  - **Verify integrity of affected systems:** Conduct a deeper examination of affected hosts for possible file system or network indicators that may signal exfiltration or misuse of hidden services, including monitoring for any unexpected outbound connections.
+
+  ---
 
   ### Prioritization
-  Given the severity of hiding malicious services from system administrators and automated detection systems, this alert is categorized as high priority. The potential impact of such an action is substantial as it can lead to prolonged presence of threats in the environment, facilitating further attacks.
+
+  This alert should be treated as high priority due to its implication of potential persistence mechanisms employed by adversaries. The capability to hide services is frequently weaponized by advanced threat actors to avoid detection. Systems with critical roles in the organization or exposed to sensitive data must be prioritized for investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding legitimate uses of hidden services, which can result in false positives. The logic assumes that PowerShell 7 is employed for executing such commands, possibly missing detections from earlier versions or other script execution contexts. Additionally, proper logging configurations must be in place for both PowerShell command execution and service changes to ensure the successful functioning of this alert.
+
+  Detection may be limited by legitimate usage of PowerShell commands by administrators who occasionally need to hide services for valid reasons. Ensure that the logging configuration includes both process creation and PowerShell usage, as incomplete logging may reduce the effectiveness of the detection. Related detections that might enhance visibility include monitoring for suspicious PowerShell execution patterns or unusual service activity, such as T1053 for scheduled tasks, as they can relate back to the same threat actor’s attempts to persist on the network.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -72,23 +72,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  The rule titled "Potential Direct Syscall of NtOpenProcess" detects potential direct calls to the `NtOpenProcess` function from the NTDLL library, which could indicate suspicious behavior commonly associated with advanced malware, such as Cobalt Strike. Attackers may use techniques like these to gain unauthorized access to other processes, often as part of a broader tactic to execute payloads or perform additional actions on a compromised machine. The primary objective in this context would be to manipulate or exfiltrate data from running processes without detection.
 
-  This detection aligns with the MITRE ATT&CK framework's Execution tactic (ID: TA0002), specifically the technique "Indirect Command Execution" (ID: T1106). The use of direct system calls can indicate that an attacker is attempting to bypass typical security controls and makes it crucial to monitor such activities closely.
+  This detection identifies potential direct syscalls to `NtOpenProcess` originating from NTDLL, which is atypical for legitimate processes. Direct syscall invocation can suggest advanced techniques employed by threat actors, likely aiming to manipulate or hijack processes for malicious activities, such as privilege escalation or to achieve persistence. This behavior is associated with the MITRE ATT&CK technique T1106 (Native API).
 
-  The most valuable telemetry for this detection comes from process access logs (for instance, from the Windows Kernel), which can track system calls, along with other process-related events such as creation and termination logs.
+  Primary telemetry sources include Windows kernel audit logs, specifically looking for syscall traces that commence with 'UNKNOWN.' The security impact of this behavior is significant, as it may indicate an advanced persistent threat or malware attempting to control targeted processes. Importantly, this detection does not prove malicious intent alone; further investigation is required to contextualize the activity.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Access Logs**: Examine the process access logs for any instances of `NtOpenProcess` being called directly from NTDLL, specifically looking for unknown or suspicious process names in the call traces.
-  - **Analyze Parent-Child Relationships**: Look into `ProcessCreation` events to determine the parent and child process relationships around the suspicious calls. This can help identify how processes are being invoked and if there are signs of exploitation attempts.
-  - **Cross-reference with Baselines**: Compare the identified processes and their expected behavior against baseline activity to detect any anomalies or deviations that may signify malicious activity.
-  - **Check for Known Indicators**: Search your threat intelligence feeds and internal databases for known malicious binaries or behaviors associated with the processes detected. This may include well-documented tools like Cobalt Strike or other known malware.
+
+  - **Verify the calling process:** Determine the `SourceImage` of the syscall alongside the `TargetImage`. Events should be examined for entries like Event ID 4656 (Handle Access) or syscall traces. Benign usage can include system tools or commonly trusted applications under standard conditions.
+
+  - **Check for known benign applications:** Identify if the source or target images correlate with commonly used software like `vcredist_x64.exe` or `systeminfo.exe`. Legitimate processes typically exhibit known behaviors and are executed in recognized paths.
+
+  - **Audit access levels:** Investigate the `GrantedAccess` field to ensure it aligns with expected usage. A `GrantedAccess` value of `0x1000` specifically could indicate process manipulation, which is unusual for general application behavior and warrants further scrutiny.
+
+  - **Examine related process trees:** Utilize Sysinternals tools (like Process Explorer) to inspect the process tree and confirm if the calling process has legitimate parent-child relationships. Any anomalies in the hierarchy may indicate malicious activity.
+
+  - **Monitor for associated artifacts:** Validate the presence of any suspicious file operations or network connections initiated by the `TargetImage`. Look for the creation of unusual files or outbound connections using `netstat` or similar commands.
+
+  - **Review recent security alerts:** Check if there are accompanying alerts related to the observed behavior from threat intelligence feeds or intrusion detection systems. This could indicate broader exploitation patterns requiring immediate attention.
+
+  ---
 
   ### Prioritization
-  The alert has been assigned a medium severity level due to the potential impact of process manipulation by malware. Given that direct syscalls can be indicative of more sophisticated infiltration methods, timely investigation is critical in an enterprise environment to mitigate further risks.
+
+  This alert should be considered medium priority due to the potential security risks associated with direct syscall manipulation. Systems involved may have critical roles, depending on the application context, and the likelihood of exploitation through this technique is moderate but concerning since it is commonly weaponized in attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This rule may have gaps in detection coverage if certain logs are not collected or if syscalls are obfuscated or minimized by advanced malware, limiting visibility into malicious behavior. Additionally, the detection logic assumes that the calls will not be obscured by known software, which may lead to false negatives. Required logs include comprehensive process access records and configurations that enable detailed syscall tracking, which may necessitate the activation of specific auditing features within Windows systems.
+
+  Detection may be limited by incomplete logging configurations or situations where legitimate applications use direct syscalls, potentially leading to false positives. Required log sources include comprehensive kernel auditing settings enabled to capture syscall activities accurately. Additionally, benign applications, such as system utilities, may trigger this alert under specific operational scenarios. Related detections such as those monitoring abnormal Windows API calls (e.g., `NtReadVirtualMemory`) could enhance holistic detection capabilities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

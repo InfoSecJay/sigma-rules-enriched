@@ -27,23 +27,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the creation of a suspicious executable file named `Get-Variable.exe` within the `C:\Local\Microsoft\WindowsApps\` directory, which is a known technique associated with various forms of attack, particularly by threat actors utilizing persistence methods. In this scenario, attackers may exploit the name of a legitimate PowerShell cmdlet to disguise their malicious intent, tricking the operating system into executing the harmful file instead of the intended PowerShell command. This can lead to privilege escalation, malware execution, or data exfiltration.
 
-  The relevant MITRE ATT&CK tactics include **Persistence** (TA0003), as this technique can be leveraged to maintain an attacker's presence across system reboots, and **Defense Evasion** (TA0005), where the attacker avoids detection by mimicking a legitimate command. Additional techniques that apply include **Indicator Removal on Host** (T1070) if the malicious executable is subsequently hidden or manipulated after creation, and **Exploitation of Remote Services** (T1210) if the malware seeks to connect to external environments.
+  This rule detects the creation of a file named `Get-Variable.exe` in the `Local\Microsoft\WindowsApps\` directory, which is indicative of an adversary mimicking a legitimate PowerShell cmdlet to execute malicious payloads. The likely attacker objective is to gain persistence on the system by leveraging a common command, thereby circumventing standard security controls. The relevant MITRE ATT&CK tactic is **Persistence** (T1546) and the technique is **Masquerading - Match Legitimate Software** (T1027).
 
-  Primary data sources for this detection include **file creation events** from Windows file systems, which can provide insights into when and where suspicious files were created.
+  Primary telemetry sources include Windows file event logs, specifically looking for file creation events. If this behavior is malicious, it can result in unauthorized system access, privilege escalation, and exploitation of sensitive data. Importantly, this detection does NOT confirm malicious intent on its own; further context is required to establish whether `Get-Variable.exe` is a legitimate application or a decoy for a malicious payload.
+
+  ---
 
   ### Investigation Steps
-  - **Review File Events:** Check Windows file event logs for the creation of `Get-Variable.exe`, noting the exact time and user context under which it was created.
-  - **Analyze PowerShell Command History:** Examine PowerShell command logs (if available) for commands issued prior to the creation of `Get-Variable.exe`, focusing on any unusual or suspicious activity that may indicate malicious use.
-  - **Correlate with Process Execution Logs:** Investigate process creation events to see if any instance of PowerShell invoked `Get-Variable.exe` shortly after its creation, as this may indicate execution of the malicious binary under the guise of the legitimate cmdlet.
-  - **Verify User Context:** Check user accounts associated with the creation and execution of the file. Look for service accounts or users with unusual privileges, as attackers often employ compromised or unauthorized accounts.
+
+  - **Review file creation details:** Check for Event ID 4663 in Security logs to identify creation of `Get-Variable.exe`, including the user who executed the action. Compare timestamps with user activity logs to identify any anomalous timing.
+
+  - **Correlate with PowerShell log activity:** Look for PowerShell logs (Event ID 4103) to see if there were any suspicious `Get-Variable` calls within 5 minutes before and after file creation. Legitimate usage generally coincides with known administrative tasks.
+
+  - **Examine process execution history:** Use Sysmon Event ID 1 to investigate if `Get-Variable.exe` was executed and if it spawned any child processes. Legitimate executions will typically not exhibit unusual behavior or additional command-line arguments.
+
+  - **Identify parent process:** Check if the creation of `Get-Variable.exe` is initiated by any benign parent process (e.g., PowerShell or a legitimate system task) or if it is part of a chain from known malicious tools (e.g., Cobalt Strike).
+
+  - **Check for persistence mechanisms:** Inspect the Task Scheduler for any tasks created around the same time that may point to a persistence mechanism utilizing `Get-Variable.exe`. Typical legitimate tasks will have recognizable names and descriptions.
+
+  - **Validate file integrity and reputation:** Use tools like Windows Defender or other threat intelligence services to analyze the file and assess if `Get-Variable.exe` has a known signature or reputation, flagging any low-trust characteristics indicating potential malicious intent.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the potential for attackers to establish persistence using legitimate names for their malicious files, which poses a significant risk to the organization's IT infrastructure and security posture.
+
+  This alert should be treated as high severity due to its potential impact on system compromise and persistence mechanisms. The likelihood of unauthorized use is elevated, especially since it exploits legitimate command structure. This behavior is not frequently seen in benign contexts, making further investigation critical.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection logic assumes that the malicious executable will be named exactly as specified (`Get-Variable.exe`) and will appear in the defined directory. Gaps in detection coverage may include scenarios where the file is executed from alternate, non-standard paths or renamed to avoid detection. Additionally, if PowerShell command logging is disabled, there may be insufficient visibility into the context and intent behind the file's creation. Effective detection requires proper logging configurations at both the system and application levels to ensure comprehensive visibility into file and command activity.
+
+  Detection may be limited due to potential evasion techniques such as renaming or obfuscation of the executable. Reliable detection requires logging configurations for both file events and PowerShell command execution. Legitimate activities that may trigger this rule include non-malicious scripted automation processes that erroneously create similarly named files. A related detection to strengthen coverage could involve monitoring for abnormal PowerShell utilization patterns associated with potentially malicious activities (e.g., suspicious cmdlet usage).
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

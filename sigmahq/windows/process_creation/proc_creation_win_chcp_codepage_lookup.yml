@@ -36,26 +36,40 @@ level: medium
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_chcp_codepage_lookup/info.yml
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the execution of the `chcp` (Change Code Page) command in a Windows environment, specifically when it is run from a command prompt (`cmd.exe`) with the intent of querying the system locale. The use of `chcp` for host discovery may indicate an adversary attempting to gather information about the system's configurations as part of the reconnaissance phase of an attack. Attackers often aim to map out a target environment to identify vulnerabilities or establish persistence.
 
-  The relevant MITRE ATT&CK tactics and techniques that apply include **Discovery** (TA0007) and specifically **System Information Discovery** (T1614.001). Given that this command reveals details about the system's locale, it can assist attackers in confirming system configurations that may influence their subsequent actions or play a role in the exploitation phase.
+  This Sigma rule detects the execution of the `chcp` command, which is used to check the current code page setting in Windows. This behavior is commonly associated with reconnaissance activities where adversaries seek to gather system information, particularly during the initial phases of a compromise to identify system configurations and language settings. The relevant MITRE ATT&CK technique is Discovery → System Information Discovery (T1614.001).
 
-  Primary data sources for detecting this activity include **process creation events**, which provide details on commands being executed, including parent processes. Querying Windows security logs can also be valuable, as they will capture the execution context in which `chcp` was used.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior can indicate attempts by an attacker to understand the victim's system environment, which could aid in planning more effective attacks. However, this detection does NOT confirm malicious intent on its own, as legitimate applications and processes can also call `chcp`.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze the process creation events for instances of `chcp` being executed, particularly focusing on the command line arguments and parent images. Look for suspicious parent processes like `cmd.exe`.
 
-  - **Check for Related Parent Commands**: Investigate the command line of the parent process for unusual options or pipe commands that might suggest the execution of additional commands.
+  - **Identify the originating process: **Review Security Event ID 4688 logs for the creation of the `chcp.com` process. Check the `ParentImage` field to see if it lists `cmd.exe`, indicating that the command was run through a command shell.
 
-  - **Analyze System Locale Context**: Validate the necessity of the `chcp` command in the context it was executed. Determine if the execution of this command aligns with typical organizational activities, as legitimate applications may also trigger these processes.
+  - **Analyze the command line: **Examine the `CommandLine` field in the logs for instances of `chcp`, especially variations like `chcp`, `chcp `, or `chcp  `. Look for anomalies, such as arguments or suspicious parent processes that could indicate malintent.
 
-  - **Investigate Associated Network Activity**: Correlate any abnormal `chcp` executions with network behavior to identify if there were any data exfiltrations or unusual connections made that align with potential reconnaissance efforts.
+  - **Look for legitimate usage patterns: **Consider benign scenarios where `chcp` might be invoked, such as during the operation of Python environments (e.g., Anaconda) or applications like Discord. Validate against known behavior patterns to differentiate between normal and suspicious activity.
+
+  - **Correlate with system state: **Cross-reference findings with Sysmon Event ID 1 logs, focusing on the `User` and `CommandLine` fields. Check for concurrent anomalous activity related to system enumeration or privilege escalation that might suggest a more significant compromise.
+
+  - **Check for additional artifacts: **Investigate any file creations or modifications in directories typically associated with known attack tools. Validate that no unauthorized links to the system locale or sensitive file access occurred post-command execution.
+
+  ---
 
   ### Prioritization
-  The alert is classified with medium severity due to the potential for reconnaissance activity that may precede more harmful actions by an attacker. While executing `chcp` alone is not inherently malicious, its context within a sequence of commands or behaviors can indicate nefarious intent, necessitating timely investigation.
+
+  This alert has medium severity as an indication of potential reconnaissance activity, especially in a sensitive or critical system environment. While `chcp` usage can be part of legitimate operational processes, its invocation alongside suspicious command line parameters enhances the probability of malicious intent.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Potential blind spots include environments where legitimate software, such as Anaconda or Discord, may legally invoke the `chcp` command, potentially leading to false positives. The detection logic assumes that all uses of `chcp` are malicious when executed in a certain context, which may not always hold true. Effective detection relies on the availability of detailed process creation logs that must be configured and consistently collected in the environment for accurate alerting and analysis.
+
+  Detection may be limited by the absence of Sysmon or inadequate logging configurations. Legitimate activities such as software updates or common application behavior could trigger this alert, potentially resulting in false positives. Companion detections to consider may include monitoring for other command-line enumeration tools and Sysmon Event ID 10 (Process Access) to identify potential exploitation attempts following the discovery phase.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

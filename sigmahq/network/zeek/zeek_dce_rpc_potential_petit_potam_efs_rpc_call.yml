@@ -31,25 +31,38 @@ falsepositives:
   the Encrypting File System RPC Calls. Verify if this is common activity (see description).
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the usage of the Encrypting File System Remote Protocol (MS-EFSRPC) within Windows environments. Such activity is associated with the PetitPotam attack, where adversaries exploit this protocol to perform NTLM relay attacks against Active Directory. The goal of an attacker utilizing PetitPotam is often to gain unauthorized access to resources, escalate privileges, or capture sensitive data.
 
-  The relevant MITRE ATT&CK tactics and techniques for this detection include:
-  - **Credential Access** (T1557): Exploiting stored credentials to gain unauthorized access.
-  - **Collection** (T1187): Gathering sensitive data from the environment.
+  This rule detects the use of the Encrypting File System Remote Protocol (MS-EFSRPC) within Microsoft Windows environments, specifically focusing on operations that start with "efs." The likely attacker objective is to exploit the protocol for credential theft, leveraging it in the PetitPotam attack to coerce a domain controller into authenticating with their malicious entity. The relevant MITRE ATT&CK tactic is Credential Access, specifically technique T1557.001 (Credential Dumping: NTLM), and also technique T1187 (Acquire User Credential). The primary telemetry source for this detection is DCE/RPC logs captured by systems monitoring network traffic with Zeek. If malicious, exploitation could lead to unauthorized access to sensitive credentials and potentially escalate privileges. This detection does *not* confirm malicious activity on its own, as legitimate administrative tasks may also trigger this alert.
 
-  The primary data sources for detecting this activity include logs from the DCE/RPC service, related SMB activities, and potential references in Kerberos or NTLM traffic. Since MS-EFSRPC is not commonly used in everyday operations, any detected calls to this protocol should prompt immediate investigation.
+  ---
 
   ### Investigation Steps
-  - **Review RPC Logs**: Investigate DCE/RPC logs for calls related to 'efs' to identify the source IP and associated activities. This can provide insight into potentially malicious actions around file encryption.
-  - **Analyze SMB Logs**: Examine SMB mapping and file access logs from the source IP to determine if unauthorized file operations occurred that may indicate exploitation attempts.
-  - **Check User Context**: Assess the user privileges associated with the RPC calls. Look for unexpected or unauthorized accounts attempting to use the EFS RPC functionality.
-  - **Surrounding Event Correlation**: Check surrounding logs (within a few minutes) such as RDP, NTLM, and Kerberos authentication attempts to identify any correlating activities that could indicate broader compromise.
+
+  - **Review surrounding RPC logs: ** Investigate logs from the source IP (Zeek DCE/RPC logs with 'dce_rpc' service and related event types) for unusual patterns of activity around the detected event, especially within a 5-minute window before and after the alert. Look for legitimate administrative tasks versus anomalous behavior.
+
+  - **Identify high-confidence malicious indicators: ** Focus on RPC call metrics from the source IP to determine frequency and volume. Reject calls that lack valid administrative context or appear after hours, looking for operations starting with 'efs'.
+
+  - **Assess legitimate use cases: ** Identify if there are documented administrator activities or scheduled tasks that typically utilize EFS RPC calls. Check for the presence of known software or scripts used internally that might invoke this RPC function under normal operational circumstances.
+
+  - **Correlate with SMB activities: ** Review SMB logs for ‘smb_mapping’ and ‘smb_files’ operations from the same source IP to identify any unauthorized lateral movement attempts or unusual file access patterns. Monitor for unexpected remote share accesses, focusing on sensitive shares.
+
+  - **Check for authentication attempts: ** Look in logs for NTLM and Kerberos authentication events (Event IDs 4624 and 4768) related to the source IP to assess if there are excessive or suspicious authentication requests from that entity.
+
+  ---
 
   ### Prioritization
-  This alert is classified as medium severity due to the potential impact of credential theft and unauthorized access that could result from a successful PetitPotam attack, combined with the relatively low likelihood of legitimate usage of MS-EFSRPC in most enterprise environments.
+
+  This alert is considered medium severity due to the sensitive nature of potential credential access involving EFS RPC calls. While the likelihood of abuse is moderate, this behavior can be weaponized in specific attack scenarios like PetitPotam, necessitating prompt investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Current detection coverage may be limited to only certain log types and may not capture all instances of EFS RPC usage, especially if logging configurations are not adequately set. The detection logic assumes that legitimate administrators would not invoke EFS RPC calls frequently; however, oversight of legitimate administrative tasks could lead to false positives. Proper configurations for dce_rpc logging and monitoring for SMB, Kerberos, and RDP traffic are critical for successful detection.
+
+  This detection may not capture all legitimate uses of EFS RPC due to its uncommon nature. Evasion techniques include attackers obfuscating legitimate traffic or using uncommon ports. Organizations must ensure they have comprehensive DCE/RPC logging enabled. Legitimate activities may include standard administrative tasks that invoke EFS. A companion detection to consider is monitoring for excess failed authentication attempts (Event ID 4625), which provides additional context on potential exploitation attempts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -32,28 +32,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the execution of SOAPHound, a tool designed for collecting sensitive Active Directory (AD) information through specific command-line arguments that suggest data extraction activities. Attackers may leverage SOAPHound to enumerate AD environments, aiming to extract user credentials, service account information, or configurations that could lead to further exploitation of systems. This can be part of a broader strategy to establish footholds, escalate privileges, or engage in lateral movement within targeted networks.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Discovery** (T1087): The technique involves the discovery of credentials and configurations from systems and services.
-  - **Account Discovery** (T1087.001): This specific sub-technique relates to obtaining information about local or domain accounts, which can be crucial for attackers looking to elevate privileges or access sensitive data.
+  This Sigma rule detects the execution of SOAPHound, a .NET utility that collects sensitive data from Active Directory using specific command-line arguments, such as `--buildcache`, `--bhdump`, and similar flags. The likely objective behind its use by an attacker is to harvest credentials, enumeration information, or other sensitive data from AD, a critical action in the reconnaissance phase of an attack. Relevant MITRE ATT&CK tactics and techniques include Discovery (ID: TA0007) and Active Directory Enumeration (T1087).
 
-  Primary data sources that can provide insights into this behavior include process creation events, particularly monitoring for the command-line arguments associated with the SOAPHound execution.
+  The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process execution details and command-line arguments. If malicious, executing this tool can lead to unauthorized access to AD information, enabling further exploitation within the environment. Importantly, this detection does NOT confirm unauthorized access or successful data exfiltration on its own, merely the execution of a potentially malicious tool.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze logs for any instances of the SOAPHound execution, paying particular attention to the command-line arguments that match known patterns indicative of extraction attempts.
 
-  - **Inspect Active Directory Logs:** Gather LDAP query logs to identify any unusual read operations, particularly those triggered by the user or service account associated with the SOAPHound execution.
+  - **Review command-line arguments:** Look for process creation logs (Event ID 4688 / Sysmon ID 1) that contain SOAPHound command-line arguments such as `--buildcache`, `--bhdump`, `--certdump`. Compare with known benign use cases; legitimate administrative tools may invoke outputs without these flags.
 
-  - **Correlate User Behavior:** Investigate the user or process that initiated SOAPHound. Look for anomalous behavior or patterns, such as executing from uncommon locations or unusual hours of operation.
+  - **Identify the user context:** Check the `NewProcessName` and `User` fields in the process creation logs to determine which user executed SOAPHound. Look for unusual accounts or non-administrator users executing this tool, indicating non-legitimate use.
 
-  - **Assess Network Traffic:** Monitor network traffic for connections initiated by SOAPHound, especially to external or unusual endpoints that could indicate data leaks or command and control activities.
+  - **Inspect parent process relationships:** Analyze the `ParentProcessId` field in the logs to identify the parent process. Investigate if it was launched from a legitimate administrative tool like PowerShell or a remote management application.
+
+  - **Correlate with scheduled tasks or known malicious behaviors:** Cross-reference execution times with other security events such as failed login attempts or unusual task creation (Event ID 4697) on the same host to highlight potential malicious activity.
+
+  - **Audit file creations or references:** Validate if the execution resulted in the creation of suspicious files or directories (like output cache files). Check relevant locations for files containing sensitive information, especially in paths noted in the command-line (`--outputdirectory`).
+
+  - **Consult known legitimate workflows:** Identify and understand regular administrative tasks that may invoke similar behaviors for context. For example, legitimate AD enumeration tools might show similar command-line structures but with different flags.
+
+  ---
 
   ### Prioritization
-  The alert's severity is considered high due to the potential impact of SOAPHound on an enterprise's security posture, as it facilitates the extraction of critical AD data that could be exploited by malicious actors. The likelihood of encountering such a detection increases with the prevalence of attacks that aim to compromise credentials and gain unauthorized access.
+
+  This alert should be classified as high severity given the potential impact on sensitive data exposure within Active Directory and the likelihood of such tools being weaponized in attacks. The execution of SOAPHound by untrusted users represents a significant risk that may point to ongoing reconnaissance or lateral movement efforts.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if organizations do not maintain detailed process creation logs or if command-line logging is not enabled on Windows systems. The detection logic assumes that the execution of SOAPHound will include the specified command-line arguments, which may vary in different use cases or be disguised by attackers to evade detection. Continued monitoring and analysis of command-line activity are crucial, and organizations should ensure that proper logging configurations are in place to capture the necessary telemetry for this rule to be effective.
+
+  Detection may be limited by the use of command-line obfuscation or execution from scripts that may mask the actual intent. Reliable detection requires enabling detailed process creation logging and monitoring of specific command-line arguments. Additionally, legitimate administrative tasks, such as troubleshooting AD or script execution by trusted administrators, could trigger this alert. A related detection, possibly monitoring for unusual PowerShell usage (T1059.001), could enhance overall coverage against similar reconnaissance activities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

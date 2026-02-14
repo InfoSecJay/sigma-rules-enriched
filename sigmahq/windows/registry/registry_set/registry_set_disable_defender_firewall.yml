@@ -34,24 +34,42 @@ simulation:
   technique: T1562.004
   atomic_guid: afedc8c4-038c-4d82-b3e5-623a95f8a612
 note: |
-  ### Technical Context
-  This detection rule identifies instances where adversaries disable Microsoft Defender Firewall via modifications to the Windows registry. Such actions may be indicative of an attacker’s efforts to bypass security controls that restrict unauthorized network communications. The disabling of firewalls is a common tactic used by threats to facilitate further malicious activities, such as data exfiltration, lateral movement, or the deployment of additional payloads without interference from built-in security measures.
+  ---
 
-  The relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0005), specifically the technique **Disable or Modify Tools** (T1562.004). Adversaries may execute this tactic to modify the firewall settings, making the system more vulnerable to subsequent attacks. Telemetry logs from registry modifications will provide the best evidence for detecting this behavior, especially focusing on changes to the `EnableFirewall` DWORD value located in the relevant profiles of the Windows firewall settings.
+  ### Technical Context
+
+  This Sigma rule detects modifications to the Windows registry that disable the Microsoft Defender Firewall, specifically changes to the values associated with the EnableFirewall key across different network profiles (Domain, Public, Standard). The likely attacker objective is to disable network traffic filtering, thereby facilitating further malicious activity without being detected. This behavior aligns with the MITRE ATT&CK tactic of **Defense Evasion** and the technique of **Disable or Modify System Firewall** (T1562.004).
+
+  The primary telemetry source is Windows Registry change logs, specifically capturing events tied to the modification of the paths under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy`. If malicious, the impact could be significant as it exposes the system to network-based attacks and potential data exfiltration. Importantly, this detection does NOT confirm malicious intent on its own; it only indicates that the firewall has been disabled.
+
+  ---
 
   ### Investigation Steps
-  - **Review Registry Changes:** Examine recent modifications in the registry, specifically targeting values under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\` for changes to the `EnableFirewall` DWORD across all profiles.
 
-  - **Correlate with User Activity:** Analyze user account activity around the time of the registry change to identify any unusual or unauthorized logins, especially those associated with administrative privileges.
+  - **Check registry modification date and user context:** Use PowerShell to query the registry (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\*"). Compare the modification timestamp against user activity logs to determine if it aligns with expected changes.
 
-  - **Inspect Network Flow Data:** Investigate network logs and flows for unusual outbound traffic patterns that could indicate evasion of the firewall, such as communication on non-standard ports or to unrecognized external IP addresses.
+  - **Review user and process activity:** Investigate the user account making the change by checking Security Event ID 4624 (Logon) for logon types and associated processes. Look for unusual accounts or processes that executed registry modifications.
 
-  - **Check for Related Events:** Look for other potentially related events preceding or following the registry modification, such as suspicious process executions or use of remote command execution tools that may coincide with the firewall changes.
+  - **Determine legitimate usage patterns:** Identify any scheduled tasks or maintenance scripts that may routinely modify firewall settings, ensuring that expected operational procedures are documented and do not trigger false alerts.
+
+  - **Identify high-confidence malicious indicators:** Check System Event Log (Event ID 7045) for any unauthorized service installations that may correlate with the timing of the registry modification. Malicious indicators may include entries related to malware installation.
+
+  - **Validate network traffic before and after modification:** Review Windows Filtering Platform logs or network monitoring tools for any unusual inbound/outbound connections following the firewall disable event, looking for excessive traffic or connections to known bad IPs.
+
+  - **Assess impact on critical assets:** Focus analysis on critical assets that require robust firewall policies. Adjust investigations accordingly if the affected endpoint is a server or domain controller.
+
+  ---
 
   ### Prioritization
-  The alert should be classified with medium severity due to the significant risk posed by the disabling of firewall protections can expose the network to further malicious activity. Since attackers often exploit this technique as a precursor to deeper system compromises, any such alert warrants immediate investigation.
+
+  Alerts related to the disabling of the Microsoft Defender Firewall should be prioritized as medium severity. Such actions pose a notable risk to the enterprise, particularly on critical systems, as they can enable lateral movement or data exfiltration by removing essential network safeguards. Although this behavior is sometimes employed by legitimate administrative processes, it is also commonly weaponized by adversaries.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Potential blind spots include environments where custom configurations or third-party firewalls are in use, which may not be covered by this specific detection logic. The rule assumes that the logs for registry modifications are properly collected and monitored; inadequate logging settings could hinder effective detection. It also could miss legitimate administrative actions, depending on the organization's operational protocols regarding firewall management.
+
+  Potential detection limitations include the possibility of skilled adversaries restoring the firewall settings post-modification, evading immediate detection. The efficacy of this rule relies on active monitoring of Windows registry changes, and failures in capturing this telemetry may lead to missed detections. Legitimate activities, such as system updates or security audits, can also trigger these alerts. Companion detections that strengthen coverage include monitoring for anomalous process creations (Event ID 4688) immediately after registry modifications to identify patterns of malicious behavior.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

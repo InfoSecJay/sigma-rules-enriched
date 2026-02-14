@@ -30,21 +30,42 @@ falsepositives:
 - Unknown
 level: critical
 note: |
-  ### Technical Context
-  This detection rule identifies the execution of the PowerShell command `New-MailboxExportRequest`, which is utilized to export mailboxes from Microsoft Exchange to a file, potentially on a remote or local share. This command can be exploited in scenarios such as the ProxyShell vulnerability, where attackers seek to exfiltrate sensitive data by exporting user mailboxes without appropriate authorization. The goal of such an attack typically includes gathering sensitive information for further attacks, credential harvesting, or lateral movement within the network.
+  ---
 
-  Relevant MITRE ATT&CK techniques include **Exfiltration Over Command and Control Channel (T1041)**, as the exported data might be sent to an external location, and **Exploitation of Public-Facing Application (T1190)**, due to the exploitation inherent in the ProxyShell vulnerability. Detection of this rule relies primarily on **PowerShell script block logs**, as enabling script block logging allows for analysis of the specific commands executed in PowerShell sessions, including potentially malicious actions.
+  ### Technical Context
+
+  This Sigma rule detects the execution of the PowerShell cmdlet `New-MailboxExportRequest`, which is often used to export mailboxes to a file share. Attackers may leverage this command after conducting successful compromises, such as those related to the ProxyShell vulnerabilities, with the objective of accessing and exfiltrating sensitive mailbox data. The relevant MITRE ATT&CK tactic is "Exfiltration" (TA0010) and the technique is "Exfiltration Over Web Service" (T1041).
+
+  The primary telemetry sources for this rule are Windows PowerShell logs, specifically requiring Script Block Logging to be enabled. If this behavior is malicious, it could indicate a serious breach where an adversary is attempting to steal sensitive information. However, this detection does NOT confirm that an actual exfiltration occurred, as legitimate use cases for this cmdlet also exist.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Logs**: Check the PowerShell script block logs for entries that contain `New-MailboxExportRequest` with parameters indicating mailbox exports, noting the file paths and targeted mailboxes.
-  - **Analyze User Activity**: Examine the account activities of the user executing the export command to determine if the user has legitimate permissions and access to export mailboxes and if they have exhibited any unusual behavior prior to the execution.
-  - **Check Exchange Audit Logs**: Review the Microsoft Exchange audit logs for the mailbox export events. Specifically, assess timestamps and correlating actions, noting any irregularities or unauthorized access patterns.
-  - **Investigate Network Traffic**: Analyze the network traffic to identify any connections or data transfers to the specified file path or destination where the mailbox export was directed, looking for signs of data exfiltration.
+
+  - **Check PowerShell logs for specific exports:** Review PowerShell logs for Event ID 4104. Look for entries containing `New-MailboxExportRequest` along with `-FilePath \\`, which indicates a mailbox export to a share. Legitimate exports may occur during administrative activities; note the user context and permissions.
+
+  - **Verify export share destination:** Determine if the FilePath points to an internal or external share. Accessing external share paths (e.g., `\\malicious.example.com`) is highly suspicious and indicative of potential exfiltration.
+
+  - **Analyze related user activities:** Correlate this event with user logons via Event ID 4624. Identify whether the exporting user has unexpected access levels or if the mailbox belongs to a high-value target.
+
+  - **Detect unauthorized script execution:** Check for other PowerShell commands run by the same user prior to the export. Review Event ID 4103 for any suspicious script block executions linked to the export process.
+
+  - **Assess script block logging configuration:** Confirm that Script Block Logging is enabled on the systems generating this alert. Without it, you may not capture critical events that could aid in identifying malicious activity.
+
+  - **Identify historical export activities:** Search for previous successful export requests using the Exchange Management Shell to understand if this is an ongoing issue. Compare timestamps and involved mailboxes against known attack patterns.
+
+  ---
 
   ### Prioritization
-  This alert is considered critical due to the high impact of exfiltrating sensitive information, typically stored within user mailboxes, which could lead to severe data breaches and compromise organizational security.
+
+  The alert is of **critical severity** as it indicates a potential data exfiltration attempt, especially if targeted at sensitive or high-profile mailboxes. Given the common exploitation of the ProxyShell vulnerabilities, there is a significant risk of malicious abuse in this context.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The main gap in detection coverage may stem from the reliance on PowerShell script block logging; if logging is not enabled, the execution of suspicious commands will not be captured. It assumes that the environment effectively captures and retains the necessary PowerShell logs within its logging configuration, which can vary across different organizations. Furthermore, false positives could arise if legitimate administrators perform exports without proper context provided in the logs.
+
+  This detection may be circumvented by attackers using obfuscation techniques in PowerShell. Additionally, organizations must ensure that relevant logs, including PowerShell execution logs, are appropriately configured and retained for reliable detection. Legitimate administrative activities, such as routine mailbox exports by IT staff, can trigger this alert. Companion detection such as monitoring for unusual logins or privilege escalation events (e.g., Event ID 4672) can strengthen overall coverage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

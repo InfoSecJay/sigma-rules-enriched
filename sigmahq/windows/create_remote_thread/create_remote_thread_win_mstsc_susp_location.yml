@@ -29,23 +29,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule targets remote thread creation in the `mstsc.exe` (Microsoft Terminal Services Client) process when initiated by a process located in suspicious directories. Such behavior is indicative of an attack strategy where adversaries may attempt to hook APIs within `mstsc.exe`, potentially to steal credentials during Remote Desktop Protocol (RDP) sessions. Attackers often choose to manipulate this process to compromise the confidentiality of user credentials, enabling lateral movement within the network.
 
-  The relevant MITRE ATT&CK tactics include **Credential Access** (TA0006), specifically under the **Credential Dumping** technique (T1003). Attackers utilizing techniques to manipulate legitimate processes such as `mstsc.exe` represent a significant threat as they can gain unauthorized access to sensitive systems and data through stolen credentials.
+  This Sigma rule detects the creation of remote threads in the "mstsc.exe" process from executables located in suspicious directories, such as Temp or Public folders. Attackers may leverage this behavior to inject malicious code into the Remote Desktop Protocol (RDP) client, aiming to capture credentials or establish persistent access to a system. The relevant MITRE ATT&CK tactics and techniques are Credential Access (TA0006) and Remote Thread Injection (T1203).
 
-  The primary data sources for this detection rule are Windows process creation events, specifically focusing on logs pertaining to remote thread creation. Additionally, process images that originate from directories commonly misused by malware serve as key indicators of malicious activity.
+  Primary telemetry sources include Windows System Event logs and the creation of remote thread activity, which captures Event ID 592 or Sysmon Event ID 8. If such behavior is confirmed to be malicious, it can lead to credential theft and unauthorized remote access, significantly compromising sensitive assets. Importantly, this detection does not confirm malicious intent on its own; further investigation is needed to establish the context of the behavior.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine recent process creation logs to identify instances of `mstsc.exe` being invoked alongside processes that originate from suspicious locations.
-  - **Analyze Remote Thread Creation:** Investigate any remote thread creation activities linked to `mstsc.exe` to ascertain the legitimacy of the source process and its behavior.
-  - **Correlate with RDP Sessions:** Check related RDP session logs to see if the connections initiated or affected by `mstsc.exe` align with typical user activity or signal anomalous access patterns.
-  - **Check File Integrity:** Validate the integrity and source of any processes in the suspicious directories (e.g., Temp, Public, etc.) to see if they are part of known software installations or present indicators of compromise.
+
+  - **Examine source and target processes:** Check Event ID 592 or Sysmon Event ID 8 for `TargetImage: mstsc.exe` and note the `SourceImage`. Look for known benign processes that may be executing remote thread creations, such as legitimate remote management tools.
+
+  - **Verify the execution path:** Investigate the `SourceImage` path for suspicious locations (e.g., `C:\Temp\`, `C:\Users\Public\`). Legitimate applications typically do not reside in these directories. Path anomalies increase suspicion.
+
+  - **Identify high-confidence malicious indicators:** Look for process creation logs (Security Event ID 4688) connected to the same execution path as the suspicious `SourceImage`. If this process is linked to known malware or suspicious behaviors, it could indicate compromise.
+
+  - **Audit RDP login attempts:** Review Windows Security Event ID 4624 to confirm whether RDP attempts coincide with the thread creation. If the timestamps align and unusual user accounts are involved, this could indicate a successful credential theft attempt.
+
+  - **Check for additional network connections:** Use network logs (e.g., Windows Firewall logs) to identify any anomalous outbound connections made immediately following the suspicious thread creation. This may reveal attempts to exfiltrate credentials or access command and control (C2) servers.
+
+  - **Validate expected usage patterns:** Establish baseline behavior for the use of `mstsc.exe` in your environment. If an increase in use correlates with the detection, it could suggest legitimate business activity versus potential malicious activity.
+
+  ---
 
   ### Prioritization
-  This alert should be considered high priority due to the potential for significant impact on the organization’s security posture; unauthorized access to RDP sessions can lead to widespread credential exfiltration and potential lateral movement within the network.
+
+  This alert should be treated with high severity due to the potential impact on credential theft and unauthorized access to systems, particularly on devices with elevated privileges. The likelihood of malicious activity is significant, given that such injection techniques are weaponized methods for attackers aiming to exploit RDP sessions.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be blind spots in detection coverage if certain known good processes are executed from the specified suspicious directories without proper context, potentially leading to false negatives. The detection logic assumes that any process creating a thread in `mstsc.exe` from dubious locations is malicious, which may not always hold true for all environments. Additionally, proper logging configurations for process creation events must be enabled on the Windows hosts for this rule to function effectively.
+
+  Detection may be circumvented by legitimate applications using similar remote thread creation methods without malicious intent or by attackers employing code obfuscation techniques. Additionally, reliance on standard logging configurations is necessary; missing logs could result in incomplete investigations. Legitimate automated processes or scheduled tasks may trigger this alert, making further context essential. Related detection to consider includes monitoring for failed RDP login attempts (Event ID 4625) which can supplement findings on unauthorized access attempts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

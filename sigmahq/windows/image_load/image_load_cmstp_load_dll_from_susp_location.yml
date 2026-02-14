@@ -31,28 +31,42 @@ falsepositives:
 - Unikely
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies instances where `cmstp.exe` loads dynamic-link library (DLL) or ActiveX control (OCX) files from potentially suspicious locations. The `cmstp.exe` executable, part of Windows' Connection Manager, is sometimes exploited by attackers to execute malicious code hidden within these libraries, thereby circumventing traditional security mechanisms. By targeting DLL hijacking or loading malicious files from unexpected directories, attackers may aim to obfuscate their activity, maintain persistence, or execute arbitrary code, potentially leading to data exfiltration, lateral movement, or complete system compromise.
 
-  The relevant MITRE ATT&CK tactics and techniques associated with this detection include:
-  - **Defense Evasion (TA0005)**: Techniques specifically aimed at avoiding detection.
-  - **Signed Binary Proxy Execution (T1218.003)**: This technique highlights how attackers can use legitimate system binaries to run their malicious payloads covertly.
+  This Sigma rule detects when `cmstp.exe` (Connection Manager Profile TPM) loads Dynamic Link Libraries (DLL) or ActiveX controls (OCX) from suspicious system paths. The behavior suggests potential abuse of the Connection Manager to execute malicious code, as legitimate operations typically involve standard libraries from trusted locations. The likely attacker objective is to evade detection by utilizing known system utilities for code execution, aligning with the MITRE ATT&CK tactic of Defense Evasion (TA0005) and the technique of Signed Binary Proxy Execution (T1218.003).
 
-  The primary data sources for this detection will include image load events from the Windows operating system, which log details about executables and their respective DLLs or OCX files.
+  Primary telemetry sources include Windows Image Load events, specifically looking at Event ID 4263 (from `Security` logs) or Sysmon Event ID 10 (Image Load). If malicious, this could lead to significant compromise of the affected system, potentially facilitating lateral movement or data exfiltration. Importantly, this detection does NOT confirm a system compromise on its own; it indicates potentially suspicious activity that requires further validation.
+
+  ---
 
   ### Investigation Steps
-  - **Review Image Load Events**: Examine the image load events to identify instances where `cmstp.exe` has loaded DLL or OCX files from suspicious locations like `\PerfLogs\`, `\ProgramData\`, or `C:\Temp\`. Look for entries indicating unusual or unauthorized file access.
 
-  - **Cross-Reference Loaded Files**: Validate the integrity and reputation of the loaded DLL or OCX files. Utilize threat intelligence sources to determine if the files have been associated with known malware or suspicious activity.
+  - **Review `cmstp.exe` execution context: ** Examine the Event ID 4688 (Process Creation) in the Security logs for `cmstp.exe`. Ensure it is initiated by a trusted process; unexpected parent processes may indicate malicious intent.
 
-  - **Analyze Process Creation Logs**: Investigate related process creation events to ascertain the command-line arguments used when `cmstp.exe` was invoked. Look for any anomalies suggesting misuse or exploitation of this legitimate tool.
+  - **Analyze DLL/OCX source: ** Inspect Sysmon Event ID 10 for the full file path of the loaded DLL/OCX files. Look for anomalies such as paths originating from `C:\Temp\`, `ProgramData\`, or `PerfLogs\`, which are unusual for legitimate operations.
 
-  - **Check Historical Access Patterns**: Utilize your logging tools to inspect historical events around the time of detection. This includes assessing for any prior instances of file access from unusual locations, potentially uncovering lateral movement or reconnaissance activities.
+  - **Confirm file integrity: ** Use hash verification (e.g., SHA256) to compare the loaded DLL/OCX files against known good file databases. Any discrepancies suggest potential compromise.
+
+  - **Document legitimate use cases: ** Capture expected behavior for `cmstp.exe`, typically loading configuration files or trusted libraries located in `C:\Windows\System32\` or similarly secure paths. Cross-reference Event ID 4663 (File Access) for baseline activity.
+
+  - **Investigate concurrent suspicious processes: ** Correlate this alert with other active alerts or log entries indicating malicious activity during the same window. Look for processes exhibiting high CPU usage or unusual outbound connections.
+
+  - **Identify anomalous network activity: ** Review firewall logs (Event ID 5156) and proxy logs for unusual outbound connections associated with the process loading from the identified suspicious path. Track any unexpected data exfiltration behaviors.
+
+  ---
 
   ### Prioritization
-  This alert is of high severity due to the potential for attackers to leverage `cmstp.exe` for executing malicious code, thereby compromising the integrity of systems and networks. The capability to run code from legitimate executables raises the likelihood of successful evasion against traditional detection mechanisms, making prompt investigation critical.
+
+  This alert is high priority due to its potential impact on system integrity and the common misuse of `cmstp.exe` by attackers to evade detection. The likelihood of malicious use is high given that the behavior aligns with documented techniques used in real-world attacks, making prompt investigation essential.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if certain logging mechanisms are not enabled or adequately configured within the environment, specifically for image load events. The detection logic assumes that threats are indeed attempting to load DLL/OCX files from unusual locations; therefore, typical applications using these binaries might generate false positives. Ensuring that the right logging configurations are in place—particularly for process creation and image load events—is essential for this rule to function effectively.
+
+  The detection may be evaded by attackers using alternative execution methods or obfuscating their DLL placement. Reliable detection hinges on robust Sysmon configuration for image loads and comprehensive monitoring of process creations. Legitimate administrative tasks, such as system maintenance scripts or software installations, may trigger this alert. A related detection to consider is the monitoring of unusual command-line arguments passed to `cmstp.exe`, which provides additional context on its usage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

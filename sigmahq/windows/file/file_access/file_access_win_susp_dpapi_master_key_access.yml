@@ -34,23 +34,38 @@ falsepositives:
 # Increase level after false positives filters are good enough
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify access attempts to Windows Data Protection API (DPAPI) master keys by applications that are not commonly associated with such operations. DPAPI is a Windows feature used to secure sensitive data like passwords or cryptographic keys. When uncommon applications attempt to access these master keys, it can indicate the presence of malicious activity, such as credential theft using tools like Mimikatz that exploit this API. The attacker’s objective in such scenarios is typically to extract sensitive information to elevate privileges or facilitate further exploitation within the network.
 
-  The relevant MITRE ATT&CK tactics and techniques for this detection include **Credential Access** (TA0006) and specifically **Credential Dumping: DPAPI** (T1555.004). This highlights that detection is aimed at preventing unauthorized access to user credentials or sensitive data stored in encrypted formats by threat actors.
+  This Sigma rule detects file access requests to the Windows Data Protection API (DPAPI) master keys that originate from uncommon applications, which could indicate credential theft attempts. Attackers typically aim to exploit the DPAPI to access sensitive information such as stored credentials. This behavior aligns with the MITRE ATT&CK technique for Credential Dumping, specifically T1555.004 (Credential Dumping: DPAPI). The primary telemetry sources include ETW logs from the Microsoft-Windows-Kernel-File provider. If malicious, the impact could be significant, leading to unauthorized access to systems and data. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate applications may occasionally trigger it under certain conditions.
 
-  Primary data sources for this detection include file access logs specifically associated with the Windows operating system's ETW (Event Tracing for Windows) provider for file operations. Monitoring these logs can reveal suspicious activity when uncommon processes attempt to access protected directories containing master keys.
+  ---
 
   ### Investigation Steps
-  - **Review File Access Logs:** Examine file access events related to the Windows DPAPI master keys located in the folders `C:\Microsoft\Protect\S-1-5-18\` and `C:\Microsoft\Protect\S-1-5-21-` for any unusual application activity.
-  - **Identify Uncommon Applications:** Cross-reference the identified applications against a known list of standard applications accessing DPAPI keys. Determine if the accessing application is legitimate or potentially malicious.
-  - **Correlate with Process Creation Events:** Investigate correlated process creation logs around the same time as access attempts to identify if these uncommon applications were executed without proper context or authorization.
-  - **Analyze System Behavior:** Look for signs of privilege escalation or unusual user behavior that may coincide with DPAPI access, such as failed login attempts by the user associated with the process.
+
+  - **Review Process Executions:** Check for common applications executing file access. Look for Event ID 4688 (Process Creation) that shows processes launching uncommon applications around the timestamp of the alert.
+
+  - **Examine DPAPI Access Requests:** Analyze ETW logs for file access attempts to `C:\ProgramData\Microsoft\Protect\` and `C:\Users\<username>\AppData\Roaming\Microsoft\Protect\` with unusual applications; legitimate activity will typically originate from system processes like `lsass.exe`.
+
+  - **Identify Malicious Indicators:** Look for known malicious processes or tools, such as `mimikatz.exe`, accessing DPAPI master keys in the ETW logs. Focus on any instances where the Image field does not correspond to legitimate signed applications.
+
+  - **Correlate Network Activity:** Cross-reference with network logs (e.g., Firewall logs or Proxy logs) to identify any unusual outbound connections from the originating device, which could indicate data exfiltration.
+
+  - **Review User Access Patterns:** Investigate whether the user associated with the alert has login behavior that matches typical usage patterns, identifying possible unauthorized account access or privilege elevation.
+
+  ---
 
   ### Prioritization
-  This alert is of medium severity in an enterprise environment due to the potential for significant impact if credential theft is successful. The likelihood of such behavior occurring from uncommon applications raises the need for prompt investigation, especially in sensitive areas of the network.
+
+  This alert should be prioritized as medium severity due to its potential impact on credential security. The likelihood of malicious abuse is moderate, given the specialized nature of the tools that trigger the detection. While DPAPI exploitation is not commonplace, it is a known method used by sophisticated adversaries in credential theft campaigns.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may occur if the system is configured to allow certain trusted applications to access the DPAPI keys without triggering alerts. The detection assumes all uncommon applications attempting to access these keys are suspicious, which may not always be the case. For the alert to function correctly, it requires proper configuration of the Microsoft-Windows-Kernel-File ETW provider to ensure comprehensive file access logging is in place. Additionally, any exclusions or exceptions configured for trusted applications may lead to gaps in detection.
+
+  Detection may be limited by the absence of complete logging for all user actions or settings that do not capture file access events adequately. Legitimate applications that utilize DPAPI for their operations could trigger this alert, making context important for interpretation. Companion detections for process execution (e.g., detecting known credential dumping tools) can enhance coverage and accuracy in identifying actual threats.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

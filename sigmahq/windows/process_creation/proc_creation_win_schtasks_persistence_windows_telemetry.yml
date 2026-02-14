@@ -33,23 +33,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potential malicious activity involving the manual execution of the Microsoft Compatibility Appraiser task through the use of the `schtasks.exe` utility. Attackers may leverage this task to establish persistence on a compromised system by manipulating the registry setting for telemetry. The objective in this case is often to ensure that malicious payloads or activities are re-executed even after a system reboot, enabling ongoing access or control over the environment.
 
-  This detection aligns with several MITRE ATT&CK tactics and techniques, particularly **Persistence** (TA0003) via scheduled tasks and job execution (**T1053.005**). Identifying this behavior can help SOC teams mitigate the risk of unauthorized processes running continuously, which could facilitate further exploitation or data exfiltration.
+  This rule detects the manual execution of the "Microsoft Compatibility Appraiser" task using `schtasks.exe`, which may indicate an attempt by an adversary to establish persistence via unauthorized modifications to the telemetry settings in the Windows Registry (specifically under the `\AppCompatFlags\TelemetryController` key). The likely attacker objective is to maintain a foothold in the environment by manipulating system behaviors while evading typical security monitoring measures. This behavior aligns with the MITRE ATT&CK technique for Scheduled Task/Job (T1053.005).
 
-  The primary data source for detecting this behavior is **process creation events** from Windows operating systems. Monitoring logs from script executions and system task scheduling can also provide valuable insights into when and how these tasks are initiated and if they exhibit abnormal patterns.
+  The primary telemetry sources for this detection include Windows Security event logs and Process Creation events (Sysmon Event ID 1 and Windows Event ID 4688), focusing on the command line parameters used for task creation. If malicious, this could allow an attacker to create a persistent mechanism to execute code or actions at scheduled intervals without detection. It is important to note that this detection alone does not confirm malicious intent; benign administrators may also use the same mechanism for legitimate purposes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Analyze the process creation logs to identify any instances of `schtasks.exe` being executed manually. Check for anomalies, such as unusual parent processes or unexpected execution times.
-  - **Investigate Command-Line Arguments**: Examine the command-line parameters associated with the `schtasks.exe` calls. Focus on any commands referencing the `Microsoft Compatibility Appraiser` to determine potential malicious intent.
-  - **Correlate with Registry Changes**: Search for modifications to the `\AppCompatFlags\TelemetryController` registry key, which might indicate attempts to establish persistence through the compatibility appraiser.
-  - **Analyze Task Scheduler Logs**: Review Windows Task Scheduler logs for any new or altered tasks related to the appraiser. Look for tasks that deviate from the organization's standard operational practices.
+
+  - **Analyze execution context: **Review the command line used for `schtasks.exe`: Check for the presence of `run` and the path `\Application Experience\Microsoft Compatibility Appraiser`. A typical benign use case would involve legitimate system maintenance.
+
+  - **Inspect related process creation events:** Look for Windows Event ID 4688 or Sysmon Event ID 1 that shows the parent process for `schtasks.exe`. Legitimate activity may originate from known system processes like `explorer.exe`, while unusual parents may indicate malicious activity.
+
+  - **Examine registry modifications:** Check for changes in the `HKLM\Software\Microsoft\Windows\CurrentVersion\AppCompatFlags\TelemetryController` key and related subkeys, noting any entries that deviate from normal system behavior or have been modified recently.
+
+  - **Correlate with other telemetry sources:** Validate against DNS logs or Firewall logs for outbound connections initiated shortly after the execution of `schtasks.exe`, which may indicate data exfiltration attempts or communications with command and control servers.
+
+  - **Confirm the integrity of affected systems:** Use a host integrity monitor to establish whether any unauthorized software or unauthorized scheduled tasks have been installed. Assets with sensitive data or critical functions may warrant higher scrutiny.
+
+  - **Monitor logs for repeated executions:** Identify any repeated execution of the `schtasks.exe` command with similar parameters within a short timeframe. Repeated instances without legitimate business justification could suggest an attempt at persistence.
+
+  ---
 
   ### Prioritization
-  This alert should be considered of medium severity in an enterprise environment. The ability of an attacker to create persistence mechanisms through legitimate system tools poses a significant risk, especially if it leads to prolonged access and exploitation of the system.
+
+  This alert should be considered medium severity due to the potential for system modification and persistence it implies. Systems affected may include critical servers or endpoints, where the likelihood of abuse through such a mechanism is moderate. While not commonly weaponized, the misuse of this method represents a significant concern for maintaining system integrity and security.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be detection gaps concerning legitimate administrative usage of `schtasks.exe`, which could generate false positives if not correctly filtered. The detection logic assumes that the manual execution of the compatibility appraiser task is not a common operational activity in the environment. It requires that process creation logging is enabled and configured correctly to capture the necessary telemetry for alerting effectively. Additional contextual information regarding standard task scheduling practices may also be necessary to minimize false alerts.
+
+  Detection may be limited if logging is not properly configured for all relevant event types, particularly Sysmon and Windows Event logs. Legitimate administrative scripts or maintenance tasks could trigger the alert, creating false positives. Additionally, a related detection for unauthorized registry modifications would strengthen overall coverage in identifying attempts to create persistence.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

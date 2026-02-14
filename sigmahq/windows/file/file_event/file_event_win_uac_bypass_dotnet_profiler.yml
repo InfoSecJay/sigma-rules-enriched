@@ -24,23 +24,40 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects a specific method of bypassing User Account Control (UAC) on Windows systems by exploiting vulnerabilities in .NET Code Profiler and DLL hijacking through the Microsoft Management Console (MMC). The technique involves using a maliciously crafted Dynamic Link Library (DLL) named `pe386.dll` located in the user's temporary application data directory. Attackers may leverage this approach to elevate privileges silently, allowing them to execute malicious code with higher permissions, which could be used to install additional payloads, exfiltrate data, or further compromise the system.
 
-  The relevant MITRE ATT&CK techniques for this detection include **T1548.002: Abuse Elevation Control Mechanism: Bypass User Account Control**. The operation focuses on evading security controls that are typically designed to prevent unauthorized elevation of privileges. Given the critical nature of maintaining UAC integrity in Windows environments, detecting such attempts is crucial for incident response and risk mitigation.
+  This Sigma rule detects the use of a .NET code profiler for UAC (User Account Control) bypass by monitoring for DLL hijacking behavior related to `mmc.exe`. Attackers may exploit this technique to escalate their privileges from a standard user to an administrator by manipulating the runtime environment of Windows Management Console (MMC) applications. The relevant MITRE ATT&CK technique associated with this detection is Privilege Escalation via "Bypass User Account Control" (T1548.002).
 
-  The primary data sources to collect evidence for this detection are **file event logs** that monitor file creation and modification events, particularly those related to the user's AppData directory where the DLL may be placed. Additionally, system logs that confirm the execution of `mmc.exe` and any associated .NET process activity would provide context for the attack vector.
+  The primary telemetry source is Windows file event logs, specifically monitoring changes to DLL files, with a focus on files located in the user’s temporary directory. If malicious, this behavior could lead to an unauthorized elevation of privileges, potentially enabling further exploitation or system takeover. It is important to note that this detection does NOT automatically confirm malicious activity, as similar behaviors may occur during legitimate software development and testing.
+
+  ---
 
   ### Investigation Steps
-  - **Review File Creation Events:** Examine logs for file creation or modification events targeting `C:\Users\<Username>\AppData\Local\Temp\pe386.dll`, noting timestamps and processes involved to identify the potential execution context.
-  - **Analyze Process Execution:** Inspect process creation logs for instances where `mmc.exe` is invoked, particularly looking for any unusual parent processes or command-line arguments that depart from normal usage.
-  - **Evaluate System Event Logs:** Look into Windows Event logs for any records of UAC prompts and their responses during the timeframe of suspicious activity, providing insights into potential privilege elevation attempts.
-  - **Cross-Reference User Activity:** Correlate findings with user activity logs that may indicate unusual user behavior prior to or after the detection, such as high-volume directory enumerations or changes to user permissions.
+
+  - **Identify suspicious file creation:** Check for file creation events related to `pe386.dll` in the `C:\Users\<username>\AppData\Local\Temp\` directory. Focus on Security Event ID 4663 or Sysmon Event ID 11 logs that track file creation.
+
+  - **Validate process creation with DLL manipulation:** Examine Security Event ID 4688 for process creation of `mmc.exe`. Look for command line arguments or parent processes that are atypical for user-initiated actions, such as execution context from a non-administrator user account.
+
+  - **Review the user context:** Determine the user context in which `pe386.dll` was created and subsequently executed. Legitimate activities typically involve background processes without abnormal DLL paths or unusual parent-child process relationships.
+
+  - **Check for known malicious indicators:** Cross-reference `pe386.dll` against threat intelligence databases or known malware repositories. If associated with other reported malicious activities, it increases the likelihood of an attack.
+
+  - **Capture file execution paths:** Investigate processes that used `pe386.dll` via Sysmon Event ID 1. Alert on processes executing from the Temp directory where `mmc.exe` and the hijacked DLL are involved, as normal operations generally do not originate from this path.
+
+  ---
 
   ### Prioritization
-  The alert's severity is high due to the potential impact of UAC bypass techniques, which can allow an attacker to gain administrative access and execute malicious operations on the system. The likelihood of exploitation is significant, especially in environments where users have elevated permissions or where administrative tasks commonly involve the use of MMC.
+
+  This alert should be considered high severity due to its potential to escalate privileges, rich attack impact on critical systems, and common usage among adversaries for malicious exploitation. Given that UAC bypass techniques are frequently weaponized, the alert warrants prompt investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One gap in detection coverage may arise if the malicious DLL is placed in a different directory or if alternative methods of privilege escalation are used. This detection logic assumes that the specific file name is used consistently, which may not be the case if attackers evolve their tactics. Additionally, the alert relies on having appropriate file event logging enabled for the Windows environment, meaning that environments with insufficient logging configurations may miss this detection entirely.
+
+  This detection could be evaded if the suspect DLL is executed through alternative means not captured by monitored file events. Appropriate logging must be ensured, which includes capturing file creation and process execution events. Legitimate activities such as software installations or debugging sessions may also trigger this alert. A related detection worth monitoring includes the execution of PowerShell scripts that leverage similar privilege escalation tactics.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -30,25 +30,48 @@ falsepositives:
   behavior is causing false positives, it can be exempted from the rule.
 level: low
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies when a Lambda layer is attached to an existing AWS Lambda function, which may indicate potential unauthorized modifications. Attackers can exploit Lambda layers to execute arbitrary code in the context of the function's IAM role, allowing them to access sensitive resources and perform malicious actions within the AWS environment. This threat scenario poses risks such as privilege escalation and unauthorized data access, as an adversary could leverage the Lambda function's permissions to gain further footholds within the cloud infrastructure.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Privilege Escalation** (T1068) – Exploiting the permissions of an IAM role associated with the Lambda function.
-  - **Execution** (T1203) – Running arbitrary code using the Lambda layer.
+  This Sigma rule detects when a user attaches a Lambda layer to an existing AWS Lambda function, particularly monitoring `UpdateFunctionConfiguration` events. The probable attacker objective is to leverage the attached Lambda layer for executing arbitrary code with the IAM role privileges of the Lambda function, potentially leading to unauthorized access to sensitive resources. This detection corresponds with the MITRE ATT&CK tactic of "Privilege Escalation" (Tactics ID: TA0004), specifically technique "Use of Trusted Relationship" (T1322).
 
-  The primary data sources applicable for this detection are AWS CloudTrail logs, which record API calls made within the AWS account, providing a detailed history of changes to Lambda functions and associated configurations.
+  Primary telemetry sources for this detection include AWS CloudTrail logs, detailing events related to Lambda changes. If malicious, this action could lead to significant security breaches through privilege escalation. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate updates by authorized users may also trigger the alert.
+
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Check AWS CloudTrail logs for the specific event of `UpdateFunctionConfiguration` to verify the details of the event, including the user, timestamp, and source IP.
-  - **Identify User Credentials**: Investigate the identity (IAM user or role) associated with the Lambda layer attachment to determine if the activity aligns with expected administrative actions or if it’s suspicious.
-  - **Inspect Lambda Function Permissions**: Analyze the IAM role assigned to the affected Lambda function to understand the permissions that the newly attached layer might exploit.
-  - **Monitor for Unusual Patterns**: Look for unusual behavior in the usage of Lambda functions associated with the newly attached layer, such as unauthorized function invocations or access to resources outside normal operations.
+
+  - **Verify the user identity and role:**
+    Check CloudTrail logs for the `Event Name: UpdateFunctionConfiguration` (Event ID: ?) to identify the IAM user/role making the change. Confirm if the user has the required permissions historically and is expected to perform this action.
+
+  - **Assess the IAM role privileges:**
+    Examine the IAM policies associated with the impacted Lambda function. If the role has excessive permissions (e.g., full access to AWS resources), this could indicate heightened risk if the Lambda layer is compromised.
+
+  - **Review the origin of the change:**
+    Investigate the `userAgent` field in the CloudTrail logs to determine the origin of the API call. Legitimate changes (e.g., from known IP ranges or specific administrative user agents) should be less concerning than those from unexpected sources.
+
+  - **Inspect the associated Lambda layer:**
+    Check for the specific layer ID referenced in the `requestParameters.layers` field. Cross-reference with a whitelist of approved layers. If the ID is unfamiliar or associated with prior security incidents, consider it a high-confidence indicator of potential compromise.
+
+  - **Evaluate Lambda function activity:**
+    Look into any recent invocations of the affected Lambda function through CloudWatch logs. Compare this activity with the timing of the layer attachment. Unusual execution patterns may indicate misuse or compromise.
+
+  - **Check for related detections:**
+    Review alerts from any companion detections related to unauthorized AWS API activity. This includes CloudTrail monitoring for suspicious API calls that might precede or follow the Lambda layer attachment.
+
+  ---
 
   ### Prioritization
-  This alert is classified as low severity due to the potential for both legitimate administrative activities and possible malicious actions. However, unauthorized modifications to Lambda configurations warrant timely investigation given the risks associated with privilege escalation within the cloud environment.
+
+  The alert is of low severity in a mature enterprise context but should not be overlooked. The impact is moderate, as Lambda functions can have access to critical systems and data. However, the common occurrence of administrators attaching layers means that the likelihood of malicious abuse is relatively low, though still possible depending on contextual factors.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in the detection coverage if CloudTrail logging is not fully enabled for all regions or services, as missing logs could prevent detection of legitimate Lambda function modifications. The detection logic assumes that not all Lambda layer attachments represent malicious activity, as system administrators may legitimately perform these actions. To ensure accurate detection, AWS CloudTrail must be properly configured to log all Lambda API calls and retain logs for analysis.
+
+  Potential evasion techniques include higher-tier users masking their actions or utilizing benign-sounding layer names to avoid initial scrutiny. Reliable detection requires enabling comprehensive AWS CloudTrail logging, particularly for Lambda functions. Legitimate activities may include routine updates by trusted administrative personnel. A related detection could include monitoring for changes to IAM roles associated with Lambda functions, which would provide additional coverage for privilege escalation risks.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -40,26 +40,42 @@ falsepositives:
   365)
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify potentially malicious download activities from Microsoft domains associated with email attachments and OneNote documents. The primary goal of this rule is to detect unauthorized or unusual file downloads that may indicate malicious intent, such as data exfiltration or command-and-control (C2) activities using legitimate Microsoft services. For example, attackers may leverage these platforms to blend their activities with typical user behavior, making it challenging for security teams to spot malicious actions in real-time.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Command and Control (T1071)**, where an attacker may use external services to maintain control over a compromised host, and **Resource Development (T1608)**, which involves the preparation or acquisition of resources necessary for executing attacks. The associated techniques particularly relevant here are **T1105 – Ingress Tool Transfer** and **T1608 – Data from Cloud Storage**, both of which align with an attacker's strategy of using cloud services for nefarious downloading activities.
+  This Sigma rule detects suspicious file download activities from Microsoft domains associated with email attachments and OneNote documents, specifically when using command-line tools like `curl`, `wget`, or PowerShell's `Invoke-WebRequest`. The likely attacker objective is to retrieve malicious payloads or sensitive data using trusted Microsoft services, avoiding direct interactions that may alert security measures. This behavior is related to the MITRE ATT&CK technique T1105 (Ingress Tool Transfer) and T1608 (Stolen Artifacts).
 
-  Primary data sources that will contain vital evidence include **process creation logs** from Windows systems, which track the initiation of download commands, and the **command line activity**, which reveals the specific commands executed for downloading files from the identified Microsoft domains.
+  The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688, which captures details about executed processes and their command lines. If malicious, such behavior could indicate an attempt to exfiltrate data or deliver malware through a trusted channel. However, this detection does NOT confirm that malicious intent or action has occurred on its own, as legitimate scripts or tools may perform similar downloads.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine the Windows process creation logs for entries related to the execution of `curl.exe`, `wget.exe`, or PowerShell commands like `Invoke-WebRequest`. Pay particular attention to the source of these commands and their execution context.
 
-  - **Analyze Command Line Parameters**: For any suspicious process creation events, analyze the command line used. Look for specific patterns or parameters indicating downloads from the domains such as `https://attachment.outlook.live.net/owa/` or `https://onenoteonlinesync.onenote.com/`.
+  - **Check process invocation logs:** Review Security Event ID 4688 to identify processes such as `curl.exe`, `wget.exe`, or PowerShell commands that executed around the time of the alert. Look for unusual parent-child process relationships.
 
-  - **Correlate with User Activity**: Cross-reference the identified download actions with legitimate user activity. Assess whether the users initiating these downloads are operating within expected roles and permissions or if the actions are indicative of compromised accounts.
+  - **Validate command line parameters:** Examine the command-line arguments in the logs for typical patterns (i.e., `.DownloadFile`, `.DownloadString`, `Start-BitsTransfer`) and compare them against known benign uses in your environment.
 
-  - **Inspect Network Traffic**: Capture and analyze network traffic for outbound connections to the identified Microsoft domains. Look for unusual data transfers, especially at odd hours, to determine if there is significant data exfiltration or C2 behavior.
+  - **Assess domain reputation:** Verify if the download originated from `https://attachment.outlook.live.net/owa/` or `https://onenoteonlinesync.onenote.com/onenoteonlinesync/`. Use threat intelligence sources to confirm the legitimacy of these domains.
+
+  - **Identify benign activity context:** Review historical logs for legitimate uses of downloading files from these domains. Determine if there are recurring patterns or known users/scripts that conduct these activities regularly.
+
+  - **Determine high-confidence malicious indicators:** Investigate if the command line includes arguments indicative of obfuscation or unexpected file paths (e.g., files not typical for a user role) to ascertain potential intent for malicious action.
+
+  - **Monitor for potential exfiltration artifacts:** Validate by checking if any files were created, moved, or uploaded post-download using File Creation Event ID 4663 or File Modification timestamps for unusual activity on sensitive directories.
+
+  ---
 
   ### Prioritization
-  This alert is categorized as high severity due to the potential impact of unauthorized data exfiltration and the growing trend of attackers utilizing trusted cloud services to mask their activities. The likelihood of malign intent associated with these downloads further justifies the priority level in an enterprise environment where sensitive information may be at risk.
+
+  This alert should be treated as high severity due to the potential impact on sensitive data exfiltration, particularly if it involves critical systems or data repositories. The likelihood of malicious abuse is elevated since attackers often leverage trusted services to conduct operations covertly. This type of behavior is increasingly weaponized in sophisticated campaigns.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection logic may have blind spots regarding legitimate use cases, such as scripts or tools that legitimately download attachments for business purposes, which can lead to false positives. Additionally, the rule assumes that the commands and processes used for downloading these files will conform to the specified patterns. It relies on the presence of adequate logging for process creation; if those logs are not enabled or if cmdlets are executed in a manner that bypasses logging, the detection may fail. Required configurations include ensuring that process command-line parameters are logged adequately and monitoring for legitimate exceptions.
+
+  There are limitations in detecting context or intent solely based on command-line activity, allowing for potential evasion through benign commands that may trigger the alert. Reliable detection requires comprehensive logging configurations, particularly for command execution outputs and process monitoring. Legitimate use cases include automated scripts for downloading shared files in business operations, warranting careful scrutiny. Companion detections focusing on unusual PowerShell activity (e.g., Execution Policy changes) would enhance coverage against possible abuse.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

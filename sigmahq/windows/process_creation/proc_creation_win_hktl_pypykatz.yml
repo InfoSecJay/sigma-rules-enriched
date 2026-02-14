@@ -29,26 +29,40 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule targets activities involving the tool "pypykatz," which is commonly used by adversaries to extract credentials from Windows systems. Specifically, it identifies instances where pypykatz or its parent Python executable is invoked with command-line arguments suggesting that it is being utilized to access stored credentials from the Security Account Manager (SAM) database via Windows registry parsing.
 
-  The threat scenario likely involves an attacker seeking unauthorized access to sensitive accounts by extracting passwords or authentication tokens. This may occur during a lateral movement phase or post-exploitation when an attacker has already established a foothold in the network. The relevant MITRE ATT&CK techniques associated with this behavior are **Credential Access** (TA0006) and specifically **Credential Dumping: Windows Credentials (Registry) (T1003.002)**.
+  This rule detects the execution of "pypykatz," a tool used to extract credentials from the Windows Security Account Manager (SAM) via the registry. The likely attacker objective is to gather credential information to facilitate lateral movement within a network, potentially leading to further compromise. This activity is mapped to the MITRE ATT&CK tactic of Credential Access (TA0027) and technique T1003.002 (Credential Dumping: Security Account Manager).
 
-  Primary data sources to support this detection include **process creation events**, which track the execution of binaries, and the associated command line parameters. Monitoring these logs is essential to spot potentially malicious invocations of pypykatz that could indicate an ongoing credential theft operation.
+  Primary telemetry sources include Windows process creation logs, specifically looking for Process Creation Event IDs 4688 and Sysmon Event ID 1, which capture command-line activity and the image path of executables. If successful, this malicious behavior could allow the perpetrator to access other accounts or devices within the environment. Importantly, this detection does NOT confirm that credentials have been successfully extracted—only that the tool has been run.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for instances of `pypykatz.exe` and `python.exe` to ensure that any occurrences align with authorized usage; focus on timestamp correlations with events that could indicate unauthorized access.
 
-  - **Analyze Command-Line Arguments:** Investigate the command-line inputs associated with pypykatz execution. Look for combinations indicating credential dumping, such as the inclusion of 'live' and 'registry'.
+  - **Review process execution logs**: Check for Process Creation Event ID 4688 for instances where the `Image` ends with `pypykatz.exe` or `python.exe`. Identify any unusual execution times or from unexpected user accounts that do not typically use administrative privileges.
 
-  - **Check Access to SAM Database:** If pypykatz execution is confirmed, look for corresponding access logs to the SAM registry keys or any 'read' permissions that may indicate an abnormal access pattern.
+  - **Analyze command-line arguments**: Look at the `CommandLine` field in Event ID 4688 logs for instances that contain both "live" and "registry." This can indicate the specific pypykatz functionality being used. Legitimate administrative tasks may not use these flags.
 
-  - **Correlate With User Activity:** Compare the detected instances against user behavior and established baselines to determine if the activity is part of legitimate administrative activities or indicative of malicious intent.
+  - **Check for suspicious parent processes**: Investigate Event ID 4688 logs for the parent process of pypykatz execution. Windows utilities (like Task Manager or CMD) may be benign, whereas unexpected or unusual parent processes (like `powershell.exe`) indicate a potentially malicious context.
+
+  - **Cross-reference user activity**: Analyze user logon events (Event ID 4624) around the same timeframe as the pypykatz execution to determine if the user is known to be an administrator performing routine tasks, or if they are an anomalous user for the time of execution.
+
+  - **Validate registry access logs**: Search for registry access events in Sysmon (Event ID 10) or Windows Registry logs that correspond to the time of pypykatz execution, specifically checking for access to the SAM database. Legitimate behaviors may show periodic access during system updates or administrative tasks.
+
+  ---
 
   ### Prioritization
-  Given the potential impact of credential theft on organizational security and the likelihood that such tools could be used in compromised environments, this alert is prioritized as high. The ability to extract credentials can lead to account takeovers, lateral movement, and further exploitation.
+
+  Given the potential for significant credential exposure and the high likelihood that pypykatz will be employed as a post-exploitation tool, this alert should be prioritized as high. The impact can be severe if attackers leverage the captured credentials effectively, facilitating further compromises.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may not cover instances where pypykatz is executed in a non-standard manner, or where it is run in environments where process logging is not fully enabled. It assumes that process creation events capturing command line arguments are being logged effectively and that the environment is monitoring for such potential threats. Required configurations may include ensuring thorough logging of process executions and enabling visibility into command-line arguments for Windows processes.
+
+  Detection capabilities may be limited if logging is not fully enabled for process creation or if Sysmon is not configured correctly. Additionally, legitimate administrative actions may inadvertently trigger this alert, particularly during scripted deployments or automated tasks. Compounding this detection with endpoint visibility or monitoring for lateral movement behaviors post-alert can strengthen overall security posture.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

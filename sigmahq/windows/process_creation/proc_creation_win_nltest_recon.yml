@@ -50,25 +50,42 @@ falsepositives:
 - Legitimate administration use but user and host must be investigated
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects potential reconnaissance activity conducted through the use of `nltest.exe`, a built-in Windows command-line utility. Attackers can leverage `nltest` for information gathering, including querying domain trusts, listing domain controllers, and identifying users. Such activities often serve as a precursor to more invasive attack vectors, allowing attackers to map out the environment's structure and relationships, particularly within Active Directory.
 
-  The primary goal of an attacker executing `nltest` is typically to gather intelligence that can be used in future exploitation scenarios, including privilege escalation or lateral movement (MITRE ATT&CK techniques T1016: System Network Configuration Discovery and T1482: Domain Trust Discovery). The relevant inputs for this detection primarily stem from process creation data, where command-line arguments can indicate potentially malicious activity.
+  This Sigma rule detects the execution of `nltest.exe` with command-line parameters indicative of reconnaissance activities on Windows networks, particularly aimed at querying domain trusts and server information. An attacker may leverage this tool to gather information about the network structure and domain relationships, which can facilitate later stages of an attack, such as lateral movement or privilege escalation. The relevant MITRE ATT&CK techniques are **Discovery** (T1016) and **Network Service Scanning** (T1482).
 
-  Primary sources to monitor include:
-  - **Windows Process Creation Logs:** These logs will show the execution of `nltest.exe` along with its command-line parameters.
-  - **Event Logs for User Activity:** Tracking user actions and command executions can pinpoint when potentially unauthorized `nltest` queries are made.
+  Primary telemetry sources include Windows process creation events, specifically Security Event ID 4688 and Sysmon Event ID 1, which track the execution of `nltest.exe`. If malicious, this behavior can expose critical information about trust relationships between domains and potential targets for further exploitation. Importantly, this detection does NOT confirm malicious intent on its own, as `nltest.exe` may be used for legitimate administrative tasks.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check for instances of `nltest.exe` being invoked with suspicious command-line arguments that suggest reconnaissance, such as `/user`, `all_trusts`, or `dc:list`.
-  - **Analyze User Context:** Investigate the user account associated with the `nltest` execution. Validate whether this user has legitimate administrative tasks or if they are using elevated privileges inappropriately.
-  - **Cross-reference with Active Directory Logs:** Use logs to identify if the queried domain trusts or domain controller information correspond with authorized access patterns for the user in question.
-  - **Monitor Network Traffic:** Analyze any potentially associated network communications for other indicators of lateral movement or reconnaissance related to domain trusts or DC enumeration.
+
+  - **Review process creation events**: Check Security Event ID 4688 or Sysmon Event ID 1 for `nltest.exe` execution, focusing on the parent process. Note benign administrative use with expected command-line parameters like `/server` or `/domain_trusts`.
+
+  - **Analyze command-line arguments**: Identify suspicious command-line arguments such as `query`, `all_trusts`, or `dnsgetdc:` that indicate potential reconnaissance. Malicious indicators include combinations that reveal trust relationships or retrieve sensitive domain information.
+
+  - **Correlate user activity**: Investigate the user account associated with the `nltest.exe` execution. Determine if the user has previous legitimate administrative activity within the context of their role.
+
+  - **Check for unusual behavior**: Review for multiple rapid executions of `nltest.exe` across different systems. This pattern may indicate automated reconnaissance tools or scripts.
+
+  - **Cross-reference with system logs**: Examine Windows Event Logs for suspicious logins or account anomalies around the same timeframe. This may provide context for potentially adversarial actions.
+
+  - **Validate access to sensitive systems**: Monitor for changes or access attempts to critical infrastructure following the execution of `nltest.exe`, checking for unusual traffic or failed authentications in logs (Event ID 4625).
+
+  ---
 
   ### Prioritization
-  The severity of this alert is considered medium because while reconnaissance activity can precede more severe attacks, alone it may not necessarily indicate an immediate threat. However, in the context of recent compromises, particularly with sophisticated adversaries, it warrants close investigation.
+
+  This alert should be treated with medium severity due to the potential impact on critical infrastructure if reconnaissance leads to successful subsequent attacks. The likelihood of malicious abuse is moderate, as the tool is commonly used for legitimate administrative tasks, yet it is also favored by attackers for its stealth and effectiveness in discovering network configurations.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be blind spots in detection if logging for process creation or command-line arguments is not adequately enabled on all Windows endpoints. The detection logic assumes that all potentially malicious uses of `nltest.exe` can be discerned solely from its command-line arguments. Additionally, if an attacker uses alternative tools or methods for the same reconnaissance goals, those actions would not be captured by this detection rule. Proper logging configurations and comprehensive monitoring of user activities are essential for the effective operation of this alert.
+
+  Detection effectiveness may be limited by scenarios where log collection is misconfigured or if the command executes in a non-standard manner, leading to insufficient logging. Legitimate administrative activities may trigger this alert, particularly in environments with frequent domain restructuring or evaluations. A related detection to consider could be monitoring for unexpected access attempts using DCOM or RPC services that indicate lateral movement (e.g., detecting `wmic.exe` commands or suspicious remote management activities), which would help strengthen overall visibility.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

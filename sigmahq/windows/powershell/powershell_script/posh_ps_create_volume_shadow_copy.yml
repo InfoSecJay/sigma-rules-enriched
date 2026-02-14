@@ -26,23 +26,42 @@ falsepositives:
 - Legitimate PowerShell scripts
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify the creation of a Volume Shadow Copy on Windows systems using PowerShell, specifically through the utilization of the `Win32_ShadowCopy` class. The primary threat scenario involves attackers attempting to create a backup of the Active Directory domain database to extract sensitive credential information. This technique is often used as part of larger credential access efforts to facilitate unauthorized access to user accounts and further compromise the network.
 
-  The relevant MITRE ATT&CK tactics include **Credential Access** and **Task Automation**. The related techniques are **T1003.003: Credential Dumping: NTDS.dit** and **DS0005: Shadow Copy**. These techniques highlight the potential risk posed by unauthorized shadow copy creation, which can act as a precursor to extracting sensitive data from the Active Directory.
+  This Sigma rule detects the execution of PowerShell scripts that create Volume Shadow Copies using the `Win32_ShadowCopy` class. Such actions may be indicative of an attacker attempting to acquire copies of sensitive data, such as the Active Directory domain database, for credential theft. This behavior aligns with the MITRE ATT&CK technique "Local File Inclusion" (ID: T1003.003) and the tactic "Credential Access."
 
-  The best sources of telemetry for this detection rule include PowerShell script logs, particularly those that capture script block execution events, and Windows Event Logs that record PowerShell activity. It is essential that Script Block Logging is enabled to capture the specifics of PowerShell commands being executed on the system.
+  The primary telemetry source is PowerShell script logging, specifically designed to detect script block invocations. If successfully executed, this action may lead to unauthorized access to confidential information, leading to a significant security compromise. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate administrative tasks may utilize similar commands.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Examine PowerShell script block logs for any instances of `Win32_ShadowCopy` method calls, focusing on the creation commands and parameters used during execution.
-  - **Analyze System Events:** Look into Windows Event Logs for indications of shadow copy creation, such as Event ID 104 or related entries that might correlate with the timings of the suspicious PowerShell activity.
-  - **Inspect Active Directory Access Attempts:** Investigate any unusual access patterns or authentication attempts against the Active Directory around the time of the shadow copy creation to determine if other credential access methods were employed.
-  - **Assess Recovery and Backup Activities:** Identify any legitimate backup processes or scheduled tasks that may coincide with the detected activity to rule out false positives and ensure the activity is indeed malicious.
+
+  - **Check PowerShell script block logs:** Review Windows Event ID 4104 to find instances of the relevant PowerShell command (`Win32_ShadowCopy`). Look for non-administrative users executing this command as a potential indicator of compromise.
+
+  - **Identify system context:** Determine the user and context in which the command was executed. If the user is not typically responsible for backup or shadow copying tasks and is on a non-administrative workstation, this raises suspicion.
+
+  - **Examine recent system change history:** Investigate Event ID 7011 (Windows Backup) or other relevant logs to check for legitimate backup schedules. If there was no scheduled task or previous record of volume shadow copy creation, this is a red flag.
+
+  - **Review execution context:** For non-legitimate activity, ensure the `ScriptBlockText` field contains the full command including all `Create` parameters. Legitimate activity often includes additional context or variations (like specifying distinct storage paths).
+
+  - **Look for follow-on malicious indicators:** Examine logs for subsequent file creation from the shadow copy. Check for Event ID 4663 where files are accessed or copied from shadow storage—indicative of sensitive data exfiltration.
+
+  - **Corroborate with malware activity:** Cross-reference detected command sequences with known malware signatures or patterns, potentially using Endpoint Detection and Response (EDR) solutions for deeper visibility into code execution flow.
+
+  ---
 
   ### Prioritization
-  This alert is considered high severity due to the potential impact of credential exposure and domain compromise it represents. The likelihood of an attacker successfully leveraging shadow copies to gain unauthorized access to sensitive data is significant in enterprise environments.
+
+  This alert should be prioritized as high severity due to the significant impact on sensitive data if malicious. The likelihood of abuse is elevated, as creating Volume Shadow Copies is commonly associated with credential harvesting and lateral movement tactics used by adversaries.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if Script Block Logging is not enabled, as essential PowerShell command details would be missing. This detection rule assumes that the logs are being collected in a timely manner and that other indicators of compromise (e.g., unusual login patterns, system configuration changes) are also being monitored. Additionally, this rule may produce false positives in environments where legitimate administrative tasks are performed without adequate context or analysis.
+
+  Detection limitations exist when script block logging is not enabled or fails to capture obfuscated scripts. Legitimate PowerShell scripts executing similar commands may also trigger false positives, such as system backup operations. To enhance detection coverage, companion detections on file access and data exfiltration activities should be implemented, monitoring anomalies related to Volume Shadow Copies.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

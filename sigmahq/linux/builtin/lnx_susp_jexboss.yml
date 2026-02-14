@@ -22,26 +22,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule is designed to detect sequences of commands executed by the JexBoss tool, which is commonly associated with post-exploitation scenarios targeting web applications, particularly those that are vulnerable to remote code execution. JexBoss facilitates the exploitation of known vulnerabilities in web applications, allowing attackers to execute arbitrary commands on the server. The typical objective of an attacker using JexBoss is to gain persistent access, steal sensitive information, or escalate privileges within the environment.
 
-  Relevant MITRE ATT&CK techniques include **Execution: Command-Line Interface (T1059.004)**, which focuses on the execution of commands through the command-line interface that may indicate malicious activity. The detection leverages Linux log sources, specifically targeting the execution of suspicious bash commands that might indicate the use of JexBoss.
+  This Sigma rule detects suspicious command sequences typically used in web application exploitation via JexBoss, which can serve as a command injection tool. The primary objective of an attacker leveraging JexBoss is to gain unauthorized access to the target system and execute arbitrary commands. This behavior aligns with the MITRE ATT&CK tactic of Execution (TA0002) and the technique Command-Line Interface (T1059.004).
 
-  Primary data sources for this detection include:
-  - Bash command execution logs.
-  - Process creation events.
-  - System audit logs.
+  The primary telemetry sources for this detection are Linux shell command logs, specifically commands that indicate the use of Bash. The security impact of malicious command execution includes potential compromise of system integrity, data leakage, or further lateral movement within the network. Importantly, this detection does NOT confirm that an intrusion has occurred on its own; further investigation is necessary to ascertain intent and outcome.
+
+  ---
 
   ### Investigation Steps
-  - **Review Bash Logs:** Examine bash command execution logs for instances of `bash -c /bin/bash` or `&/dev/tcp/`, as these patterns are indicative of JexBoss usage.
-  - **Correlate with Process Events:** Cross-reference the detected command execution with process creation logs to identify the parent process and any related activity, which may reveal the context of the command execution.
-  - **Analyze Network Traffic:** Investigate network logs for any outbound connections initiated by the command, especially those involving unusual TCP connections, which could indicate data exfiltration or further exploitation attempts.
-  - **Assess User Context:** Determine the user context under which the commands were executed. Look for anomalies, such as unexpected user accounts or unusual login times that may indicate compromised credentials.
+
+  - **Check command logs for suspicious activity:** Review `/var/log/auth.log` or equivalent logs for events containing the strings `bash -c /bin/bash` or `&/dev/tcp/`. Ensure no legitimate bash scripts or expected administrative tasks are present that might trigger similar logs.
+
+  - **Identify the executing user and context:** Determine the user executing the commands by correlating the timestamps in the command logs with user activity logs (e.g., `last -a` output). Look for unusual user accounts or unexpected root access.
+
+  - **Review recent network connections:** Use `netstat -tulnp` or `ss -tulnp` to identify any active connections to unusual ports or destinations linked to the suspicious commands. Indicators of compromise include outbound connections to known malicious IPs.
+
+  - **Validate file creation or modification:** Check for any new or modified files in the `/tmp` or `/var/tmp` directories that were created around the same time as the suspicious command execution. Use `find /tmp -type f -newermt 'YYYY-MM-DD HH:MM:SS'` to pinpoint files associated with the alert.
+
+  - **Evaluate system integrity for escalated privileges:** Use tools like `sudo`, `whoami`, and `groups` to evaluate if there has been unauthorized privilege escalation following the command sequence. Check if typical system binaries were manipulated.
+
+  - **Compare against baseline legitimate activities:** Establish a baseline for normal command usage within the environment. Document expected legitimate commands used by admin users for maintenance or scripts, noting that deviations could indicate malicious intent.
+
+  ---
 
   ### Prioritization
-  This alert is of high severity in an enterprise environment due to the potential impact of successful exploitation using JexBoss, which can lead to significant data breaches, unauthorized access, and damage to the organization's infrastructure. Given JexBoss's capability to perform remote code execution and lateral movement, the likelihood of an attack successfully leveraging it is a critical concern.
+
+  This alert should be treated as high severity due to the potential impact of exploited systems, including data breaches or system compromise. The likelihood of malicious abuse is significant, as tools similar to JexBoss are frequently weaponized in attacks against web applications. The presence of these command sequences usually indicates adversarial activity.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is the reliance on proper logging configurations. If command execution logs are not enabled or adequately monitored, detection of JexBoss activity may be missed. Additionally, the detection logic assumes that the commands executed are not benign in their specific usage; therefore, environments with legitimate uses for similar commands may yield false positives. Ensuring that sufficient process auditing and command history logging is enabled for all Linux systems is crucial for the effectiveness of this alert.
+
+  This detection may have limitations related to command obfuscation techniques that attackers could employ to evade detection. Reliable detection requires that proper auditing of shell commands is enabled and configured on Linux systems. Legitimate system maintenance commands by privileged users may inadvertently trigger this alert, necessitating contextual review. A companion detection mechanism could include monitoring for unusual outbound TCP traffic associated with the completion of these suspicious command sequences.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

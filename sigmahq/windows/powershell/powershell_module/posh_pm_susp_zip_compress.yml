@@ -35,21 +35,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ### Technical Context
-  This detection rule identifies the use of the PowerShell cmdlet `Compress-Archive` in scenarios where the output files are stored in potentially suspicious locations, such as the designated temporary folders used frequently by malware for exfiltration. Adversaries may use this technique to compress sensitive data prior to exfiltration, making it easier to transport and potentially bypassing some detection mechanisms, especially if data is being transferred in smaller chunks. This behavior can be part of a larger exfiltration strategy or data staging process that poses a significant risk to sensitive information within an organization.
+  ---
 
-  The relevant MITRE ATT&CK tactics include **Collection** (ID: T1074.001), which focuses on the gathering of information in preparation for exfiltration. By leveraging PowerShell's capabilities, adversaries can effectively script their malicious activities to perform data zipping in order to prepare files for later exfiltration. The primary data sources for this detection include **PowerShell script logs**, which capture command executions, as well as logs from systems that monitor file modifications and accesses in temporary directories.
+  ### Technical Context
+
+  This Sigma rule detects the use of PowerShell's `Compress-Archive` cmdlet to zip folders or files, specifically when the output is directed to common temporary file locations like `%TEMP%` or `%APPDATA%\Local\Temp`. The likely attacker objective is to package sensitive information for subsequent exfiltration by compressing data, thereby reducing the data size and making it easier to transfer covertly. This activity aligns with the MITRE ATT&CK tactic of Collection (T1074.001) under the technique "File and Directory Permissions Modification." The primary telemetry sources are Windows PowerShell logs, specifically monitoring the execution of PowerShell scripts and the cmdlets used.
+
+  If malicious, compressing files in these directories may indicate an attempt to stage or prepare a data exfiltration process. However, this detection does NOT confirm that exfiltration has occurred; it solely highlights a potentially suspicious action that warrants further review.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Logs**: Examine recently run PowerShell commands for instances of `Compress-Archive` targeting `$env:TEMP`, `C:\AppData\Local\Temp`, or `C:\Windows\Temp`. Look for anomalous user accounts or unexpected execution contexts.
-  - **Check File Access Logs**: Analyze file access logs for any file creation or modification events in the aforementioned temporary directories immediately preceding or following an instance of `Compress-Archive` usage. Pay close attention to any large compressed files or patterns indicative of staging for exfiltration.
-  - **Correlate with Network Activity**: Investigate outgoing network traffic to identify any connections to unusual external IP addresses or data transfers that may correlate with the timing of the compress command usage. Focus on file transfer protocols that can indicate potential data exfiltration.
-  - **Assess User Behavior**: Evaluate the user accounts associated with the detected activity. Look for patterns in user behavior that may suggest compromise, such as accessing systems or files they don't typically interact with.
+
+  - **Verify the PowerShell command execution:** Check for Event ID 4104 in PowerShell logs for any script block containing `Compress-Archive -Path` paired with suspicious file usage patterns in the `%TEMP%` or `%APPDATA%\Local\Temp` directories.
+
+  - **Identify the source of the PowerShell command:** Look into process creation logs (Event ID 4688) to correlate the execution of PowerShell with the parent process. Investigate processes that initiated the PowerShell command for any signs of malicious behavior.
+
+  - **Cross-validate the output location:** Inspect the contents of the `%TEMP%` and `%APPDATA%\Local\Temp` directories (via file system access) for recent compressed files created around the time of the alert. Look for file names or sizes that indicate sensitive data, which can support a malicious intent.
+
+  - **Assess the host role:** Determine whether the affected host is a critical asset, such as a file server or database. If so, elevate the urgency of the investigation based on its role in the enterprise.
+
+  - **Recognize legitimate use cases:** Note that legitimate administrative activities may require the use of `Compress-Archive`, especially during system maintenance. Contextualize alerts based on the role of the user executing the command.
+
+  - **Utilize companion detections:** Monitor for related detections such as suspicious outbound traffic (e.g., unusual HTTP/S connections or data transfers) following the creation of compressed archives, which may indicate data exfiltration attempts.
+
+  ---
 
   ### Prioritization
-  This alert should be classified with medium severity due to the potential impact of data exfiltration, especially if sensitive information is being targeted, and the likelihood of exploitation increases when attackers stage data for extraction in less monitored temporary directories.
+
+  The alert severity is medium due to the potential impact of sensitive data being compressed for unauthorized transfer. While this activity could indicate staging for data exfiltration, it does not guarantee that such abuse is occurring. However, the use of common temp locations for compression is a known tactic among adversaries.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture all instances of data compression used for legitimate purposes, potentially leading to false positives, particularly in environments where legitimate use of PowerShell for server maintenance is common. The detection logic assumes that PowerShell logging is enabled and appropriately configured to capture command executions. Without comprehensive logging of process creations and script executions, there is a gap whereby malicious activities may go undetected. Companies must ensure proper configurations for their logging mechanisms to effectively detect such behaviors.
+
+  Detection may be limited by the ability of attackers to leverage legitimate PowerShell functionalities without raising alarms, potentially avoiding logging. It requires PowerShell script logging to be enabled for comprehensive coverage. Legitimate administrative actions may also trigger this alert, underscoring the need for context in investigation. A related detection involving unusual file access patterns post-compression can enhance overall detection capabilities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

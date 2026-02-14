@@ -49,26 +49,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects unauthorized modifications to the Windows registry, specifically targeting the 'ms-settings' protocol handler. Attackers often alter this key to achieve UAC (User Account Control) bypass or to establish persistence, enabling them to execute malicious code with elevated privileges when users interact with certain system settings. By hijacking the command execution path of the 'ms-settings' protocol, adversaries can run their own applications or scripts, circumventing standard security measures.
 
-  The relevant MITRE ATT&CK tactics include **Defense Evasion (T1548.002)**, where attackers manipulate security features to gain access, **Persistence (T1546.001)**, which encompasses techniques for maintaining their presence in the system, and **Privileged Escalation (T1112)**, which allows them to elevate privileges. These techniques highlight the attacker’s objective of maintaining control over compromised systems.
+  This Sigma rule detects unauthorized modifications to the 'ms-settings' protocol handler in the Windows registry, which can facilitate privilege escalation or persistence for attackers. The likely attacker objective is to hijack the command execution path to run malicious code with elevated privileges, potentially leading to further system compromise. This behavior is aligned with the MITRE ATT&CK techniques of **Privilege Escalation (T1548.002)** and **Persistence (T1546.001)**.
 
-  The primary data sources for this detection include process creation events, which log the execution of commands that may alter registry settings, and Windows registry logs that capture changes to the 'ms-settings' command paths.
+  The primary telemetry source for this detection includes process creation logs from the Windows operating system, particularly looking for activity related to `reg.exe` or PowerShell commands that attempt to modify registry entries. Should this activity be malicious, it could allow an attacker to gain elevated execution capabilities within the environment. Notably, this rule does **not confirm** that a malicious activity occurred solely on its own; further investigation is necessary to ascertain the intent and context behind the modification.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check for any executions of `reg.exe` and `powershell.exe` that include commands to modify the registry. Focus on the command lines and parent processes for context.
 
-  - **Analyze Registry Changes:** Investigate the Windows registry for alterations in the 'ms-settings' protocol handler. Use tools like `regedit` or PowerShell to export the relevant keys for comparison against baseline evidence.
+  - **Identify the process responsible for the modification:** Review Security Event ID **4688** for process creation logs. Look for entries associated with `reg.exe` or `powershell.exe`, and confirm the parent process. Legitimate usage might include system updates or administrator tasks.
 
-  - **Correlate User Activity:** Examine user actions before and after the modification to the ms-settings handler. Identify if the changes align with legitimate administrative tasks or if they were conducted in the absence of normal user behavior.
+  - **Verify command-line arguments used in modification:** Check for entries where CommandLine contains `add` (for `reg.exe`) or PowerShell commands such as `New-ItemProperty` and `Set-ItemProperty`. The use of `\ms-settings\shell\open\command` is critical; if it appears in context with the user’s behavior, it may indicate legitimate activity.
 
-  - **Check for Persistence Mechanisms:** Look for other registry keys or scheduled tasks that may be linked to the observed modifications. This may indicate broader persistence strategies employed by the attacker.
+  - **Assess user context:** Examine the user account associated with the log entries. A modification by an administrative account during business hours may be benign, while similar activity executed by a standard user at odd hours warrants deeper scrutiny.
+
+  - **Investigate event logs for surrounding context:** Gather relevant Security Event IDs **4624** (logon) and **4672** (special privileges assigned to new logon) that occurred around the same period. This will help determine if the behavior correlates with unauthorized access attempts.
+
+  - **Correlate with extant malware activity:** Utilize threat intelligence platforms or internal threat insights to check for known malware signatures that include registry modifications as part of their infection vectors; look for indicators of compromise.
+
+  - **Monitor for evidence of persistence:** Check for further modifications to the registry path post-event and search for indicators within Application logs (Event ID **1500**) to see if subsequent changes have taken place, indicating continued exploitation efforts.
+
+  ---
 
   ### Prioritization
-  This alert has medium severity due to the potential for elevated privileges and persistent access it provides to attackers. The likelihood of exploitation is increased as this is a known method for attackers seeking to bypass user access controls.
+
+  The severity of this alert should be considered medium. Modifying the registry for the 'ms-settings' handler can enable significant control over the system, making it a common tactic among advanced threats. The likelihood of malicious abuse is considerable given the frequency of associated techniques in real-world attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection for legitimate administrative tasks that also modify the 'ms-settings' registry path, which could lead to false positives. The detection logic assumes that all relevant registry changes are logged and that users performing legitimate modifications will be captured by process creation logs. For the alert to function optimally, proper monitoring configurations must be in place, including robust logging for process execution and registry modifications.
+
+  Detection may have limitations due to potential evasion techniques such as registry modifications using legitimate administrative tools that do not generate alerts. Reliable detection also requires having process creation logs enabled for all endpoints. Legitimate activities, such as automated system configuration changes or software installations that do modify the registry, may inadvertently trigger this alert. A related detection to enhance coverage could involve monitoring registry access patterns using Sysmon events, particularly Event ID **10** for registry changes.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

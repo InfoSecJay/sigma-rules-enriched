@@ -35,23 +35,45 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the execution of `aspnet_compiler.exe`, a legitimate tool in the .NET framework that can be manipulated by attackers to compile and execute arbitrary C# code. This behavior can be notorious in scenarios where threat actors seek to perform remote code execution (RCE), escalate privileges, or bypass security controls by leveraging trusted system binaries in an unexpected manner.
 
-  Attackers leveraging this technique often aim to gain unauthorized access or execute malicious payloads in environments where .NET applications reside, significantly increasing their footprint and operational capabilities. In doing so, they may manipulate web servers or other critical infrastructure to execute commands that can lead to data exfiltration or lateral movement within the network.
+  This rule detects the execution of `aspnet_compiler.exe`, a legitimate Microsoft tool that can compile and execute C# code. The behavior being monitored indicates potential exploitation by an adversary who could use this executable to run arbitrary code, possibly for payload delivery or command execution. This activity aligns with the MITRE ATT&CK technique for Execution (T1203), specifically under "Exploitation for Client Execution."
 
-  Relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0005) as the use of `aspnet_compiler.exe` helps evade standard security mechanisms, and **Execution** (TA0002), specifically categorized under the technique **Execution through API** (T1127), as the tool can run unmanaged code through .NET applications. Primary data sources that will capture this activity include Windows process creation logs, which record the invocation of executables including their file paths and parent-child relationships.
+  The primary telemetry sources include Windows process creation logs (Event ID 4688, Sysmon Event ID 1) detailing processes that are spawned on the system. If this behavior is malicious, it can lead to unauthorized access, data compromise, or system manipulation. It is essential to note that this detection does NOT confirm malicious intent on its own; further investigation is necessary to determine context and intent.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Check logs related to the execution of `aspnet_compiler.exe`, paying close attention to the process parent and any associated command-line arguments that suggest malicious intent.
-  - **Analyze Parent Process**: Investigate the parent process that initiated `aspnet_compiler.exe`. Look for suspicious processes or those related to unauthorized user activity which may indicate exploitation.
-  - **Correlate with Application Logs**: Examine application and web server logs for any irregular C# code compilation activities or unusual request patterns that coincide with the execution of `aspnet_compiler.exe`.
-  - **Inspect for File Modifications**: Look for signs of modified or newly created files in directories typically associated with .NET applications, particularly those related to the deployment of compiled code.
+
+  - **Identify the process context:**
+    Review the process creation logs (Event ID 4688, Sysmon Event ID 1) for `aspnet_compiler.exe`. Validate the parent process to determine if it is part of a legitimate application or is suspicious. Common parent processes may include legitimate web servers.
+
+  - **Correlate with user actions:**
+    Check for unusual user account activity around the same time as the execution (e.g., login events at unusual hours). Investigate Event ID 4624 for atypical remote logins that may correlate with the execution.
+
+  - **Review command line arguments:**
+    Analyze the command line parameters passed to `aspnet_compiler.exe`. Look for obfuscation techniques (e.g., encoded commands or unusual flags) indicating potential malicious use. Use Sysmon Event ID 4697 to check for such variations.
+
+  - **Evaluate asset criticality:**
+    Assess the role of the executing host. If it is a production web server or a critical asset, elevate the investigation priority, as the potential impact of malicious activity is greater.
+
+  - **Identify potential indicators of compromise (IOCs):**
+    Cross-reference any concurrent file system changes associated with the execution (e.g., new file creation). Investigate creation timestamps in `C:\Windows\Microsoft.NET\Framework\` for newly crafted files that may indicate a deeper compromise.
+
+  ---
 
   ### Prioritization
-  The alert's severity is medium, as while the execution of `aspnet_compiler.exe` can indicate benign administrative activity, its misuse can lead to significant operational risks including unauthorized code execution and potential data breaches in an enterprise environment.
+
+  This alert should be considered medium severity. The execution of `aspnet_compiler.exe` on critical servers indicates a possible risk of code execution vulnerabilities. Given the increasingly common weaponization of legitimate binaries for malicious purposes, prompt investigation is warranted.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection may not cover all potential abuses of `aspnet_compiler.exe`, especially if attackers use alternate means to execute code or if this process is used legitimately outside the context of threat activity. The detection logic assumes that `aspnet_compiler.exe` will be initiated from typical .NET Framework locations; however, if the tool is executed from unusual paths or if the execution is heavily obfuscated, this alert may fail to trigger. Additionally, it requires appropriate logging of process creation to be effective, meaning logging levels must be adequately configured on monitored systems.
+
+  This detection may be evaded if attackers modify the executable’s behavior or use similar tools to avoid detection. Ensure that Windows process creation logs are appropriately configured and monitored for comprehensive coverage. Additionally, benign developers may legitimately invoke `aspnet_compiler.exe` during testing or deployment phases, necessitating context around alerts. Companion detections involving generic process execution patterns (e.g., unusual process spawning) can enhance analytic accuracy.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

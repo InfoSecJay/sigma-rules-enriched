@@ -79,27 +79,40 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the creation of a new key under 'TaskCache' in the Windows Registry when a scheduled task is registered by a process that does not belong to expected legitimate programs like `svchost.exe`. The goal of this detection is to uncover potential malicious activities such as the installation of persistence mechanisms by attackers using uncommon processes or tools. Threat actors often utilize scheduled task manipulation for persistence or execution, making it crucial to monitor these events.
 
-  The underlying threat scenario involves attackers deploying malware that attempts to create or modify scheduled tasks to maintain access or execute payloads at specified intervals. This behavior is commonly seen in various malware families, including ransomware like Sodinokibi (REvil), which is known for utilizing scheduled tasks to enable its operations.
+  This rule detects the creation of a new registry key under 'TaskCache' when a scheduled task is registered by an uncommon program, which likely indicates an attempt to persist and execute malicious payloads. The objective of an attacker triggering this behavior is typically to gain persistence on the system to execute tasks without detection. The relevant MITRE ATT&CK techniques for this detection include Persistence (T1053) and Scheduled Tasks (T1053.005). The primary telemetry source is Windows registry activity, specifically changes to the registry under `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache`. If this behavior is malicious, it could lead to unauthorized task executions, data exfiltration, or further compromise of the network. It is important to note that this detection does NOT confirm malicious intent on its own—it merely indicates that an uncommon program has created a scheduled task.
 
-  Relevant MITRE ATT&CK techniques include:
-  - **T1053:** Scheduled Task/Job
-  - **T1053.005:** Scheduled Task/Job: Windows Task Scheduler
-
-  Primary data sources for detecting this activity include Windows Registry logs, particularly focusing on the 'TaskCache' registry path.
+  ---
 
   ### Investigation Steps
-  - **Review Registry Changes:** Investigate any alterations made to the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache` path, noting any suspicious keys created outside of expected processes.
-  - **Analyze Process Creation Events:** Examine process creation logs to identify any processes that triggered the task creation. Pay attention to processes not typically associated with task scheduling, such as non-system executables.
-  - **Cross-reference with Known Legitimate Tasks:** Compare the observed task creation against a list of legitimate scheduled tasks in your environment to identify anomalies or unknown entities.
-  - **Investigate Follow-on Behavior:** Check for any subsequent actions or tasks initiated by the newly created scheduled task, including command execution or unusual network connections.
+
+  - **Identify the process creating the scheduled task:** Check for the registry key creation in Windows Security Event ID 4657 or Sysmon Event ID 5. Look for `TargetObject` fields containing `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\` and review the `Image` field for less common executables.
+
+  - **Confirm legitimate scheduled tasks:** Review recent scheduled tasks using PowerShell command `Get-ScheduledTask` to verify any legitimate tasks that may appear in the TaskCache. Commonly expected programs include `msiexec.exe`, `svchost.exe`, and those from Microsoft Office.
+
+  - **Flag uncommon executables:** Pay attention to the `Image` field in the logs for any non-standard executables (e.g., those not in the predefined benign filters) that register a task. Unknown or suspicious programs may indicate malicious activity.
+
+  - **Check event history around the alert timestamp:** Investigate other related events surrounding the time of the alert, such as Security Event IDs 4688 (process creation) and 4689 (process termination), to get context on other processes launching and terminating around the same period.
+
+  - **Validate recent registry changes:** Use `Reg.exe` or the Registry Editor to check for any unusual entries under the TaskCache that align with the alert, including creation or modification timestamps that may link to malicious activity.
+
+  - **Analyze potential post-exploitation actions:** If a less common executable is confirmed, assess its behavior further by checking for unusual network connections or file creations post scheduled task setup—look for signs using Sysmon Event ID 3 for network connections.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to its potential to indicate malicious behavior that could lead to persistence and further compromise of the network. Given that scheduled tasks can facilitate long-term access and execution of malicious code, quick identification and investigation are essential.
+
+  This alert should be treated with high priority due to the potential for a malicious process to establish persistence on a critical system. The behavior detected is consistent with techniques commonly leveraged in malware campaigns, particularly those intending to maintain long-term access to compromised systems.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage for legitimate applications that also create tasks under similar Registry keys, potentially leading to false positives. The detection logic assumes that uncommon processes are intrinsically suspicious when creating scheduled tasks but does not account for legitimate edge cases. It also requires comprehensive logging of Registry changes to ensure accurate detection, which must be appropriately configured and maintained across all endpoints.
+
+  Detection may miss events if log retention is inadequate or if the malicious program employs anti-detection techniques, such as spoofing legitimate processes. Additionally, legitimate applications may schedule tasks without being logged, potentially generating false positives. Enhancing detection may benefit from companion detections, such as monitoring for suspicious network activity from newly created scheduled tasks, which may indicate active exploitation or lateral movement.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

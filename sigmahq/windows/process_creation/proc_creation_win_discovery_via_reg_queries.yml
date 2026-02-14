@@ -55,23 +55,42 @@ simulation:
   technique: T1082
   atomic_guid: acfcd709-0013-4f1e-b9ee-bc1e7bafaaec
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies attempts to gather system information through direct queries to the Windows Registry. Attackers may use such methods to collect valuable information about the operating system, installed applications, and system configurations, which can aid in further exploitation or reconnaissance. The ability to understand the environment allows attackers to refine their strategies, escalate privileges, or deploy malware tailored to the system's specific characteristics.
 
-  The relevant MITRE ATT&CK techniques for this rule include **T1082: System Information Discovery**, which focuses on gathering system details, and **T1124: System Time Discovery**, which involves querying time zone information. These tactics suggest that the attacker may be attempting to understand the environment better, potentially before carrying out further malicious activities.
+  This rule detects attempts to query system information from the Windows Registry using both command-line tools (specifically `reg.exe` and PowerShell) and certain parameters indicative of discovery activities. The likely attacker objective is to gather system details, which can inform further exploitation or lateral movement within the compromised network. This behavior is classified under the MITRE ATT&CK framework as Discovery (T1082 - System Information Discovery).
 
-  The primary data sources for this detection include **process creation events**, which provide logs of the execution of commands like `reg.exe` and `powershell.exe` along with their command line arguments, and **Windows Registry access logs**.
+  The primary telemetry source is process creation events from Windows, including Event ID 4688, which captures command line invocations. If this behavior is malicious, it could potentially allow an adversary to identify useful system configurations, installed software, or security mechanisms in place. Importantly, this detection does NOT confirm actual exploitation or successful intrusion on its own.
+
+  ---
 
   ### Investigation Steps
-  - **Analyze Process Creation Events**: Review process creation logs to detect instances where `reg.exe` or `powershell.exe` are executed with commands that indicate system information queries.
-  - **Inspect Command Line Arguments**: Pay special attention to command line arguments that include `query`, `Get-ItemPropertyValue`, or reference registry paths such as `\SOFTWARE\Microsoft\Windows NT\CurrentVersion`, as these are indicative of system enumeration attempts.
-  - **Correlate with User Activity**: Investigate the context of the commands by correlating execution times and users with recent activities, especially if they are unexpected or unauthorized.
-  - **Review Registry Access Patterns**: Check for unusual registry access patterns or timestamps tied to the events, which might suggest an ongoing reconnaissance or malicious activity.
+
+  - **Identify the command used:** Review process creation logs for Event ID 4688. Look for command lines that contain either `reg.exe` with the `query` and `-v` flags or PowerShell commands using `Get-ItemPropertyValue` (fields: `NewProcessName`, `CommandLine`).
+
+  - **Check Registry Keys Accessed:** Validate which Registry keys are being targeted in the command. Commonly accessed keys include `\SOFTWARE\Microsoft\Windows NT\CurrentVersion` or `\SYSTEM\CurrentControlSet\Services`. Legitimate admin activities often include similar queries but are more focused on configuration management or maintenance tasks.
+
+  - **Correlate process parent-child relationships:** Use Event ID 4656 and 4663 to check if these registry queries are executed from authorized administrative tools (e.g., `mmc.exe`, `powershell.exe`), or if they follow suspicious or unauthorized process chains.
+
+  - **Establish baseline behavior:** Determine if the observed command lines align with typical administrative operations within the organization (fields: `AccountName`, `ExecutionProcess`, `CommandLine`). Look for anomalies such as unusual timing or non-standard user accounts executing these commands.
+
+  - **Identify malicious indicators:** High-confidence malicious activity may include repeated queries on service keys or discovery-related keys such as `\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`, especially when executed by unexpected users or systems (fields: `ProcessID`, `UserID`).
+
+  - **Validate asset criticality:** Consider the asset's role within your environment. Queries on critical infrastructure like domain controllers or production servers indicate higher risk and should be escalated accordingly.
+
+  ---
 
   ### Prioritization
-  The alert has a **low severity** due to the nature of the behavior detected, often occurring in legitimate administrative tasks. However, regular occurrences from unexpected accounts or situations warrant further investigation to rule out potential malicious intent.
+
+  Alert severity is considered low within a general context, as system discovery activities can be legitimate and regular. However, the likelihood of abuse exists, particularly if performed on sensitive systems. This behavior can sometimes be weaponized in preparation for follow-up malicious actions, warranting closer examination.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection may miss coverage if log retention policies do not retain sufficient process creation logs for analysis. This rule assumes that the execution of the specific commands captured in the selection criteria is malicious in nature, which may not always be the case, as legitimate applications may invoke similar commands. Additionally, the rule relies on the proper logging configuration for process creation events, which must be enabled to ensure accurate detection and reporting.
+
+  One significant detection limitation is the possibility of benign administrative actions by authorized users triggering this alert, potentially leading to false positives. Additionally, if logs for command-line analysis are not enabled consistently, detection may miss important events. Legitimate activities such as system maintenance or audits may also confront this rule. A related detection rule for suspicious command-line arguments or unauthorized use of administrative tools may provide stronger context and coverage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

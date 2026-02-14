@@ -25,21 +25,42 @@ falsepositives:
   and their authorization.
 level: medium
 note: |
-  ### Technical Context
-  This detection rule identifies potential remote command execution attempts within a Kubernetes Pod container using the `kubectl exec` command. The common objective of such an action is to execute arbitrary commands in the context of a running container, which could be leveraged for various malicious purposes, including gaining unauthorized access, data exfiltration, or deploying additional malicious payloads. Attackers may utilize this technique to compromise the application environment, escalate privileges, or conduct lateral movement within the Kubernetes cluster.
+  ---
 
-  The rule specifically aligns with the MITRE ATT&CK techniques of *Execution* (TA0002) and *Command and Scripting Interpreter* (T1059). By detecting the creation of `exec` commands directed at pods, we can identify potential command execution that may not follow legitimate operational patterns. The primary data sources providing evidence for this detection are Kubernetes audit logs, which capture all interaction with the Kubernetes API, specifically logs related to pod executions.
+  ### Technical Context
+
+  This rule detects attempts to execute remote commands within a Kubernetes Pod container using the `kubectl exec` command. The behavior indicates an attacker leveraging Kubernetes capabilities to run commands in a compromised container or to gain a foothold within the cluster. The relevant MITRE ATT&CK tactic is **Execution** (T1059.003: Command and Scripting Interpreter - Windows Command Shell).
+
+  Primary telemetry sources include Kubernetes audit logs, specifically looking for events where the `verb` is `create` and the `objectRef.resource` indicates `pods` with a `subresource` of `exec`. If successful, this command execution can lead to unauthorized access and control over the application's environment, potentially facilitating further lateral movement or data exfiltration. It’s important to note that this detection does NOT confirm malicious activity on its own, as legitimate debugging or administrative operations may also trigger similar events.
+
+  ---
 
   ### Investigation Steps
-  - **Review Kubernetes Audit Logs:** Examine the Kubernetes audit logs to identify the specific `kubectl exec` command invocations. Focus on the involved user identity and the timestamp of the actions.
-  - **Correlate User Context:** Identify the user or service account executing the command and evaluate their permissions within the cluster. Verify if the entity has legitimate reasons to perform such actions.
-  - **Examine Pod Activity:** Investigate the containers and services running in the affected pods at the time of the detected execution. Look for anomalous behavior or unexpected command activity.
-  - **Check for Legitimate Activity:** Investigate any debugging or troubleshooting activities that might justify the use of `kubectl exec` commands. Be aware of any documented maintenance windows or operations on the affected services.
+
+  - **Review Kubernetes audit logs for suspicious execution attempts**: Look for audit events with `verb: create`, `objectRef.resource: 'pods'`, and `objectRef.subresource: 'exec'` in the Kubernetes audit log. Note the user identity initiating these commands and their role.
+
+  - **Validate user permissions and roles**: Cross-reference the user identity performing the `kubectl exec` command against Kubernetes Role-Based Access Control (RBAC) settings. Confirm whether this user should have the permissions to execute commands in the targeted Pod.
+
+  - **Assess for anomalies in execution history**: Investigate the frequency and patterns of `kubectl exec` commands by the user. Legitimate operations may have a predictable pattern tied to specific workloads. Sudden spikes or execution during odd hours would indicate potential malicious activity.
+
+  - **Check for unusual command activity**: Monitor the specific commands executed via the `kubectl exec` command. Malicious indicators may include attempts to install or launch unauthorized binaries, or network tools (e.g., `curl`, `wget`) being invoked within the Pod.
+
+  - **Examine Pod context and role**: Identify the criticality of the Pod in question by checking its role and expected activity. Executions within production-critical Pods should be treated with higher urgency compared to non-critical development environments.
+
+  - **Capture any output redirection**: Investigate if the output of commands executed via `kubectl exec` is being redirected to external sources, which could indicate data exfiltration activities.
+
+  ---
 
   ### Prioritization
-  This alert is considered medium priority due to its implication of possible unauthorized command execution within a Kubernetes environment, which can lead to severe impacts, including data breaches or service disruptions. The likelihood of a successful attack is elevated if proper role-based access controls are not enforced, making this a critical area of focus for security teams.
+
+  This alert should be considered medium severity due to the potential impact on sensitive systems within the Kubernetes environment. The likelihood of malicious abuse is moderate; while legitimate administrative tasks can trigger this alert, the risk of exploitation through unauthorized command execution poses significant concerns, particularly in production environments.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection coverage may be limited by environments that do not have appropriate audit logging enabled within Kubernetes, as audit logs are essential for this detection to function effectively. The assumption made in the detection logic is that any legitimate debugging activity will be documented or have proper operational justification. If auditing is not correctly configured or if legitimate activities are common, false positives may occur. Ensuring a comprehensive logging configuration is necessary for effective detection and analysis.
+
+  Detection may have limitations due to misconfigured Kubernetes audit logging, where not all execution attempts are captured. Additionally, legitimate debugging activities by authorized users may trigger these alerts, leading to false positives. Organizations should ensure comprehensive RBAC configurations to minimize unnecessary alerts. A companion detection could involve monitoring for unusual network connections originating from Pods, which may indicate further malicious behavior post-command execution.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

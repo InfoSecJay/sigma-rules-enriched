@@ -31,27 +31,44 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the registration of new Time Providers under the Windows Time service (W32Time) with uncommon DLL names. Adversaries might exploit this mechanism to gain persistence on a compromised system, as any DLL specified in the DllName registry key will execute when the system boots. By injecting malicious DLLs into the W32Time service, attackers can ensure their payloads run with system-level privileges, potentially leading to a foothold in the environment or even lateral movement.
 
-  The relevant MITRE ATT&CK techniques this rule addresses are:
-  - **T1547.003: Boot or Logon Autostart Execution: Windows Service** – using Windows services to maintain persistence.
-  This technique highlights the adversary's intent to maintain access and control over systems by manipulating Windows services, thereby achieving persistence through non-traditional methods.
+  This Sigma rule detects the registration of new Dynamic Link Libraries (DLLs) within the Windows Time Service's time provider configuration, specifically targeting modifications to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\TimeProvider`. Attackers may exploit this registry setting to execute custom DLLs during system startup, potentially enabling persistence mechanisms and allowing unauthorized control over the system time, which may facilitate further malicious activities such as timestamp manipulation for evasion purposes.
 
-  Primary data sources for detecting this activity include:
-  - **Registry logs** – specifically monitoring changes to the registry path under HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\TimeProvider.
-  - **Event logs** – Windows Security Event Logs that track service creation or modification events could provide insight into any unauthorized access or changes.
+  The relevant MITRE ATT&CK tactic is **Persistence** (TA0003) with the technique **Registry Run Keys / Startup Folder** (T1547.003). The primary telemetry source is Windows registry changes, specifically monitoring registry set events.
+
+  If detected, this behavior can pose a significant security risk as it indicates potential malicious configurations allowing untrusted code execution at startup. However, this detection does NOT confirm that the DLL is indeed malicious without further context.
+
+  ---
 
   ### Investigation Steps
-  - **Review Registry Changes**: Examine the registry under HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\TimeProviders for any unauthorized or unfamiliar DLL names that differ from standard time provider DLLs.
-  - **Analyze Event Logs**: Investigate Windows Event Logs, specifically focusing on events associated with service creation or modification, to determine the timing and source of registry changes.
-  - **Correlate with EDR Data**: Use Endpoint Detection and Response (EDR) tools to analyze process creation events linked to the identified DLLs, looking for any unusual behaviors or process trees that may indicate malicious activity.
-  - **Validate DLL Signatures**: Check the digital signatures of the DLLs associated with the time providers to ensure they are from legitimate sources and not previously unknown or unsigned binaries.
+
+  - **Review the registry modification details:** Access the registry change logs for Event ID 4657 and confirm the `TargetObject` path for alterations under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\W32Time\TimeProvider`. Look for unusual or unexpected DLL names that do not align with known system processes.
+
+  - **Identify high-confidence malicious indicators:** Check the registry modification record for entries that contain suspicious or uncommon DLL names (e.g., anything not recognized as part of the base Windows installation). This includes filenames that appear obfuscated or non-standard for system DLLs.
+
+  - **Validate legitimate activity:** Confirm whether any authorized applications or services that your organization uses intentionally modify Windows Time Service settings. Review any documented maintenance activities or scheduled tasks that could justify legitimate changes to the W32Time provider.
+
+  - **Cross-verify with system processes:** Using Sysmon Event ID 1, compare running processes during the time of the registry change to verify whether any processes are executing from the newly registered DLL path. Look for unusual parent-child relationships or command line arguments.
+
+  - **Assess the context of system impact:** Determine the role of the affected system (e.g., domain controller, file server) to evaluate the security implications of a compromised time service, especially focusing on systems critical to Active Directory functions or security event logging.
+
+  - **Check for existing alerts or related detections:** Review alerts related to time manipulation anomalies or suspicious process behaviors to identify any ongoing incidents that may correlate with the detected registry change.
+
+  ---
 
   ### Prioritization
-  This alert is high severity due to the significant risk it poses; unauthorized DLLs in the Windows Time service can lead to persistent malicious presence that could compromise entire networks, especially in enterprise environments where centralized time synchronization is critical for security event logging and operational functionality.
+
+  This alert should be treated with high priority due to the security implications surrounding unauthorized DLL registration in a critical system service. The potential for malicious abuse is significant, as attackers often leverage such techniques for persistence when targeting high-value assets, particularly those involved in domain management.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection logic may miss signs of access through alternative persistence mechanisms or if DLLs are modified in less common ways that do not trigger observable registry changes. It assumes that logs for registry modifications are correctly configured and retained in a sufficient time frame for investigations. Additionally, environments that do not enforce file integrity monitoring on sensitive directories might overlook indicators of compromise associated with malicious DLLs.
+
+  This detection may miss instances where attackers utilize common or legitimate DLLs, making it easier to evade detection. It relies on complete and accurate logging of registry modifications; any misconfigurations in log retention could hinder detection quality. Legitimate software updates or configurations may also trigger this alert. Companion detections, such as abnormal child processes spawned by the time service or suspicious loading of DLLs in other critical services, can enhance overall coverage and context for investigations.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

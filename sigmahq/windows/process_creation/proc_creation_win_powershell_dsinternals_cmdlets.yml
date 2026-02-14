@@ -88,25 +88,42 @@ falsepositives:
 - Legitimate usage of DSInternals for administration or audit purpose.
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the execution of suspicious PowerShell cmdlets from the DSInternals PowerShell module, which can be exploited by malicious actors to conduct various activities inside Active Directory and Azure Active Directory. The DSInternals module provides extensive access to sensitive information, including the ability to extract backup keys for the Data Protection API (DPAPI) or manipulate core Active Directory data files such as NTDS.DIT. Attackers may utilize DSInternals for unauthorized access, credential dumping, and privilege escalation, depending on their goals.
 
-  The associated MITRE ATT&CK tactics and techniques for this detection include:
-  - **Execution** (TA0002), specifically through PowerShell scripting (T1059.001).
-  - **Credential Access** (TA0006), where attackers may employ techniques such as credential dumping (T1003) and exploitation of trust relationships (T1176).
+  This rule detects the execution of suspicious commands associated with the DSInternals PowerShell module, which exposes functionality for managing and manipulating Active Directory data. Adversaries may utilize these cmdlets to extract sensitive information, such as DPAPI backup keys, or to manipulate critical files like NTDS.DIT for privilege escalation and credential theft. This behavior aligns with the MITRE ATT&CK technique T1059.001, which involves the execution of scripts, specifically PowerShell.
 
-  The best data sources to look for evidence of this activity are process creation logs that detail command-line arguments, which can reveal suspicious PowerShell invocations indicative of malicious attempts to leverage the capabilities of the DSInternals module.
+  The primary telemetry source is the Windows process creation logs, capturing relevant activity via Security Event ID 4688 or Sysmon Event ID 1. If this behavior is malicious, it poses a high risk as it may allow attackers to access password hashes and other sensitive information, potentially leading to a full compromise of AD credentials. Importantly, this detection alone does not confirm malicious intent, as legitimate administrative use of the DSInternals module is also common.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Check the process creation events for instances of PowerShell executing commands related to DSInternals. Look for cmdlets specifically included in the detection logic, focusing on both successful and failed executions to assess intent.
-  - **Analyze User Context**: Determine whether the user account executing the cmdlets has the necessary permissions to perform such actions. Take note of any accounts that are not typically associated with administrative tasks or those with abnormal usage patterns.
-  - **Correlate with Authentication Logs**: Investigate any potentially unusual authentication events around the time the suspicious cmdlets were invoked. Look for evidence of lateral movement or other suspicious account behaviors that coincide with the execution of these commands.
-  - **Check Related Artifacts**: Explore relevant artifacts such as Windows Event Logs for security events, including group policy operations, and any related alerts across your security infrastructure that may indicate malicious intent linked to the use of DSInternals.
+
+  - **Review process creation logs:** Check for Security Event ID 4688 or Sysmon Event ID 1. Look for command lines containing DSInternals cmdlets, focusing on suspicious terms like `Get-ADDBBackupKey` or `Save-DPAPIBlob`. Malicious indicators include unusual use of these cmdlets outside of standard administration hours or from non-admin accounts.
+
+  - **Validate user permissions:** Determine if the user executing the command has legitimate administrative privileges. Use Windows Event ID 4672 (Special privileges assigned to new logon) to verify if the account has high-level access.
+
+  - **Examine related process activity:** Look for parent-child process relationships in process logs. Focus on instances where PowerShell was spawned by suspicious processes, such as `rundll32.exe` or `cmd.exe`, as this could indicate malicious use.
+
+  - **Identify legitimate usage patterns:** Recognize typical administrative tasks involving DSInternals, such as scheduled audits or regular backups by domain administrators. These activities should occur during regular maintenance windows and should be documented in change management logs.
+
+  - **Check for credential dumping artifacts:** Look for evidence of password hashes being dumped. Validate log entries related to `Get-NTHashSet` or `Get-SysKey`. Confirm if these actions are accompanied by other suspicious activity like `Invoke-Mimikatz`.
+
+  - **Correlate with account lockout events:** Monitor for multiple account lockouts or password reset attempts associated with the user account that executed the suspicious command. Use Security Event ID 4740 to assess if the account was targeted post-execution.
+
+  ---
 
   ### Prioritization
-  This alert is categorized as high severity due to the potential risk associated with unauthorized access to sensitive Active Directory components. Given that attackers may leverage this module for key credential dumping and other critical actions, timely investigation and response are essential to mitigate potential breaches.
+
+  This alert is high severity due to the potential exposure of sensitive Active Directory information and the likelihood of adversaries using these cmdlets to escalate privileges or execute further attacks. The exploitation of such capabilities is a common method for advanced persistent threats (APTs) targeting enterprise environments.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be detection coverage gaps for legitimate administrative use of the DSInternals module, as some IT staff may require access for maintenance or auditing activities. The detection logic assumes that unauthorized users will attempt to access the module's capabilities without prior established permissions or legitimate justification. Additionally, for this alert to function effectively, comprehensive process creation logging must be enabled, ensuring all PowerShell command executions are captured with detailed command-line parameters.
+
+  Detection is limited as legitimate administrators may use DSInternals for routine tasks, resulting in false positives. Ensure logging for all relevant cmdlets and PowerShell execution policies is properly configured to capture necessary events. There may be benign use cases when security assessments are performed. A companion detection rule for monitoring unexpected PowerShell execution patterns can enhance overall coverage against misuse.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -34,23 +34,42 @@ falsepositives:
   setupapi.dll
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects suspicious activity involving the `rundll32.exe` process, specifically when it utilizes the `setupapi.dll` library to execute the `InstallHinfSection` function. This function can process INF files, which are configuration files used for the installation of drivers and system components in Windows. An attacker may leverage this functionality to modify registry keys and establish persistence mechanisms on a compromised system, such as by adding entries to the Run or RunOnce registry keys. The use of `rundll32.exe` in this context generally raises red flags as it is commonly associated with malicious payload execution.
 
-  The relevant MITRE ATT&CK tactics and techniques that apply to this detection rule include Defense Evasion (ID: TA0005) and the specific technique of "Run DLLs" (ID: T1218.011). Attackers may exploit these techniques to mask malicious activities and maintain persistence, thereby aiding in prolonged access to compromised environments.
+  This Sigma rule detects the execution of `runonce.exe` invoked via `rundll32.exe` with the `setupapi.dll` library's `InstallHinfSection` function. This behavior is indicative of attempts to create persistence on a system by modifying registry keys like Run or RunOnce, or installing malicious drivers as part of a post-exploitation activity. The likely attacker objective is to maintain access and execute arbitrary code outside direct user interaction.
 
-  Primary data sources for evidence include process creation logs that detail the execution of `rundll32.exe` and its command-line parameters, as well as Windows registry logs that can provide insights into changes made to the system’s startup configuration and persistence mechanisms.
+  This detection maps to the MITRE ATT&CK technique of **Reg/Run Keys / Startup Folder** (T1218.011). The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior can lead to persistent compromise, enabling attackers to run their payloads automatically on system startup. Importantly, this detection does NOT confirm malicious intent on its own, as there may be legitimate administrative use of INF files for driver installations.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Check for instances of `rundll32.exe` that have `setupapi.dll` in the command line, particularly focusing on the argument `InstallHinfSection`.
-  - **Examine Remote File Access**: Investigate any unusual or unauthorized INF files that have been downloaded or accessed around the same time as the suspicious `rundll32.exe` executions.
-  - **Analyze Registry Changes**: Search for modifications to the Run or RunOnce registry keys, especially any entries that might reference executed commands associated with the observed rundll32 behavior.
-  - **Correlate with Network Activity**: Look for outbound connections or communications that coincide with the times of detected suspicious activity, particularly if abnormal IP addresses or domains are involved.
+
+  - **Check process creation logs:** Review Security Event ID 4688 and Sysmon Event ID 1 for `runonce.exe` with the associated `ParentImage` of `rundll32.exe` and the `ParentCommandLine` containing `setupapi.dll InstallHinfSection`. Look for unusual command-line arguments indicative of a payload.
+
+  - **Verify registry changes:** Search the Windows Registry for any recent modifications to Run or RunOnce keys. Specifically, examine HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run and HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run for new entries correlating with the alert.
+
+  - **Identify benign scenarios:** Confirm any legitimate software installations or system updates that utilize `setupapi.dll` for known hardware or software updates. This may include reviewing ticketing systems or documentation for planned administrative actions that coincide with the alert timeframe.
+
+  - **Assess file creation activity:** Analyze file system changes within the same timeframe, focusing on newly created files or executables initiated by `runonce.exe`. Look for unusual file paths or file types that shouldn't be present, checking C:\Windows\System32 or user profile directories.
+
+  - **Correlate with threat intelligence:** Cross-reference the executed command with known threat actor techniques or malware samples that leverage `setupapi.dll` for persistence. Use threat intelligence feeds or internal knowledge bases to identify commonly exploited behaviors.
+
+  - **Engage with asset management:** Review the asset's criticality and role within the infrastructure. Determine if the affected system holds sensitive data or controls significant organizational functions, heightening the response priority if malicious activity is confirmed.
+
+  ---
 
   ### Prioritization
-  This alert should be treated with medium priority due to the potential for significant impact through unauthorized persistence mechanisms. The likelihood of exploitation using these techniques underscores the necessity for timely investigation.
+
+  This alert is of medium severity due to potential persistence implications if the behavior is malicious. Systems with critical roles, like domain controllers or servers handling sensitive data, increase the likelihood of exploitation. Given that the misuse of `setupapi.dll` is known in the attack landscape, timely investigation is imperative.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection logic assumes that the execution of `rundll32.exe` will consistently utilize `setupapi.dll` in a suspicious context. There may be blind spots if legitimate administrative actions or scripts use INF files for valid purposes, leading to possible false positives. Additionally, the rule relies on the availability of complete process creation logs and relevant registry auditing. If these logs are not captured or configured correctly, it may impact the detection’s effectiveness.
+
+  There may be detection limitations as legitimate administrative tools using INF scripts for driver installations can trigger the same alert. Reliable detection requires appropriate logging configurations for process creation and registry access. Additionally, integrations like EDR solutions may improve granularity. Related detections include those for `rundll32.exe` invocations without typical administrative context, strengthening overall monitoring coverage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

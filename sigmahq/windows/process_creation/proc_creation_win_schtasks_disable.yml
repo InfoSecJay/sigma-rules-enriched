@@ -41,23 +41,44 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify attempts by adversaries to disable important scheduled tasks on Windows systems. The specific actions targeted by this rule involve the execution of the `schtasks.exe` command-line utility with parameters that aim to change the state of critical tasks—particularly, those involved in system recovery, security monitoring, and updates. Attackers often employ such tactics to facilitate data destruction or mask their activities by rendering key recovery and protection mechanisms inactive.
 
-  The threat scenario typically involves adversaries attempting to execute ransomware or destructive malware that seeks to impair the victim's ability to recover from an attack. The disabling of tasks related to system restore points, Windows Defender, and backup processes enhances the impact of such malicious actions by minimizing the possibility for recovery. This behavior aligns with the MITRE ATT&CK techniques such as "Impact" (TA0040) and specifically "Data Destruction" (T1489), where attackers aim to delete or render inaccessible data or tools necessary for incident recovery.
+  This Sigma rule detects the disabling of critical scheduled tasks on Windows systems, which may indicate an adversary’s intent to disable security tools or backup processes, thereby facilitating data destruction or other malicious actions. The likely objective of such behavior is to manipulate the system's normal operation, making it easier to execute malware or conduct further attacks without detection.
 
-  Key data sources for effective detection include process creation logs, where invocation of `schtasks.exe` can be monitored for suspicious command-line usage. Logs captured from Windows Security Auditing can also provide valuable context in understanding attempts to manipulate system tasks, particularly in identifying the specific tasks or processes being targeted by the command.
+  This behavior aligns with the MITRE ATT&CK framework tactic of **Impact (T1489)**, specifically focusing on the technique of data manipulation and resource hijacking. The primary telemetry sources are process creation events, notably identified by **Windows Event ID 4688** (process creation) or **Sysmon Event ID 1**. If malicious, the impact can be severe, leading to potential data loss and a compromised security posture.
+
+  However, this detection does NOT confirm malicious intent on its own; further investigation is essential to verify whether the task was indeed disabled by an adversary or through legitimate administrative activities.
+
+  ---
 
   ### Investigation Steps
-  - **Review Scheduled Task Log:** Investigate the `schtasks.exe` command invocation in process creation logs to confirm the presence of the alteration parameters (`/Change`, `/TN`, `/disable`) related to critical tasks like BitLocker, Windows Defender, or System Restore.
-  - **Validate Task Status:** Use PowerShell or Task Scheduler UI to confirm the current status of the scheduled tasks identified in the alert. Check if the tasks are indeed disabled and note the last modified date.
-  - **Examine User Context:** Analyze the user account under which the `schtasks.exe` command was executed. Determine if this account possesses the necessary permissions to disable these tasks and whether it aligns with typical operational patterns.
-  - **Assess Event Log Correlation:** Cross-reference findings with Windows Event Logs, particularly focusing on Event ID 4697 (a service was installed) or 4698 (a scheduled task was created) to determine the context around the changes made to the scheduled tasks.
+
+  - **Check event logs for task disabling:** Review **Windows Security Event ID 4688** and **Sysmon Event ID 1** for the execution of `schtasks.exe` with parameters including `/Change`, `/TN`, and `/disable` related to critical tasks such as `\Windows\BitLocker` and `\Windows\WindowsUpdate`.
+
+  - **Validate command line context:** Investigate the full command line used in the process creation event to confirm that it includes both `/Change` and `/disable`. With false positives possible, note if these tasks were modified during legitimate maintenance windows.
+
+  - **Identify user context of execution:** Confirm the user or service account that executed the command. Typically, scheduled task modifications should be performed by authorized administrators; alerts triggered under unusual accounts may suggest a potential compromise.
+
+  - **Monitor for related task states:** Look for any additional events indicating the state changes of critical tasks or services prior to and following the disable event. Evaluate if there's a pattern of disabling multiple protection-related tasks.
+
+  - **Review recent administrative changes:** Cross-check with IT management platforms or change-logging to assess if there were any documented administrative actions corresponding to the task disabling events observed.
+
+  - **Clarify normal behaviors:** Identify legitimate administrative activities, such as scheduled maintenance or upgrades, that involve disabling specific tasks. This contextual knowledge can help differentiate between benign and suspicious activity.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the significant impact of disabling critical scheduled tasks, which can cripple incident response capabilities and allow malicious activities to persist undetected. The likelihood of occurrence is also elevated, given the prevalence of ransomware and other impactful threats targeting enterprise environments.
+
+  This alert represents a high-severity incident due to its potential to disable critical security mechanisms and the likelihood of malicious abuse in an enterprise setting. Since disabling scheduled tasks is a common tactic among adversaries attempting to evade detection or cause system disruptions, immediate triage is essential.
+
+  ---
 
   ### Blind Spots and Assumptions
-  A potential gap in detection coverage may arise if `schtasks.exe` is invoked in benign contexts that do not match the specified command-line patterns, leading to false negatives. The detection logic assumes that the scheduled tasks listed are significant enough to warrant monitoring. Additionally, if the logs from process creation events are not configured to be collected or retained adequately, this detection may not function as intended. Proper logging and configuration of Windows Security Auditing are necessary to ensure comprehensive visibility over task manipulations.
+
+  Detection may be evaded by adversaries using legitimate administrative credentials, thus masking their actions as benign. This rule relies on accurate logging of scheduled task manipulations; ensure that all relevant logs are enabled in Windows settings. There’s a possibility that legitimate system maintenance routines may inadvertently trigger this alert, highlighting the need for contextual investigation. A related detection to reinforce visibility is monitoring for the creation or modification of scheduled tasks, which could provide a broader view of system integrity and administrative actions.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

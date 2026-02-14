@@ -26,23 +26,42 @@ falsepositives:
 - Unlikely
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies attempts to delete all scheduled tasks on a Windows machine using the `schtasks.exe` command. The specific command pattern involves the `/delete`, `/tn *`, and `/f` flags, which collectively enable the removal of all tasks from the local task scheduler. Attackers might employ this technique to disrupt system operations or to cover their tracks by eliminating utilities or scripts that could aid in their detection or forensic investigation.
 
-  The likely threat actors could range from insiders with malicious intent to external attackers seeking to limit the victim's operational capabilities or erase traces of their presence. The ability to manipulate scheduled tasks ties closely to the MITRE ATT&CK technique of "Impact" (T1489), as deleting tasks can hinder organizational workflows and disaster recovery plans.
+  This rule detects the execution of the `schtasks.exe` command with the `/delete` flag, the `*` wildcard in its task name (`/tn *`), and the `/f` flag which forces deletion without confirmation. This behavior suggests an attempt to remove all scheduled tasks on the local computer, potentially indicating malicious actions aimed at disrupting services, hiding artifacts, or covering tracks after executing other tasks.
 
-  Primary data sources for detecting this behavior should mainly include process creation events from Windows systems, which capture the execution of `schtasks.exe`, along with its command-line arguments that provide context about the operation being performed.
+  The attacker's objective likely aligns with MITRE ATT&CK technique T1489 (Service Stop), where an adversary seeks to interrupt or disable scheduled operations, thus minimizing detection and operational awareness. The primary telemetry sources include Windows Security Event ID 4688 (Process Creation) and Sysmon Event ID 1 (Process Creation) which log significant details about process invocations, including command line arguments.
+
+  Malicious impacts include the removal of critical scheduled tasks that could affect system functionality and security monitoring features. However, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions may invoke similar command structures.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Search for recent process creation logs that include `schtasks.exe` to find potentially malicious commands executed on the system.
-  - **Analyze Command-Line Arguments**: Focus on command-line arguments, specifically those containing `/delete`, ` /tn *`, and `/f`, to confirm if all scheduled tasks were targeted for removal.
-  - **Check for Related User Activity**: Investigate the user account responsible for executing the command to determine if it was authorized or if it shows signs of compromise.
-  - **Correlate with Scheduled Task Logs**: Cross-reference any findings with scheduled task logs to establish when tasks were created and subsequently deleted, potentially linking this activity to other suspicious events.
+
+  - **Review executed commands:** Check Windows Security Event ID 4688 and Sysmon Event ID 1 for `schtasks.exe` being executed with `/delete /tn * /f`. Malicious executions will typically occur in unusual contexts or times compared to typical administrative scheduling activities.
+
+  - **Assess recent task creations:** Look through Event ID 4698 (Task Created) to identify legitimate scheduled tasks created or modified shortly before or after the deletion command. Confirm that these tasks have a valid operational purpose.
+
+  - **Verify user context:** Identify the user account executing `schtasks.exe`. Use Event ID 4624 (Logon) to ensure it’s a legitimate administrator or automated service account. Unexpected user accounts could indicate an adversary's presence.
+
+  - **Track system changes:** Investigate artifacts in `C:\Windows\System32\Tasks\` to identify if significant or critical tasks are missing post-deletion. Compare against a baseline snapshot of tasks to identify any disruptions.
+
+  - **Look for lateral movement indicators:** If `schtasks.exe` is executed on critical servers or domain controllers, cross-reference with Event ID 4627 (Group Membership) to determine if any privileged groups were accessed or altered within a suspicious timeframe.
+
+  ---
 
   ### Prioritization
-  The alert warrants high severity as deleting all scheduled tasks can severely impact operational capabilities, potentially leading to system downtime or disruption of critical services within an enterprise environment.
+
+  The alert is rated high severity, particularly on critical servers or domain controllers, due to the potential for widespread disruption of scheduled security monitoring and maintenance tasks. The likelihood of malicious abuse is high, as this command is commonly weaponized by attackers to hide traces of their activities.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may not capture scenarios where attackers use alternative methods to delete scheduled tasks or employ scripting techniques to perform batch deletions without direct calls to `schtasks.exe`. Additionally, the effectiveness of this rule hinges on the logging configuration of the Windows systems; if process creation logs are not collected or adequately retained, detection will be compromised. Assumptions include that the environment adheres to standard logging practices and that adequate privileges are required to execute the command in question.
+
+  Detection may be limited by techniques that employ command obfuscation or process injection to conceal malicious executions. The rule requires proper Windows logging configurations to capture necessary events reliably. Legitimate administrative scripts or routines may trigger similar commands. Consider implementing related detections targeting the creation of new scheduled tasks for a more holistic view of scheduled task modifications.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

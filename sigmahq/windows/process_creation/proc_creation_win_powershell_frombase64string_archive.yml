@@ -27,30 +27,42 @@ falsepositives:
 - Legitimate administrative script
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies instances where PowerShell is used to decode a Base64 Gzip archive. The typical behavior being monitored is the use of the `FromBase64String` method in conjunction with a `MemoryStream`, signifying an attempt to decode potentially malicious content for in-memory execution. This technique is common in advanced attacks, particularly those leveraging PowerShell scripts for command and control (C2) purposes, where attackers may disguise payloads to avoid detection by traditional security measures.
 
-  Attackers often utilize this method to execute malicious code without leaving obvious traces on the filesystem, thus maintaining stealth and reducing the chances of detection. Given the potential for execution of arbitrary code, the objectives may include data exfiltration, credential dumping, or lateral movement within an organization's infrastructure.
+  This Sigma rule detects the usage of the `FromBase64String` method, specifically in the context of executing Gzip compressed data via PowerShell. This behavior indicates a potential attacker's objective to decode malicious payloads and execute them directly in memory without writing them to disk, thus evading traditional antivirus protections. The relevant MITRE ATT&CK tactic is **Execution** (T1203) and the technique is **Scripting via PowerShell** (T1059.001).
 
-  Related techniques from the MITRE ATT&CK framework include:
-  - **Command and Control** (TA0011)
-  - **Data Obfuscation** (T1132.001)
+  The primary telemetry source for this detection is Windows process creation logs, primarily through Security Event ID 4688 and Sysmon Event ID 1, which detail command line activities. If the detected behavior is malicious, it could lead to the execution of arbitrary code, which may compromise the system's confidentiality, integrity, and availability. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative scripts may utilize similar functionality.
 
-  The primary logs that will be crucial for investigation and detection in this scenario are Windows Process Creation events, which capture command-line arguments and executable paths.
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Analyze process creation logs for instances where PowerShell is invoked with parameters containing `FromBase64String`, `MemoryStream`, and the Gzip header `H4sI`. Pay close attention to the parent processes and execution paths to assess legitimate versus malicious intent.
 
-  - **Examine PowerShell Transcripts**: Search for PowerShell transcripts that provide context around the PowerShell commands executed. Look for unusual or unauthorized script execution that might align with decoding activities.
+  - **Review command line arguments:** Examine the `CommandLine` field from Security Event ID 4688 for evidence of `FromBase64String`, `MemoryStream`, and `H4sI`. Malicious activity is indicated if these elements are present without context, while legitimate use may include more identifiable administrative context.
 
-  - **Check for Alternative Execution Techniques**: Investigate other potential indicators of in-memory execution or Base64 encoded payloads, such as encoded command line strings or the use of `Invoke-Expression`. Ensure no legitimate administrative functions are misused.
+  - **Analyze parent process:** Check the `ParentProcessId` in the process creation log to identify the parent process. If the parent process is a known legitimate tool or system utility (e.g., PowerShell Integrated Scripting Environment), the activity may be benign.
 
-  - **Correlate with Network Traffic**: If available, review network traffic logs around the time of the suspicious process execution. Look for outbound connections that may indicate attempted communication with a C2 server or abnormal data transfers.
+  - **Correlate with Sysmon events:** Verify Sysmon Event ID 1 for the detected process. Look for additional parameters in the command line which could offer more discriminating details (e.g., suspicious encoded strings or further obfuscation techniques).
+
+  - **Identify high-confidence malicious indicators:** Investigate the timestamp and frequency of the occurrences. Frequent executions in quick succession may indicate automated scripts used for malicious purposes, categorizing it as higher-risk activity.
+
+  - **Confirm legitimate script activity:** Cross-check with documentation or known scripts used by the organization. If base64 Gzip usage is documented for specific purposes, that will support benign classification.
+
+  - **Check for associated file artifacts:** For further analysis, look for any file drops associated with the detected process. Validate if temporary files were created or if any outbound network connections occur, indicating possible exfiltration attempts that align with C2 communications.
+
+  ---
 
   ### Prioritization
-  Given the high likelihood of malicious intent behind the use of Gzip archives in combination with Base64 decoding in PowerShell, alerts from this rule should be considered medium to high severity. This activity can indicate potential compromise and needs timely investigation to mitigate risks of data breaches or further intrusion.
+
+  This alert should be considered medium to high severity due to the potential for code execution in memory without detection. While the affected system's criticality will influence the response, the likelihood of malicious abuse exists, as techniques for executing base64 encoded content are increasingly common.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if other scripting languages or methods (e.g., Python or .NET applications) are employed for similar decoding purposes and are not monitored. The detection logic assumes that all PowerShell command executions are properly logged. If PowerShell logging is disabled or misconfigured, the alert may fail to capture relevant incidents. Additionally, legitimate administrative scripts that perform similar decoding may lead to false positives, requiring a fine-tuning of the alerting mechanism.
+
+  Detection may be limited by the absence of detailed logging configurations, as users must ensure Sysmon is adequately deployed. An evasion technique involves encoding further or using uncommon base64 strings, making detection challenging. Additionally, legitimate administrative tasks, like automated reporting tools or data manipulation scripts, may also trigger this alert. A related rule that strengthens coverage would be "Suspicious PowerShell Execution Request" that covers broader PowerShell activities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

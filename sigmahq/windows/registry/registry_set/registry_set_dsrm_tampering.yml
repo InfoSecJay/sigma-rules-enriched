@@ -35,28 +35,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects unauthorized changes to the "DsrmAdminLogonBehavior" registry value on Windows Domain Controllers, which can be indicative of malicious activity targeting Active Directory environments. Specifically, the DSRM account is a critical administrative account utilized for emergency access to Active Directory, and changes to its behavior settings can allow an attacker to maintain persistent access or escalate privileges within the system.
 
-  Attackers leveraging this vulnerability may aim to ensure that they can use the DSRM account at any time (by setting the value to "2") regardless of the state of the Active Directory services. By controlling access to the DSRM account, attackers could effectively bypass normal security protocols and maintain a foothold within the organization.
+  This Sigma rule detects modifications to the "DsrmAdminLogonBehavior" registry value, which controls access to the Directory Services Restore Mode (DSRM) administrator account on Windows Domain Controllers. Malicious actors may change this setting to ‘2’ to allow easier access to the DSRM account, enabling unauthorized persistence and access to Active Directory environments. This behavior relates to the MITRE ATT&CK technique "Credential Dumping" (T1556) and "Defense Evasion" (T1556).
 
-  Relevant MITRE ATT&CK techniques include:
-  - **T1556: Credential Dumping** - The act of extracting credentials from the system.
-  - **T1078: Valid Accounts** - Utilizing stolen or default credentials to gain access.
-  - **T1487: Data Encrypted for Impact** - Changing access mechanisms to facilitate further attacks.
+  Key telemetry includes Windows registry changes tracked by WMI or Registry event logs. The potential security impact is severe, as it could facilitate an attacker’s ability to manipulate Active Directory or execute unauthorized actions. This detection does NOT confirm that an attack is occurring but indicates a potentially unauthorized configuration change.
 
-  Primary data sources for this detection include Windows registry logs, which will capture changes made to the DSRM settings.
+  ---
 
   ### Investigation Steps
-  - **Review Registry Change Logs:** Look for any logs related to changes made to the "DsrmAdminLogonBehavior" registry path, especially around critical dates or after known security incidents.
-  - **Validate Account Usage:** Investigate any recent logins or access attempts using the DSRM account, especially if they occur outside of regular maintenance windows or from unusual IP addresses.
-  - **Analyze Active Directory Logs:** Monitor for unusual AD queries or the use of DSRM in conjunction with other administrative functions that could indicate an abuse of privileges.
-  - **Inspect Recent Security Events:** Cross-reference recent security events, alerts, or anomaly reports that may correlate with the timing of changes made to the DSRM registry setting.
+
+  - **Review registry value modifications:** Check for changes to the registry key `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\DsrmAdminLogonBehavior` using Security Event ID 4657 (Registry Value Modified). Look for a change to `DWORD (0x00000002)` indicating unrestricted access.
+
+  - **Correlate with user activity:** Cross-reference the timing of the registry change with Windows Security Event ID 4624 (Successful Logon) to identify any logons using the DSRM account immediately before or after the change. A DSRM logon without a corresponding legitimate administrative need may indicate malicious activity.
+
+  - **Identify legitimate configurations:** Understand typical configurations in your environment where `DsrmAdminLogonBehavior` is set to `0` (restricted use) or `1` (service stopped). Any changes from these standards should be flagged for further investigation.
+
+  - **Analyze access logs:** Review Windows Event ID 4768 (Kerberos Authentication Ticket (TGT)) to see if there are any unusual authentications related to the DSRM account following the registry change. Look for unexpected access patterns following the change.
+
+  - **Assess affected system's criticality:** Consider the role of the Domain Controller(s) involved. Any detected tampering on critical infrastructure warrants immediate escalation.
+
+  - **Determine previous states:** Use forensic tools or backups to determine if a previously known good state exists for the `DsrmAdminLogonBehavior` value. This might help establish a timeline for unauthorized changes.
+
+  ---
 
   ### Prioritization
-  The alert's severity is high due to the critical role of DSRM in maintaining Active Directory availability. Any unauthorized alterations could enable an attacker to regain access even if other defenses are intact, heightening the risk of privilege escalation or lateral movement within the network.
+
+  This alert should be treated as high severity due to its potential impact on Domain Controllers, which are critical to the security and operation of Active Directory. Given that such a configuration change could easily facilitate unauthorized access, it suggests a high likelihood of malicious activity, especially if further corroborated by additional suspicious events.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Potential gaps in detection coverage might include environments where registry logs are not enabled, or in scenarios where attackers may employ stealthy techniques to modify registry values without generating logs. The detection logic assumes that any change to the DSRM behavior setting is unauthorized, which may not always be the case, as legitimate administrative changes can occur. Successful detection requires that the audit logging of registry changes is correctly configured and enabled on all Domain Controllers to ensure comprehensive visibility.
+
+  Detection is limited if registry logging is not fully enabled; thus, ensure that audit policies capture registry modifications effectively. Legitimate changes may occur during standard maintenance or troubleshooting, such as during legitimate recovery operations. A related detection may include monitoring for unusual Kerberos ticket requests (ID 4769), which could indicate abuse of the DSRM account after its configuration change.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

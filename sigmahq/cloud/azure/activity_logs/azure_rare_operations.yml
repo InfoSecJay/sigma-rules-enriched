@@ -28,27 +28,42 @@ falsepositives:
 - Valid change
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects instances where users in an Azure environment conduct rare subscription-level operations from previously unseen IP addresses. Specifically, it identifies actions that involve granting access to other users for various Azure resources, such as reading and writing keys for services like DocumentDB, Media Services, and Cognitive Services. The detection is crucial as it can indicate potential misuse of credentials, either by an insider or an external actor who has gained access to user accounts.
 
-  In attack scenarios, malicious actors might exploit legitimate user credentials to manipulate access permissions for Azure resources, potentially leading to data breaches or unauthorized resource manipulation. The likely objectives may include gaining elevated permissions, exfiltrating sensitive data, or establishing persistent access to the environment.
+  This Sigma rule detects rare subscription-level operations in Azure by identifying IPs from which users grant access to other users on Azure resources via specific action keywords, such as `listKeys` or modifications to network security groups. The likely attacker objective is to escalate privileges or gain unauthorized access to sensitive Azure resources. Relevant MITRE ATT&CK tactics and techniques may include **Credential Access (TA0006)** with techniques such as **Credential Dumping (T1003)**.
 
-  Relevant MITRE ATT&CK tactics for this detection include:
-  - Credential Access (TA-0006, ID: T1003): This refers to the methods employed by attackers to gain unauthorized access to user credentials.
-  - Persistence (TA-0003, ID: T1078): This tactic involves using legitimate credentials to maintain access to the system.
+  The primary telemetry source is Azure Activity Logs, which include operations performed within Azure resources. If this behavior is malicious, the impact could involve severe data breaches or unauthorized administrative access against essential services. This detection does NOT confirm malicious intent on its own; legitimate administrative activities may also trigger this rule.
 
-  Primary data sources for investigating these activities include Azure Activity Logs, which provide detailed information on user actions and can highlight unusual IP behaviors.
+  ---
 
   ### Investigation Steps
-  - **Review Azure Activity Logs**: Examine the activity logs for the detected subscription-level operations, focusing on any anomalies or patterns, especially the source IP addresses associated with these actions.
-  - **Correlate with User Access Controls**: Verify if the users performing these actions have the appropriate permissions consistent with their roles in the organization. Look for any excessive permissions or anomalies in user accounts.
-  - **Investigate Source IP Addresses**: Validate the legitimacy of the source IP addresses by cross-referencing them against known safe IPs and identifying if they correlate with any suspicious or geographic anomalies.
-  - **Conduct User Interviews**: If necessary, engage on-call personnel or affected users to confirm whether they performed the actions from the detected IP, gathering context around their recent activities and motivations.
+
+  - **Check the source IP address:** Review the Azure Activity Log for the `callerIpAddress` field. Compare against historical data to determine if the source is unauthorized or uncommon, noting any prior legitimate usage from the same entity.
+
+  - **Verify user permissions:** Cross-reference the user initiating the action with Azure Active Directory logs (Event IDs: 4624 for logons, 4768 for Kerberos ticket requests) to ensure they have appropriate permissions for the operations being initiated.
+
+  - **Review recent user activity:** Examine the history of changes made by the user in Azure Activity Logs. Legitimate administrative activities typically involve routine resource management, such as scheduled updates or routine maintenance.
+
+  - **Identify action keywords:** Look specifically for the execution of commands such as `listKeys` or modifications to security groups. Record Event specific details: `resourceId`, `operationName`, and `statusCode` to assess the success or failure of these commands.
+
+  - **Examine security group modifications:** Check for changes to Network Security Groups (NSGs) using the relevant operation logs. Any unexpected additions or deletions can indicate potentially malicious activity. Use Azure Resource Manager API logs to review this.
+
+  - **Assess related alerting mechanisms:** Investigate whether companion detections exist for broader credential access attempts or unusual access patterns (e.g., alerts for multiple failed authentication attempts in the same timeframe).
+
+  ---
 
   ### Prioritization
-  The alert should be treated with medium severity due to the potential for significant impact if unauthorized access leads to resource modifications or data breaches. The likelihood of real threats is elevated if the operations originate from unknown or unusual IP addresses.
+
+  This alert should be considered medium severity, particularly if it originates from a critical system or user account, as it may indicate potential privilege escalation or access abuse. The likelihood of malicious usage is moderate, given the specificity of the actions monitored, which are often weaponized in cloud environments.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic assumes that all Azure activity is logged correctly and that the monitored IP addresses encompass legitimate user ranges, which may not always be the case. Potential blind spots include rare yet valid operations that do not conform to typical patterns, resulting in false positives. Additionally, the detection relies heavily on the availability and configuration of Azure Activity Logs; any misconfigurations or omissions could lead to missed detections or incomplete context for the alerts.
+
+  This detection may miss evasion attempts such as using legitimate user credentials or actions executed from within a trusted network environment. Reliable detection requires comprehensive logging from Azure Activity Logs capturing all relevant `write` and `listKeys` operations. Legitimate administrative actions, such as routine key rotations or security updates, may trigger this alert. A related detection to enhance coverage might monitor failed authentication attempts or anomalous patterns in user activity across Azure resources.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

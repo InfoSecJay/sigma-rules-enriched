@@ -86,24 +86,48 @@ falsepositives:
 - Other Cmdlets that may use the same parameters
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies attempts to disable essential features of Microsoft Defender using PowerShell commands. Attackers may attempt to lower security defenses by disabling features such as real-time monitoring, archive scanning, and behavior monitoring. The goal is often to create a more opportune environment for malware execution or to facilitate lateral movement within the network without immediate detection by security tools.
 
-  The relevant MITRE ATT&CK tactics and techniques associated with this behavior include:
-  - **Defense Evasion (T1562.001)**: Disabling security features can make it easier for attackers to execute malicious actions without triggering alerts.
+  This Sigma rule detects attempts to disable key Microsoft Defender features via PowerShell commands, specifically commands such as `Set-MpPreference` or `Add-MpPreference`, with parameters that disable various security functions. The likely attacker objective is to evade detection and facilitate further malicious activities by reducing the system's defenses. This behavior aligns with the MITRE ATT&CK technique T1562.001 (Disable or Modify Security Tools).
 
-  The primary data sources for this detection will be process creation logs, particularly those that capture PowerShell command-line arguments. These logs provide insights into executed commands and parameters that may indicate an effort to weaken security controls.
+  Primary telemetry sources include Windows process creation logs, predominantly Security Event ID 4688 and Sysmon Event ID 1, which capture command-line execution details. If malicious, the compromise can lead to significant security impacts, as it enables attackers to operate without effective endpoint protection. This detection does NOT confirm malicious intent on its own since legitimate administrative actions may utilize similar commands.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Activity Logs**: Examine process creation logs for occurrences of PowerShell commands like `Set-MpPreference` and parameters indicating disabled features.
-  - **Assess User Accounts and Privileges**: Identify the user accounts that executed the command to determine if they have a legitimate reason to disable Defender functionalities. Check for unusual access patterns or roles.
-  - **Analyze Execution Context**: Investigate any recurring or suspicious process parent-child relationships that could indicate malicious automation, focusing on instances that lead to `Add-MpPreference` or similar commands.
-  - **Correlate with Other Security Events**: Cross-reference the identified instances of command execution with alerts from other security tools (EDR, antivirus logs) to gather context about the user's actions and the potential external threat landscape.
+
+  - **Check command line execution details:**
+    Inspect Security Event ID 4688 for the command line input. Look for the presence of `Set-MpPreference` or `Add-MpPreference` along with any disable parameters like `DisableRealtimeMonitoring` or `DisableBehaviorMonitoring`.
+
+  - **Evaluate the user context:**
+    Identify the user or system account executing the command. Legitimate administrative users may frequently execute such commands for maintenance, but suspicious accounts performing this action could indicate malicious activity.
+
+  - **Correlate with additional security logs:**
+    Review Sysmon Event ID 1 for supplementary context on process creation. Validate that the process parent-child relationships are as expected. Unusual parent processes (like cmd.exe or PowerShell spawning from untrusted applications) could be malicious.
+
+  - **Analyze frequency of commands:**
+    Determine if there are multiple occurrences of disabling commands in a short timeframe. Repeated execution of these commands suggests malicious intent, especially from non-administrative accounts.
+
+  - **Inspect for related event IDs:**
+    Review Event ID 5025 from the Microsoft-Windows-Security-Mitigated-Identity-API log, which tracks Windows security features' disabling. This could provide corroborative evidence.
+
+  - **Identify indicators of compromise:**
+    Check if there are any artifacts or changes in Defender logs indicating that the security features were indeed disabled. Look for log entries stating the disabling of specific protection features at or shortly after the time of the command execution.
+
+  ---
 
   ### Prioritization
-  This alert is deemed **high severity** due to the critical nature of disabling antivirus protective measures, which can allow for malware installation and persistence, significantly increasing the likelihood of a data breach or system compromise.
+
+  This alert has a high severity level due to the impact of disabling security features on critical systems. The likelihood of this behavior being exploited by malicious actors is significant, as it is commonly weaponized to bypass security controls and maintain persistence within compromised environments.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage, especially in cases where legitimate administrative activities also utilize these PowerShell commands, leading to potential false positives. The detection logic assumes that PowerShell execution is not legitimately performed by users with proper administrative rights. Additionally, lacking specific logging configurations or policies may hinder the effective capture of relevant command-line arguments that facilitate detection.
+
+  Detection limitations include potential evasion techniques, such as encoding commands or modifying PowerShell to hide command-line inputs. Reliable detection requires proper logging configurations and Sysmon deployment across endpoints. Additionally, legitimate administrative tasks may trigger this alert, particularly if security tools are being reconfigured for maintenance. Companion detections that strengthen coverage could include monitoring for changes in security policies or configuration management logs that track administrative intents.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -24,23 +24,40 @@ falsepositives:
   if it's benign
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the execution of the legitimate Microsoft signed script `REGISTER_APP.VBS` used to register a Volume Shadow Copy Service (VSS) or Virtual Disk Service (VDS) provider as a COM+ application. Attackers may exploit this script to facilitate persistence or evade detection mechanisms while attempting to manipulate system snapshots and backups. By registering malicious providers, they can potentially intercept or modify backup operations, allowing for further attacks or data exfiltration.
 
-  The relevant MITRE ATT&CK tactics and techniques related to this detection include **Defense Evasion (T1203)**, as the use of a legitimate script to perform potentially malicious actions can circumvent standard security measures. Another relevant technique is **Command and Scripting Interpreter (T1218)**, which encompasses the use of scripts like VBS to execute commands on a system.
+  This Sigma rule detects the execution of the Microsoft signed script 'REGISTER_APP.VBS' with the `-register` argument, which is often used to register a Volume Shadow Copy Service (VSS) or Volume Developer Services (VDS) Provider as a COM+ application. The likely attacker objective is to leverage this scripting capability to establish persistence or evade detection under the guise of legitimate administrative actions.
 
-  Primary data sources for this detection will be process creation logs, which document the commands and arguments used to launch processes, providing insight into suspicious command-line activities associated with script execution.
+  The detection aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0005) and the technique of Scripting (T1218). Primary telemetry sources include process creation logs, specifically focusing on Windows Event ID 4688 or Sysmon Event ID 1, capturing command-line executions. If found to be malicious, such activity could enable unauthorized access to data backups or system restore capabilities. Importantly, this detection does NOT confirm malicious intent on its own; legitimate applications may also execute this script for valid administrative purposes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze logs for instances of `REGISTER_APP.VBS` usage, focusing on the command line arguments to determine if there are any unusual or unexpected flags or operations.
-  - **Correlate with Execution Context:** Check for user accounts executing the script and assess whether they have legitimate reasons to perform this action. Look for anomalies in the user's behavior or credentials.
-  - **Examine Recent Changes to COM+ Applications:** Investigate any recent modifications or registrations added to COM+ applications that correlate with the execution of the `REGISTER_APP.VBS` script, noting any potential unauthorized applications.
-  - **Assess VSS/VDS Provider Activity:** If the script has been used, review logs for Volume Shadow Copy operations and any alterations to backup processes or configurations that may indicate malicious modifications.
+
+  - **Review command line arguments: **: Examine the Event ID 4688 or Sysmon Event ID 1 for command line details. Look for `CommandLine` containing `"\register_app.vbs" -register`. If the parameters used diverge from expected administrative usage, consider this a potential indicator of compromise.
+
+  - **Verify script execution context: **: Cross-reference the user account executing the script against known administrative roles. Legitimate executions may proceed from system accounts or trusted administrative users; suspicious activity may originate from low-privilege or unexpected accounts.
+
+  - **Check for registered providers: **: Use the Windows Management Instrumentation (WMI) or PowerShell cmdlets to list registered VSS/VDS providers (e.g., `Get-WmiObject Win32_VolumeShadowCopy`). Abnormal registrations or unknown providers (not listed in expected configurations) can indicate malicious registration attempts.
+
+  - **Monitor process parent-child relationships: **: Analyze the parent process of the script by reviewing Sysmon Event ID 1. A PowerShell or a command prompt parent process can indicate legitimate usage; however, if initiated by suspicious or non-administrative processes, it should raise concerns.
+
+  - **Assess frequency of executions: **: Track the frequency of 'REGISTER_APP.VBS' executions over a defined period. Multiple repeated executions could signify an attempt to maintain persistence and warrant deeper examination.
+
+  ---
 
   ### Prioritization
-  The alert has a medium severity due to the potential for significant impact if malicious actors gain control over backup processes, but it may also trigger from legitimate administrative tasks. Detection of this activity requires thorough investigation to rule out false positives from authorized script usage.
+
+  The alert carries medium severity due to the potential impact on systems if a malicious actor registers unwanted VSS/VDS providers. While this behavior is often weaponized in advanced attacks, it may also trigger benign administrative actions, thereby necessitating careful context review before escalation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may have gaps regarding legitimate administrative activity, as normal use of `REGISTER_APP.VBS` by system administrators can generate alerts that may not denote malicious intent. The detection assumes that all executions of the script should be validated, which can lead to missed detections if the script is employed in critical administrative functions. Furthermore, completeness of telemetry may depend on adequate logging configurations in place for process creation events, affecting the overall effectiveness of the alert.
+
+  Detection may be limited by environments not logging process creation events or where the script is used legitimately, potentially resulting in false positives. Additionally, attackers may employ alternative script execution methods to avoid detection. Related detections involve monitoring for unusual PowerShell activity (T1059.001), which could complement this detection and provide broader coverage against scripting threats.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

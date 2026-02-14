@@ -54,26 +54,42 @@ falsepositives:
 - Admin or User activity are expected to generate some false positives
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects unauthorized modifications to Unix shell configuration files, which are commonly targeted by adversaries to establish persistence or execute malicious commands whenever a new shell session is initiated. Attackers might alter these configurations to launch malicious payloads or maintain access without detection. The primary objective is to gain ongoing control over the system or to deploy further attacks once they have established a foothold.
 
-  The relevant MITRE ATT&CK techniques associated with this detection include **Persistence (T1546.004)**, where attackers modify startup scripts, and **Privilege Escalation (T1548)**, if the changes are made to gain higher privileges. This highlights the dual threat posed by such modifications: the potential for ongoing access through persistence and escalated privileges on compromised systems.
+  This rule detects modifications to critical Unix shell configuration files such as `.bashrc` and `.profile` that can be leveraged by adversaries to establish persistence mechanisms. The likely objective is to execute malicious commands automatically when a user opens a new shell session, allowing the attacker to maintain access or execute further attacks. This behavior aligns with the MITRE ATT&CK technique T1546.004 (Code Signing or Shell Persistence).
 
-  Primary data sources for this detection include **audit logs** from the Linux `auditd` service, which track file access and modifications, as well as **filesystem monitoring logs** that provide insights into changes made to critical configuration files across the `/etc` and user directories.
+  The primary telemetry source for this detection is `auditd` logs on Linux systems, specifically monitoring events associated with changes to the mentioned configuration files. If the detected modification is malicious, it can lead to significant security impacts, including persistent backdoor access for an attacker. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions can also trigger these modifications.
+
+  ---
 
   ### Investigation Steps
-  - **Review Audit Logs**: Examine auditd logs for entries indicating access or modifications to shell configuration files listed in the detection rule. Pay attention to timestamps, user IDs, and commands executed.
 
-  - **Check User Activity**: Cross-reference the modification logs with user activity logs around the same time to identify any user accounts that are behaving unusually or lack proper authorization.
+  - **Check audit logs for file modification events:** Review `auditd` logs for events (Event ID 1100) indicating changes to critical shell configuration files like `/etc/bash.bashrc` and `~/.bashrc`. Look for unexpected changes outside of admin maintenance windows.
 
-  - **Inspect Bash/Zsh Sessions**: Investigate current and past shell sessions for any executed commands that might reflect malicious intent, such as unexpected or unusual command patterns through command history in `.bash_history` or equivalent files.
+  - **Identify the user responsible for changes:** Examine the fields in the `auditd` logs, specifically the `auid` and `uid` fields, to determine which user made the modification. Verify if the user has appropriate permissions for such changes.
 
-  - **Correlate with Related Alerts**: Look for other alerts from related security tools (EDR, SIEM) that may indicate complementary suspicious behavior, such as privilege escalation attempts or outbound connections from unexpected user accounts.
+  - **Review change history of modified files:** Utilize `git` or file monitoring solutions to analyze the change history of the affected files. Identify any recent modifications that include obfuscation or suspicious commands, which could indicate malicious intent.
+
+  - **Analyze for known malicious patterns:** Cross-reference the changes found in configuration files against known malicious payloads or commands. Look for specific indicators of compromise such as obfuscated scripts or unauthorized remote access commands.
+
+  - **Validate legitimate administrative activities:** Confirm if any administrators or users were scheduled to modify shell configurations during the alert period. Look for scheduled maintenance or documented changes to understand the context.
+
+  - **Investigate for additional indicators of persistence:** Look for additional signs of compromise such as cron jobs that correlate with the time of modification using `crontab -l` or by checking `/var/spool/cron/crontabs` for suspicious entries.
+
+  ---
 
   ### Prioritization
-  This alert has medium severity due to the potential impact of unauthorized persistence and privilege escalation on system security. The likelihood of such configurations being modified maliciously necessitates prompt investigation, as successful exploitation could lead to extensive data theft or system compromise.
+
+  The alert severity is medium due to the potential impact on critical Unix-based systems. While modifications to shell configurations can indicate malicious activity, legitimate administrative actions may also trigger this detection, requiring careful analysis. However, the behavior aligns with tactics often exploited by adversaries, raising the likelihood of malicious misuse.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are inherent blind spots in detecting these changes if filesystem auditing is not enabled or is misconfigured, which could lead to missed modifications. The detection logic assumes that all significant changes to shell configurations are malicious, which may not account for legitimate administrative or user actions, potentially resulting in false positives. Effective monitoring requires a properly configured `auditd` system with appropriate logging parameters and retention policies to capture necessary events for analysis.
+
+  Detection of shell configuration changes can be evaded by stealth techniques such as direct filesystem manipulation without using standard commands logged by `auditd`. Reliable detection also requires that `auditd` be correctly configured to monitor file changes. Legitimate user activity, such as routine maintenance by administrators, can generate false positives. Companion detections, such as monitoring for unusual cron job modifications, can strengthen overall coverage against persistence techniques.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

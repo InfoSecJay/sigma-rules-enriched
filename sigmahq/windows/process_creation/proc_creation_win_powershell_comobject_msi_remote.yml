@@ -50,21 +50,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ### Technical Context
-  This detection rule identifies the execution of PowerShell commands utilizing the Windows Installer COM object (`WindowsInstaller.Installer`) to install MSI packages from remote locations. This behavior may indicate a malicious actor attempting software deployment on a victim machine or lateral movement within the network by exploiting the Windows Installer functionality. Notably, attackers may prefer using the COM object over the standard `msiexec` utility to evade typical detection mechanisms that monitor executable paths.
+  ---
 
-  The relevant MITRE ATT&CK tactics associated with this detection include **Execution** (TA0002) through techniques such as **PowerShell** (T1059.001) and **Defense Evasion** (TA0005) via the **Windows Installer** (T1218). The potential objective of the attacker in this scenario is to gain persistence on the system or establish a foothold to execute further malicious payloads. Telemetry from **process creation** events is the primary data source that will provide insight into these suspicious activities.
+  ### Technical Context
+
+  This rule detects the execution of PowerShell commands attempting to install MSI packages using the Windows Installer COM object (`WindowsInstaller.Installer`) from a remote location. An attacker may use this method to deploy malware or perform lateral movement while attempting to evade detection mechanisms that focus on the standard `msiexec` command. This behavior is associated with the MITRE ATT&CK tactics of Execution (T1203) and Defense Evasion (T1218), as attackers may seek to blend their activities in normal operational processes.
+
+  Primary telemetry sources for this detection include Windows process creation logs, specifically Event ID 4688, which captures process creation events, along with CommandLine details for identifying the specific arguments used. The security impact of a successful malicious installation could range from unauthorized egress of sensitive data to the comprehensive compromise of systems. Importantly, this detection does *not* confirm that an installation was completed or that the installer was indeed malicious without further context.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze process creation logs for instances where PowerShell commands invoke the Windows Installer COM object, specifically looking for command lines containing `-ComObject` and `InstallProduct(`.
-  - **Investigate Command Line Parameters:** Validate the command-line parameters for the originating PowerShell process, ensuring the use of `http` or UNC paths suggests remote file access. Check for anomalies in the source of the MSI package being installed.
-  - **Correlate with Network Activity:** Check associated network traffic logs to identify any connections to external servers from which the MSI package may have been downloaded, ensuring there are no indicators of command-and-control (C2) communications.
-  - **Detect File System Changes:** Monitor for any changes to file systems where MSI packages are typically installed (e.g., `C:\Program Files\` or `C:\Program Files (x86)\`) to track potential malicious installations initiated by the detected PowerShell command.
+
+  - **Validate the originating process:** Check for Windows Event ID 4688 logs for process creation events. Specifically, confirm that the command line includes `powershell.exe`, `powershell_ise.exe`, or `pwsh.exe` and matches the suspicious command structure outlined in the detection.
+
+  - **Analyze command line parameters:** Review the CommandLine field for patterns indicating remote installation attempts, specifically checking for the use of `-ComObject` and `InstallProduct(`, combined with URLs starting with `http://` or UNC paths (e.g., `\\server\share`).
+
+  - **Identify known good behavior:** Compare against legitimate PowerShell commands in your environment. Valid uses of PowerShell for MSI installation may utilize local resources or established software deployment processes, lacking remote or suspicious-looking command patterns.
+
+  - **Correlate with additional indicators:** Look up related logs, specifically Sysmon Event ID 1, which reports process creation, for supporting evidence of lateral movement or other connected processes initiated by the PowerShell commands detected.
+
+  - **Check for network communications:** Review firewall or proxy logs for outbound connections made by the detected PowerShell instance to the specified external addresses. Any established connections during the time of the suspicious command execution should be documented.
+
+  - **Assess asset criticality:** If the source system of the alert is a critical server or workstation, prioritize deeper investigation into the security posture of that machine and determining any indicators of compromise (IoCs), including file creations or other activities around the time of the alert.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is medium due to the potential impact of unauthorized software installations and lateral movement within the network, which can lead to significant risk exposure. The likelihood is considered reasonable given the common use of PowerShell in both legitimate administrative tasks and malicious exploitation scenarios.
+
+  This alert is of medium severity, primarily because it indicates potential misuse of PowerShell that could lead to significant security breaches if the behavior is confirmed malicious. Given that attackers commonly leverage scripts and commands to deploy malware, the likelihood of exploitation is non-negligible, particularly in environments where robust monitoring is absent.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may arise from scenarios where PowerShell is executed with elevated permissions, potentially circumventing standard logging mechanisms. The detection logic assumes that relevant logs for process creation and command-line arguments are adequately configured and preserved, which may not always be the case in all environments. Additionally, alerts may be missed if the attacker uses different methods to interact with the Windows Installer service or if they operate from non-standard environments that don’t log these events effectively.
+
+  Detection may be limited by obfuscation techniques used by attackers to disguise their intent. Remote installations may not always produce detectable logs if configurations are lacking, or if PowerShell command logging is inadequately enabled. Legitimate administrative functions, such as software deployment via centralized management tools, could also trigger this alert and must be analyzed carefully. Companion detections, such as monitoring for unusual outbound network connections during software installations, can strengthen visibility and verification of malicious activities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

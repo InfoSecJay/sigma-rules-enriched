@@ -27,28 +27,40 @@ falsepositives:
 - Actions of a legitimate telnet client
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potential User Account Control (UAC) bypass techniques through the loading of a malicious DLL (`dismcore.dll`) when the legitimate `dism.exe` process runs on Windows systems. Attackers may utilize this method to escalate privileges or execute arbitrary code in the context of a higher-privilege user, circumventing security measures that restrict processes from executing at elevated privilege levels.
 
-  The primary attack scenario involves an adversary aiming to exploit vulnerabilities within the Windows operating system's privilege management, thereby gaining unauthorized access to sensitive resources or data. The attacker may drop the fake DLL into the system and ensure it is loaded by the legitimate `dism.exe` executable, effectively deceiving the operating system's security mechanisms while executing potentially harmful commands.
+  This Sigma rule detects the behavior of loading a fake version of `dismcore.dll` through `dism.exe`, which is indicative of an attempt to bypass User Account Control (UAC). The likely attacker objective is to execute privileged commands without proper consent, thereby escalating privileges and maintaining persistence on the target system. This technique relates to the MITRE ATT&CK tactics of “Persistence” (TA0003) and “Privilege Escalation” (TA0004), specifically techniques T1548.002 (Bypass UAC: DLL Search Order Hijacking) and T1574.001 (Code Signing).
 
-  This rule aligns with the following MITRE ATT&CK tactics and techniques:
-  - **Persistence (T1548.002)**: Exploiting UAC bypass for maintaining access.
-  - **Defense Evasion (T1574.001)**: Leveraging DLL side-loading to evade detection.
+  The primary telemetry sources include Windows image load events, specifically monitoring the loading process of `dism.exe` and associated modules. If the alert is triggered, it could indicate a high security impact, as successful execution may allow an attacker to modify system settings or gain further access. However, this detection does NOT confirm malicious intent on its own, as legitimate processes may interact with `dism.exe` and load `dismcore.dll` under controlled circumstances.
 
-  The key data sources for this detection include:
-  - Windows image load logs, which record details regarding processes that load runtime libraries, capturing the context and metadata about the operations performed by processes like `dism.exe` and `dismcore.dll`.
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for `dism.exe` invocation, especially instances where it is called unexpectedly or from unusual locations, to identify possible malware execution attempts.
-  - **Analyze Image Load Events**: Inspect image load logs for entries that show `dismcore.dll` being loaded by `dism.exe`, alerting you to any non-standard loading behavior that deviates from expected patterns.
-  - **Correlate with Other Security Logs**: Cross-reference findings with other security logs (e.g., EDR alerts, AV logs) to identify prior suspicious activities or known malicious intents associated with the detected DLL and process.
-  - **Investigate File and Path Integrity**: Perform integrity checks on `dismcore.dll` and ensure it resides in verified paths. Look for signs of tampering or presence in directories that may suggest compromise.
+
+  - **Check process execution details:** Review Security Event ID 4688 for `dism.exe`. Determine the parent process and verify if it is spawned from a suspicious source or legitimate administrative tools.
+
+  - **Analyze image load events:** Investigate Windows Event ID 4104 (PowerShell logs) or Sysmon Event ID 10 (Image Load) for the loading of `dismcore.dll`. Look for the file path to ensure it is loaded from `C:\Windows\System32\Dism\dismcore.dll`. Loading from unexpected paths is a malicious indicator.
+
+  - **Correlate with user activity logs:** Analyze the User Access logs or authentication logs to determine if the user executed the `dism.exe`, and cross-reference against known administrative activities. Look for unusual command-line arguments that indicate potential abuse.
+
+  - **Identify benign interactions:** Investigate if legitimate software or scripts on the system were designed to utilize `dism.exe`, such as system configuration tools, which may show expected usage of `dismcore.dll`.
+
+  - **Check for additional compromise indicators:** Look for other indicators of compromise such as unusual network activity during the time of the alert. Check for outbound connections related to data exfiltration or command and control, specifically during the execution time of `dism.exe`.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of privilege escalation and the likelihood of successful exploitation by sophisticated adversaries using UAC bypass techniques. The ability to run code with higher privileges poses a significant risk to the security posture of the organization.
+
+  This alert should be considered high priority due to its indication of a potential privilege escalation attempt in sensitive environments. The capability to bypass UAC directly affects administrative integrity, and this behavior is commonly weaponized in various attack scenarios.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be blind spots in environments not logging DLL load events or where the configuration is not capturing all relevant image loads. Furthermore, this detection logic assumes that the legitimate behavior of `dism.exe` does not frequently load custom DLLs outside typical operations. Effective monitoring relies on proper configuration of logging policies for Windows systems to ensure coverage of image load events and related process details.
+
+  There may be evasion techniques that involve legitimate use of `dism.exe` by approved applications or administrators, which could trigger this alert. Reliable detection requires appropriate configuration of Sysmon and the monitoring of image load events. Legitimate tools performing UAC operations may also lead to false positives. Related detections, such as monitoring task creations or command-line usage of `dism.exe`, can enhance overall visibility into this behavior.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

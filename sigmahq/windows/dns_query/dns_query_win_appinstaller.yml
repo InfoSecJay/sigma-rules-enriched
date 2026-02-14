@@ -27,26 +27,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies DNS queries initiated by `AppInstaller.EXE`, which is the Microsoft application used to handle app installation requests from URLs with the "ms-appinstaller" URI scheme. The rule alerts on any attempts to install applications through this mechanism, which could indicate a potential misuse of the installer framework, either for legitimate software distribution or for malicious purposes, such as sideloading unauthorized applications or malware.
 
-  The attacker objectives in this threat scenario may include distributing malware, exfiltrating data, or gaining unauthorized access to the system via malicious app installations. By utilizing AppInstaller, an attacker can leverage a trusted Windows component to execute malicious payloads, evade detection, or bypass application controls.
+  This Sigma rule detects attempts to use "AppInstaller.EXE" to install AppX packages through DNS queries. The behavior suggests an installer is being invoked to fetch a software package from a remote source, potentially indicating an attacker’s objective to deliver malware or unwanted software via this mechanism. The relevant MITRE ATT&CK tactic is "Command and Control" and technique T1105 (Ingress Tool Transfer).
 
-  This behavior maps to the MITRE ATT&CK tactic of **Command and Control** (ID: TA0011) and technique **Application Layer Protocol** (ID: T1105), since the attacker communicates with a remote server to potentially download and execute malicious software. The primary data source for this detection is DNS query logs, which will contain the necessary information to track any unresolved URLs accessed through the AppInstaller process.
+  Primary telemetry sources include DNS query logs that capture the activity of "AppInstaller.EXE". The security impact of successful installation could be severe, allowing the adversary to execute unauthorized applications, leading to potential data exfiltration or system compromise. Importantly, this detection does NOT confirm that the package being installed is malicious without further investigation.
+
+  ---
 
   ### Investigation Steps
-  - **Review DNS Query Logs:** Check the DNS logs for any queries associated with `AppInstaller.EXE` for suspicious or unauthorized URIs. Identify any uncommon domains or frequent failed resolutions.
 
-  - **Analyze Process Creation Events:** Investigate recent process creation logs to determine if `AppInstaller.EXE` was executed under suspicious circumstances, such as by an unknown user or alongside other potentially malicious processes.
+  - **Identify DNS query details:** Review DNS logs for queries logged under "ms-appinstaller" URI, focusing on relevant fields: `QueryName`, `QueryType`, and `ClientIP`. Benign queries will typically originate from signed Windows applications, whereas suspicious queries may come from unknown or unexpected client IPs.
 
-  - **Correlate with Application Whitelists:** Compare the installed applications against an organizational whitelist to identify any unauthorized applications that may have been installed via AppInstaller.
+  - **Confirm AppInstaller execution:** Check process creation logs (e.g., Security Event ID 4688) for "AppInstaller.exe". Inspect fields like `NewProcessName` and `CommandLine`, noting that legitimate uses will often involve installation from trusted Microsoft sources.
 
-  - **Inspect Network Traffic:** Look at network traffic patterns associated with the DNS queries to unveil any outbound connections to potentially malicious servers post-installation.
+  - **Monitor network activity:** Analyze network traffic for connections to external hosts associated with the queried DNS names. Use firewall logs or NetFlow if available to trace unusual or unauthorized outbound traffic.
+
+  - **Examine installed packages:** Review installed AppX packages via PowerShell (`Get-AppxPackage`) to determine if any recently installed packages match the time frame of the detected query and are from untrusted sources.
+
+  - **Validate host role and configuration:** Ensure that the host is an appropriate target for AppX installations (e.g., end-user devices, not critical servers). Investigate if any recent security configurations or policies have been altered that may allow unauthorized installations.
+
+  - **Identify malicious indicators:** Search for known bad domains associated with DNS queries originating from "AppInstaller.exe". Leverage threat intelligence feeds for any correlated indicators that match recent installation behavior.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is medium due to the potential risk posed by unauthorized application installations, which can lead to data breaches or system compromise. Given the ease of misuse of app installation mechanisms, this alert should be prioritized for further investigation, particularly in environments with high sensitivity to software integrity.
+
+  This alert is medium severity because it involves the execution of a potentially untrusted installation process from client systems. While the likelihood of a malicious intent is moderate, especially in environments with stringent software controls, similar behavior is weaponized by adversaries to install payloads unnoticed.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover all instances of application installation, especially if installations occur through different methods or legitimate usage patterns that don't involve `AppInstaller.EXE`. It assumes that logging for DNS queries is enabled and adequately configured on the network. Additionally, there may be false positives from benign application installations that utilize the AppInstaller component legitimately, which could require further tuning of the detection rule to reduce noise based on historical evidence.
+
+  The detection may fail to capture evasive techniques such as renaming the installer executable or utilizing alternate installation methods. Reliable detection requires comprehensive logging of DNS queries, which may be missing if not properly configured. Legitimate activities, such as organizationally approved software updates, might trigger the alert. A companion detection that enhances coverage could involve monitoring for unusual process combinations related to AppInstaller executions, which may further indicate malicious activity.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

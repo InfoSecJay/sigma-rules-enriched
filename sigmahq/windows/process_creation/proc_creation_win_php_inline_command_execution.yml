@@ -26,23 +26,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the execution of PHP scripts using the command line with the `-r` flag on Windows systems. The `-r` flag allows executing PHP code directly from the command line, which can be abused by attackers to execute arbitrary commands or launch a reverse shell. This behavior often indicates unauthorized access or exploitation attempts, especially in scenarios where a compromised host may want to establish a covert communications channel back to an attacker's server.
 
-  The primary objective of such behavior is to execute malicious code or achieve persistence within the target environment, aligning with various tactics outlined by MITRE ATT&CK. Notably, this behavior maps to the tactic of Execution (TA0002) and Technique T1059 (Command and Scripting Interpreter), which emphasizes utilizing command-line tools for scripting and execution of arbitrary commands.
+  This rule detects the execution of PHP using the `-r` flag, which allows the execution of PHP code directly from the command line. Attackers may use this technique to execute arbitrary PHP code, potentially deploying reverse shells or other malicious payloads. This behavior fits within the MITRE ATT&CK framework under the tactic **Execution** (TA0002) and technique **Command-Line Interface** (T1059).
 
-  The key data source for this detection is process creation events, specifically targeting command line usage of PHP (`php.exe`). Analysts can leverage Windows Event Logs to gain insights into when and how these commands were executed.
+  The primary telemetry source is Windows process creation logs, specifically looking at processes spawned by `php.exe`. If this command execution is malicious, it could facilitate unauthorized access or data exfiltration. It is important to note that detection of this command alone does not confirm that malicious activity has occurred; it merely indicates that a specific command was executed, which could also be legitimate.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Check the logs for the execution of `php.exe`. Look specifically for events that capture the command line arguments used during execution.
-  - **Analyze Command Line Syntax:** Focus on instances where the command line contains the `-r` flag. Investigate the surrounding syntaxes and executed PHP code for any indicators of malicious behavior.
-  - **Assess User Context:** Determine which user account executed the PHP command. Look for any anomalies such as unexpected administrative privileges or accounts that usually do not interact with PHP scripts.
-  - **Identify Anomalous Network Activity:** Cross-reference the timing of the detected PHP executions with any unusual outbound network connections or reverse shell attempts, particularly connections to known malicious IP addresses.
+
+  - **Review process creation logs**: Check for Windows Security Event ID 4688 for instances where `php.exe` has been executed with the `-r` parameter. Look for the presence of unexpected commands in the CommandLine field.
+
+  - **Identify benign use cases**: Assess if the detected command execution corresponds to expected behavior from authorized IT or development personnel. Legitimate users may execute PHP scripts for application development tasks, which typically would not be accompanied by the `-r` flag.
+
+  - **Inspect for malicious command patterns**: Look for suspicious commands following the `-r` flag in the CommandLine field, such as code snippets that establish outbound network connections or spawn additional processes, e.g., `shell_exec`, `exec`, or connecting to external IP addresses.
+
+  - **Gather additional telemetry**: Review Sysmon Event ID 1 logs to track any child process creation that stems from `php.exe`, and monitor network traffic (such as HTTP requests) initiated by these processes to detect potential C2 communications.
+
+  - **Confirm file changes**: If applicable, check for files created or modified in the temporary directories (e.g., %TEMP%) after executing the command, which may indicate a reverse shell payload that was instantiated by the PHP execution.
+
+  - **Assess asset criticality**: If this alert is triggered on a critical server (e.g., web applications, database servers), prioritize the investigation, as it represents a higher risk than similar actions on lower-tier assets.
+
+  ---
 
   ### Prioritization
-  This alert is categorized as medium severity due to the potential for significant impact if an attacker successfully uses command execution to establish a reverse shell. The likelihood of exploitation attempts increases in environments where PHP is present but unauthorized script execution is uncommon.
+
+  This alert should be treated with medium severity due to the potential impact on systems where PHP is used for web applications. The likelihood of malicious use is realistic, as command-line execution with the `-r` flag is a common vector for attackers to exploit server vulnerabilities. This behavior can be weaponized, especially in the context of compromised servers or web applications.
+
+  ---
 
   ### Blind Spots and Assumptions
-  A major blind spot in this detection is the potential for alternative scripting methods or tools that could achieve similar malicious outcomes without utilizing PHP. The detection logic assumes that the use of the `-r` flag is indicative of nefarious activity; however, legitimate administrative tasks may inadvertently trigger this rule. Additionally, for this alert to function properly, process creation event logging must be enabled and adequately configured on the monitored systems, ensuring the collection of command line arguments.
+
+  Detection may be limited by the absence of comprehensive process logging and could be circumvented by attackers renaming legitimate `php.exe` files or using scheduled tasks to execute PHP commands. It is vital to ensure that logs from process creation are consistently collected for reliable detection. Legitimate maintenance scripts may also trigger this alert. Related detections should include command line executions of other scripting languages (e.g., PowerShell scripts) to enhance overall coverage against similar execution techniques.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

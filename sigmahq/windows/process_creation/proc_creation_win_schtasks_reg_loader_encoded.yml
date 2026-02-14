@@ -44,30 +44,42 @@ falsepositives:
 - Unlikely
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the creation of scheduled tasks that execute potentially harmful payloads encoded in base64, retrieved from the Windows Registry using PowerShell. The threat scenario typically involves attackers using scheduled tasks to maintain persistence within an environment, circumventing security measures to execute malicious code at regular intervals. With the use of PowerShell and encoded commands, attack vectors may exploit legitimate administrative tools for malicious purposes.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Persistence (T1543)**: Adversaries may create scheduled tasks to ensure their payload runs at defined intervals.
-  - **Execution (T1059.001)**: PowerShell is a powerful scripting language that adversaries frequently leverage for executing malignant commands.
-  - **Privilege Escalation (T1053.005)**: Scheduled tasks can execute processes with elevated privileges, enabling unauthorized actions.
+  This rule detects the execution of a scheduled task via `schtasks.exe` that runs a PowerShell command to decode a base64 encoded payload stored in the Windows Registry. The behavior suggests that an attacker may be attempting to maintain persistence or execute arbitrary commands in a post-exploitation scenario. This detection relates to the MITRE ATT&CK techniques of **Scheduled Task/Job (T1053.005)** and **PowerShell (T1059.001)**. The primary telemetry source is the process creation logs, specifically monitoring for Event ID 4688 on Windows systems.
 
-  The primary data sources that would contain relevant evidence for detecting this behavior are:
-  - **Process creation logs**: These logs will record the invocation of the schtasks.exe process and any command-line arguments used, providing insight into potentially malicious activity.
+  If malicious, this behavior can lead to unauthorized code execution and system compromise, potentially allowing attackers to escalate privileges or establish a foothold within the network. However, it is crucial to note that this detection alone does not confirm that the payload is malicious or that successful execution occurred.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Examine logs for the execution of schtasks.exe, focusing specifically on command-lines that include "/Create" and utilize base64 encoding functions like 'FromBase64String'.
 
-  - **Inspect Scheduled Task Configuration**: Validate the configuration of newly created scheduled tasks for unusual or unauthorized entries. Specifically, check for tasks that execute PowerShell commands retrieving data from the registry.
+  - **Review the Command Line Arguments**: Check for `CommandLine` containing `/Create` and expected parameters like `-TR` to understand the context of the scheduled task creation. Look for unusual or unexpected task names in Event ID 4688.
 
-  - **Analyze Registry Access Logs**: Collect and analyze logs related to registry access, targeting keys that are commonly employed for malicious purposes. Look for read requests to paths like HKCU:\SOFTWARE or HKLM:\SOFTWARE.
+  - **Examine Registry Access**: Correlate registry access operations via command line arguments like `Get-ItemProperty` or references to `HKCU` and `HKLM`. Investigate the entries mentioned in the command, such as `HKCU:\SOFTWARE\Pvoeooxf`, and verify their legitimacy.
 
-  - **Correlate with Other Logs**: Assess network connections and endpoint activity that coincide with the scheduled task execution timeframe to uncover any coordinated malicious actions.
+  - **Look for Base64 Encoded Content**: Identify instances where `FromBase64String` or `encodedcommand` exists in the `CommandLine`. Collect these strings for analysis; legitimate use cases will typically lack obfuscation.
+
+  - **Determine Schedule and Frequency**: Investigate the scheduling parameters, especially `/SC MINUTE /MO 30`. Legitimate tasks often have clear purposes and appropriate frequencies; atypically frequent execution can suggest malicious intent.
+
+  - **Evaluate the Host Context**: Identify the asset on which the task is created, noting whether it typically serves as a server or user workstation. High-privileged systems, like domain controllers, warrant greater scrutiny.
+
+  - **Correlate with Output Behaviors**: If execution occurs, check for any suspicious processes that match the task's criteria or unexpected output files or network connections that could indicate successful exploitation.
+
+  ---
 
   ### Prioritization
-  Given the rule's high severity rating, it indicates a potential for significant impact due to the nature of scheduled tasks allowing persistent adversarial actions. The likelihood of a successful execution stemming from such tactics further elevates the urgency for rapid investigation and response.
+
+  This alert should be treated as high severity due to the potential for significant impact on sensitive systems, especially if the affected system is pivotal (e.g., a domain controller). The likelihood of malicious abuse is high, as encoded commands often indicate evasion tactics. This method of scheduling tasks is a common technique leveraged by adversaries.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by configurations that do not log process creation events or lack visibility into PowerShell activities. Additionally, the detection rule assumes that scheduled tasks will consistently follow identifiable naming conventions and will not be obfuscated. The alert requires proper logging settings in place for process creation, command-line arguments, and registry key accesses to function effectively.
+
+  Detection may be limited by the suppression of certain logs or misconfigurations that prevent logging of task creation activities. Optionally, some legacy system management or automation tools may trigger this alert benignly. A related detection, such as `PowerShell executing encoded commands`, would complement this Sigma rule and provide broader context on malicious activity involving PowerShell.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

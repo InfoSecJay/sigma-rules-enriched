@@ -30,26 +30,40 @@ falsepositives:
 - Unlikely
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects a potentially malicious technique known as Windows Directory Spoofing, where attackers manipulate the loading paths of Dynamic Link Libraries (DLLs) to bypass Windows' trusted path verification. Specifically, the detection logic focuses on instances where DLLs are loaded from paths containing an extra space (e.g., "C:\Windows \System32") that can trick the operating system into considering the path trusted. This behavior is indicative of advanced persistence threats aiming to load malicious DLLs with elevated privileges, thus circumventing User Account Control (UAC) measures.
 
-  In this threat scenario, an attacker could leverage malware or custom DLLs, which when loaded from these spoofed paths, enable them to gain unauthorized access and control over the targeted systems. The primary objective of such activities is to establish persistence and maintain control, while also evading detection mechanisms in place within the enterprise environment. The relevant MITRE ATT&CK tactics/techniques involved include **Persistence (TA0003)**, **Defense Evasion (TA0005)**, and **Privilege Escalation (TA0004)**, specifically the techniques **DLL Search Order Hijacking (T1574.007)** and **Trusted Path Escalation (T1548.002)**.
+  This Sigma rule detects attempts to load DLL files from a spoofed Windows directory path that includes an extra space (e.g., "C:\Windows \System32"). Such an action is a tactic used by attackers to bypass Windows' trusted path verification, allowing them to load malicious DLLs with elevated integrity privileges and potentially evade User Account Control (UAC) mechanisms. The relevant MITRE ATT&CK tactics are Persistence and Defense Evasion, specifically techniques T1574.007 (DLL Search Order Hijacking) and T1548.002 (Abuse Elevation Control Mechanism).
 
-  The primary data sources for this detection are image load events from Windows operating systems, which capture details about DLLs that are loaded during the execution of applications. This information can be crucial in identifying instances where suspected paths are used.
+  The primary telemetry sources for detection are Windows image load events, which are logged when a process attempts to load a DLL from a specified path. If successful, this could lead to significant security issues, including system compromise or unauthorized access. It is important to note that while the detection indicates potentially malicious behavior, it does NOT confirm that an actual exploit occurred or that the loaded DLL is indeed malicious; further investigation is required.
+
+  ---
 
   ### Investigation Steps
-  - **Review Image Load Events:** Examine logs for instances of DLLs being loaded from the specified paths ("C:\Windows \System32\" or "C:\Windows \SysWOW64\") that include an unintended space, which is indicative of spoofing attempts.
 
-  - **Correlate with Process Creation Data:** Cross-reference the identified DLL load events with process creation logs to establish the parent-child relationship and determine what application triggered the load, aiding in identifying any malicious activities.
+  - **Review the event logs for DLL loads**: Check for any `ImageLoaded` events from Event ID 4104 in the Windows event logs or Sysmon Event ID 10 to identify the loading of any DLLs from the paths containing extra spaces. Look for processes that loaded non-standard DLLs not typical for the context of the parent process.
 
-  - **Investigate System Integrity:** Check for any changes or modifications to DLLs within the Windows folders, looking for unauthorized or unrecognized files that may have been introduced through this spoofing method.
+  - **Identify the parent process**: For each suspicious DLL load, examine the associated parent process using Sysmon Event ID 1. Valid processes typically include system or common application processes; unusual or unexpected parent processes may indicate malicious activity.
 
-  - **Enhance Monitoring Configurations:** Ensure that logging on Windows systems is configured to capture detailed events related to image loading and process creation, which are essential for ongoing detection effectiveness.
+  - **Verify loaded DLL signature and source**: Confirm the DLL's original path and digital signature. Use Sysinternals tools (e.g., Sigcheck or Process Explorer) to determine if the DLL loads are from a legitimate path or if they show signs of tampering or are unsigned.
+
+  - **Correlate with recent user activity**: Assess related user activities logged around the time of the event. Check Windows Security event logs (Event ID 4624 for logon events) to evaluate whether the user context aligns with legitimate usage, potentially identifying anomalous behaviors or unauthorized access.
+
+  - **Monitor for related alerts**: Since this technique can be part of a broader attack scheme, monitor for related detections such as abnormal process creations or lateral movement activities (MITRE techniques like T1070 and T1086) that could indicate exploitation efforts.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is high due to its potential to enable privilege escalation and maintain malicious persistence on compromised hosts. The likelihood of exploitation is also significant, given that attackers actively seek to bypass trusted mechanisms for stealthy operations.
+
+  This alert warrants high priority due to the potential impact on the system if malicious DLLs are successfully loaded, leading to system integrity compromise. The likelihood of exploitation via trusted path bypass techniques is notable, as attackers frequently utilize such methods in advanced malware operations.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule is limited to tracking specific DLL load patterns and may not encompass all instances of directory spoofing or other similar evasion techniques. It assumes that logging is adequately configured to capture image load events; if such logs are not enabled, detection capabilities could be compromised. Additionally, false positives are unlikely, but there could be edge cases involving legitimate software that may utilize similar loading techniques, requiring careful investigation.
+
+  Detection limitations exist due to potential evasion methods like DLLs being loaded from legitimate paths without spaces and situations where legitimate applications may use similar naming patterns. Ensure logging of image loading events is appropriately configured for reliability. Legitimate software installations, updates, or system maintenance activities may trigger this alert when using similar naming conventions. A related detection to consider is monitoring for modifications to critical system protection mechanisms (e.g., UAC) that would complement coverage for this technique.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

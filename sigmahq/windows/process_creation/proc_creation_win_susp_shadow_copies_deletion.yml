@@ -67,26 +67,44 @@ falsepositives:
 - LANDesk LDClient Ivanti-PSModule (PS EncodedCommand)
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the deletion of Shadow Copies on Windows systems using operating system utilities. Shadow Copies are a feature in Microsoft Windows that allows for the creation of backup copies or snapshots of files or volumes, and their deletion can be indicative of malicious behavior, particularly during ransomware attacks. Attackers may use command-line tools such as `vssadmin.exe`, `wbadmin.exe`, `diskshadow.exe`, or `powershell.exe` to erase these backups in order to prevent restoration of data after encryption, thereby increasing the impact of their attacks.
 
-  The rule is aligned with the MITRE ATT&CK framework, particularly under the tactics of **Defense Evasion** and **Impact**. Relevant techniques include **T1070: Indicator Removal on Host**, which refers to the deletion or modification of logs to hinder detection, and **T1490: Inhibit System Recovery**, which encompasses actions taken by adversaries to disable or remove backup capabilities to facilitate successful data ransom.
+  This rule detects the deletion of Windows Shadow Copies using command-line utilities such as PowerShell, WMIC, or VSSAdmin, which may indicate an attempt to cover up malicious activities, such as ransomware deployment or other forms of data destruction. The likely adversary objective is to eliminate backup copies of files to hinder recovery efforts, facilitating data extortion efforts or increasing the impact of a data breach.
 
-  Key data sources for this detection include **process creation logs** that capture command-line arguments and the executable image names used during the execution of these utilities. Anomalous executions of these commands can signify a potential threat, warranting further investigation.
+  Relevant MITRE ATT&CK techniques for this behavior include **Defense Evasion (T1070)** and **Impact (T1490)**. The primary telemetry sources include process creation logs from Windows (Event ID 4688) and possibly Sysmon logs if implemented. The security impact of malicious deletion can be severe, as it may prevent organizations from recovering critical data after an attack.
+
+  It is important to note that this detection does NOT confirm that an actual compromise has occurred—legitimate administrative actions can also trigger the rule.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for instances of `vssadmin.exe`, `wbadmin.exe`, `diskshadow.exe`, and `powershell.exe` along with their command-line arguments for any that indicate deletion commands, particularly those involving "delete" or "shadow."
 
-  - **Analyze Command-Line Arguments**: Check for the presence of potentially malicious command sequences such as "delete shadows," "shadowcopy delete," or any commands that include "resize" or "shadowstorage" to assess intent and context.
+  - **Review process creation logs:** Examine Windows Security Event ID 4688 for processes with the names `vssadmin.exe`, `wbadmin.exe`, or `powershell.exe`. Check the `CommandLine` field for indications of delete operations, focusing on patterns such as `delete shadows`.
 
-  - **Correlate with Backup Systems**: Determine if there are recent backup operations or scheduled tasks that might coincide with the deletion attempts, which could differentiate between a legitimate administrative task and potential malicious activity.
+  - **Identify CommandLine parameters:** Look for command-line arguments containing `delete` combined with `shadow` or `catalog` in Event ID 4688 or Sysmon Event ID 1. Specifically, assess if the parameters `-quiet` or `/quiet` are used, which indicate automated execution and potentially malicious intent.
 
-  - **Monitor for Subsequent Ransomware Behavior**: Following any detection, maintain vigilance for other indicators of compromise, such as unusual file modifications or network connections that might suggest a ransomware attack is underway.
+  - **Correlate with legitimate behavior:** Compare the identified command-line executions with expected administrative actions. For instance, routine maintenance tasks involving shadow copies usually do not use aggressive delete flags or unusual command syntax.
+
+  - **Check for the presence of backup artifacts:** Validate if legitimate backup files or Shadow Copies exist on the system before the detection occurs. This can be checked via command-line queries for existing shadows (e.g., `vssadmin list shadows`) to establish whether the deletions are unusual.
+
+  - **Review user context of the actions:** Analyze the user account associated with the process creation. Administrative accounts performing frequent shadow copy deletions without documented approvals or tickets may indicate a potential security incident.
+
+  - **Examine lateral movement activities:** Investigate recent logins and elevated privileges on sensitive assets. Check for Event IDs 4624 (successful logon) and 4672 (special privileges assigned) in the time window leading to the alert, looking for unusual patterns or unauthorized access.
+
+  ---
 
   ### Prioritization
-  Given the severity of potential data loss from the deletion of Shadow Copies, this alert is prioritized as high. Successful deletion of these backups can significantly hinder an organization's recovery capabilities following a ransomware incident, making it a crucial area of concern for security teams.
+
+  This alert is of **high severity** due to the potential for substantial data loss stemming from Shadow Copy deletions, significantly impacting business continuity. The likelihood of malicious abuse is high, given that this technique is frequently weaponized in ransomware attacks to prevent recovery of compromised systems.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection may miss legitimate administrative actions, as the rule could trigger on benign uses of the specified commands by system administrators performing maintenance tasks. Additionally, if logs from processes are not collected or if users execute these commands in a manner that does not produce the expected invocation patterns, detections could fail. A reliance on consistent log configuration and the presence of these telemetry sources is crucial for the effective functioning of the rule.
+
+  Detection may be limited by the potential for adversaries to perform deletions without triggering logging due to disabled audit policies or noise from legitimate administrative activities. Required logs should include comprehensive auditing of process creation and command-line arguments. Legitimate activities such as routine system maintenance can also trigger this alert. Companion detections, such as monitoring for unexpected PowerShell scripts or remote management tool usage, can strengthen overall coverage against attacks leveraging these techniques.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

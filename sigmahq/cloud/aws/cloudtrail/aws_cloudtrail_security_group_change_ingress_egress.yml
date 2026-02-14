@@ -30,27 +30,40 @@ falsepositives:
 - Administrators closing unused ports to reduce the attack surface
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies modifications to the ingress and egress rules of an AWS security group via CloudTrail logs. Such modifications can indicate malicious activity where an attacker attempts to manipulate network access controls to either expose internal assets or exfiltrate data. This behavior is critical as it can represent a pivot point for further lateral movement within the network or establish communication with external command and control (C&C) servers.
 
-  The likely attacker objectives in this scenario include broadening the attack surface by opening necessary ports to facilitate incoming connections or preventing outbound traffic that would otherwise alert the organization to ongoing data exfiltration attempts. Attackers utilizing techniques such as "Network Accessibility" (T1190) may leverage valid user credentials to deploy disguised modifications.
+  This rule detects modifications to ingress and egress rules within AWS Security Groups using CloudTrail logs. Typically, an attacker aims to create new pathways for data exfiltration or command and control (C&C) communication by leveraging these permissions. This activity aligns with the MITRE ATT&CK framework tactic of Initial Access and technique T1190 (Exploit Public-Facing Application). The primary telemetry source is AWS CloudTrail, specifically looking for events related to security group configuration changes such as `AuthorizeSecurityGroupEgress` and `AuthorizeSecurityGroupIngress`. If malicious, this activity can significantly impact data confidentiality and network integrity. Notably, this detection does NOT confirm malicious intent on its own; it requires further context and corroboration with additional signs of compromise.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Initial Access** (TA0001): Modifying security group rules can grant unauthorized access to a network.
-  - **Command and Control** (TA0011): Opening new ingress rules may facilitate communication with external entities.
-
-  Primary data sources to investigate include AWS CloudTrail logs, particularly for event names like `AuthorizeSecurityGroupEgress`, `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupEgress`, and `RevokeSecurityGroupIngress`.
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs:** Inspect AWS CloudTrail logs for `AuthorizeSecurityGroupEgress` and `AuthorizeSecurityGroupIngress` events. Focus on timestamps, user identities, and source IP addresses to establish context around the changes.
-  - **Examine Security Group Configurations:** Analyze the current security group rules to identify any unexpected inbound or outbound permissions that could signify unauthorized access paths.
-  - **Identify User Activity Patterns:** Cross-reference the modifying accounts with other activity logs to identify unusual access patterns or actions that may correlate with the security group rule changes.
-  - **Evaluate User Permissions:** Assess the permissions associated with the user accounts initiating the changes. Ensure they align with role-based access control policies and are appropriate for their responsibilities.
+
+  - **Identify related AWS CloudTrail events:** Check for Event Names `AuthorizeSecurityGroupEgress`, `AuthorizeSecurityGroupIngress`, `RevokeSecurityGroupEgress`, or `RevokeSecurityGroupIngress` in CloudTrail logs (Log Type: Management Events) to confirm security group rule changes.
+
+  - **Assess the source of change:** Review the `userIdentity` field in the identified events to determine if the actions were performed by a known administrator or an anomalous IAM user. Malicious indicators include changes made by users without known access or those who were previously inactive.
+
+  - **Analyze changed rules:** Examine the `requestParameters` JSON object in CloudTrail logs for added rules, paying attention to CIDR blocks and port numbers. Opening unexpected ports (e.g., TCP port 443 to an external IP) could indicate malicious intent.
+
+  - **Review legitimate changes:** Cross-reference with operational baseline documentation to validate expected changes, such as opening specific ports for known applications or services. Routine maintenance should not lead to extensive ingress or egress modifications.
+
+  - **Investigate related activity patterns:** Look for simultaneous IAM policy changes or anomalous API calls that could point to broader compromise (e.g., unauthorized usage of other AWS resources).
+
+  - **Validate external connections:** Confirm if any new egress rules provide direct outbound access to external IPs. Use VPC flow logs to review if traffic is flowing to suspicious external addresses that correlate with the changes.
+
+  ---
 
   ### Prioritization
-  This alert is rated as medium severity due to the potential for significant impact on the organization’s infrastructure and data security. Unauthorized changes to ingress and egress rules could lead to data breaches or system compromises if not addressed promptly.
+
+  This alert warrants medium severity due to the potential impact on network security and system integrity. The likelihood of malicious use is significant, as attackers often manipulate security group rules to facilitate data exfiltration or establish access to compromised systems. Such behavior is regularly exploited in the wild.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if logging for CloudTrail events is not correctly configured or if there are legitimate use cases for security group modifications that are not thoroughly understood by the monitoring team. The detection logic assumes that any modification of rules is potentially malicious without considering contextual authorizations that may exist for specific roles within the organization. Required logs for this alert to function effectively include comprehensive CloudTrail logs to capture all relevant security group modification events.
+
+  Detection may be limited by a lack of detailed IAM logging or insufficient CloudTrail configuration (such as missing management events). Legitimate activities, such as establishing new environments or administrative updates, may occasionally trigger this alert. A companion detection rule evaluating high-volume traffic to newly added egress IPs would enhance coverage of potential data exfiltration attempts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

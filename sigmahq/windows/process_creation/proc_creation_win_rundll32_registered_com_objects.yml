@@ -31,23 +31,42 @@ falsepositives:
 - Legitimate use
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule targets the use of `rundll32.exe`, a legitimate Windows utility that can be exploited by attackers to load malicious registered COM (Component Object Model) objects. Attackers often leverage this functionality to execute payloads without raising alarms by utilizing techniques that enable persistence, privilege escalation, or lateral movement within a network. This behavior can indicate an attempt to compromise systems by executing unauthorized scripts or malware masquerading as legitimate operations.
 
-  The likely attacker objectives include maintaining access to compromised systems, deploying additional malware, or performing actions that could lead to further breaches. This behavior is particularly concerning because it can bypass traditional security measures, presenting a significant risk to enterprises. Relevant MITRE ATT&CK tactics and techniques include **Persistence (T1546)**, specifically focusing on **Rundll32 (T1546.015)**, and potentially **Privilege Escalation (T1068)**, which can occur if attackers exploit system vulnerabilities.
+  This Sigma rule detects the execution of `rundll32.exe` with potentially malicious registered COM objects, specifically looking for suspicious command-line arguments that suggest exploitation of this legitimate Windows utility for executing arbitrary code. The likely objective of an attacker employing this technique is to maintain persistence and execute payloads on compromised systems. This activity is associated with the MITRE ATT&CK technique "Execution through COM & DCOM" (T1546.015).
 
-  To effectively detect this activity, the primary data sources include **process creation events** that log the execution of commands, as well as any system logs that capture command-line arguments used with `rundll32.exe`. These logs provide critical insights into potentially malicious actions that deviate from standard operational behavior.
+  The primary telemetry sources involve Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1. If executed maliciously, the use of `rundll32.exe` in this manner can lead to unauthorized code execution, potentially granting attackers control over the system. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may also utilize `rundll32.exe` for benign purposes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for instances of `rundll32.exe`, noting any anomalies in the `OriginalFileName` or unusual parent processes that may indicate malicious activities.
-  - **Analyze Command-Line Arguments:** Investigate command-line arguments for `rundll32.exe`, specifically those that include `-sta` and `-localserver`, along with any instances of curly braces `{}`. These patterns often signify malicious payloads.
-  - **Correlate with Application and Security Logs:** Cross-reference findings with other security logs (e.g., EDR, SIEM) to identify if the suspicious command execution correlates with known malicious behavior or IOCs (Indicators of Compromise).
-  - **Assess User Context and Permissions:** Determine the user context under which `rundll32.exe` was executed. Assess whether it aligns with normal user behavior or indicates potential privilege escalation attempts.
+
+  - **Verify command line arguments**: Check the `CommandLine` field in Security Event ID 4688 or Sysmon Event ID 1 for use of `-sta` or `-localserver` along with curly braces `{}`. Presence of these may indicate malicious usage.
+
+  - **Inspect process tree**: Correlate the process creation event with parent processes. Anomalous parent processes (e.g., `explorer.exe` or `powershell.exe` spawning `rundll32.exe`) may indicate suspicious behavior.
+
+  - **Identify known benign usage**: Determine if `rundll32.exe` was initiated as part of a legitimate application (e.g., Windows updates, system utilities). Check for common parent processes and command-line patterns in trusted enterprise applications.
+
+  - **Analyze associated network connections**: Examine outbound connections originating from the host in the context of this event. Identify any unusual IP addresses or domains that correspond with the execution of `rundll32.exe`.
+
+  - **Check for newly registered COM objects**: Validate recent changes in the COM registry locations (e.g., `HKEY_CLASSES_ROOT\CLSID`). Use tools like 'regedit' to pinpoint newly created or modified entries that were associated with the `rundll32.exe` execution.
+
+  - **Look for high-confidence malicious indicators**: Record any instances where `rundll32.exe` process is accompanied by hash values or file paths known to be associated with malware, referencing threat intelligence feeds or internal analysis.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of unauthorized access to critical systems and data. The likelihood of such exploitation is significant, particularly in environments where legitimate utilities can be abused by attackers for malicious purposes.
+
+  The alert severity is high due to the potential impact on critical systems if the behavior is confirmed malicious, as `rundll32.exe` exploitation can bypass many security measures. Given that this technique is commonly weaponized in various attacks, the likelihood of abuse by adversaries is substantial.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may arise from legitimate uses of `rundll32.exe`, which can lead to false positives. The detection logic assumes that command-line patterns containing specific flags and structures are indicative of malicious activity, though these patterns can also be employed by administrators for legitimate purposes. For effective alert functioning, process creation logging must be enabled and properly configured to capture detailed command-line information across the enterprise systems.
+
+  Detection limitations include potential evasion techniques, such as attackers mimicking benign command line structures to avoid detection. Reliable detection requires logging configurations to ensure relevant telemetry is captured. Legitimate software installations might trigger this alert, thereby necessitating thorough investigation to differentiate legitimate from malicious executions. A related detection to strengthen coverage includes monitoring for abnormal registry changes related to COM objects, as these may indicate preparatory actions for subsequent `rundll32.exe` execution.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

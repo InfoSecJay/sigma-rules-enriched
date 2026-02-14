@@ -28,28 +28,40 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potential attempts to hijack the Application Memory Snapshot Interface (AMSI) COM server by monitoring changes to critical registry keys. The AMSI is designed to help applications detect and report malicious code, particularly in PowerShell and other scripting environments. Attackers seeking to disable AMSI may alter the registry to redirect calls to a non-existent COM server, thereby disabling the scanning functionality. This method is typically employed in the context of avoiding detection by security tools, allowing malicious payloads to execute without triggering alarms.
 
-  The primary objective of the attacker in this scenario is to evade detection during the execution of their payloads, which may include malicious scripts or binaries. The likely threat family associated with this technique includes known evasion techniques utilized by various malware strains as part of broader operations to maintain persistence and avoid detection. Relevant MITRE ATT&CK tactics/techniques include:
-  - Defense Evasion (TA0005)
-  - Impair Defenses (T1562.001)
+  This Sigma rule detects modifications to the AMSI COM server registry key, specifically targeting the loading of the AMSI scanning functions by manipulating its COM object registration. The likely attacker objective is to disable AMSI functionality, which is a defense mechanism against script-based malware, thereby allowing malicious scripts to execute undetected. This behavior falls under the MITRE ATT&CK tactic of **Defense Evasion** (T1562.001).
 
-  The data sources most pertinent to this detection rule are Windows registry logs, focusing particularly on registry modifications that indicate changes to the AMSI COM server entry.
+  The primary telemetry source for this detection is the Windows Registry, specifically monitoring registry set actions that alter the key located at `\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`. If successful, this modification could disable AMSI, enabling script-based attacks without triggering defenses. Importantly, this detection does NOT confirm malicious intent on its own—legitimate software could also modify this registry key.
+
+  ---
 
   ### Investigation Steps
-  - **Review Registry Logs:** Examine the Windows registry logs for any changes made to the `HKEY_CLASSES_ROOT\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32` key. Look for modifications that might indicate redirection or tampering.
 
-  - **Validate AMSI Functionality:** Confirm if AMSI is functioning correctly on the affected machine by attempting to invoke AMSI-related functionalities and checking for expected behaviors.
+  - **Review the registry key modification: **Check for changes to the registry key at `HKEY_CLASSES_ROOT\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`:** Correlate with security event logs (Event ID 4663) that document which user or process made the change. A legitimate application’s path should not point to anything unusual or non-standard.
 
-  - **Analyze Execution Logs:** Check application logs for recent executions of scripts or binaries around the time of the registry modification. Investigate any scripts that might have been executed, looking for potentially malicious content.
+  - **Correlate with recent process activity: **Examine associated process creation logs (Event ID 4688 or Sysmon Event ID 1) to identify any processes that executed around the same time as the registry change:** Look for unexpected script execution (such as PowerShell or command scripts) that could indicate malicious activity.
 
-  - **Monitor for Related Activities:** Look for other indicators of compromise, including unusual process creations, particularly those that involve PowerShell or other scripting engines, as these commonly leverage AMSI.
+  - **Check for existing AMSI.dll presence: **Ensure that `amsi.dll` exists at `%windir%\system32\`:** If absent, it’s a strong indication that something is trying to disable AMSI, and you should escalate the incident.
+
+  - **Identify known malicious indicators: **Search for event logs that include execution of known Meterpreter or malicious PowerShell commands:** The presence of such commands would indicate a higher confidence in malicious activity correlating with the registry key modification.
+
+  - **Analyze Windows event logs for anomalies: **Investigate other Event IDs such as 4672 (Special Logon) and 4648 (Logon Attempt) that coincide with the modification:** This can help identify if an elevated privilege was used inappropriately during the change to the registry settings.
+
+  ---
 
   ### Prioritization
-  Given the potential for significant impact on the security posture of the organization, particularly in environments where scripting is prevalent, this alert is marked with high severity. The likelihood of successful exploitation to evade detection further amplifies the urgency of this detection.
+
+  This alert has a **high** severity due to the potential impact on endpoint security; disabling AMSI could allow significant script-based attacks. The likelihood of malicious abuse is elevated as the behavior is commonly weaponized by threat actors seeking to evade detection mechanisms.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture all potential methods for disabling AMSI, such as those that do not modify the registry or utilize other legitimate mechanisms to evade detection. The detection logic assumes that the registry keys relevant to AMSI are accessible and that modifications will trigger logging. For optimal functionality, comprehensive logging must be ensured, including changes in the Windows registry, so that any tampering can be adequately captured.
+
+  The detection may be evaded if the attacker employs techniques to revert changes or create multiple layers of software obscuring the modification. Reliable detection is contingent upon logging policy ensuring that registry modifications (Event ID 4663) are captured. Additionally, legitimate applications using non-standard scripts may trigger this alert, necessitating thorough investigation into executive behavior. A related detection rule to consider is one that alerts on unusual PowerShell execution, providing additional context to script activity.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -58,26 +58,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the loading of specific system Dynamic Link Library (DLL) files that are typically absent from the file system or located in system directories—indications of potential DLL sideloading or hijacking attacks. It targets scenarios where adversaries exploit the DLL search order to execute malicious DLLs masquerading as legitimate system binaries. These tactics aim to either maintain persistence on a compromised system, escalate privileges by executing malicious code, or evade detection by leveraging seemingly benign processes.
 
-  The relevant MITRE ATT&CK techniques for this rule include:
-  - **Persistence: DLL Search Order Hijacking (T1574.001)**
-  - **Privilege Escalation: DLL Injection (T1055)**
-  - **Defense Evasion: Masquerading (T1036)**
+  This Sigma rule detects the loading of specific system DLL files which typically should not exist within system directories, indicating potential phantom DLL hijacking attempts. The primary objective of the attacker is to execute malicious code by loading these fabricated DLLs, masquerading as legitimate system libraries. This activity falls under the MITRE ATT&CK tactic "Defense Evasion" (T1562) and technique "DLL Search Order Hijacking" (T1574.001).
 
-  Key data sources for detecting this behavior include image load events on Windows systems, particularly events documenting process behaviors around non-standard DLL imports from system directories.
+  Primary telemetry sources include Windows Event Log with Image Load events, particularly those tagged with Event ID 10 from Sysmon. If malicious, this type of activity can lead to privilege escalation or unauthorized actions on a compromised system. It’s crucial to note that the detection of these DLLs does NOT confirm malicious intent on its own; it requires further investigation to determine the context and legitimacy of the alerts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Image Load Events:** Check image load events for occurrences of the detected DLLs, noting which processes loaded them and their file paths.
-  - **Analyze Process Creation:** Investigate the process creation logs to identify the parent processes that initiated the loading of the suspicious DLLs. Look for unusual or unexpected parent-child relationships.
-  - **Correlate with System Activity:** Cross-reference the load events with other system logs (e.g., authentication logs, file access events) to see if these DLL loads coincide with suspicious activity, such as unauthorized access attempts or lateral movement.
-  - **Check for Abnormal Signatures:** Validate the digital signatures of the loaded DLLs and the processes that loaded them, ensuring they align with known legitimate Microsoft signatures. Note any discrepancies or 'valid but abnormal' signatures.
+
+  - **Review the DLLs loaded by processes:** Investigate Sysmon Event ID 10 for DLL loads. Look for entries involving the specific DLLs mentioned in the detection, such as `:\Windows\System32\axeonoffhelper.dll` or `:\Windows\System32\cdpsgshims.dll`.
+
+  - **Check the signatures of the processes:** Confirm that the processes loading these DLLs are legitimate by verifying their signatures. Look at the fields `Signed` and `SignatureStatus` in the Event Log to identify whether a valid Microsoft signature is present.
+
+  - **Identify the parent processes:** Examine the parent process IDs associated with the image loads from Sysmon Event ID 10 to assess their legitimacy. Legitimate processes loading these DLLs will typically originate from known system processes like `explorer.exe` or `svchost.exe`.
+
+  - **Assess file existence and timestamps:** Verify the existence of the DLL files on the system using file system queries to see if they actually exist at the paths indicated. Analyze their creation and modification timestamps to determine if they are recent and indicative of suspicious activity.
+
+  - **Look for suspicious behavior prior to the alert:** Investigate for any unusual activities leading up to the DLL load, such as attempts at privilege escalation or lateral movement captured in earlier log events. These could include processes executed under unusual accounts or from uncommon directories.
+
+  - **Validate system roles:** Identify the role of the affected host. If it is a critical server (e.g., domain controller, database server), prioritize investigation to prevent potential lateral movement or data compromise.
+
+  ---
 
   ### Prioritization
-  Given the high impact and likelihood of using DLL hijacking techniques for privilege escalation and further exploitation, this alert should be prioritized. The detection indicates a potential compromise, warranting immediate investigation to prevent further malicious activities.
+
+  This alert should be treated as high severity, especially if it involves a critical server, as it indicates possible sophisticated adversary behavior in attempting to evade detection by mimicking legitimate binaries. Malicious DLL hijacking is a known and commonly weaponized technique in targeted attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage for benign applications that might load these DLLs under normal circumstances. The detection assumes that all DLLs listed are non-existent or unusual for the environment in question. Additionally, it requires that image load events and process creation logs are being recorded and accessible, which can depend on appropriate logging configurations and system monitoring tools in place.
+
+  Detection may be limited by the absence of comprehensive Sysmon logging configurations if not all relevant events are being collected (ensure Event ID 10 is enabled). Attackers might employ evasion techniques such as code signing or timing of DLL loads to blend in with normal operations. Legitimate administration activities could trigger similar alerts when administrators are debugging or maintaining applications. Consider implementing companion detections for process spawning (Sysmon Event ID 1) to strengthen visibility into potential malicious behavior.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

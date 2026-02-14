@@ -50,26 +50,42 @@ falsepositives:
 - Unlikely
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects potentially malicious PowerShell commands that indicate the execution of scripts capable of decrypting `.LNK` (Windows shortcut) files, which may be linked to subsequent stages of malware delivery. Attackers often leverage PowerShell for its versatility in executing commands that can manipulate files, interact with system resources, or download additional payloads. The likely objective of this behavior is to maintain persistence within the environment or to facilitate broader attacks by executing subsequent malware components.
 
-  The relevant MITRE ATT&CK tactics and techniques associated with this detection include:
-  - **Execution (TA0002)**: PowerShell is often used to execute malicious scripts directly on the target system.
-  - **Command and Control (TA0011)**: Through encrypted communications, attackers may later retrieve additional instructions or payloads after the initial exploitation.
-  - **Defense Evasion (TA0005)**: The use of PowerShell for such activities can help attackers evade detection mechanisms that focus on traditional executable files.
+  This rule detects PowerShell commands that attempt to decrypt ".LNK" (shortcut) files, which can serve as a vector to deliver subsequent malware stages. The likely attacker's objective is to manipulate these shortcut files to either execute malicious payloads or retrieve additional components of a malware framework. This behavior is relevant to the MITRE ATT&CK technique for "Command and Scripting Interpreter" (TA0002) and "Malicious File Execution" (T1203).
 
-  The primary data sources that will yield crucial evidence for this detection are Windows process creation logs. These logs provide visibility into executed commands, the context of their execution (such as whether they use `powershell.exe` or `pwsh.exe`), and the command line arguments supplied, which can shed light on potentially malicious behavior.
+  The primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. A successful decryption of these shortcut files might allow an adversary to run malicious software or scripts, posing a significant risk to system integrity and data confidentiality. This detection does NOT confirm that a compromise has occurred; it only highlights suspicious activity that may warrant further investigation.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine Windows process creation events for `powershell.exe` or `pwsh.exe` execution. Pay special attention to the command line used, looking for patterns consistent with the detected behavior.
-  - **Analyze Command Line Arguments**: Look for the presence of commands like `Get-ChildItem`, `Get-Content`, and `WriteAllBytes`. Check for any combinations with `.lnk` files that might indicate an attempt to decrypt or manipulate shortcuts.
-  - **Check for Known Malicious Behavior**: Research specific variants of malware known to utilize PowerShell for decryption and follow-up actions, particularly any associated with campaigns targeting your environment.
-  - **Correlate with Other Security Tools**: Use EDR, SIEM, and NDR tools to identify any lateral movement or command and control communications that may coincide with the timing of the suspicious PowerShell execution.
+
+  - **Examine the command line arguments used:** Review process creation events (Event ID 4688, Sysmon Event ID 1) for any PowerShell executions containing the strings `Get-ChildItem`, `Get-Content`, or variations thereof. Look for heavily nested recursive directory enumerations or use of `-ExpandProperty`, which can signal attempts to manipulate `.LNK` files.
+
+  - **Validate file creation or exfiltration:** Search for any .LNK files created or modified within the time window of the suspicious PowerShell execution. Monitor for Event ID 4663 (File System Access) to check the creation of new files and their parent directory structures, which should typically be benign user directories.
+
+  - **Identify high-confidence malicious indicators:** Focus on the use of `WriteAllBytes` in the command line combined with indications of reading `.LNK` files. If this occurs within a context not associated with known administrative or system functions, mark this as a critical indicator of a potential threat.
+
+  - **Review the host role for context:** Determine the role of the host executing the PowerShell command. For instance, a server performing routine tasks should not typically be executing PowerShell scripts that manipulate `.LNK` files. Legitimate behavior would involve administrative commands executed in controlled environments, unlike the suspicious activity described.
+
+  - **Document benign activities:** Compare the detected behavior against known utility tasks performed by legitimate users, such as updating icons or shortcut paths for applications. Typical benign command-line usage should derive from direct user intent without complex recursive or intensive operations.
+
+  - **Correlate with other detections:** Check for companion detections related to unusual PowerShell scripts or other process anomalies on the same host or user accounts. Use a tool like SIEM to identify if other triggered alerts correlate with the suspicious execution to strengthen the investigation outcome.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the significant risk associated with malware that uses PowerShell for decryption purposes. The ability to decouple stages of malware delivery can lead to severe impacts on the organization, including data exfiltration and network breaches.
+
+  This alert should be prioritized as high severity due to its potential impact on compromised systems, possible lateral movement, and the likelihood of being utilized by adversaries. PowerShell is a commonly weaponized tool, making this detection critical for early intervention in an attack lifecycle.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One potential gap in detection might arise from environments with strict PowerShell usage policies or where PowerShell usage is heavily restricted, thus possibly leading to false negatives. The detection logic assumes that suspicious command line patterns will be logged and accessible in the relevant process creation logs. If PowerShell logging policies are not appropriately configured, this could hinder the efficacy of this detection rule. Additionally, certain legitimate use cases might cause overlaps, although they are considered unlikely to trigger false positives based on the command patterns outlined.
+
+  Detection limitations include evasion techniques such as obfuscating command line arguments or using alternate execution contexts (like scheduled tasks or service accounts). Reliable detection requires comprehensive logging configurations, specifically ensuring PowerShell script block logging and module logging are enabled. Legitimate user behavior, such as administrative scripting or updates for application shortcut paths, may trigger false positives. A related detection to consider is monitoring for unusual behaviors associated with powershell.exe and executing encoded commands, which can complement the coverage provided by this detection.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

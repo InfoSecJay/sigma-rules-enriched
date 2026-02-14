@@ -24,28 +24,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies modifications or deletions of AWS Elastic File System (EFS) file shares through AWS CloudTrail logs. Such actions could indicate potential malicious activities, especially if they occur unexpectedly or outside of normal operational hours. In typical threat scenarios, attackers may attempt to disrupt services or exfiltrate data by modifying or deleting file systems, potentially seeking to eliminate traces of their presence or sabotaging target resources.
 
-  The relevant MITRE ATT&CK tactics include **Impact (TA0040)**, with specific techniques such as **Data Destruction (T1485)** and **Data Manipulation (T1293)**. Both techniques reflect an attacker's intent to manipulate or destroy data in order to hinder business operations or hide their activities. Analysts should focus on AWS CloudTrail logs to capture detailed records of the deletion and modification events and trace any preceding actions that led to these modifications.
+  This rule detects the deletion or modification of an AWS Elastic File System (EFS) fileshare, specifically actions initiated with the `DeleteFileSystem` API call. The likely objective of an attacker could be to disrupt services, remove traces of their activity, or prepare the environment for further exploitation. This behavior aligns with the MITRE ATT&CK tactic for Impact (TA0040) and the technique for Data Destruction (T1485).
 
-  Primary data sources for this rule include:
-  - AWS CloudTrail logs, specifically events related to EFS actions.
-  - Logs from any security tools in place to monitor AWS activities for unusual patterns.
+  Primary telemetry sources include AWS CloudTrail logs which capture the relevant API events. If this action is malicious, it can lead to data loss, service disruptions, and operational setbacks. However, it is important to note that this detection does NOT confirm malicious intent, as benign administrative actions (e.g., system maintenance) can trigger the same event.
+
+  ---
 
   ### Investigation Steps
-  - **Review AWS CloudTrail Logs:** Examine CloudTrail logs for recent events associated with EFS actions, particularly `DeleteFileSystem` events. Look for the context and timeframe of the deletion to establish whether it aligns with known administrative actions.
 
-  - **Analyze User Activity:** Investigate the IAM user or role that triggered the modification or deletion. Determine if this actor has a valid reason to perform such an operation, considering both identity and access privileges.
+  - **Check CloudTrail logs for the `DeleteFileSystem` event:** Review AWS CloudTrail logs for `eventSource` equal to `elasticfilesystem.amazonaws.com` and `eventName` equal to `DeleteFileSystem`. Focus on identifying any anomalies such as deletion times outside of regular business hours.
 
-  - **Cross-reference with Normal Activity:** Compare the current EFS activity against the historical baseline to identify any anomalies. This includes evaluating whether the file system was in use prior to deletion, as unmounted file systems are subject to deletion.
+  - **Correlate the event with existing EFS mount targets:** Identify if any mount targets existed prior to the deletion by reviewing the CloudTrail logs for `CreateMountTarget` events. If no mount targets existed, this adds context to potential malicious activity.
 
-  - **Check for Mount Target Deletions:** If a file system was deleted, confirm whether correlated events show that any mount targets were deleted beforehand. This could provide insight into the potential malicious behavior of unauthorized deletions.
+  - **Validate the user identity making the deletion request:** Investigate the `userIdentity` field associated with the deletion in the CloudTrail logs. If the user is not an authorized administrator or lacks any history of modifications, this could indicate a malicious action.
+
+  - **Review recent changes or activity on the filesystem:** Analyze EFS access logs or CloudTrail logs to check for prior write activities on the fileshare. Unexpected modifications leading up to the deletion, especially from a non-administrator account, can signal suspicious behavior.
+
+  - **Identify legitimate activities during investigation:** Assess if there are any scheduled maintenance activities, especially from automated systems or known administrative accounts, that may justify the deletion or modification actions.
+
+  - **Look for subsequent resource changes:** Check for additional events in CloudTrail logs following the `DeleteFileSystem` event, such as additional API calls related to resource cleanup or suspicious network traffic that may indicate an exfiltration attempt.
+
+  ---
 
   ### Prioritization
-  The medium severity of this alert is justified due to the potential for significant operational impact; unauthorized deletion or modification of file shares can lead to data loss, service disruption, and hindered recovery efforts in an enterprise environment.
+
+  The severity of this alert is medium, as it can indicate significant operational impact if filesystems are being maliciously deleted. Given that attackers often seek to destroy or modify access to data to cover their tracks, this behavior has a higher likelihood of being weaponized in actual attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by instances where AWS CloudTrail logging is not fully enabled or configured, potentially missing out on critical events. The detection logic assumes that the actors performing the deletions are not authorized, which may not always hold true in environments with complex delegation. To ensure functionality, CloudTrail logs must capture all EFS-related actions effectively, thus requiring comprehensive logging configurations.
+
+  Detection limitations include the possibility of legitimate administrative deletions triggering this rule. Reliable detection requires comprehensive CloudTrail logging configurations to capture all EFS-related API activity. Additionally, actions triggering this alert could arise from automated scripts or configurations, and not always indicate malicious intent. A companion detection to consider is monitoring for unusual login activities (e.g., failed logins) from the user making the deletion request, which can help establish context around potential user impersonation.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

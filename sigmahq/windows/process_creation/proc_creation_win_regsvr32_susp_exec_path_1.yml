@@ -35,23 +35,42 @@ falsepositives:
   Apply additional filters if necessary.
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies the execution of the Microsoft Windows `regsvr32` utility when it is used to load a Dynamic Link Library (DLL) from potentially suspicious locations. Attackers often exploit `regsvr32` to execute malicious scripts or payloads indirectly, particularly in environments where application whitelisting is in place. By loading DLLs from non-standard locations such as `%TEMP%`, `%PROGRAMDATA%`, or user-specific directories, malicious actors can evade detection and gain a foothold in the target system, execute code, or escalate privileges.
 
-  The relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0030) and the technique **Signed Binary Proxy Execution: Regsvr32** (T1218.010). Attackers utilizing this technique aim to bypass security controls and achieve persistence, often as part of a wider compromise strategy.
+  This Sigma rule detects the execution of regsvr32.exe, particularly when it is invoked from suspicious directories such as ProgramData, Temp, or AppData. This behavior is often associated with adversaries aiming to exploit trusted system processes to register malicious DLLs, thereby evading security controls. Relevant MITRE ATT&CK tactics include Defense Evasion (T1203) and Execution (T1218.010).
 
-  Primary data sources for monitoring this behavior include process creation event logs, which can provide insights into command-line arguments used during `regsvr32` executions. Additional logs to consider may include Windows Event Logs related to security and application execution events.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process creation details. If executed with malicious intent, the impact could be significant, as attackers could leverage regsvr32 to execute arbitrary code under the context of a trusted process. It is important to note that this detection alone does not confirm malicious activity; regsvr32 can be invoked legitimately by installers or administrative scripts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze Windows process creation logs for instances of `regsvr32.exe` execution. Note the timestamps and user accounts associated with these events.
-  - **Examine Command-Line Arguments:** Investigate the command-line arguments used with `regsvr32`. Look for DLLs being loaded from suspicious paths, such as `%TEMP%` or other unusual directories.
-  - **Correlate with User Activity:** Check for unusual user activity preceding the execution of `regsvr32`. Consider analyzing login events or other related processes that could indicate malicious intent.
-  - **Assess File Integrity and Origin:** Investigate the integrity and origin of the loaded DLLs. Use file analysis tools to check for known malware signatures or anomalies in file properties.
+
+  - **Review process creation details:** Check Security Event ID 4688 and Sysmon Event ID 1 for process creation events. Look for regsvr32.exe invoked from suspicious paths like `%ProgramData%`, `%Temp%`, and `%AppData%`.
+
+  - **Analyze command line arguments:** Examine the CommandLine field for regsvr32 execution. Specific arguments or DLL paths from suspicious directories indicate potential malicious use. Indicators to look for include known malware DLL names.
+
+  - **Identify legitimate usage:** Compare the context of the regsvr32 execution to typical installer behavior. Legitimate installers frequently use regsvr32 for DLL registration, but these calls usually originate from known installation paths (e.g., `C:\Program Files\`).
+
+  - **Check Sysmon logs for DLL registration:** Verify Sysmon Event ID 7 for DLL loaded by regsvr32. Look for paths that match suspicious directories and unfamiliar DLL names which could indicate a threat.
+
+  - **Assess network activity:** Review network connection logs from host to see if regsvr32 execution led to outbound traffic, especially to known malicious IPs or domains which may indicate command and control communication.
+
+  - **Cross-reference user accounts:** Investigate the user account that executed regsvr32. A common user executing from a suspicious location can be an indicator of compromise, while administrative accounts doing so could be part of authorized maintenance.
+
+  ---
 
   ### Prioritization
-  This alert has medium severity due to the potential for an attacker to execute a malicious payload using commonly available tools and techniques. The likelihood of such behavior indicating malicious activity is significant, particularly in organizations that enforce application whitelisting policies.
+
+  This alert is of medium severity due to the potential impact on critical systems if malicious DLL execution is confirmed. The likelihood of abuse is moderate; while regsvr32 is a legitimate Windows tool, attackers often exploit it for evasion tactics. This specific behavior has been weaponized in various attack scenarios.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may not capture all instances of `regsvr32` being used legitimately, particularly when trusted installers execute the utility with DLLs from standard directories. There are gaps in the detection coverage, especially if the system or logging configuration does not capture detailed command-line arguments. The effectiveness of this rule assumes that process creation logs are being collected and retained adequately across all endpoints in the enterprise environment.
+
+  Evasion techniques include legitimate usage of regsvr32 by installers or applications, emphasizing the need for context in analysis. Adequate log collection and filtering are essential; without proper visibility of process creation and command line arguments, detection will be unreliable. Similar detections, such as monitoring for suspicious PowerShell usage (T1059.001) or other process executions from user profile directories, could enhance threat coverage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

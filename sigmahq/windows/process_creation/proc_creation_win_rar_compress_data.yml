@@ -26,26 +26,45 @@ falsepositives:
 - Highly likely if rar is a default archiver in the monitored environment.
 level: low
 note: |
+  ---
+
   ### Technical Context
-  This detection rule targets the usage of **rar.exe** for adding files to an archive, which is a common method used by attackers to compress sensitive data before exfiltration. By compressing data, adversaries can reduce bandwidth during data transfer and potentially evade detection mechanisms that monitor outbound traffic for large file transfers. Essentially, this activity may indicate preparatory steps taken by an attacker to exfiltrate data undetected.
 
-  The suspected threat scenario involves an adversary utilizing **RAR compression** to package data they have compromised, such as sensitive documents, proprietary information, or login credentials, prior to exfiltration. The typical objective of an attacker in this context is to steal sensitive information while minimizing the footprint of their actions and potentially bypassing security measures in place.
+  This rule detects the invocation of `rar.exe` to add files to an archive, indicating potential data compression by an adversary. The likely objective is to prepare sensitive documents for exfiltration by making them portable and reducing the network load. This behavior maps to the MITRE ATT&CK technique **Data Compressed** (T1560.001).
 
-  This detection aligns with the **MITRE ATT&CK framework**, specifically the **Collection** tactic (ID: T1560, with sub-technique T1560.001 for Archival Data). Primary data sources for detecting this behavior include **process creation events**, where the execution of rar.exe can be traced, alongside monitoring of relevant command-line arguments that indicate archiving actions.
+  The primary telemetry source is Windows process creation logs, specifically focusing on Event ID 4688 related to the execution of `rar.exe`. If the activity is malicious, it may lead to unauthorized data exfiltration or information theft. Importantly, this detection does NOT necessarily confirm malicious intent on its own, as legitimate use of `rar.exe` can occur for non-malicious archiving purposes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for instances where `rar.exe` was executed. Pay special attention to the command-line arguments used, particularly those containing `a`, which indicates file addition to an archive.
 
-  - **Analyze Suspicious File Activity**: Investigate any unusual file compression activities around sensitive directories or unusual hours that may suggest adversarial behavior. Check for patterns of file access leading to archiving events.
+  - **Check event details:**
+    Review Security Event ID 4688 for instances of `rar.exe`. Look for the CommandLine parameter containing ' a ' which indicates files are being added. Assess the user context; if the command is run by a non-administrative user on a critical system, that raises suspicion.
 
-  - **Correlate with Network Traffic**: If potential exfiltration is suspected, correlate the process creation events with outbound network traffic. Look for compressed files being uploaded or sent to external IPs, which may not typically be used for legitimate business purposes.
+  - **Examine the command line arguments:**
+    Inspect the specific file paths added to the archive in the CommandLine logs. Malicious activity may involve adding sensitive files like `*.docx`, `*.xlsx`, or `*.pdf` from user directories or sensitive folders. Legitimate activity might involve archiving system logs or application backups, which generally do not contain sensitive user data.
 
-  - **Assess User Roles and Privileges**: Verify the user accounts responsible for initiating the rar.exe processes. Investigate whether the account has the necessary permissions to access sensitive data and if the actions align with their typical behavior or role within the organization.
+  - **Identify archive creation details:**
+    Investigate the time and user associated with the archive creation. Contextual user behavior is key — if `rar.exe` is invoked at unusual hours or by users who typically do not use this tool, it is a red flag.
+
+  - **Audit for subsequent network activity:**
+    Review for any immediate `network outbound` events to correlate with compressed files being sent. Look for specific Event IDs related to outbound traffic that follow the time of `rar.exe` execution; clear indicators include `Sysmon Event ID 3` for network connections from the host.
+
+  - **Validate file system changes:**
+    Check for the presence of newly created archive files (`*.rar`). Validate the size and contents of the archive against expected norms. Unauthorized large or unusual file sizes can be indicative of malicious archiving prior to exfiltration.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is categorized as **low** due to the potential for benign use of rar.exe within environments where it is a standard tool for archiving. However, its presence in non-standard contexts or accompanied by other suspicious indicators warrants further investigation, as it could indicate malicious activity.
+
+  This alert has low severity primarily because it may result from legitimate uses of `rar.exe`, particularly in environments where it is routinely utilized for archiving. However, it requires further investigation due to the potential for malicious abuse, especially when sensitive or confidential data is involved that could illustrate a prelude to exfiltration.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited in environments where rar.exe is a commonly used tool, leading to a high likelihood of false positives. The detection logic assumes that rar.exe will be invoked in a context not typical for regular user activity. Additionally, this rule requires comprehensive process creation logging to function effectively, which must be enabled across all relevant systems in the monitored environment to capture the necessary data.
+
+  Detection may be limited in environments utilizing `rar.exe` as a legitimate archiving tool, leading to false positives. Effective monitoring requires adequate logging levels for process creation events. Furthermore, legitimate users may occasionally archive sensitive files for administrative tasks, which can inadvertently trigger this alert. A companion detection such as monitoring for outbound data transfers post-archiving can provide additional context to strengthen coverage against potential data breaches.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

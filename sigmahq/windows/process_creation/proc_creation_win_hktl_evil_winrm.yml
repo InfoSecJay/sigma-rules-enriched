@@ -28,26 +28,40 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify the use of the Evil-WinRM tool, which adversaries may use to gain unauthorized access to Windows systems via the Windows Remote Management (WinRM) service. By exploiting valid accounts, attackers can remotely log in and execute commands as the legitimate user, leading to potential lateral movement within the network. This behavior poses a risk as it can allow adversaries to pivot to other systems, exfiltrate data, or plant malware.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Lateral Movement** (TA0008) and specifically the technique **T1021.006 - Remote Services: WinRM**. Attackers may leverage this technique to utilize existing credentials in organizational environments, aiming to escalate privileges and maintain persistence within the victim’s network.
+  This Sigma rule detects the execution of the Ruby interpreter (ruby.exe) being invoked with command-line arguments typically associated with Evil-WinRM, a popular tool for accessing Windows machines remotely over WinRM using valid accounts. The likely attacker objective is to establish a foothold within the target environment by executing commands remotely while masquerading as an authorized user. This behavior aligns with the MITRE ATT&CK technique for Remote Services: WinRM (T1021.006).
 
-  The primary data source for detecting this activity would be process creation events on Windows systems. Monitoring command-line arguments for spawned processes is essential in identifying the usage of Evil-WinRM, particularly instances where the process `ruby.exe` is invoked with specific parameters indicative of remote command execution.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688, which logs process starts, including the command-line arguments. If malicious, this activity allows an attacker to remotely control the system, potentially leading to further exploitation or data exfiltration. Importantly, this detection does NOT confirm a successful compromise on its own; it merely indicates the use of a tool that is often associated with unauthorized access attempts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Collect and analyze logs related to process creation on affected systems to identify instances of `ruby.exe` execution. Focus on the command-line arguments for any indications of Evil-WinRM usage.
 
-  - **Check User Account Activity**: Investigate the user accounts involved in the process execution. Look for any atypical login times, sources, or behaviors that deviate from normal usage patterns, which may indicate compromised accounts.
+  - **Review Process Creation Events:** Check Windows Event ID 4688 logs for process creation involving ruby.exe. Look for command-line arguments containing '-i', '-u', and '-p'. If these parameters are present without further context, it warrants further investigation.
 
-  - **Monitor WinRM Service Logs**: Examine the WinRM event logs for any suspicious activities such as unexpected connections or unusual command executions that might correlate with the detected process creation events.
+  - **Identify User Context:** Determine the user account executing the command using the 'New Process ID', 'User Name', and 'CommandLine' fields in Event ID 4688. Confirm if this account is a known, legitimate administrator or service account. Any unexpected users should raise flags for potential malicious activity.
 
-  - **Investigate Network Traffic**: If applicable, analyze network traffic logs for any outbound traffic patterns that suggest unauthorized WinRM access attempts, especially focusing on the source and destination IP addresses involved.
+  - **Investigate Network Connections:** Use Windows Firewall logs (Event ID 5156) to see if the ruby.exe process initiates outbound connections on port 5985 or 5986, which are standard ports for WinRM communication. Document any connections that do not align with approved usage patterns.
+
+  - **Check for Subsequent Activity:** Review logs for any unusual command execution or service manipulation following the ruby.exe process. Key indicators might include Windows PowerShell commands or further process creations that exhibit signs of lateral movement or privilege escalation (Security Event IDs 4104 for PowerShell).
+
+  - **Verify Legitimacy of Activity:** If the command is executed from a known administrative session or automated deployment scenario, validate the process as benign. Otherwise, flag it for escalation, particularly if paired with suspicious network activity.
+
+  ---
 
   ### Prioritization
-  Given the potential for attackers to leverage legitimate accounts for lateral movement and the serious implications of unauthorized access to sensitive systems, the alert is deemed to have medium severity. The likelihood of such activities occurring in an enterprise environment is significant, especially if proper security controls are not in place.
+
+  This alert has medium severity due to the potential security impact of unauthorized remote access using valid credentials. It denotes an increased likelihood of exploitation, as tools like Evil-WinRM are commonly weaponized in lateral movement attacks within compromised networks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be blind spots if logging is not configured to capture process creation events or if security controls around remote access are insufficiently enforced. The detection logic assumes that the specific command-line patterns used by Evil-WinRM are followed consistently. Effective detection relies on the existence of detailed process creation event logs that include command-line arguments; without these logs, the detection may fail to trigger.
+
+  This detection may miss usage of legitimate administrative tools configured similarly or other remote access methods that do not invoke ruby.exe. Reliable identification requires comprehensive logging configuration from both Windows and related network traffic. Legitimate activities that might trigger this alert include automated deployments or authorized administrative access via WinRM. A related detection to strengthen coverage would involve monitoring for unusual PowerShell commands and processes initiated by known admin accounts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -32,26 +32,42 @@ falsepositives:
 - Legitimate use of the library for administrative activity
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the use of the PowerShell cmdlet `Get-ADComputer`, specifically targeting parameters related to the delegation settings of Active Directory (AD) computers. Attackers may leverage this cmdlet to discover computers configured for unconstrained delegation, which can potentially lead to credential theft and lateral movement within the network. By identifying systems that allow impersonation of users, attackers can manipulate authentication processes, gaining unauthorized access to sensitive resources.
 
-  The scenario involves a threat actor performing reconnaissance to identify targets within an enterprise network that are susceptible to credential theft using unconstrained delegation. Relevant MITRE ATT&CK tactics include **Reconnaissance (TA0043)** and **Discovery (TA0007)**. More specifically, the techniques applicable here are **Credential Access (T1003)**, **Active Directory Enumeration (T1018)**, and **Permission Groups Discovery (T1589.002)**.
+  The rule detects the use of the PowerShell cmdlet `Get-ADComputer` configured to query Active Directory for computer accounts with unconstrained delegation properties. This behavior is typically associated with reconnaissance by attackers seeking to exploit design flaws in delegation settings, enabling them to impersonate other users or services within the network. Relevant MITRE ATT&CK techniques include **Discovery (T1018)** and **Credential Access (T1558.002)**, specifically in the context of Active Directory environments.
 
-  The primary data sources for this detection are Windows PowerShell logs, particularly script block logging. This logging will capture any executed scripts, including command-line arguments and the properties queried, offering valuable insights into both legitimate administrative operations and possible malicious activities.
+  The primary telemetry source for this detection is PowerShell script block logging, specifically capturing `ScriptBlockText` that contains certain properties related to delegation. If malicious, the impact could be severe, enabling attackers to leverage authentications on behalf of users whose accounts are misconfigured. However, this detection does NOT definitively prove malicious intent on its own since legitimate administrative activities may also trigger it.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Script Logs:** Analyze PowerShell script block logs for the execution of the `Get-ADComputer` cmdlet, focusing on potentially malicious parameters that indicate attempts to discover delegation configurations.
 
-  - **Examine Active Directory Logs:** Check Active Directory logs for any unusual querying of computer objects, especially for delegation properties. Pay attention to the frequency and source of these requests, as they may indicate unauthorized reconnaissance activity.
+  - **Review PowerShell history:** Identify recent executions of PowerShell commands related to `Get-ADComputer` using Security Event ID 4104 for script block logging, focusing on `-Properties` parameters that indicate querying delegation settings.
 
-  - **Identify User Context and Source:** Determine the user account that executed the PowerShell command. Investigate whether this account has a legitimate need for accessing delegation settings, and analyze the session context (e.g., where the command was run from).
+  - **Examine the targeted systems:** Determine if the affected computers are critical servers or domain controllers by cross-referencing the detected computer names with organizational asset inventories.
 
-  - **Assess Delegation Configurations**: Review the Active Directory delegation settings for identified computers. Analyze whether any computers are configured for unconstrained delegation and consider the associated risk and potential exposure.
+  - **Identify typical legitimate usage:** Note that legitimate administrative tasks may involve querying delegation settings to audit configurations; corroborate this with expected operational schedules and administrative roles.
+
+  - **Search for malicious indicators:** Look for repeated queries or patterns in `ScriptBlockText` that indicate active enumeration attempts; high-confidence indicators include multiple executions within a short time frame targeting various computer accounts.
+
+  - **Assess user context:** Investigate the user or service account executing the command; cross-reference with account activity logs (Event IDs 4624 and 4625) to verify if the user has appropriate privileges or a historical pattern of similar queries.
+
+  - **Correlate with related detections:** Review other alerts for credential access or lateral movement techniques (e.g., logging failures or suspicious logins), as they may indicate a broader compromise attempt.
+
+  ---
 
   ### Prioritization
-  This alert carries a medium severity due to its ability to indicate potential pre-attack activity that could lead to high-impact compromise of user and system credentials. Given the likelihood of exploitation of unconstrained delegation settings, timely investigation and response are critical to maintaining organizational security.
+
+  This alert is medium severity due to the potential impact on sensitive credential configurations in Active Directory and the likelihood of genuine misuse by adversaries. Unconstrained delegation is a common target for attackers aiming to pivot within environments, making this behavior particularly concerning.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection logic relies on PowerShell script block logging being enabled, which may not be universally configured in all enterprise environments. There is an assumption that attacks utilizing such reconnaissance techniques will trigger PowerShell logging; however, if attackers employ other scripting methods or obfuscate their commands, these actions may go undetected. Additionally, benign administrative uses of the `Get-ADComputer` cmdlet may generate false positives if not contextualized by user intent and activity history.
+
+  Detection may be limited by environments not enabling PowerShell script block logging, reducing visibility into such commands. Legitimate administrative actions, like security audits, might inadvertently trigger this alert. Companion detections, such as monitoring for failed authentication attempts (Event ID 4771), can help better assess potential malicious activity linked to this behavior.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

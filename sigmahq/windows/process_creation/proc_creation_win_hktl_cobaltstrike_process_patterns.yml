@@ -38,30 +38,40 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This rule detects potential process patterns indicative of Cobalt Strike beacon activity, a common tool used by threat actors for command and control (C2) purposes. Cobalt Strike can execute a variety of tasks, including privilege escalation, lateral movement, and data exfiltration, aiming to maintain persistence and control within a compromised environment. The observed behaviors include unusual command executions, particularly those involving `cmd.exe` and `conhost.exe` initiated from suspicious parent processes, which are often characteristic of Cobalt Strike's operation.
 
-  The relevant MITRE ATT&CK tactics and techniques for this detection include:
-  - Execution (T1203): Cobalt Strike often exploits this to execute payloads on compromised machines.
-  - Command and Control (T1071): Once a system is compromised, Cobalt Strike establishes persistent communication with the attacker using various protocols to relay commands.
+  This Sigma rule detects process creation patterns indicative of Cobalt Strike beacon activity, particularly focusing on command line executions that involve the Windows command interpreter (cmd.exe) and interaction with named pipes. The likely attacker objective is to establish command and control (C2) communication and exfiltrate information or execute additional malicious payloads. Relevant MITRE ATT&CK techniques include Remote Access Tools (T1219) and Command and Scripting Interpreter (T1059).
 
-  Primary data sources for this detection include:
-  - Process creation event logs, which can record command-line arguments and parent-child process relationships.
-  - Event logs from Windows, particularly those related to application and system activities, provide insights into system behavior during potential Cobalt Strike activity.
+  Primary telemetry sources include Windows process creation logs with event IDs 4688 (Process Creation) and relevant Sysmon logs (Event ID 1). If malicious, this activity can lead to unauthorized remote access, data exfiltration, and lateral movement within the network. However, this detection does NOT confirm that all detected instances are malicious, as legitimate administrative tasks or scripts may trigger similar command patterns.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze recent process creation logs for instances where `cmd.exe` is executed with unusual command lines, particularly those terminating with `/C whoami` and sourced from temporary directories.
 
-  - **Check Parent Process Activity**: Investigate the parent processes of detected `cmd.exe` instances; specifically, look for instances where the parent was `runonce.exe` or `dllhost.exe`, as these could indicate a manipulative invocation of Cobalt Strike.
+  - **Verify recent process creation logs:** Check Security Event ID 4688 for processes starting with `C:\Temp\` and involving `cmd.exe` with arguments typical of beacon activity (e.g., `cmd.exe /C whoami`). Look for timestamps and correlate against known legitimate administrative tasks.
 
-  - **Analyze Pipe Communication**: Determine if any process is communicating with named pipes, especially examining instances where command lines include `> \\\\.\\pipe` and confirm if these usage patterns align with known Cobalt Strike behaviors.
+  - **Inspect parent process relationships:** Analyze the `ParentImage` field in logs for entries ending with `runonce.exe` or `dllhost.exe`, and check for command line patterns containing `echo` and `> \\\\.\\pipe`. Malicious indicators could include patterns indicative of creating named pipes for C2 communication.
 
-  - **Correlate with Network Traffic**: If Cobalt Strike activity is suspected, cross-reference the process creation events with network detection logs for anomalous connections or data exfiltration patterns that coincide with the timing of these process activities.
+  - **Correlate with Sysmon logs:** Review Sysmon Event ID 1 for processes containing `conhost.exe` with parameters like `0xffffffff -ForceV1`. Cross-reference with the parent command line to establish if activity resembles Cobalt Strike’s operational signature.
+
+  - **Identify legitimate process behavior:** Look for typical administrative commands or scripts using `cmd.exe`. Common benign activities may include system updates or user notifications that do not create connections through named pipes.
+
+  - **Assess network activity:** Investigate any outbound connections made by the associated processes using the network logs (e.g., Firewall Event IDs or EDR telemetry). Pay attention to unusual inbound/outbound requests towards non-standard ports or external IPs.
+
+  ---
 
   ### Prioritization
-  Due to Cobalt Strike's lethal potential for conducting post-exploitation activities, any alerts generated from this detection should be treated as high severity. The likelihood of a serious threat is significant, given the ongoing prevalence of Cobalt Strike in targeted attacks across various industries.
+
+  This alert is categorized as high severity due to its potential impact on critical systems being exploited or compromised. The likelihood of malicious abuse is significant, as these command and control patterns are commonly weaponized in Cobalt Strike attacks. Quick identification is essential to prevent further exploitation or lateral movement.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture all Cobalt Strike variants due to the tool's versatility and frequent updates, leading to potential gaps in detection coverage. The assumptions underlying the logic include the necessity for process creation telemetry to be enabled and properly configured, as well as the reliance on standard naming conventions and command usage patterns commonly associated with Cobalt Strike. Without comprehensive logging configurations and a robust understanding of normal process behavior, some malicious activity may go undetected.
+
+  Detection may be limited by obfuscation techniques where attackers modify command line parameters to mimic benign usage or use alternative processes. Reliable detection requires comprehensive logging enabled for process creation and command-line arguments. Legitimate administrative tools may trigger similar alerts, so context is crucial. Related detections, such as abnormal outlier network connection patterns (e.g., unusual DNS queries or abnormal outbound traffic), can strengthen overall monitoring capabilities.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

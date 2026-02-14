@@ -31,26 +31,42 @@ falsepositives:
   Cloud to update or maintain them
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potential malicious usage of AWS Systems Manager (SSM) by monitoring for successful command executions on EC2 instances. When an attacker gains access to AWS credentials, they can utilize SSM to execute arbitrary commands on instances, potentially leading to unauthorized changes, data exfiltration, or lateral movement within the cloud environment. The objective of such an attack could be to compromise sensitive data or to install additional malicious tools on affected systems.
 
-  The relevant MITRE ATT&CK tactics and techniques include:
-  - **Initial Access** (TA0001): Attackers might gain access using compromised credentials.
-  - **Privilege Escalation** (TA0004): By sending commands to EC2 instances, attackers could escalate their privileges and further exploit the environment.
-  - **Phishing** (T1566) and **Phishing - Credential Harvesting** (T1566.002): These encompass common methods attackers use to gather AWS credentials for unauthorized access.
+  This rule detects when the AWS System Manager (SSM) successfully executes commands against an EC2 instance, indicated by the `SendCommand` event with a success status. The likely attacker objective is to gain initial access or escalate privileges on targeted EC2 instances remotely, potentially leading to further compromise within the cloud environment. The relevant MITRE ATT&CK tactics include Initial Access (TA0001) and Privilege Escalation (TA0004), with the associated techniques being T1566 (Phishing) and T1566.002 (Phishing via Service).
 
-  Primary data sources for investigation include AWS CloudTrail logs, which record API calls made by users and services, providing visibility into command executions and user activity in the AWS environment.
+  The primary telemetries are AWS CloudTrail logs capturing `SendCommand` events from the SSM service. If this activity is malicious, the impact could include unauthorized access, data exfiltration, and disruption of services. This detection does NOT confirm malicious intent by itself, as legitimate users may perform these actions for system maintenance and updates.
+
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Examine CloudTrail logs for events with eventName `SendCommand` and eventSource `ssm.amazonaws.com` to identify any successful commands executed on EC2 instances.
-  - **Identify User Context**: Analyze the user identity or IAM role associated with these commands to determine whether it matches known legitimate usage, especially focusing on any anomalies in user behavior.
-  - **Audit EC2 Instance Activity**: Check the logs of the affected EC2 instances for unauthorized command executions or changes made as a result of the SSM commands, including looking for unusual processes or modifications.
-  - **Compare Against Known Baselines**: Compare discovered command executions against baseline activities for your environment to identify any deviations from typical usage of Systems Manager.
+
+  - **Verify event context:** Review AWS CloudTrail logs for Event Name `SendCommand` and confirm Source Event as `ssm.amazonaws.com`. Check for unusual patterns such as commands run outside business hours or from untrusted IAM roles.
+
+  - **Identify command execution:** Examine the `command` field in the CloudTrail logs associated with the event to determine if the executed command is a standard maintenance command (e.g., `Update-SSMAgent`) or suspicious (e.g., `wget` or `curl` commands).
+
+  - **Correlate with IAM roles:** Check the IAM role and the identity of the user or service executing the command. Legitimate users typically have defined roles tied to operational tasks. Unexpected roles or new principals may suggest compromised accounts.
+
+  - **Examine network activity:** Look for associated IP addresses in VPC Flow Logs related to the command execution time to identify unusual outbound connections or data transfer events indicating potential data exfiltration.
+
+  - **Review documentation:** If available, cross-reference the executed command with the organization’s Change Management records to determine if there was legitimate authorization for such actions.
+
+  - **Check additional resources:** Investigate other companion detections related to privilege escalation or lateral movement, such as AWS CloudTrail logs for `CreateUser`, `AttachUserPolicy`, or other suspicious API calls immediately following the `SendCommand`.
+
+  ---
 
   ### Prioritization
-  The alert has a high severity level due to the potential impact of unauthorized command execution within the cloud environment, which can lead to critical data loss, service disruption, or regulatory non-compliance.
+
+  The severity of this alert is high due to the potential impact of an adversary gaining control over EC2 instances, which can lead to further compromise or data leakage. Given that SSM is a legitimate administration tool, the likelihood of its abuse in attacks is significant, and this behavior is commonly weaponized in cloud environments.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture all legitimate usage scenarios, as there are valid instances where SSM commands are executed for maintenance and updates. It assumes that any `SendCommand` event that returns a success status or null error code is potentially malicious, which may not always be true. Additionally, comprehensive CloudTrail logging and monitoring must be enabled, and IAM policies should be effectively configured to ensure proper coverage for this alert to function accurately.
+
+  Detection may have limitations if AWS CloudTrail logging is not properly configured or if logs are not retained adequately. Normal administrative tasks using SSM by trusted users may trigger this alert, creating false positives. A related detection to enhance coverage could involve monitoring for any API calls to IAM roles (`CreateRole`, `AttachRolePolicy`) shortly after the SSM commands, as this may indicate an attempted privilege escalation.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
