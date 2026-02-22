@@ -30,24 +30,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the use of obfuscated PowerShell scripts executed through MSHTA, a legitimate Windows application often exploited to execute malicious code. Attackers utilize this technique to bypass security controls and execute scripts that can compromise systems or exfiltrate data without raising alarms. The presence of specific command-line patterns—such as the use of `mshta` alongside obfuscated scripting commands—indicates potential malicious intentions, often linked to initial access and execution phases of an attack.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Execution** (TA0002), particularly **PowerShell** (T1059.001)
-  - **Defense Evasion** (TA0005), specifically **Obfuscated Files or Information** (T1027)
+  This Sigma rule detects the execution of obfuscated PowerShell commands via the Microsoft HTML Application Host (MSHTA) utility. Attackers often use this technique to execute malicious scripts while bypassing traditional security measures. The likely attacker objective is to deliver and execute payloads stealthily, exfiltrate data, or maintain access within the environment. Relevant MITRE ATT&CK tactics and techniques include Defense Evasion (T1027) and Execution (T1059.001).
 
-  The primary data sources for detecting this behavior are **process creation events** on Windows endpoints. Monitoring process creation allows analysts to catch the execution of suspicious commands and understand the context in which they were invoked.
+  Primary telemetry sources include process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1, capturing command-line arguments used to invoke the MSHTA utility. If successful, this behavior can lead to unauthorized system access or data compromise. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate uses of MSHTA exist.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze recent `process creation` logs for instances where `mshta` is invoked with unusual command-line arguments, particularly those containing patterns like `set`, `&&`, or `vbscript:createobject`.
-  - **Correlate with User Activity:** Check for the user context in which the process was initiated. Investigate if the user account is associated with legitimate administrative functions or has a history of benign activity.
-  - **Examine Related Network Activity:** Look for any outbound network connections that were initiated by the mshta process, as this may indicate data exfiltration or communication with a command and control server.
-  - **Look for Persistence Mechanisms:** Investigate if there are any services, scheduled tasks, or startup items created or modified as a result of this activity, potentially signifying attempts to establish persistence.
+
+  - **Review command-line arguments:** Check process creation logs for Windows Event ID 4688 (Event Type: 10) and focus on properties like `NewProcessName` and `CommandLine`. Look for command lines containing 'set', '&&', 'mshta', and 'vbscript:createobject'. Legitimate uses may have different command-line syntax or lack obfuscation.
+
+  - **Analyze parent process relationship:** Review Sysmon Event ID 1 logs to identify parent-child process relationships. Suspicious parent processes such as `powershell.exe` or `cmd.exe` leading to `mshta.exe` warrant further investigation as they may indicate a malicious campaign.
+
+  - **Identify timestamps and user context:** Verify the user context and timestamps for the execution of the mshta command. Anomalies, such as execution during off-hours or by non-administrative users, may indicate potential malicious activity.
+
+  - **Cross-reference with known indicators:** Utilize threat intelligence feeds to check if the executed command sequence has been linked to known malicious campaigns or threat actors. Malicious indicators may include known obfuscated scripts commonly leveraged in attacks.
+
+  - **Look for evidence of payload delivery:** Check for file creation or modification artifacts in temporary directories, such as `%TEMP%`, or PowerShell logs (Event ID 4104) that might indicate the delivery of a payload. If you find evidence of `.ps1` or other script file activities following mshta execution, this points towards likely malicious intent.
 
   ### Prioritization
-  The alert is classified as high severity due to the potential for malicious actors to execute obfuscated code that may lead to severe consequences such as data breaches, system compromise, or deployment of additional malware.
+
+  Given that the alert pertains to the use of MSHTA, a critical system component, the severity is high. The likelihood of malicious abuse is significant due to the common exploitation of MSHTA for delivering obfuscated scripts. This technique is regularly weaponized in modern attacks, especially in phishing and initial access scenarios.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited for scenarios where obfuscated scripts are run using non-standard methods or applications other than MSHTA. The detection logic assumes that the presence of specific command-line patterns is indicative of malicious behavior; however, this might lead to false positives if legitimate administrative tasks use similar constructs. Effective detection requires comprehensive logging of process creation events across all Windows systems in the environment.
+
+  Detection limitations include the potential for legitimate MSHTA use in application deployments or administrative tasks, which may trigger this alert and lead to potential false positives. Reliable detection requires comprehensive logging of process creation events (Event IDs 4688 and 1). Additionally, legitimate software installations or updates may also execute similar patterns. A related detection to consider is monitoring for uncommon PowerShell execution patterns (T1059.001), as these often indicate coordinated malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

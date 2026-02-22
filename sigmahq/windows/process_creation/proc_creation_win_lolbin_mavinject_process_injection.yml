@@ -4,8 +4,8 @@ related:
 - id: 17eb8e57-9983-420d-ad8a-2c4976c22eb8
   type: obsolete
 status: test
-description: Detects process injection using the signed Windows tool "Mavinject" via
-  the "INJECTRUNNING" flag
+description: Detects process injection using the signed Windows tool "Mavinject"
+  via the "INJECTRUNNING" flag
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1218/T1218.md
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1056.004/T1056.004.md
@@ -37,20 +37,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the use of "Mavinject," a legitimate Windows utility designed for DLL injection into running processes, specifically when using the "INJECTRUNNING" flag. DLL injection is a technique often employed by attackers to manipulate the behavior of running processes, and in this instance, it may suggest malicious intent, especially if the parent process is the expected "AppVClient.exe." Attackers typically aim to inject malicious code into trusted processes to evade detection and escalate privileges, thereby facilitating deeper penetration into the network.
 
-  The relevant MITRE ATT&CK techniques associated with this activity include T1055.001 (Process Injection: Dynamic-link Library Injection) and T1218.013 (Signed Binary Proxy Execution: Mavinject). Both techniques underline the use of process injection as a means of executing unauthorized code within the context of a trusted application. The primary data source for detection is the process creation logs from Windows, which contain command-line arguments and parent-child relationship details crucial for identifying suspicious behavior.
+  This Sigma rule detects the execution of the Mavinject tool with the `/INJECTRUNNING` flag, indicating an attempt to inject a DLL into an already running process. The likely objective of an attacker using this technique is to execute arbitrary code within the context of a legitimate process, allowing for stealthy operations such as data exfiltration or persistence. This behavior maps to MITRE ATT&CK techniques T1218.013 (Tool: Mavinject) and T1055.001 (Process Injection: DLL Injection).
+
+  The primary telemetry source for this detection comes from Windows process creation logs, specifically System event logs capturing process execution details (Event ID 4688 or Sysmon Event ID 1). If this technique is malicious, it poses a significant risk as it facilitates privilege escalation and stealthy execution within trusted processes. Importantly, this detection does NOT confirm that a compromise has occurred on its own; additional context and evidence should be gathered for a complete assessment.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check the Windows process creation logs for instances where "mavinject" is invoked with the "INJECTRUNNING" flag. Pay attention to the command line and the parent process to identify potentially malicious activity.
-  - **Analyze Parent Process Behavior:** Verify the behavior of the "AppVClient.exe" process to ensure it's operating as expected and not being exploited. Look out for any deviations or anomalies in resource usage or associated network activities.
-  - **Inspect Related Process Hierarchies:** Examine the hierarchy of processes involved when "mavinject" is used. Consider investigating the child processes created during the injection to determine whether they are legitimate or show signs of compromise.
-  - **Correlate with Other Security Alerts:** Cross-reference findings with alerts from other security solutions (like EDR or AV) that may have flagged suspicious behavior related to process injection or known malware signatures during the same timeframe.
+
+  - **Check process creation logs:** Review Windows Security Event ID 4688 for Mavinject execution. Look for CommandLine containing ' /INJECTRUNNING '. Consider time of alert and related user activity.
+
+  - **Identify parent process:** Validate that Mavinject was spawned by `C:\Windows\System32\AppVClient.exe`. If not, it could indicate suspicious behavior indicating the use of Mavinject by malware or unauthorized users.
+
+  - **Review loaded modules:** Use Sysinternals tools like Process Explorer to examine the target process for any unauthorized or unexpected DLLs injected by Mavinject. This includes checking for any newly loaded modules right after Mavinject execution.
+
+  - **Document legitimate dependencies:** Note that Mavinject might be legitimately used by system administrators or software deployment tools in specific environments. Identify if AppV (Application Virtualization) is in use and if Mavinject is part of expected operations.
+
+  - **Assess account activity:** Investigate the account context under which Mavinject was run. A system account (like SYSTEM) can indicate legitimate use, whereas user-initiated executions may need further scrutiny.
+
+  - **Capture network activity:** Monitor for any unusual network connections initiated by the target process post-injection. Use netstat or similar tools to identify suspicious outbound connections that could indicate data exfiltration.
 
   ### Prioritization
-  Given the potential for process injection to facilitate unauthorized access and privilege escalation, this alert should be treated with high severity. The likelihood of exploitation through such techniques is significant, especially in an enterprise environment where trusted processes may be targeted.
+
+  This alert should be treated as high severity due to the potential impact on sensitive systems if a malicious actor successfully injects code into critical processes. Given the stealthy nature of process injection techniques, there is a high likelihood of malicious abuse in real-world attacks, especially considering how commonly these techniques are weaponized by advanced persistent threats (APTs).
 
   ### Blind Spots and Assumptions
-  This detection logic may not cover all methods of process injection since it specifically looks for Mavinject with a defined parent process. It assumes that all instances of Mavinject will be flagged by this rule, which may not account for unauthorized renaming or usage by attackers mimicking legitimate behavior. It also requires that process creation logging is enabled and properly configured on the Windows systems, as the rule relies on access to those logs for effective detection.
+
+  Detection limitations include potential evasion tactics, such as attackers using alternate process injection methods that do not utilize Mavinject. False positives may arise from legitimate software deployment scenarios. Proper logging configurations must be enabled for effective detection; ensure Windows process creation logs and Sysmon are adequately set up. A related detection to consider includes any alerts captured by monitoring for unusual process parent-child relationships, offering comprehensive coverage against injection attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

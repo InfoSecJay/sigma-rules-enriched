@@ -4,7 +4,8 @@ status: test
 description: Detects potential DLL sideloading of "dbghelp.dll"
 references:
 - https://hijacklibs.net/     # For list of DLLs that could be sideloaded (search for dlls mentioned here in there)
-author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and research)
+author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and 
+  research)
 date: 2022-10-25
 modified: 2025-10-07
 tags:
@@ -40,28 +41,36 @@ detection:
     ImageLoaded|endswith: '\assistant\dbghelp.dll'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Legitimate applications loading their own versions of the DLL mentioned in this
-  rule
+- Legitimate applications loading their own versions of the DLL mentioned in 
+  this rule
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potential DLL sideloading activity related to `dbghelp.dll`, a common Windows DLL associated with debugging and error reporting. DLL sideloading is a tactic employed by attackers to execute malicious code by leveraging legitimate processes. The typical scenario involves placing a malicious version of `dbghelp.dll` in folders that are checked by an application, which then unknowingly loads the compromised DLL instead of the legitimate one. Attackers may aim to achieve code execution, maintain persistence on the system, or evade detection by blending malicious activities within legitimate processes.
 
-  This activity falls under the MITRE ATT&CK tactics of **Defense Evasion** (T1074) and **Persistence** (T1547), specifically technique **T1574.001: DLL Search Order Hijacking**. These techniques reflect the actions taken by adversaries to manipulate the normal operation of software to execute their code. The primary sources of telemetry for this detection include image load logs from the Windows operating system, which record information about DLLs loaded by processes.
+  This Sigma rule detects instances where the "dbghelp.dll" library is loaded from non-standard directories, potentially indicating DLL sideloading, a technique used by attackers for persistence and privilege escalation. The likely attacker objective is to execute arbitrary code using a maliciously crafted version of the DLL, enabling further exploitation of the system. This behavior is associated with the MITRE ATT&CK technique for DLL Side-Loading (T1574.001).
+
+  The primary telemetry source for this detection is Windows Event Logs focused on image load activities, specifically utilizing log types under the `image_load` category. Potentially compromising behavior can lead to unauthorized access and lateral movement within the network. Importantly, this detection does NOT definitively confirm malicious intent, as legitimate applications can also load their own versions of the DLL.
 
   ### Investigation Steps
-  - **Review Image Load Logs:** Collect and analyze image load logs focusing on any instances of `dbghelp.dll` being loaded. Pay particular attention to the directories being accessed to determine if they match unauthorized paths.
 
-  - **Assess Process Ancestors:** Investigate the parent processes that initiated the loading of `dbghelp.dll`. Ensure these processes are legitimate and not indicative of suspicious behavior, such as being executed from unusual or temporary directories.
+  - **Verify loading paths for "dbghelp.dll":** Check Event ID 8 from the Microsoft-Windows-Sysmon/Operational log. Look for instances where "dbghelp.dll" is loaded from paths outside of `C:\Program Files*`, `C:\Windows\*`, or other expected directories indicated in the filters.
 
-  - **Verify DLL Origin:** Check the file properties and signatures of the `dbghelp.dll` instances loaded. Look for any discrepancies in the publisher or version information that would suggest tampering or malicious intent.
+  - **Cross-reference with known DLLs:** Use the references from [HijackLibs](https://hijacklibs.net/) to identify if the loading context matches any known malicious DLLs or has been previously associated with malware activity.
 
-  - **Cross-Reference with Known Threats:** Utilize threat intelligence sources (such as the link provided in the references) to match the DLL path or hashes against known malicious samples that involve DLL sideloading for additional context.
+  - **Investigate process parents and behavior:** Review Event ID 4688 (Process Creation) logs to determine the parent process of the loaded DLL. Check if the parent process is a known legitimate application or exhibits suspicious behavior.
+
+  - **Identify legitimate application behaviors:** Confirm if legitimate applications (e.g., an IDE, debugger, or third-party software) in the environment are expected to load their own version of "dbghelp.dll", particularly those explicitly allowed in the optional filters.
+
+  - **Check for high-confidence malicious indicators:** Look for unusual process execution patterns associated with the loading of "dbghelp.dll". An example includes the presence of `cmd.exe` or `powershell.exe` launching processes that load this library from unexpected directories.
+
+  - **Validate recently created or modified files:** Review file system logs (e.g., Sysmon's Event ID 11 for file creation) for recent additions or modifications in the directories observed, and particularly look for unusual timestamps or large file sizes that could indicate exfiltration or malicious tampering.
 
   ### Prioritization
-  This alert is assigned a medium severity due to the potential for legitimate applications to load their own versions of `dbghelp.dll`. However, the presence of uncommon file paths or unexpected DLL versions can indicate serious security incidents, warranting immediate investigation in an enterprise environment.
+
+  This alert should be considered medium severity. The affected system may be critical depending on its role in the network, and the likelihood of malicious abuse through DLL sideloading is notable. Although this behavior is relatively common—especially among legitimate applications—any suspicious context warrants immediate investigation due to its potential for exploitation.
 
   ### Blind Spots and Assumptions
-  This detection may not cover all instances of DLL sideloading, particularly if attackers utilize different DLLs or methods outside of the watchlist specified. The detection logic assumes that all legitimate applications act according to defined paths, which might not hold for custom or poorly managed software deployments. For optimal alert generation, comprehensive configuration of Windows image load logging is required, and any gaps in logging (e.g., disabled audit policies) could result in missed detections.
+
+  Detection coverage may be limited if proper system logging is not configured, particularly for Sysmon logs. Attackers could employ techniques such as using legitimate applications to obscure their actions, thereby complicating detection. Additionally, normal software operations might trigger the alert, particularly for applications that utilize inherited versions of system libraries. Complementary detections could include monitoring for unusual file modifications in system directories or identifying unexpected process creation events related to DLL loading.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

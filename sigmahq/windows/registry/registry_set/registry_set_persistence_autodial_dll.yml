@@ -1,8 +1,8 @@
 title: Potential Persistence Via AutodialDLL
 id: e6fe26ee-d063-4f5b-b007-39e90aaf50e3
 status: test
-description: Detects change the the "AutodialDLL" key which could be used as a persistence
-  method to load custom DLL via the "ws2_32" library
+description: Detects change the the "AutodialDLL" key which could be used as a 
+  persistence method to load custom DLL via the "ws2_32" library
 references:
 - https://www.hexacorn.com/blog/2015/01/13/beyond-good-ol-run-key-part-24/
 - https://persistence-info.github.io/Data/autodialdll.html
@@ -23,22 +23,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects modifications to the Windows registry key related to `AutodialDLL`, which is associated with the Windows Sockets API (ws2_32). Attackers may use this registry entry to establish persistence by loading malicious Dynamic-Link Libraries (DLLs) during network communications. By embedding their code in this key, they can ensure that the malicious DLL is automatically called whenever a network connection is made, thereby allowing continued access or control even after reboots.
 
-  The likely attacker objectives include maintaining persistence on compromised systems, evading detection, and performing malicious activities such as data exfiltration or lateral movement across the network. This behavior falls under the MITRE ATT&CK tactics related to persistence (T1547), specifically using the `AutodialDLL` method (T1547.006 - Registry Run Keys / Startup Folder).
+  This Sigma rule detects changes made to the "AutodialDLL" registry key, specifically under the path `\Services\WinSock2\Parameters\AutodialDLL`. Attackers often manipulate this registry value to achieve persistence by loading custom Dynamic Link Libraries (DLLs) through the Windows Socket 2 API (ws2_32), which can facilitate various malicious activities, including command and control or data exfiltration.
 
-  The primary data sources for detecting this behavior include Windows registry change logs that track modifications to critical registry keys, which can be collected by endpoint detection and response (EDR) solutions that monitor system changes.
+  The relevant MITRE ATT&CK tactic is **Persistence (T1547)**, with the specific technique being **Infectious Link (T1547.001)**. The primary telemetry source is Windows Registry change logs, particularly those capturing registry set events. If malicious, this behavior can lead to long-term access and control over a compromised system, presenting significant security risks. Importantly, this detection does not confirm malicious actions on its own, as legitimate applications may also modify this key.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Check for alterations in the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SvcHost\Parameters\AutodialDLL` registry key to confirm unauthorized changes.
-  - **Analyze Process Execution:** Investigate the creation of processes that could be utilizing the `ws2_32` library around the same time as the registry change, focusing on any unusual binary execution patterns.
-  - **Correlate Network Activity:** Look for suspicious outbound connections initiated by processes associated with the altered `AutodialDLL` key to identify any potential data exfiltration or command and control communication.
-  - **Examine System Integrity:** Use integrity checks to look for unexpected DLLs loaded in memory that may correspond with the change detected on the `AutodialDLL` registry key.
+
+  - **Check registry change history:** Query Windows Registry event logs for Event ID 4657 or Sysmon Event ID 13 to track modifications to `HKLM\SYSTEM\CurrentControlSet\Services\WinSock2\Parameters\AutodialDLL`. Look for unusual non-standard DLL paths that do not match legitimate applications.
+
+  - **Validate legitimate usage:** Confirm if any applications or services on the host are known to interact with the AutodialDLL setting by reviewing documented software installations or recent application logs, ensuring that they correlate with expected operational behavior.
+
+  - **Analyze associated processes:** Investigate parent processes associated with this registry modification through Sysmon Event ID 1, identifying if any suspicious processes are related to the modification in the registry. Look for anomalies like processes running from temporary folders or unknown locations.
+
+  - **Review network activity:** Examine inbound and outbound connections initiated by any processes associated with modifications to the AutodialDLL registry key using Firewall logs (Event ID 5154). Investigate connections to suspicious IPs or domains that do not align with the organization's network usage patterns.
+
+  - **Correlate user behavior:** Check for unusual user behavior or administrative actions (Event ID 4672) around the time of the registry modification, particularly focusing on service account or admin accounts that might be misused to alter registry settings.
 
   ### Prioritization
-  This alert has a high severity level due to the potential for lateral movement and persistent access granted to attackers via the registry manipulations. The use of persistence mechanisms is critical for attackers to maintain control over compromised environments, thereby posing a significant threat to enterprise security.
+
+  This alert is high severity in a mature enterprise context due to the potential for long-term persistence and control over the affected system. The likelihood of malicious actors exploiting this registry entry for nefarious purposes is significant, as it offers an avenue for stealthy re-entry and further exploits. Additionally, this persistence mechanism is commonly weaponized by sophisticated adversaries.
 
   ### Blind Spots and Assumptions
-  Detection may be limited if registry modifications are not logged or if the endpoint does not have adequate logging configurations enabled. Additionally, this rule assumes that the change leads to malicious activity, but there could be legitimate applications that also modify the `AutodialDLL` key. Therefore, it is essential to consider the context of these changes and monitor for other indicators of compromise to confirm malicious intent effectively. Required logs include comprehensive registry change logs along with effective EDR configurations capable of capturing process and network behavior post-registry modifications.
+
+  Detection effectiveness may be reduced if Windows Registry auditing is not correctly configured or enabled for sensitive paths. Attackers can employ evasion techniques, such as reverting their changes immediately after execution. Legitimate software updates or configuration changes could also trigger this alert, particularly during automated provisioning of network components. A related detection to consider is monitoring for unexpected DLL files being loaded via `ws2_32`, which could provide additional context regarding malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

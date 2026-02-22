@@ -37,31 +37,38 @@ detection:
     - 'replace'
   condition: selection
 falsepositives:
-- Google Cloud Kubernetes Admission Controller may be done by a system administrator.
-- If known behavior is causing false positives, it can be exempted from the rule.
+- Google Cloud Kubernetes Admission Controller may be done by a system 
+  administrator.
+- If known behavior is causing false positives, it can be exempted from the 
+  rule.
 level: medium
 note: |
   ### Technical Context
-  This rule detects the execution of admission controllers within Google Cloud Kubernetes environments, particularly when invoking mutating or validating webhooks. Admission controllers are crucial components of Kubernetes that enable administrators to enforce policies at various stages of the API request lifecycle. However, they also pose a risk if exploited by malicious actors aiming to gain persistence or manipulate pod configurations. The threat scenario involves attackers deploying their webhooks to modify requests or intercept sensitive information, such as access credentials.
 
-  The relevant MITRE ATT&CK tactics associated with this rule include:
-  - **Initial Access (TA0001)**: Exploiting admission controllers can allow an adversary entry into the Kubernetes cluster.
-  - **Persistence (TA0003)**: By utilizing mutating webhooks, attackers can ensure their malicious containers are deployed in every new pod.
-  - **Credential Access (TA0006)**: Validating webhooks can be used to capture secrets and credentials passing through API requests.
-  - **Defense Evasion (TA0005)**: Attackers may modify requests to obscure their presence and manipulate behavior without detection.
+  This rule detects executions of Kubernetes Admission Controllers that handle requests to the Kubernetes API server, particularly focusing on MutatingAdmissionWebhook and ValidatingAdmissionWebhook actions such as create, patch, and replace. Attackers may leverage these webhooks to gain persistence within a Kubernetes cluster by manipulating pod creation operations or intercepting requests to capture sensitive information such as credentials and secrets.
 
-  Primary data sources for this detection include GCP audit logs, which capture Kubernetes API interactions, providing necessary context for investigation and validation of the suspicious activities.
+  Relevant MITRE ATT&CK techniques include **Persistence (T1078)** for establishing ongoing access and **Credential Access (T1552)** for capturing sensitive data. The primary telemetry source is Google Cloud Platform (GCP) audit logs, specifically filtering for entries related to admission controller activities. If malicious, the impact could be significant, leading to unauthorized modifications or data exfiltration. This detection alone does NOT confirm malicious intent, as legitimate administrators may perform similar operations.
 
   ### Investigation Steps
-  - **Review GCP Audit Logs**: Examine the GCP audit logs focusing on entries related to `admissionregistration.k8s.io` method names, particularly those that include `.mutatingwebhookconfigurations.` and `.validatingwebhookconfigurations.`.
-  - **Analyze Admission Controller Configuration**: Inspect the configurations of admission controllers in the Kubernetes cluster to identify any unfamiliar or unauthorized webhooks that may have been deployed.
-  - **Validate Pod Deployment Routines**: Check for unusual patterns in pod creation and modification processes that may indicate an attempt to deploy malicious containers.
-  - **Monitor Cluster Logs for Sensitive Information Access**: Look for signs of sensitive data exposure or interception attempts, especially through webhooks, that could indicate credential access activities.
+
+  - **Review the audit logs for related events:** Check GCP audit logs (resource type: GKE Cluster) for Event ID matching `admissionregistration.k8s.io.v` method names (e.g., `.mutatingwebhookconfigurations.create`). Look for unexpected changes from known administrators or unusual timestamps.
+
+  - **Identify the admitting user or service account:** Examine the field `authenticationInfo.user` in the audit logs to assess who initiated the admission controller events. Cross-reference this with a list of known authorized users or service accounts.
+
+  - **Check for unusual webhook configurations:** Validate the configurations of MutatingAdmissionWebhook and ValidatingAdmissionWebhook against the expected configurations normally deployed in the environment. Use `kubectl get mutatingwebhookconfiguration` and `kubectl get validatingwebhookconfiguration` commands to pull current configurations.
+
+  - **Assess for unauthorized container images:** Investigate whether the pods created during the time of the alert have been modified to include unauthorized or suspicious container images by checking the pod specs through `kubectl get pods -o yaml`.
+
+  - **Correlate with other security detections:** Look for related alerts from other detections that monitor for API server activity or changes within the Kubernetes environment. This can strengthen context and help provide a clearer picture of the activity's legitimacy.
+
+  - **Identify expected benign behavior:** Document and understand how your team typically uses admission controllers for legitimate deployments, such as normal configuration or policy enforcement patterns. This benchmark can help differentiate between expected and anomalous activities.
 
   ### Prioritization
-  This alert is classified as medium severity due to the potential impact of unauthorized admission controller modifications on the Kubernetes environment, which could lead to significant data breaches or persistent access for adversaries. The likelihood of such activities occurring is elevated, especially in environments with limited monitoring for admission controllers.
+
+  The alert is medium severity due to the potential impact of unauthorized access and modification of critical cluster resources. Given the capability of adversaries to exploit admission controllers, this behavior is a known vector for privilege escalation and persistent threats. While not every detection indicates malicious activity, the nature of interaction with Kubernetes admission controllers warrants careful examination.
 
   ### Blind Spots and Assumptions
-  One gap in detection coverage includes benign configurations made by system administrators, which could lead to false positives if not properly understood. The detection logic assumes that all admission webhook configurations are authorized; therefore, it requires vigilance in monitoring actual deployments. Additionally, accurate GCP audit logs are essential for this alert to function effectively, making it imperative that logging is properly configured and enabled across the Kubernetes cluster.
+
+  Legitimate administrative activities can easily trigger these alerts, particularly during regular deployments or cluster configuration updates. A limitation includes the need for complete GCP audit log captures to ensure detection reliability, as incomplete logs could lead to missed malicious activity. Adversaries may use evasion techniques such as deploying under the guise of legitimate service accounts or scheduled jobs. A related detection to consider is the monitoring of changes to Kubernetes Role-Based Access Control (RBAC) settings, which can provide additional insights into potential privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

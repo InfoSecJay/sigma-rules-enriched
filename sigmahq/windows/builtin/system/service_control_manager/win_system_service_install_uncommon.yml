@@ -45,29 +45,38 @@ detection:
     ImagePath|startswith: 'C:\WINDOWS\TEMP\thor10-remote\thor64.exe'
   filter_main_defender_def_updates:
     ImagePath|startswith: 'C:\ProgramData\Microsoft\Windows Defender\Definition Updates\'
-  condition: selection and ( suspicious_paths or all of suspicious_encoded_* ) and
-    not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: selection and ( suspicious_paths or all of suspicious_encoded_* ) 
+    and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious service installations on Windows systems that utilize uncommon image paths, especially those that reference encoded PowerShell commands or temporary directories. Attackers often create services using these uncommon paths as part of persistence mechanisms or privilege escalation strategies to exploit Windows environments. By detecting these patterns, analysts can identify suspicious activities likely associated with malware installation or lateral movement tactics.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Persistence (TA0003)** and **Privilege Escalation (TA0004)**, specifically using the technique **Service Creation (T1543.003)**. The rule focuses on peculiarities in service creation events (EventID 7045 from the Service Control Manager) that could indicate an attacker is establishing persistence through unusual methods.
+  This rule detects the installation of Windows services with uncommon or suspicious image paths, specifically those that include references to encoded PowerShell commands or temporary directories. An attacker may utilize these methods to establish persistence on a compromised system, suggesting intentions to maintain access and control. This behavior fits within the MITRE ATT&CK framework under the tactic "Persistence" and the technique "Create or Modify System Process: Windows Service" (T1543.003).
 
-  The primary data source for this detection is the Windows System log, particularly focusing on service installation events that can provide insights into system changes and potential exploitation efforts.
+  The primary telemetry source is Windows event logging, specifically Service Control Manager events (Event ID 7045). If malicious, the impact can be severe, as unauthorized services may enable remote access or execution of malicious payloads. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate services may also utilize similar paths.
 
   ### Investigation Steps
-  - **Review Service Installation Logs:** Collect and analyze Windows Event Logs for EventID 7045 to find instances of service creation that match the identified patterns.
-  - **Correlate with Other Alerts:** Check for any other security alerts or logs generated around the same time, such as process creation events that may indicate suspicious activity coinciding with the service installation.
-  - **Examine Image Path:** Investigate the specified `ImagePath` for any signs of tampering or unexpected behavior, especially if it points to temporary directories or contains encoded PowerShell commands.
-  - **Analyze System Behavior:** Look at recent changes to system services and check both active and stopped services for anomalies in their paths or configurations, correlating this with known attack signatures or behaviors.
+
+  - **Examine Event ID 7045 logs**: Filter on Event ID 7045 to identify newly created services. Focus on the `ImagePath` field to isolate entries with uncommon paths, particularly those containing `\\.\pipe`, `\Users\Public\`, or `\Windows\Temp\`.
+
+  - **Identify encoded PowerShell commands**: Check the `ImagePath` for strings like ` -e`, `aQBlAHgA`, or other listed encoded phrases. The presence of these specific patterns strongly indicates the use of obfuscation techniques typical of adversary behavior.
+
+  - **Analyze service creation context**: Validate the legitimate behavior by identifying standard services created during application installation (e.g., Microsoft Defender updates). These typically reside in `C:\ProgramData\Microsoft\Windows Defender\Definition Updates\` and should not contain encoded commands.
+
+  - **Correlate with process creation events**: Cross-reference with Security Event ID 4688 logs to see if a newly created service has initiated suspicious processes. Specifically, check if any of the service paths lead to executable files that are non-standard for the environment.
+
+  - **Assess the asset’s sensitivity and role**: Determine the criticality of the affected host system. Compromised systems that hold sensitive information or are integral to business operations require immediate attention for potential risks.
+
+  - **Review prior activity and owner**: Verify the change history of the service using Sysinternals tools like Autoruns or checking management service logs to understand legitimate service configurations. This aids in identifying if unexpected changes were made and by whom.
 
   ### Prioritization
-  This alert is considered medium severity due to the potential threat of persistence in an enterprise environment. The installation of services with suspicious attributes could indicate an active compromise, making it crucial to investigate promptly to mitigate potential breaches.
+
+  This alert carries medium severity due to the potential for significant impact if non-legitimate services are established, particularly on critical systems. The likelihood of such techniques being weaponized by adversaries, especially in automated attacks, necessitates prompt investigation.
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection coverage, as not all malicious activity can be detected solely through service creation events, and legitimate applications may occasionally use similar paths. The detection logic assumes that encoded PowerShell commands are indicative of malicious intent, which may not always be the case. Additionally, the alert relies on the availability of accurate and comprehensive Windows System logs, specifically focusing on EventID 7045, meaning that any misconfigurations or log truncations could hinder effective detection.
+
+  Detection may be limited by evasion techniques, such as using less obvious paths or legitimate-looking executables. It requires proper configuration of Windows event logging; without this, detection may not trigger. Additionally, legitimate administrative actions or software installations may generate similar alerts, potentially leading to false positives. A companion detection to consider would be the tracking of unusual process creation linked to these service installations to enhance detection efficacy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

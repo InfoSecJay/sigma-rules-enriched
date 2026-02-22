@@ -1,8 +1,9 @@
 title: Removal Of AMSI Provider Registry Keys
 id: 41d1058a-aea7-4952-9293-29eaaf516465
 status: test
-description: Detects the deletion of AMSI provider registry key entries in HKLM\Software\Microsoft\AMSI.
-  This technique could be used by an attacker in order to disable AMSI inspection.
+description: Detects the deletion of AMSI provider registry key entries in 
+  HKLM\Software\Microsoft\AMSI. This technique could be used by an attacker in 
+  order to disable AMSI inspection.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
 - https://seclists.org/fulldisclosure/2020/Mar/45
@@ -39,20 +40,37 @@ simulation:
   atomic_guid: 13f09b91-c953-438e-845b-b585e51cac9b
 note: |
   ### Technical Context
-  This rule detects instances where an attacker removes specific AMSI (Antimalware Scan Interface) provider registry keys from the Windows Registry path `HKLM\Software\Microsoft\AMSI`. The removal of these keys can disable the AMSI, a critical feature designed to help applications detect malicious content before execution. Attackers may aim to bypass security controls, making it easier for them to execute malware undetected. By targeting AMSI, the attacker seeks to disable automated defenses that would typically flag or block harmful activities, thereby facilitating further malicious actions such as deploying payloads or initiating lateral movement.
 
-  Relevant MITRE ATT&CK tactics include "Defense Evasion" and the specific technique T1562.001, which focuses on the disabling or bypassing of security mechanisms. The primary data sources for effective detection include Windows Registry deletion logs, process creation events (particularly involving Windows Defender), and potentially endpoint detection logs that record security events related to AMSI.
+  This Sigma rule detects the deletion of specific AMSI (Antimalware Scan Interface) provider registry keys, which are critical for allowing Windows Defender to perform real-time scanning of potentially malicious activities. The likely objective of the attacker is to disable AMSI inspection, facilitating malicious payload execution without detection by security software. This behavior aligns with the MITRE ATT&CK tactic "Defense Evasion" and the technique ID T1562.001.
+
+  The primary telemetry source for this rule is Windows registry change logs, specifically monitoring registry delete events for keys related to AMSI providers. If malicious, the security impact is significant, as it may allow malware to evade detection. However, this detection does NOT confirm that malware is present or has executed; it merely indicates an attempt to disable a defense mechanism.
+
+  ---
 
   ### Investigation Steps
-  - **Review Registry Deletion Logs:** Investigate logs reflecting deletions in the `HKLM\Software\Microsoft\AMSI` path to identify unauthorized access or tampering with AMSI provider keys.
-  - **Monitor Process Creation Events:** Analyze related process creation events for `MsMpEng.exe` or other executables that started before or after the registry key deletion to detect suspicious activity patterns.
-  - **Correlate with Security Solution Logs:** Check Windows Defender security logs or alerts to determine if any malicious activity correlates with the timing of registry changes.
-  - **Assess Endpoint Behavior:** Review recent endpoint behavior to identify any unusual processes or applications attempting to execute, especially those related to known malware techniques.
+
+  - **Check for registry deletions:** Query Windows Security Event ID 4663 logs for deletions in `HKLM\Software\Microsoft\AMSI`. Look for deletion of keys including `{2781761E-28E0-4109-99FE-B9D127C57AFE}` and `{A7C452EF-8E9F-42EB-9F2B-245613CA0DC9}`.
+
+  - **Identify the process responsible:** Validate the associated process by reviewing the command line arguments of the parent process linked to the registry deletion by correlating with Sysmon Event ID 1 (process creation). Look for `MsMpEng.exe` as a base image.
+
+  - **Compare with legitimate behaviors:** Analyze historical registry delete actions to identify expected administrative tasks or updates, such as management of third-party antivirus software. Ensure legitimate delete actions are properly documented and match expected patterns.
+
+  - **Examine concurrent events:** Correlate any suspicious registry deletions with other potentially malicious activities tracked in the logs (e.g., unexpected network connections or file creations) using Sysmon Event IDs 3, 10, and 11.
+
+  - **Investigate systems for additional signs of compromise:** Perform a file integrity check on the system referenced in the deletion alert. Verify the presence of any additional anti-malware files or services that may have been altered or removed, checking for unauthorized access or modifications.
+
+  - **Document findings and escalate:** If confirmed as malicious, escalate the alert with detailed evidence. Include the registry keys deleted, associated processes, and any additional indicators gathered.
+
+  ---
 
   ### Prioritization
-  The alert is considered high severity due to the potential impact on endpoint security. The ability to disable AMSI significantly increases the likelihood of malware execution and data compromise in an enterprise environment.
+
+  This alert has a high severity due to the critical nature of the AMSI feature in defending against malware. The likelihood of malicious abuse is significant, as the removal of AMSI registry keys is a common step used in evading detection mechanisms by adversaries. The behavior is often weaponized in real-world attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited in environments where not all registry deletion logs are adequately captured or where traditional logging mechanisms are disabled. The detection logic assumes that the offending actions are executed from processes that align with legitimate WMIC or PowerShell commands; however, sophisticated attackers may use alternative methods to circumvent detection. Ensuring that Windows Defender and registry auditing are properly configured is essential for this alert to function accurately and effectively.
+
+  The detection may be circumvented by adversaries using techniques such as directly modifying the registry without logging or employing APIs that do not trigger traditional logging mechanisms. Required log sources include registry change logs and Sysmon events for comprehensive visibility. Legitimate tools or processes could unintentionally trigger this alert, particularly during legitimate software updates or maintenance. Companion detections, such as monitoring for use of known malware delivery or persistence techniques, would enhance coverage and contextual understanding of potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

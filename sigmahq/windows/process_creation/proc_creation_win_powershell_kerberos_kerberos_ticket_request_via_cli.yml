@@ -39,23 +39,39 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule is designed to detect potentially malicious requests for Kerberos tickets made via the command line using the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class. Threat actors may exploit legitimate administrative tools and commands to initiate these requests, targeting service accounts for offline password cracking (known as Kerberoasting) or executing silver ticket attacks. Such actions are typically aimed at gaining unauthorized access to sensitive resources or maintaining persistence within the network.
 
-  Relevant MITRE ATT&CK techniques include **T1558.003 - Use of alternative authentication material** related to Kerberos ticket manipulation. This technique covers the abuse of service account credentials to access or escalate privileges. The primary data source for this detection relies on Windows process creation logs, which will provide details about the execution of command line statements that make suspicious Kerberos ticket requests.
+  This rule detects the suspicious use of the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class via command line to request Kerberos tickets, an activity often indicative of Kerberoasting or silver ticket attacks. Attackers may exploit this technique to gain access to service accounts, allowing them to attempt offline password cracking.
+
+  The relevant MITRE ATT&CK technique is **T1558.003: Credentials from Kerberos Ticket Granting Ticket**. The primary telemetry source for this detection is Windows process creation logs, specifically focusing on PowerShell executions. If malicious, this behavior poses a significant security impact, potentially compromising sensitive accounts and enabling further lateral movement within the network.
+
+  This detection does NOT confirm a breach on its own; legitimate administrative tasks may also trigger this rule, necessitating further investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze Windows process creation events for any instances of `powershell.exe` or `pwsh.exe`, particularly those that include the command line parameters related to `System.IdentityModel.Tokens.KerberosRequestorSecurityToken`.
 
-  - **Examine Command Line Arguments:** Focus on command lines that contain `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and `.GetRequest()`. Pay attention to the context in which these commands were executed, particularly their execution time and user account.
+  - **Check Process Creation Events:**
+    Review Security Event ID 4688 for process creation logs where the image path is either `powershell.exe` or `pwsh.exe`, filtering for `CommandLine` containing `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and `.GetRequest()`.
 
-  - **Correlate with User Activities:** Investigate the user accounts associated with these command line actions. Check if they are administrative accounts or service accounts and whether their behavior is consistent with normal operational patterns.
+  - **Analyze Command Line Parameters:**
+    Inspect the full command line provided in the logs to validate intended use cases; look for indication of known tools or strings that align with administrative functions versus potential misuse.
 
-  - **Look for Unusual Timing:** Pay special attention to the timing of the commands. Requests made during off-hours or from unexpected systems may indicate malicious activity.
+  - **Identify User Context:**
+    Correlate the user ID associated with the ticket request to ascertain legitimacy; check if the user belongs to an administrative group or if the action is consistent with their role.
+
+  - **Validate Event Frequency:**
+    Assess if multiple similar requests occur in a short timeframe. A high volume of Kerberos ticket requests from a single user could indicate automated attack behavior.
+
+  - **Examine Related Logs for Anomalies:**
+    Look into authentication logs (e.g., Security Event ID 4624) that correspond with the process creation timestamps to verify if the requests resulted in successful authentications to sensitive systems.
+
+  - **Identify Expected Behavior:**
+    Understand legitimate use cases of PowerShell for service account management within your environment; document typical commands for reference to differentiate between benign and malicious activities.
 
   ### Prioritization
-  This alert should be treated with high priority, as the ability to request Kerberos tickets via command line indicates a potential compromise of service account credentials, which can lead to extensive unauthorized access and privilege escalation within the environment.
+
+  This alert is categorized as high severity due to the potential impact on critical systems and the likelihood of being weaponized for credential theft. The ability to request tickets for privileged accounts can provide attackers enhanced access to system resources, amplifying their foothold.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding legitimate administrative activities that may also trigger this rule, such as normal usage by security tools or authorized personnel. The detection logic assumes that all malicious Kerberos requests will utilize the specified command line constructs, which may not always be the case. Additionally, the effectiveness of this rule relies on comprehensive logging of process creation events; if these logs are not enabled or retained, detection will be compromised.
+
+  Detection may be limited by environments where legitimate administrative command line usage is common, possibly leading to false positives. Ensure that logging is configured correctly for process creation, particularly for PowerShell commands. It's also important to take into account that legitimate administrator uses may trigger this alert. Companion detections that can provide additional context include monitoring for unusual Kerberos ticket granting or TGT requests in Security Event ID 4769, which track when service tickets are requested.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

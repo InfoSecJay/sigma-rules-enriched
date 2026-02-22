@@ -1,8 +1,8 @@
 title: Root Certificate Installed From Susp Locations
 id: 5f6a601c-2ecb-498b-9c33-660362323afa
 status: test
-description: Adversaries may install a root certificate on a compromised system to
-  avoid warnings when connecting to adversary controlled web servers.
+description: Adversaries may install a root certificate on a compromised system 
+  to avoid warnings when connecting to adversary controlled web servers.
 references:
 - https://www.microsoft.com/security/blog/2022/09/07/profiling-dev-0270-phosphorus-ransomware-operations/
 - https://learn.microsoft.com/en-us/powershell/module/pki/import-certificate?view=windowsserver2022-ps
@@ -34,25 +34,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the installation of root certificates from suspicious locations on Windows systems. Attackers may employ this technique to prevent alerts and warnings when a user connects to malicious web servers under their control, effectively facilitating man-in-the-middle attacks by intercepting encrypted traffic. The installation of a root certificate can grant the attacker the ability to decrypt and manipulate sensitive information without detection.
 
-  The primary MITRE ATT&CK tactics relevant to this rule are **Defense Evasion** (T1070) and the specific technique of **Valid Accounts** (T1553.004), where an attacker may try to avoid detection through legitimate processes like importing certificates. The detection relies on identifying command-line invocations that include the use of the `Import-Certificate` PowerShell cmdlet, particularly from uncommon or user profile-specific locations like Temp, Downloads, and Public folders, indicating potentially unauthorized or automated scripting activity.
+  This Sigma rule detects the installation of a root certificate via the `Import-Certificate` PowerShell command, specifically when sourced from temporary or user directories typically associated with malicious activity. An attacker may utilize root certificates to bypass security warnings when connecting to their controlled web servers, facilitating man-in-the-middle attacks or the distribution of malware disguised as legitimate software.
 
-  The best sources of data for this detection include **process creation events**, specifically monitoring command-line arguments that are employed when new certificates are imported, as they contain information about the command issuer and context.
+  This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0005) and the associated technique for Installing an Application on a compromised system (T1553.004). Primary telemetry sources include Windows process creation logs, notably Security Event ID 4688 and Sysmon Event ID 1, capturing command line execution details. If malicious, this activity can undermine system integrity and user trust. However, this detection does not confirm compromise on its own; further analysis is required to ascertain intent and context.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Check for instances of the `Import-Certificate` command being executed. Pay attention to the command-line arguments to identify any unusual file paths or execution contexts that suggest possible malicious use.
 
-  - **Analyze Certificate Store Changes**: Use PowerShell or certificate management tools to enumerate changes to the machine's root certificate store, specifically looking for certificates that were recently added or that have unusual origins.
+  - **Evaluate the Command Line Execution:** Examine the relevant telemetry, especially Security Event ID 4688 and Sysmon Event ID 1, to identify `Import-Certificate` usage from paths like `C:\Users\<username>\AppData\Local\Temp\`. Malicious indicators include unexpected use from these temp directories.
 
-  - **Correlate with Network Activity**: Investigate outbound connections initiated shortly after the certificate installation from the detected process. Look for unusual or unauthorized traffic heading to known malicious domains or IP addresses.
+  - **Check Certificate Store Post-Execution:** Inspect the Local Machine Root certificate store (e.g., using `certutil` or PowerShell). Look for newly added certificates, especially those with unusual Issuer names or creation dates immediately following suspicious process creations. Legitimate installations typically originate from known management tools, not user directories.
 
-  - **Validate User Context**: Check the user accounts associated with the process creation events. Determine if the account has the correct privileges and whether it is common for users with that role to manipulate certificates.
+  - **Cross-reference Contextual User Activity:** Verify the legitimacy of the user who executed the command. If the user is a regular non-admin account performing non-administrative work, flag this for further review as anomalous behavior.
+
+  - **Analyze Related Processes and Parent Hierarchy:** Investigate parent processes leading to `powershell.exe` creation to identify potentially related or precursor malicious activities. Check for execution chains that could indicate post-compromise behavior, such as exploitation or lateral movement.
+
+  - **Monitor Network traffic related to the Certificate:** Review network logs for outbound connections to suspicious IP addresses or domains shortly after certificate installation (e.g., DNS logs, firewall logs). Mark connections involving newly installed root certificates as high-risk.
+
+  - **Document Historical Trends:** Track the user's historical installation behavior for certificates and patterns. Frequent changes to trusted certificates from a user can point to stealthier, prolonged attack vectors.
 
   ### Prioritization
-  This alert should be treated with high severity due to the potential for significant impact, including data breaches and unauthorized access to sensitive information. The likelihood of an attacker successfully executing this technique can be high, especially in environments where administrative privileges are available to users without strict controls.
+
+  Alerts of this nature are high severity due to the potential for significant security impact on systems considered critical or core to operations. This activity is often exploited by advanced persistent threats (APTs) aiming to establish long-term persistence undetected. The likelihood of malicious action is elevated given the typical usage of these techniques in recent threat actor campaigns.
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may occur if the command is executed through obfuscated or non-standard methods that don't utilize common PowerShell cmdlets. The detection logic assumes that suspicious locations for certificate files are indicative of potentially malicious behavior, but legitimate administrative actions from system administrators could also trigger false positives. To ensure effective detection, logs must be enabled for process creation events, and PowerShell script logging should be configured to provide detailed command-line activity information.
+
+  Detection is limited by the absence of proper auditing settings, which can obscure legitimate root certificate activities. Admin activities, such as legitimate software installations or updates, may trigger similar alerts if commands are sourced from temp directories. Ensuring comprehensive endpoint telemetry is key for effective detection. Companion detections include monitoring for outbound connections to malicious or unexpected certificates, reinforcing the understanding of any potential compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

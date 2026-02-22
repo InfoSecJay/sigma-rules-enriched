@@ -1,8 +1,9 @@
 title: Potential Credential Dumping Via WER
 id: 9a4ccd1a-3526-4d99-b980-9f9c5d3a6ff3
 status: test
-description: Detects potential credential dumping via Windows Error Reporting LSASS
-  Shtinkering technique which uses the Windows Error Reporting to dump lsass
+description: Detects potential credential dumping via Windows Error Reporting 
+  LSASS Shtinkering technique which uses the Windows Error Reporting to dump 
+  lsass
 references:
 - https://github.com/deepinstinct/Lsass-Shtinkering
 - https://media.defcon.org/DEF%20CON%2030/DEF%20CON%2030%20presentations/Asaf%20Gilboa%20-%20LSASS%20Shtinkering%20Abusing%20Windows%20Error%20Reporting%20to%20Dump%20LSASS.pdf
@@ -38,27 +39,34 @@ detection:
     ParentImage: 'C:\Windows\System32\lsass.exe'
   condition: all of selection_* and not 1 of filter_*
 falsepositives:
-- Windows Error Reporting might produce similar behavior. In that case, check the
-  PID associated with the "-p" parameter in the CommandLine.
+- Windows Error Reporting might produce similar behavior. In that case, check 
+  the PID associated with the "-p" parameter in the CommandLine.
 level: high
 note: |
   ### Technical Context
-  This rule detects potential credential dumping activity through the Windows Error Reporting mechanism, specifically focusing on the LSASS Shtinkering technique. This technique manipulates errors in the Windows operating system to extract sensitive data, particularly credentials stored in the Local Security Authority Subsystem Service (LSASS). Attackers leverage this method to access account credentials or tokens without raising immediate alarms, often with the intent to elevate privileges or move laterally within the network.
 
-  The relevant MITRE ATT&CK tactics and techniques include **Credential Access (TA0006)**, specifically **Credential Dumping (T1003)** with a focus on **Process Dumping (T1003.001)**. The execution of `WerFault.exe` with specific command line parameters that target the LSASS process indicates manipulation of the error reporting to access sensitive information.
-
-  The primary data sources for detecting this activity include **process creation logs** from Windows systems, where any invocation of `WerFault.exe` with unusual command line arguments can be indicative of malicious behavior.
+  This Sigma rule detects potential credential dumping attempts using the Windows Error Reporting (WER) process, specifically targeting LSASS (Local Security Authority Subsystem Service) via the “LSASS Shtinkering” technique. The likely attacker objective is to extract sensitive credentials without raising immediate alarm, leveraging WER to bypass traditional defenses. This behavior corresponds with the MITRE ATT&CK tactic of Credential Access, specifically technique T1003.001 (Credential Dumping: LSASS Memory). Primary telemetry sources include Windows process creation logs, particularly from Sysmon (Event ID 1) or Security logs (Event ID 4688), capturing usage of the WerFault.exe executable. If successful, this activity could allow an attacker to obtain sensitive credentials, significantly impacting security posture. It is important to note that this detection does NOT confirm a successful credential dump on its own; further investigation is necessary to ascertain intent and impact.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze the process creation events for instances of `Werfault.exe` and check the associated command line arguments for indications of `-p` (target process ID) and `-ip` (source process ID) targeting LSASS.
-  - **Validate Parent Process**: Ensure the parent process of any detected `WerFault.exe` instances is LSASS. If the command line shows a different source process (one that is not LSASS), it strengthens the case for suspicious activity.
-  - **Investigate User Context**: Check the user context under which `WerFault.exe` was executed. Suspicious user accounts, particularly if they are not part of standard operational activities, may indicate potential insider threat or compromised accounts.
-  - **Correlate with Security Alerts**: Cross-reference the findings with other security alerts in the environment to identify any related activities or known threat actors that may fit the pattern of credential dumping.
+
+  - **Review the Command Line Arguments:** Check for the presence of "-p" and "-ip" parameters in the command line of WerFault.exe (Event ID 4688). A potential malicious indicator is when the "-p" parameter points to LSASS (PID 744) while the "-ip" points to a different process.
+
+  - **Inspect the Parent Process:** Investigate the ParentImage associated with the detected WerFault.exe process. Confirm that the parent process is lsass.exe to validate suspicious behavior. Normal instances of WerFault.exe will not have this direct parent-child relationship.
+
+  - **Evaluate the Event IDs:** Review Sysmon Event ID 1 to examine the Image, OriginalFileName, and CommandLine fields. Look for a match to the WerFault.exe signature and any execution paths suggesting abnormal usage.
+
+  - **Identify Benign Behavior:** Analyze baseline behavior of legitimate Windows Error Reporting processes around typical system errors. Legitimate instances usually do not exhibit the specific command line characteristics targeting LSASS.
+
+  - **Correlate with Other Indicators:** Cross-reference alerts with other telemetry sources, such as security logs or EDR alerts, to identify known malicious indicators associated with the use of WerFault.exe.
+
+  - **Confirm Process Hierarchy:** Validate that the source of the WerFault.exe execution does not stem from legitimate user processes (e.g., User or Admin actions) but rather from unauthorized access or system compromises.
 
   ### Prioritization
-  This alert should be considered high priority due to its potential for enabling unauthorized access to sensitive accounts and information, which can facilitate further attacks. Given the sophistication of the LSASS Shtinkering technique, rapid response is crucial to mitigate potential damage.
+
+  This alert should be treated with high severity given the potential impact on credentials being compromised directly from LSASS, which is a critical component responsible for managing local security policies and information on Windows systems. The likelihood of malicious abuse through this technique is elevated, as it is a known method employed by threat actors in the wild.
 
   ### Blind Spots and Assumptions
-  This detection rule may not effectively cover all instances of credential dumping, especially if attackers use different mechanisms or tools that do not rely on `WerFault.exe`. Additionally, there is an assumption that users typically do not engage in legitimate use of `WerFault.exe` to target LSASS, which may not hold true for all environments. The effectiveness of the detection relies on comprehensive logging of process creation events and the correct configuration of the monitoring tools to capture all relevant process activities.
+
+  Detection may be limited by legitimate Windows Error Reporting activities that can produce similar behaviors, necessitating thorough investigation of context and command line parameters. It is also critical to ensure that logging configurations for process creation are properly set, including Sysmon logging. Legitimate system processes such as user-initiated troubleshooting or application reporting may inadvertently trigger this alert. A companion detection to strengthen coverage would include monitoring traditional credential dumping techniques via lsass.exe directly or through other malicious command line activities in Security Event logs.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

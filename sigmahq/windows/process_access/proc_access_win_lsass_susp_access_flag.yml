@@ -4,16 +4,17 @@ related:
 - id: 32d0d3e2-e58d-4d41-926b-18b520b2b32d
   type: similar
 status: test
-description: Detects process access requests to LSASS process with potentially suspicious
-  access flags
+description: Detects process access requests to LSASS process with potentially 
+  suspicious access flags
 references:
 - https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
 - https://onedrive.live.com/view.aspx?resid=D026B4699190F1E6!2843&ithint=file%2cpptx&app=PowerPoint&authkey=!AMvCRTKB_V1J5ow
 - https://web.archive.org/web/20230208123920/https://cyberwardog.blogspot.com/2017/03/chronicles-of-threat-hunter-hunting-for_22.html
 - https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
 - https://web.archive.org/web/20230420013146/http://security-research.dyndns.org/pub/slides/FIRST2017/FIRST-2017_Tom-Ueltschi_Sysmon_FINAL_notes.pdf
-author: Florian Roth, Roberto Rodriguez, Dimitrios Slamaris, Mark Russinovich, Thomas
-  Patzke, Teymur Kheirkhabarov, Sherif Eldeeb, James Dickenson, Aleksey Potapov, oscd.community
+author: Florian Roth, Roberto Rodriguez, Dimitrios Slamaris, Mark Russinovich, 
+  Thomas Patzke, Teymur Kheirkhabarov, Sherif Eldeeb, James Dickenson, Aleksey 
+  Potapov, oscd.community
 date: 2021-11-22
 modified: 2023-11-29
 tags:
@@ -121,30 +122,36 @@ detection:
     GrantedAccess: '0x401'
   filter_optional_steam_apps:
     SourceImage|contains: '\SteamLibrary\steamapps\'
-  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
 - Legitimate software such as AV and EDR
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potentially suspicious access requests to the Local Security Authority Subsystem Service (LSASS) process, specifically focused on the `GrantedAccess` flags that are indicative of credential theft attempts or other nefarious actions. The LSASS process handles sensitive security information like user credentials, making it a common target for attackers using tools to extract this information. When an unauthorized or suspicious process tries to access LSASS with specific `GrantedAccess` flags, it can suggest an attempt to perform credential dumping, a tactic commonly employed by threat actors to escalate privileges or maintain persistence.
 
-  The key MITRE ATT&CK techniques relevant to this detection include:
-  - **Credential Dumping: LSASS Memory** (T1003.001): Accessing LSASS to extract sensitive data such as user credentials.
-  - **Process Access** (T1055): Interacting with the LSASS process to manipulate or retrieve sensitive information.
+  This Sigma rule detects potentially suspicious access requests to the Local Security Authority Subsystem Service (LSASS) process on Windows systems. The behavior indicates an attempt by an attacker to obtain sensitive information, such as credentials. The likely objective of an attacker triggering this rule is credential dumping, which falls under the MITRE ATT&CK tactic of Credential Access (T1003) and specifically the technique Credential Dumping: LSASS Memory (T1003.001). The primary telemetry sources for this detection include Windows process access logs, particularly focusing on the GrantedAccess flags utilized in access requests to "C:\Windows\System32\lsass.exe". If malicious, this behavior could lead to serious security breaches due to exposure of credentials and elevation of privileges.
 
-  Primary data sources for this type of detection include Windows process access logs, specifically concerning interactions with the LSASS executable. This telemetry may manifest in EDR logs, which track process access events and relevant access rights.
+  This detection does NOT confirm that an actual credential theft has occurred without additional corroborating evidence. The mere act of accessing LSASS with certain flags may also be part of benign activities conducted by legitimate applications.
 
   ### Investigation Steps
-  - **Identify Process Access Logs**: Review logs for process access requests that target `lsass.exe`, focusing on abnormal `GrantedAccess` flags associated with unauthorized applications.
-  - **Correlate with User Activity**: Investigate the user context under which the access request occurred. Look for any recent user account anomalies or potential compromise indicators (e.g., concurrent logins from different locations).
-  - **Analyze Source Process**: Determine the source of the access request by checking the `SourceImage` attribute in the logs. This may help identify if a legitimate application (AV/EDR) or suspicious third-party software was involved.
-  - **Review Historic Behavior**: Examine historical logs for similar access requests or patterns. A sudden increase in access attempts from non-standard processes should raise concerns.
+
+  - **Review process access logs:** Investigate Security Event IDs related to process access requests, specifically those targeting `lsass.exe`. Look for Event ID 4663 to find granted access flags and correlate with system sources or processes.
+
+  - **Check for high-confidence malicious behavior:** Identify GrantedAccess values from the logs associated with LSASS access using the hexadecimal values specified in the rule (e.g., '30', '50', '70', etc.). Any suspicious access that corresponds with these values should prompt further scrutiny.
+
+  - **Validate legitimate applications:** Confirm expected behavior by checking for legitimate software interacting with LSASS. Common benign processes might include trusted endpoints like `explorer.exe`. If these processes have access flags that match the selection criteria, they may warrant a lower priority for investigation.
+
+  - **Scrutinize source application paths:** Look into the `SourceImage` field of the access request logs to examine the application making the access request. Ensure that the initiating process isn’t associated with known benign software to rule out false positives.
+
+  - **Correlate with user behavior analytics:** Review the user context of the process initiating the access. Look for unusual user behaviors or suspicious login patterns leading up to the alert, which could indicate a compromised account.
 
   ### Prioritization
-  This alert is marked as medium severity due to the ongoing risk associated with LSASS access. Unauthorized access to LSASS can lead to credential theft and subsequent lateral movement within the network, which poses a significant threat to enterprise security.
+
+  This alert is of medium severity due to the critical role of LSASS in Windows security and its common targeting by malicious actors for credential theft. The likelihood of abuse is heightened as it aligns with common tactics used in credential dumping attacks, making it crucial to investigate quickly but with consideration of environmental context.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if process access logs are not consistently collected or if the logging level does not capture all relevant interactions with LSASS. The logic assumes standard detection processes are in place and that legitimate security software is excluded from alerts. If specific access rights or process invocation patterns deviate from expected behavior not addressed within the detection conditions, this could lead to both false negatives and positives. Ensuring comprehensive logging configurations and continuous monitoring is essential for effective detection.
+
+  Detection is limited by the accuracy of logs capturing access requests and may miss instances where logging settings are misconfigured. Legitimate administrative tasks or authorized security software may also generate false positives by accessing LSASS. A related detection rule that enhances coverage is one that detects unusual access patterns to other critical processes in memory, further corroborating any suspicion raised by this rule.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -35,42 +35,32 @@ falsepositives:
 - Unknown
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of PHP scripts using the command line interface with the `-r` flag, particularly when it involves the `fsockopen` function. This behavior is often indicative of an attacker attempting to establish a reverse shell connection, allowing remote code execution on the target system. The relevant MITRE ATT&CK tactic is **Execution** (TA0002) and the technique of **Command-Line Interface** (T1059.004).
+  This rule detects the invocation of the PHP CLI with the `-r` flag to execute inline PHP code that includes calls to `fsockopen`, a function commonly used by attackers to establish outbound socket connections, potentially signaling the start of a reverse shell. The likely attacker objective is to gain unauthorized access to the system for exfiltration or lateral movement. This behavior is relevant to the MITRE ATT&CK technique T1203 (Exploitation for Client Execution).
 
-  Primary telemetry sources include process creation logs from Linux systems, specifically identifying processes running the PHP binary with indications of socket connection attempts. If this behavior is malicious, it could result in unauthorized access to the system and potential exfiltration of sensitive data. However, this detection alone does not confirm the presence of an active reverse shell or malicious intent, as legitimate use of PHP for scripting with the `-r` flag may exist.
-
-  ---
+  The primary telemetry source is process creation logs from Linux systems, specifically observing command-line arguments for any use of the PHP interpreter. If malicious, this activity can allow an attacker to remotely control the system. However, it is critical to note that this detection does NOT confirm that the reverse shell was successfully established or executed without additional context.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Investigate Linux process creation logs for Event IDs that show execution of PHP (e.g., `/usr/bin/php`), specifically focusing on entries containing `-r` and `fsockopen`. Key fields to confirm include `CommandLine` and `Image`.
+  - **Review the command line details:** Examine the process creation logs for Security Event ID 1133 and look for the `CommandLine` field containing both `-r` and `fsockopen`. If present without legitimate context, this is a strong indicator of malicious intent.
 
-  - **Cross-reference with user activity:** Check the context of the user executing the command to determine if the process execution aligns with authorized administrative tasks. Use `w` or `who` commands to confirm anticipated user activity.
+  - **Validate the PHP execution context:** Check the `Image` field to confirm that the detected command is indeed related to `/usr/bin/php` alongside common shell invocations like `bash` or `sh`. Know that legitimate use (i.e., scheduled tasks/scripts) will typically not execute `fsockopen` in this manner.
 
-  - **Analyze network connections:** Check for outbound connections originating from the PHP process, particularly to unusual or suspicious IP addresses or ports. Use netstat or similar commands to confirm connections.
+  - **Correlate network activity:** Investigate outgoing connections on the host with `netstat` or `ss` commands. Look specifically for unusual outbound connections made by the PHP process to external IP addresses or domains that do not resolve to known entities.
 
-  - **Identify malicious indicators:** Look for high-confidence indicators like the presence of known bad IP addresses in the destination field. Consult threat intelligence databases or relevant community resources for lists of IPs associated with reverse shell activities.
+  - **Identify process parentage:** Analyze the parent process ID (PPID) for the PHP execution. If it is a legitimate scheduled task or cron job, this may indicate benign behavior; suspicious parent processes deserve further review.
 
-  - **Assess shell execution:** If commands like `exec`, `fopen`, or any variant shell invocation (like `bash` or `sh`) are logged in conjunction with the PHP command, this increases the likelihood of malicious activity. Document any high-risk shell behavior.
+  - **Check for file artifacts:** Look for temporary files that may have been created or modified in `/tmp` or `/var/tmp`. These may contain the payload or scripts used by an attacker in conjunction with the reverse shell.
 
-  - **Benchmark expected behavior:** Compare detected activity against legitimate PHP scripts executed via CLI for routine tasks, such as cron jobs or valid administrative functions. Long-running PHP processes with unusual arguments may necessitate deeper investigation.
-
-  ---
+  - **Determine asset criticality:** If the PHP process executed on a server hosting sensitive data or a public-facing service (like a web server), prioritize this alert higher due to the potential impact of the compromise.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential for remote code execution and the ability of the affected system to act as a launchpad for further attacks. The likelihood of malicious exploitation hinges on the presence of the `fsockopen` functions in conjunction with command flags commonly associated with reverse shells.
-
-  ---
+  This alert is of high severity due to the potential for significant impact on critical systems, especially on publicly facing servers where the execution of a reverse shell could lead to data exfiltration or further compromise. The likelihood of malicious abuse is high, as attackers commonly employ reverse shells in their operations.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by adversarial evasion techniques, such as encoding PHP commands or altering the execution environment to disguise malicious intent. Reliable detection requires comprehensive logging configurations across all Linux systems, ensuring command-line inputs are captured fully. Legitimate administrative tasks, like scheduled PHP scripts for maintenance or monitoring, may trigger this alert. Additional coverage can be strengthened by monitoring for indicators of process creation anomalies or commands executed via cron jobs.
-
-  ---
+  The detection may be limited by instances of legitimate PHP usage for web applications or cron jobs that might legitimately use `fsockopen`. Ensuring thorough logging from process creation and outbound network connections is essential for reliable detection. Valid interactions that could trigger this alert include scheduled scripts that require network access. A related detection for additional coverage involves monitoring for unexpected network traffic patterns from the same host following the execution of PHP commands.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

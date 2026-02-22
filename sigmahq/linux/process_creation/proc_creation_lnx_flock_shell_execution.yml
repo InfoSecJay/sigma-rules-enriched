@@ -6,7 +6,8 @@ description: |
 references:
 - https://gtfobins.github.io/gtfobins/flock/#shell
 - https://www.elastic.co/guide/en/security/current/linux-restricted-shell-breakout-via-linux-binary-s.html
-author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg L.P.)
+author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg 
+  L.P.)
 date: 2024-09-02
 tags:
 - attack.discovery
@@ -31,25 +32,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets the execution of shell commands through the use of the `flock` command in Linux environments. The `flock` command is typically used to manage and execute scripts or commands in a controlled manner, but its application for executing shells can indicate attempts at privilege escalation, unauthorized access, or escaping from a restricted environment. Attackers may leverage such tactics to gain additional access or control over systems, particularly in setups where users are expected to operate within a confined shell.
 
-  The relevant MITRE ATT&CK tactics/techniques here include:
-  - **Execution** (TA0002): Represents methods used by an adversary to run malicious code, with an emphasis on command-line execution.
-  - **Command-Line Interface** (T1059): Specifically highlights the various ways in which command lines can be utilized for executing commands on a system.
-  - **Permission Groups Discovery** (T1083): This technique may be indicated if attackers use privilege escalation to access sensitive information.
+  This Sigma rule detects the execution of a shell command through the `flock` utility on Linux systems. The behavior of interest is when `flock` is utilized in conjunction with a shell (e.g., `/bin/bash`, `/bin/sh`) to execute potentially unauthorized commands, which can indicate attempts to escalate privileges or bypass restricted environments. The relevant MITRE ATT&CK techniques are T1083 (File and Directory Discovery) and T1068 (Exploitation for Privilege Escalation).
 
-  The primary data sources for this detection include **process creation events**, where both the `Image` and `CommandLine` parameters pertain to the execution of the `flock` command. These logs provide insights into what processes are being initiated and the arguments associated with them, which is crucial for both identifying malicious activity and understanding the context of command execution.
+  Primary telemetry sources include Linux process creation logs that capture command execution details, specifically focusing on the `flock` command and its command-line arguments. If this behavior is malicious, it may lead to unauthorized access, execution of harmful scripts, or the compromise of sensitive data. Importantly, this detection does NOT confirm malicious intent on its own; it simply indicates that a shell was executed via `flock`.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Collect and analyze process creation logs to detect instances where the `flock` command is invoked, particularly focusing on the command line for any shell invocation patterns.
-  - **Examine Command-Line Arguments**: Investigate the command-line arguments provided to the `flock` command. Look for unusual patterns, such as the presence of shell executables (`/bin/bash`, `/bin/sh`, etc.) that may indicate an attempt to escalate privileges or execute unauthorized commands.
-  - **Correlate User Activities**: Determine if the user executing the `flock` command has the appropriate permissions. This includes checking recent access levels, roles, and privilege changes in the system to ensure they align with expected behavior.
-  - **Check System and File Integrity**: Use monitoring to ensure that no unauthorized or unexpected changes to system files or configurations have occurred in conjunction with the detected `flock` execution. This can help affirm whether the command was part of legitimate activity or malicious intent.
+
+  - **Review Process Creation Logs:** Check for `process_create` logs (e.g., `/var/log/audit/audit.log` with Event ID 1100) to find instances where `flock` is used. Look specifically for entries with the command `flock` and a shell as the argument.
+
+  - **Inspect Command-Line Arguments:** Analyze command-line arguments of flagged instances. Look for usage of `-u` which signifies the creation of an unblockable shell session. Malicious indicators may include any unfamiliar scripts or commands.
+
+  - **Correlate with User Activities:** Identify the user associated with the `flock` execution by referencing `auditd` logs (e.g., `auid` field). Legitimate use typically involves administrative scripts or cron jobs; be wary of unusual user accounts or times.
+
+  - **Check for Escalation Indicators:** Examine the environment and related logs (such as `/etc/passwd` access) to determine if there were any attempts to gain escalated privileges. Malicious behavior may correlate with access to privileged commands or sensitive files.
+
+  - **Validate File Creation or Access:** Investigate any file accesses or creations immediately following the `flock` execution using `auditd` logs (Event ID 4003 for file-related events). Successful malicious activity often leads to modifications within critical directories.
 
   ### Prioritization
-  The severity of this alert is classified as high due to the potential implications of unauthorized command execution and privilege escalation within an enterprise environment. If successful, such actions could allow attackers to gain elevated access, thereby compromising sensitive data and system integrity.
+
+  This alert is of high severity due to the potential impact of executing administrative commands on key systems. Malicious exploitation of `flock` is a known tactic among adversaries for privilege escalation and typically indicates a serious security threat.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if the use of `flock` is obfuscated or if attackers implement alternate methods to execute similar commands without triggering this rule. Additionally, the detection logic assumes that `flock` is employed in an uncommon context, necessitating careful monitoring of shell experiences and command executions in restricted environments. Logs for process creation must be properly configured and enabled, as the alert relies on comprehensive logging of system processes to function effectively.
+
+  Detection may be limited by configurations that don't capture all process creation events or variations in the command line that go beyond the specified patterns. Legitimate activities include scheduled scripts using `flock`, which may trigger this alert. A related detection to consider is monitoring for unauthorized changes to sensitive files in conjunction with `flock` usage to strengthen coverage against privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

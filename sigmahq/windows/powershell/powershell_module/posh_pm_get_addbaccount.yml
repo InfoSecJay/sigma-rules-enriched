@@ -1,9 +1,9 @@
 title: Suspicious Get-ADDBAccount Usage
 id: b140afd9-474b-4072-958e-2ebb435abd68
 status: test
-description: Detects suspicious invocation of the Get-ADDBAccount script that reads
-  from a ntds.dit file and may be used to get access to credentials without using
-  any credential dumpers
+description: Detects suspicious invocation of the Get-ADDBAccount script that 
+  reads from a ntds.dit file and may be used to get access to credentials 
+  without using any credential dumpers
 references:
 - https://www.n00py.io/2022/03/manipulating-user-passwords-without-mimikatz/
 - https://github.com/MichaelGrafnetter/DSInternals/blob/7ba59c12ee9a1cb430d7dc186a3366842dd612c8/Documentation/PowerShell/Get-ADDBAccount.md
@@ -27,42 +27,30 @@ falsepositives:
 - Unknown
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the suspicious invocation of the `Get-ADDBAccount` PowerShell script, which interacts with the `ntds.dit` file to extract Active Directory account information and potentially access credentials without traditional credential dumping tools. Attackers may employ this method to escalate privileges or maintain persistence by acquiring sensitive account data.
+  This Sigma rule detects the execution of the PowerShell script `Get-ADDBAccount`, which is often used by adversaries to extract sensitive information from the Active Directory database (`ntds.dit`) without relying on traditional credential dumping tools. The likely attacker objective is to obtain credentials or sensitive user data for further exploitation or lateral movement within the network. This behavior aligns with the MITRE ATT&CK technique for credential access labeled as **"Credential Dumping (T1003.003)"**.
 
-  Relevant MITRE ATT&CK tactics include Credential Access (T1003.003). The primary telemetry source is Windows PowerShell logs, specifically targeting PowerShell module execution records. If successful, this detection indicates a significant security risk, as it could lead to unauthorized access to accounts with elevated privileges. This detection does not confirm that a successful credential theft occurred, only that the script was executed in a suspicious context.
-
-  ---
+  Primary telemetry sources include Windows PowerShell logs (Event ID 4104) and any custom logging capable of capturing PowerShell commands and their output, especially for events containing keywords like 'Get-ADDBAccount', 'BootKey', or 'DatabasePath'. If successful, this type of attack can lead to unauthorized access to user credentials, posing a significant security risk. However, the detection of this script invocation does NOT confirm that credential theft has occurred on its own, as the context of execution must be considered.
 
   ### Investigation Steps
 
-  - **Review PowerShell Execution Logs:** Check for PowerShell Event ID 4104 logs where `Get-ADDBAccount` is present in script block logging. Look for unusual times or patterns that deviate from typical administrative operations.
+  - **Review command log details**: Check PowerShell logs for Event ID 4104, filtering for commands containing `Get-ADDBAccount`. A benign invocation might show this command executed with legitimate administrative tasks.
 
-  - **Identify Command Parameters:** Validate whether log entries contain the parameters `BootKey` and `DatabasePath`. The presence of these parameters often indicates an attempt to access sensitive information.
+  - **Identify the responsible user account**: Lookup the user associated with the logged PowerShell command. Legitimate administrative accounts may invoke similar commands for maintenance, but suspicious accounts or privileged users executing this command during odd hours should raise concern.
 
-  - **Determine User Context:** Assess the user account that executed the command. Legitimate administrative users typically invoke PowerShell for specific tasks. Any invocation by non-administrative accounts may warrant further scrutiny.
+  - **Check for related system artifacts**: Validate if there are file creation or access logs associated with the `ntds.dit` file (e.g., using Event ID 4663). Legitimate access would typically not attempt to read sensitive databases outside authorized maintenance activities.
 
-  - **Check for Known Malicious Indicators:** Examine system logs for any previous artifacts related to credential access tools such as Mimikatz or unusual AD behavior. Cross-reference log entries with security intelligence for any known malicious actors.
+  - **Correlate with user access logs**: Examine Active Directory logs for unusual authentication attempts or modifications to user accounts around the same time (Event IDs 4624 and 4738), as this could indicate credential access and subsequent misuse.
 
-  - **Consider System Role:** If this command was executed on a Domain Controller, elevate its significance. This device's security is critical, as it could lead to a full domain compromise.
-
-  - **Investigate for File Creation or Modification:** Look for changes to file modification logs in the NTDS directory, including timestamps and user accounts that would indicate unauthorized access attempts.
-
-  ---
+  - **Verify any running instances of DSInternals**: If logs indicate installation or invocation of DSInternals, further investigate its context. A legitimate IT process would have ticket references or scheduled maintenance activities that are documented.
 
   ### Prioritization
 
-  This alert should be treated with high severity as it pertains to potential credential access within the Active Directory environment. The systems involved, often Domain Controllers, are critical for maintaining security across the enterprise; thus, the likelihood of malicious abuse is notably high, particularly given the growing prevalence of such tactics among adversaries.
-
-  ---
+  Given the high-risk nature of systems involved (Active Directory), this alert should be treated as high severity. The likelihood of this attack method being weaponized for credential access is moderate, particularly in environments where credentials can be leveraged for lateral movement or privilege escalation.
 
   ### Blind Spots and Assumptions
 
-  This detection may encounter limitations if PowerShell logging is incomplete or misconfigured, as certain script executions might not be captured. Additionally, legitimate administrative tasks or specialized applications running similar commands could trigger this alert. Companion detections focusing on abnormal PowerShell usage or Active Directory access patterns can help strengthen coverage and improve context when this alert is triggered.
-
-  ---
+  Possible evasion techniques include adversaries using obscured variable names or obfuscated commands to mask their activities. Reliance on PowerShell logging and sufficient auditing configuration is crucial for effective detection. Legitimate administrative maintenance scripts may produce false positives if they interact with Active Directory account data. A companion detection involving monitoring for other PowerShell credential dumping activities (like `Mimikatz` outputs) can help strengthen overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

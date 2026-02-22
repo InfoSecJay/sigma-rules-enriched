@@ -1,7 +1,8 @@
 title: Download File To Potentially Suspicious Directory Via Wget
 id: cf610c15-ed71-46e1-bdf8-2bd1a99de6c4
 status: test
-description: Detects the use of wget to download content to a suspicious directory
+description: Detects the use of wget to download content to a suspicious 
+  directory
 references:
 - https://blogs.jpcert.or.jp/en/2023/05/gobrat.html
 - https://jstnk9.github.io/jstnk9/research/GobRAT-Malware/
@@ -28,40 +29,32 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the use of the `wget` command to download files into potentially suspicious directories, particularly `/tmp/`, which may indicate the presence of malware or the assembly of malicious tools by an adversary. The likely objective of the attacker could be to retrieve additional payloads or drop malicious files into a temporary location for subsequent execution, typically to avoid detection. This behavior maps to the MITRE ATT&CK technique “Remote File Copy” (T1105).
+  This Sigma rule detects the execution of the `wget` command to download files into potentially suspicious directories, specifically those under `/tmp/`. This behavior suggests an attacker may be attempting to retrieve additional payloads or malicious files as part of their command-and-control (C2) operations, often indicative of lateral movement or exfiltration attempts. The relevant MITRE ATT&CK technique is **Command-Line Interface** (T1059) and **Remote File Copy** (T1105).
 
-  The primary telemetry source for this detection is process creation logs from Linux systems, capturing specific command-line arguments associated with `wget`. If malicious, this activity could facilitate the deployment or execution of further compromise steps, heightening security risks. Importantly, this detection does NOT confirm the intent behind the file download; innocent users might also execute similar commands.
-
-  ---
+  Primary telemetry sources include Linux process creation logs (such as `auditd`), specifically monitoring for command-line activity relevant to wget. If the observed action is malicious, it could lead to unauthorized access or exfiltration and compromise the integrity of the system. It is important to note that this detection does not confirm malicious intent on its own, as valid scenarios may exist for retrieving files in certain contexts.
 
   ### Investigation Steps
 
-  - **Review command-line arguments:** Validate events with `Process Creation` logs (Syslog with Event ID or equivalent) for commands containing `/wget`. Investigate argument patterns—look for `-O` or `--output-document`, indicating a specified output to a potentially insecure location.
+  - **Review process creation logs**: Look for Linux process creation events, specifically monitoring process creation events with `/usr/bin/wget` in Event IDs from `auditd` or Syslog. Example fields: `comm`, `pid`, `uid`, `euid`.
 
-  - **Check download path:** Examine the command-line for occurrences of `CommandLine` field containing `/tmp/`. If the output path deviates from expected (e.g., user home directories or application-specific paths), this raises the risk profile.
+  - **Examine command line arguments**: For any identified `wget` executions, analyze the command line arguments. Pay special attention to flags such as `-O` or `--output-document`, which indicate a file is being saved with a specific name. This may reveal suspicious behavior, especially if coupled with path indicators leading to `/tmp/`.
 
-  - **Identify authorized users:** Cross-reference the initiating user account against a baseline of legitimate usage. Investigate permissions and roles to see if any unauthorized or atypical use of `wget` was executed by high-privilege accounts.
+  - **Verify download locations**: Assess the actual paths being used in the downloads. Legitimate use of `wget` typically targets known safe locations (e.g., user home directories) rather than ephemeral directories like `/tmp/` which are often used for transient file storage.
 
-  - **Verify the existence of downloaded files:** Investigate file creation in the `/tmp/` directory. Look for recent files that have been downloaded alongside their hashes and timestamps. Files related to known malware hashes should escalate the incident.
+  - **Identify high-confidence malicious indicators**: Flag any cases where files downloaded via `wget` contain known hash values or patterns associated with malware, such as hashes from reported malware samples in VirusTotal. Use historical data to correlate against the hashes identified in the download.
 
-  - **Analyze historical usage:** Review historical logs around the time of the alert (within a 24-48 hour window) for patterns of legitimate `wget` usage by trusted personnel or applications, identifying deviations from normal behavior.
+  - **Check user context**: Review the user executing `wget`. If the command is run by a non-administrative user in an unusual directory or context, the likelihood of malicious activity increases.
 
-  ---
+  - **Investigate subsequent actions**: If files were downloaded into `/tmp/`, follow up with checks for subsequent executions, e.g., execution of these files, network calls made from the affected host, or even further file manipulations indicating exploitation.
 
   ### Prioritization
 
-  The alert is of medium severity because the affected systems, if compromised, could facilitate further malicious activity. The use of `wget` in such contexts can indicate malicious intent, particularly given that unauthorized downloads are a commonly weaponized behavior. The potential impact increases if the command is executed by admin-level users or critical assets.
-
-  ---
+  This alert is considered medium severity as it involves potential malicious file downloads to a commonly used temporary directory. Given the ephemeral nature of `/tmp/`, malicious actors often exploit this behavior to evade detection, heightening the likelihood of abuse. Although not frequently weaponized as stand-alone action, it forms a part of a broader attack vector and is indicative of attempting to establish or maintain persistence.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by obfuscation techniques, where attackers could rename utilities or use script encoding to disguise malicious commands. It relies heavily on accurate command-line logging; therefore, ensure that process accounting (e.g., `auditd`) is properly configured. Legitimate automation scripts or software package installations might trigger this alert if they utilize `wget` without proper context. Companion detections, like file integrity monitoring for `.tmp` directories, can offer enhanced visibility into suspicious uploads or downloads.
-
-  ---
+  Detection may be limited by the lack of comprehensive logging around all `wget` usages, as benign cases (e.g., legitimate updates) might not trigger alerts. Ensure that appropriate audit logging is enabled to capture all process command lines for reliable detection. Additionally, user actions related to standard software updates may also generate similar alerts, which should be noted as legitimate. A companion detection for suspicious outbound network traffic (e.g., reviewing `iptables` or `netstat` logs) can help correlate and strengthen overall context around these logs.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

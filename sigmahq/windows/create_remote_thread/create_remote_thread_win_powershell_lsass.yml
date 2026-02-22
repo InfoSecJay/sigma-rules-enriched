@@ -6,7 +6,8 @@ related:
 - id: 0f920ebe-7aea-4c54-b202-9aa0c609cfe5
   type: similar
 status: test
-description: Detects remote thread creation by PowerShell processes into "lsass.exe"
+description: Detects remote thread creation by PowerShell processes into 
+  "lsass.exe"
 references:
 - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
 author: oscd.community, Natalia Shornikova
@@ -30,22 +31,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets potentially malicious activities where a PowerShell process creates a remote thread in the `lsass.exe` process. This behavior is often exploited by attackers to dump credentials from the Local Security Authority Subsystem Service (LSASS), which is responsible for enforcing security policy on Windows systems. By injecting code into the `lsass.exe` process, an attacker can extract stored passwords and authentication tokens, compromising user accounts and network resources.
 
-  The likely attacker objectives may include gaining unauthorized access to sensitive areas of the network or escalating privileges to execute further malicious activities. This type of credential theft is associated with various threat actors and tools that leverage PowerShell for post-exploitation activities. Specifically, relevant MITRE ATT&CK tactics and techniques include Credential Access (TA0006) and the technique T1003.001 (Credential Dumping via LSASS).
+  This detection identifies attempts at credential dumping by monitoring PowerShell processes that create remote threads into the `lsass.exe` process, which handles security accounts and credentials in Windows systems. The likely objective of an attacker using this technique is to extract sensitive credentials from the Local Security Authority Subsystem Service (LSASS) in order to escalate privileges or further infiltrate the environment. This behavior is associated with the MITRE ATT&CK technique **Credential Dumping (T1003.001)**.
 
-  The primary data sources for detecting this activity would include process creation logs that capture remote thread creations, particularly focusing on instances where `powershell.exe` or `pwsh.exe` is involved with `lsass.exe`.
+  The primary telemetry source for this detection is Windows event logging capturing process creation events, specifically targeting `create_remote_thread` activities involving PowerShell. If successful and malicious, such actions could lead to the compromise of user credentials and unauthorized access to critical systems. However, this detection alone does NOT confirm that a credential dump has occurred; it merely indicates that suspicious threading activities involving PowerShell and LSASS have been initiated.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze process creation events to identify instances where `powershell.exe` or `pwsh.exe` has created remote threads targeting `lsass.exe`. Look for unusual parent-child relationships that may indicate malicious activity.
-  - **Check for Side-Loading Techniques:** Investigate any anomalies in PowerShell command-line arguments that might be indicative of attempts to load potentially malicious modules or scripts designed to interface with LSASS.
-  - **Analyze User Context:** Determine the user context in which the PowerShell process is running. Check if the execution environment corresponds to expected administrative tasks or if there are indications of compromised accounts.
-  - **Examine Related Network Activity:** Correlate network traffic logs for unusual outbound communications that may coincide with the timing of the detected remote thread creation. Look for communications to potentially malicious IP addresses or domains.
+
+  - **Check for PowerShell execution evidence**: Review Security Event ID 4688 for the process creation of `powershell.exe` or `pwsh.exe`. Validate the command line parameters for any suspicious flags, such as `-NoProfile` or obfuscated scripts, which may indicate malicious use.
+
+  - **Verify remote thread creation events**: Look at Windows Event Logs under `Microsoft-Windows-Sysmon/Operational` for Sysmon Event ID 8 reflecting remote thread creation targeting `lsass.exe`. Note the `SourceImage` and `TargetImage` fields for potential malicious indicators.
+
+  - **Inspect LSASS process handles**: Use tools like Sysinternals Process Explorer or PowerShell scripts to analyze active handles on `lsass.exe`. Legitimate applications will typically not interact with LSASS in this manner.
+
+  - **Evaluate account behavior**: Check Account Logon Event IDs (4624) to identify any abnormal login patterns or logins from unusual geographic locations or devices within the timeframe of the alert.
+
+  - **Identify related suspicious activity**: If multiple alerts involving process injection patterns are triggered, this may indicate coordinated action by an attacker. Look for other process injection reports either from Sysmon or standard Windows Event Logs.
+
+  - **Assess system role and access**: Determine the host's criticality and role. A server holding sensitive data or acting as a domain controller should be prioritized for immediate deeper analysis compared to a standard workstation.
 
   ### Prioritization
-  The alert is classified as high severity due to the critical nature of LSASS in maintaining security on Windows systems. The ability to dump credentials poses a significant threat to the integrity of user accounts and the overall security posture of the enterprise.
+
+  This alert is of high severity due to the potential impact on credential security and system integrity. Since credential dumping techniques are commonly weaponized by attackers during breaches, a quick response is warranted, particularly for systems with critical roles in account management and authentication.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is the use of alternative methods or tools for credential dumping that do not rely on PowerShell or that utilize less common pathways to access LSASS. The detection logic assumes that the appropriate logging level for remote thread creation events is enabled, which may not always be the case. Ensuring that logging is properly configured on all endpoint devices is essential for this alert to function effectively.
+
+  Detection might miss legitimate tool use such as administrative maintenance scripts that also create threads in `lsass.exe`. Ensure that relevant Windows Event Logs (including Sysmon) are correctly configured to capture remote thread creations. It's important to consider that legitimate activities, such as debugging or system diagnostics by authorized personnel, may trigger this alert. A companion detection to strengthen coverage is monitoring for Sysmon Event ID 1 for process creation alongside this rule for context on parent processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

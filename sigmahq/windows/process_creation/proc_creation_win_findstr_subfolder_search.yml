@@ -10,8 +10,8 @@ references:
 - https://lolbas-project.github.io/lolbas/Binaries/Findstr/
 - https://oddvar.moe/2018/04/11/putting-data-in-alternate-data-streams-and-how-to-execute-it-part-2/
 - https://gist.github.com/api0cradle/cdd2d0d0ec9abb686f0e89306e277b8f
-author: Furkan CALISKAN, @caliskanfurkan_, @oscd_initiative, Nasreddine Bencherchali
-  (Nextron Systems)
+author: Furkan CALISKAN, @caliskanfurkan_, @oscd_initiative, Nasreddine 
+  Bencherchali (Nextron Systems)
 date: 2020-10-05
 modified: 2024-03-05
 tags:
@@ -40,28 +40,29 @@ falsepositives:
 level: low
 note: |
   ### Technical Context
-  This detection rule identifies the execution of the Windows utility `findstr.exe` with specific flags that may indicate suspicious behavior. By searching for the "insensitive" (`-i`) and "subfolder" (`-s`) options, the rule highlights potential attempts by attackers to enumerate or filter through files for sensitive or strategic information on a compromised system. Attackers often leverage built-in utilities like `findstr` to avoid detection while performing reconnaissance or lateral movement within an environment.
 
-  The likely attacker objectives include gathering or exfiltrating sensitive files and conducting effective post-exploitation behavior while trying to blend with regular administrative tasks. This activity could fall under several relevant MITRE ATT&CK tactics and techniques, specifically:
-  - **T1071 - Application Layer Protocol** (for command and control),
-  - **T1218 - Signed Binary Proxy Execution**, and
-  - **T1564.004 - Hide Artifacts** (e.g., using `findstr` to sift through hidden data).
+  This Sigma rule detects the execution of `findstr.exe` with both the `/s` and `/i` flags, which indicates a case-insensitive search throughout subfolders. This behavior is often leveraged by attackers to scan for sensitive or interesting files within the file system without generating excessive output. The primary attacker objective is to locate files or data of interest, potentially prepping for further actions like data exfiltration, credential access, or command and control.
 
-  The primary data sources for detecting this behavior are **process creation events** within the Windows environment, where such commands would be logged along with their arguments, providing insight into potentially malicious activity.
+  This detection aligns with several MITRE ATT&CK techniques: **T1218 - Signed Binary Proxy Execution**, **T1564.004 - Hide Artifacts: Alternate Data Streams**, and **T1552.001 - Unsecured Credentials: Credentials from Password Managers**. The telemetry source for this detection is based on process creation events within Windows, specifically the command line usage of the `findstr` utility. If malicious, it could indicate an unauthorized data reconnaissance effort. Notably, this detection does NOT confirm malicious intent, as legitimate administrative functions may use `findstr` for valid purposes.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check for events related to `findstr.exe` in process creation logs. Look specifically for instances where the command line contains both `-s` and `-i` flags.
 
-  - **Analyze Command Context:** Examine surrounding events before and after the `findstr` execution to identify any preceding commands or patterns that may indicate devious intentions, such as file manipulations or other reconnaissance activities.
+  - **Review the command line arguments:** Investigate the command line for `findstr` in Security Event ID 4688 logs. Look for the presence of `-s` and `-i` flags. Malicious: Commands that target sensitive directories. Benign: Commands executed by known administrative scripts.
 
-  - **Correlate with User Behavior:** Investigate the user account that initiated the `findstr` command, focusing on any anomalies in their typical behavior or access patterns. Identify if the account has elevated privileges that may elevate the concern level.
+  - **Check process parent-child relationships:** Use Sysmon Event ID 1 to trace parent-child process relationships involving `findstr.exe`. Malicious: Launched by suspicious or unusual parent processes (e.g., PowerShell or cmd). Benign: Executed by well-known management tools or scripts.
 
-  - **Search for Related Artifacts:** Review file access logs or output from the `findstr` command to find targeted files or paths being searched. This can help determine the focus of the attack and the types of data the threat actor is interested in.
+  - **Verify execution context:** Confirm the user context from which `findstr.exe` was executed via Security Event ID 4624 for logon events. Malicious: Execution by non-admin users or during unusual hours. Benign: Execution by administrators during regular maintenance windows.
+
+  - **Analyze file system access:** Inspect any files accessed during this execution using Sysmon Event ID 11. Look for sensitive files or directories typically of interest to attackers (e.g., *.dat, *.xml, *.config). Malicious: Access to files not typically modified during regular operations. Benign: Legitimate access to routine files.
+
+  - **Check for evidence of data manipulation:** Investigate Alternate Data Streams using PowerShell or Sysinternals tools to identify any newly created or modified ADS during the execution of `findstr`. Malicious: Creation or modification of ADS potentially to hide artifacts. Benign: Normal administrative file activities.
 
   ### Prioritization
-  This alert is flagged as low severity primarily because the use of legitimate system utilities like `findstr` can often be benign, especially in administrative contexts. However, given the potential for this command to be utilized in a reconnaissance phase, it warrants investigation to ascertain whether the use was legitimate or malicious.
+
+  This alert carries low severity in an enterprise context, primarily due to the low likelihood of malicious abuse compared to the volume of legitimate administrative use of `findstr.exe`. However, it is important to monitor such activity as it can be indicative of reconnaissance behaviors that attackers frequently employ when preparing for deeper intrusions.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss cases where attackers use other similar command-line utilities or differentiate their execution by employing different parameters. The primary assumption is that the execution of `findstr` with both the `-s` and `-i` flags signifies a reconnaissance intent. For this detection to function effectively, appropriate process creation logging must be enabled, ensuring all command-line activities are correctly captured in the log source.
+
+  This detection can be evaded by using non-standard encoding or obfuscating command-line arguments. To ensure reliable detection, configuration must encompass comprehensive process creation logging and potentially elevated logging scope for PowerShell. Legitimate scenarios that may trigger this alert include system administrators conducting troubleshooting or script executions across multiple directories. A related detection is using **T1059.001 - Command and Scripting Interpreter: PowerShell** which can provide additional context in conjunction with suspicious `findstr` executions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

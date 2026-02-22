@@ -26,40 +26,30 @@ falsepositives:
 - Legitimate MSSQL Server actions
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of process dumping via the Windows executable `sqldumper.exe`, typically used by legitimate applications but also favored by attackers for credential access. The likely objective of the attacker is to capture sensitive information from a process memory, which can include clear-text credentials, by exploiting the process dumping capability. This activity maps to the MITRE ATT&CK framework under the tactic **Credential Access** and technique **Process Dumping (T1003.001)**.
+  This rule detects the execution of the legitimate Windows binary `sqldumper.exe`, which can be misused for dumping sensitive memory data without authorization—a behavior commonly associated with credential theft or reconnaissance. The likely attacker objective is to gather sensitive information from memory that could facilitate later stages of an attack, such as privilege escalation or lateral movement.
 
-  The primary telemetry source for this detection is process creation events in Windows, specifically focusing on the image name and command line parameters involving `sqldumper.exe`. If malicious, the security impact is significant, as dumped credentials can give an attacker unauthorized access to sensitive systems and data. However, this detection does not confirm that the extracted data was used maliciously—it only indicates that a dump operation was potentially initiated.
-
-  ---
+  The detection correlates with the MITRE ATT&CK technique for credential dumping (T1003.001). The primary telemetry sources include Windows process creation logs, specifically focusing on Event ID 4688 for process creation events that involve `sqldumper.exe`. If successful, the alert could signify an ongoing credential exfiltration attack. However, this detection on its own does not confirm malicious intent, as the use of `sqldumper.exe` can also occur during legitimate administrative tasks.
 
   ### Investigation Steps
 
-  - **Assess process creation details:** Review Security Event ID 4688 and/or Sysmon Event ID 1 logs for `sqldumper.exe`. Check the **CommandLine** field for indicators like `0x0110` or `0x01100:40`, which should raise suspicion.
+  - **Verify process creation details:** Examine Security Event ID 4688 for instances of `sqldumper.exe`. Look for the `CommandLine` field containing `0x0110` or `0x01100:40`. Confirm if it matches the malicious pattern.
 
-  - **Examine parent process:** Identify the parent process of `sqldumper.exe` in the process creation logs. A legitimate process like `sqlservr.exe` is expected, whereas unusual parent processes (e.g., `powershell.exe` or `cmd.exe`) may indicate malicious activity.
+  - **Determine host role and context:** Identify the asset (e.g., MSSQL server) where the process was run. If the machine is part of administrative or database operations, additional investigation may be required to understand the context of the invocation.
 
-  - **Validate intended usage:** Cross-reference the timestamp of the alert against MSSQL Server logs. If `sqldumper.exe` is called during legitimate operational maintenance or troubleshooting, it may be benign.
+  - **Check for recent credential changes:** Analyze Event ID 4769 (Service Ticket Request) and 4770 (Service Ticket Renewed) for any unusual activity pertaining to user accounts, especially those used in conjunction with the SQL Server.
 
-  - **Search for associated artifacts:** Look for additional artifacts, such as file creation events involving `.dmp` files, which can be indicated by Event ID 4663 or associated filesystem logs. Legitimate dumps often involve specific system directories.
+  - **Review memory dump artifacts:** Inspect for any temporary files typically created during memory dumping processes. Look for file types like `.dmp`, directory locations (e.g., `C:\Windows\Temp\`), and abnormal timestamps that do not correlate with regular operation hours.
 
-  - **Monitor for subsequent activities:** Investigate for any follow-on actions post-dumping, such as unusual outbound connections or attempts to access sensitive resources, which can indicate the exfiltration of dumped credentials.
-
-  ---
+  - **Compare against benign usage patterns:** Review documentation or known legitimate MSSQL Server actions where `sqldumper.exe` is utilized. If the invocation corresponds with scheduled tasks or pre-approved processes, it may indicate legitimate use rather than malicious intent.
 
   ### Prioritization
 
-  This alert is rated medium severity due to the critical nature of the systems potentially being affected (e.g., database servers containing sensitive data) and the likelihood of the abuse of `sqldumper.exe` in attacks. While the behavior itself can be legitimate, it can also serve as a prelude to credential theft, making it a candidate for further scrutiny.
-
-  ---
+  This alert should be considered medium severity due to its potential to expose sensitive information if exploited, combined with the likelihood that `sqldumper.exe` is often weaponized by attackers for credential dumping. Its relevance is heightened in environments with critical SQL databases or sensitive applications.
 
   ### Blind Spots and Assumptions
 
-  Detection can be bypassed if the `sqldumper.exe` process is renamed or if attackers leverage other process dumping techniques or binaries. Reliable detection requires proper monitoring of process creation logs and ensuring that logging is enabled for both the security and Sysmon events. Legitimate maintenance processes can trigger this alert, including SQL Server maintenance tasks. A related detection rule that enhances coverage is targeted monitoring for abnormal command line arguments across various executable names.
-
-  ---
+  Detection may be limited if `sqldumper.exe` is renamed or if command-line obfuscation is used to conceal malicious behavior. Reliable detection requires proper logging configurations to capture relevant process execution data, including command-line arguments and parent processes. Legitimate backups or recovery processes might trigger this alert, necessitating careful analysis. A related detection for enhanced coverage could involve monitoring for other memory dumping tools or suspicious process chains initiated from administrative accounts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

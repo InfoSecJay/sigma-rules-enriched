@@ -34,27 +34,36 @@ detection:
     - 'update'
   condition: selection
 falsepositives:
-- Modifying a Kubernetes Job or CronJob may need to be done by a system administrator.
-- Automated processes may need to take these actions and may need to be filtered.
+- Modifying a Kubernetes Job or CronJob may need to be done by a system 
+  administrator.
+- Automated processes may need to take these actions and may need to be 
+  filtered.
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the creation or modification of Kubernetes CronJobs and Jobs, which are critical components in orchestrating containers within a Kubernetes environment. Adversaries may exploit these objects to schedule malicious tasks, thereby maintaining persistence or executing unauthorized commands in the cluster. Such activities can lead to a significant compromise, allowing attackers to manipulate applications or data within the Kubernetes environment.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Persistence (T1543)**, where unauthorized jobs are scheduled to ensure continued exploitation, **Privilege Escalation (T1078)** involving the potential elevation of access through unauthorized jobs, and **Execution (T1203)** as malicious code can be executed without detection via these scheduled jobs.
+  This rule detects the creation or modification of Kubernetes CronJobs and Jobs, which are essential for scheduling tasks within a cluster. An attacker could leverage these Kubernetes objects to establish persistence by scheduling malicious containers to run at specific intervals. The relevant MITRE ATT&CK techniques are "Persistence via CronJob" (T1543.003) and "Privilege Escalation" (T1601).
 
-  Primary data sources for detecting these activities will be Kubernetes audit logs, which record events concerning objects like jobs and cronjobs, including their creation and modification.
+  The primary telemetry source is Kubernetes audit logs, specifically focusing on actions related to objects in the "batch" API group, including the "cronjobs" and "jobs" resources. If malicious, the impact can be severe as it can allow unauthorized code execution within the cluster. This detection does NOT confirm that the actions were performed with malicious intent, as benign administrative activities may also trigger the alert.
 
   ### Investigation Steps
-  - **Review Audit Logs**: Start by analyzing Kubernetes audit logs for any `create`, `update`, or `delete` actions related to `cronjobs` and `jobs`. Look for unusual patterns, such as unexpected user accounts or frequent modifications that deviate from normal administrative activities.
-  - **Identify Unauthorized Users**: Determine whether the users or service accounts that executed changes have the proper permissions and legitimacy. Scrutinize their roles and responsibilities within your Kubernetes clusters to identify any anomalies.
-  - **Analyze Pod Activity**: Correlate the changes in jobs or cronjobs with pod activity. Check if newly created or modified jobs initiated pods that executed suspicious commands or accessed sensitive resources, indicating potential malicious intent.
-  - **Monitor for Automation Patterns**: Be aware of automated systems that may legitimately alter jobs. If frequent updates are necessary, establish a baseline to differentiate between normal operations and potentially harmful changes.
+
+  - **Check Kubernetes audit logs for action details**: Examine the Kubernetes audit log with Event ID or API call details such as `objectRef.resource: cronjobs` or `objectRef.resource: jobs`. Pay attention to the `verb` field for `create`, `delete`, or `update`.
+
+  - **Assess the user context**: Investigate the `user.username` and `user.groups` fields in the audit logs. If the operation was performed by a user with admin privileges without an adequate justification (e.g., no legitimate operational needs), it raises suspicion.
+
+  - **Identify unusual schedule configurations**: Review the `spec.schedule` field in the CronJob definition. Schedules that are set to run at atypical times (e.g., system off-hours) or frequent execution rates (e.g., every minute) could indicate malicious intent.
+
+  - **Examine linked container images**: Check the `spec.template.spec.containers[*].image` field for the images being executed. Verify that these images are from trusted repositories. Unauthorized or suspicious images (e.g., public images with administrative tools) should be flagged.
+
+  - **Review legitimate operational changes**: Understand and document typical operational patterns for CronJob or Job creation/updates by system administrators. Expect specific non-malicious tasks (e.g., backup jobs) to be scheduled at regular intervals to verify against alerts.
 
   ### Prioritization
-  This alert carries a medium severity level in an enterprise environment due to the potential for serious compromise if Kubernetes jobs are modified with malicious intent. The impact can be significant, as adversaries could leverage these changes to execute unauthorized tasks, potentially leading to data breaches or service disruptions.
+
+  Given that Kubernetes is critical to operational workflows, alerts regarding CronJob and Job modifications warrant medium severity. The likelihood of adversaries manipulating these resources is reasonable, as they can lead to persistence and privilege escalation. This behavior is often weaponized in actual attacks.
 
   ### Blind Spots and Assumptions
-  Detection coverage is limited if audit logging is not enabled or configured correctly in the Kubernetes environment. Assuming that only authorized users will interact with CronJobs or Jobs may lead to undetected malicious activity. Additionally, automated processes that legitimately modify jobs could generate false positives, necessitating careful tuning of the detection logic to balance security with operational requirements. Proper configuration and retention of Kubernetes audit logs are essential for this alert to function effectively.
+
+  This rule may have limitations, such as false positives triggered by legitimate administrative activities or automated CI/CD processes. Ensure comprehensive coverage by maintaining Kubernetes audit logs, which might require specific configurations to avoid gaps in logging. Legitimate automated processes that perform these modifications, such as scheduled maintenance tasks or updates, must also be considered. A related detection that strengthens coverage is monitoring for unusual pod activity linked to these jobs (e.g., unexpected pod creation or execution).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

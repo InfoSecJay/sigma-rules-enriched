@@ -21,46 +21,34 @@ detection:
     - 403         # Forbidden
   condition: selection
 falsepositives:
-- A misconfigured RBAC policy, a mistake by a valid user, or a wider issue with authentication
-  tokens can also generate these errors.
+- A misconfigured RBAC policy, a mistake by a valid user, or a wider issue with 
+  authentication tokens can also generate these errors.
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects unauthorized or unauthenticated access attempts to the Kubernetes API, specifically when requests are rejected with HTTP status codes 401 (Unauthorized) or 403 (Forbidden). The likely objective of an attacker triggering this behavior is to exploit valid credentials or tokens with an intention to escalate privileges or gain unauthorized access to resources within the Kubernetes cluster. This activity is relevant to the MITRE ATT&CK framework under the tactic "Privilege Escalation" (T1068).
+  This rule detects unauthorized or unauthenticated requests to the Kubernetes API, specifically responses with HTTP status codes 401 (Unauthorized) and 403 (Forbidden). The likely attacker objective is to exploit valid user credentials, possibly utilizing stolen tokens to gain access to sensitive operations within Kubernetes. This behavior aligns with the MITRE ATT&CK tactic of "Privilege Escalation" (TA0004) and the technique "Exploitation for Client Execution" (T1203).
 
-  The primary telemetry source for this alert is Kubernetes audit logs, which capture detailed information about interactions with the Kubernetes API, including reasons for failures. If the detected behavior is malicious, it could compromise the security posture of the entire Kubernetes environment. Importantly, while this detection indicates potential malicious intent, it does NOT confirm successful exploitation or access to sensitive resources on its own.
-
-  ---
+  Primary telemetry sources include Kubernetes Audit Logs, specifically focused on the API server's audit trail. The security impact is significant if malicious access is gained, as attackers could manipulate cluster resources, leading to potential data breaches or service disruption. Note that this detection does NOT confirm successful access or compromise on its own; it only indicates an attempt that was denied.
 
   ### Investigation Steps
 
-  - **Check audit logs for the specific event:** Review Kubernetes audit logs for Event Type `error` related to the specific request, focusing on `responseStatus.code: 401` or `403`. Identify the user or service account attempting the access.
+  - **Review Kubernetes Audit Logs:** Check for Event ID entries where `responseStatus.code` = 401 or 403 in the audit logs found under `/var/log/kubernetes/audit.log`. This will provide context on unauthorized access attempts. Look for the source IP and username associated with the request to identify potential attacker patterns.
 
-  - **Analyze the source of the requests:** Investigate the IP addresses and user agents associated with the denied requests in the audit logs. Compare against known internal sources; unexpected or external IPs could indicate malicious activity.
+  - **Identify access patterns:** Cross-reference timestamps of unauthorized access attempts with known legitimate user activities to determine if there are any overlaps. Use `timestamp` and `user` fields in your queries to differentiate.
 
-  - **Examine recent changes or anomalies in RBAC policies:** Validate if any recent changes were made to Role-Based Access Control (RBAC) permissions that might have caused valid users to receive unauthorized responses. Document legitimate access patterns to assess deviations.
+  - **Examine role-based access control (RBAC) configuration:** Validate whether the user requesting access has appropriate permissions. Check the RBAC settings for discrepancies, specifically around roles assigned to users or service accounts that might lead to expected 403 responses.
 
-  - **Identify high-confidence malicious indicators:** Look for repeated failed attempts from a single source within a short timeframe that aligns with automated scanning patterns. Such behavior could reveal brute force or credential stuffing attempts.
+  - **Analyze JWT tokens and expiration details:** Capture logs related to authentication tokens by reviewing the `requestObject` field for any expired tokens noted in audit logs, along with their issuance times. Confirm token validity and expiration to rule out configuration issues affecting legitimate users.
 
-  - **Validate expected user behavior:** Cross-reference the timing of the unauthorized attempts with known operational schedules of your administrators or applications. Legitimate users may trigger this alert during token expirations or misconfigurations.
-
-  - **Search for expired tokens:** In the audit logs, identify if there are entries that suggest expired tokens being used. This can help distinguish between simple user errors and potentially malicious credential misuses.
-
-  ---
+  - **Benchmark against legitimate activity:** Compare request structures and timing against normal API access patterns within your environment. For instance, note that legitimate access typically follows a predictable schedule aligned with business hours.
 
   ### Prioritization
 
-  The alert is of low severity due to the potential for benign misconfigurations, such as RBAC policy errors or expired tokens. However, active exploitation of stale credentials remains a possibility, necessitating verification. This behavior is not commonly weaponized, making contextual investigation more crucial to assess risk accurately.
-
-  ---
+  The alert holds low severity due to the non-intrusive nature of unauthorized requests. While it indicates potential abuse attempts, the likelihood of malicious activity is moderate based on the infrastructure setup. However, this behavior is not uncommon and often occurs due to misconfigured permissions or expired tokens.
 
   ### Blind Spots and Assumptions
 
-  Detection may overlook well-crafted evasion techniques, such as an attacker using valid credentials that have not yet expired. Insufficient log retention settings or omissions in audit logging configuration can hinder detection effectiveness. Misconfigured access policies may result in legitimate users often triggering the alert, highlighting the need to consider user behavior history. A related detection to consider is monitoring for repeated successful and failed authentication attempts, which could provide a broader context for user access behaviors.
-
-  ---
+  Detection may miss attempts that are effectively proxied or disguised by a trusted user account. Log sources must include comprehensive Kubernetes Audit Logs with the correct configuration to capture all interaction with the API. Legitimate users may trigger such alerts accidentally due to misconfigurations or token-related issues. A related detection includes monitoring for high volumes of unauthorized requests from a single source, indicating possible brute-force attacks or automated scanning efforts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

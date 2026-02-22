@@ -1,8 +1,8 @@
 title: MSSQL Add Account To Sysadmin Role
 id: 08200f85-2678-463e-9c32-88dce2f073d1
 status: test
-description: Detects when an attacker tries to backdoor the MSSQL server by adding
-  a backdoor account to the sysadmin fixed server role
+description: Detects when an attacker tries to backdoor the MSSQL server by 
+  adding a backdoor account to the sysadmin fixed server role
 references:
 - https://www.netspi.com/blog/technical/network-penetration-testing/sql-server-persistence-part-1-startup-stored-procedures/
 author: Nasreddine Bencherchali (Nextron Systems)
@@ -29,20 +29,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to add an unauthorized account to the `sysadmin` fixed server role in Microsoft SQL Server (MSSQL). Attackers often aim to backdoor database access, which would grant them elevated privileges to either exfiltrate sensitive data or maintain a persistent presence within an enterprise environment. By leveraging SQL Server's role-based security model, rogue actors can facilitate further malicious activities without detection.
 
-  The relevant MITRE ATT&CK tactics include **Persistence (T1546)**, as the attacker's goal is to implant a backdoor for continued access. Specifically, the technique employed here is **Privilege Escalation (T1068)** when the attacker gains administrative rights unchecked. The primary data sources necessary to capture this activity are MSSQL audit logs, which record administrative actions taken on the server when the MSSQL audit policy is enabled.
+  This Sigma rule detects the addition of an account to the MSSQL `sysadmin` role, signaling a potential backdoor attempt by an attacker. The likely objective of this attack behavior is to establish ongoing access and control over the MSSQL server, allowing the adversary to perform data manipulation and extraction or to elevate privileges within the server environment. This activity aligns with the MITRE ATT&CK tactic of **Persistence** (TA0003) using the technique **Account Manipulation** (T1098).
+
+  Primary telemetry sources include Windows Application Logs that capture MSSQL-specific events, particularly Event ID 33205, which requires prior enforcement of MSSQL audit policies. If malicious, this behavior could significantly undermine database integrity and security, facilitating unauthorized access and possible data exfiltration. This detection does NOT confirm malicious intent on its own, as it may result from rare legitimate administrative changes by database administrators.
 
   ### Investigation Steps
-  - **Examine MSSQL Audit Logs**: Review the MSSQL audit logs for Event ID 33205, which records any attempts to modify server roles, specifically looking for "add member" statements associated with the `sysadmin` role.
-  - **Correlate with User Activity**: Analyze user account activity in your identity management system to determine if the account being added has a history of suspicious behavior or lacks an administrative purpose.
-  - **Review Application Access Policies**: Check the access policies and roles assigned within the MSSQL environment for unusual configurations or recently modified privileges that might correlate with unauthorized access.
-  - **Inspect Whitelisted Changes**: Identify legitimate administrative activity to rule out false positives, such as known scheduled administrative tasks or configurations that may have required similar adjustments.
+
+  - **Examine Event Logs:** Review Windows Application Logs for Event ID 33205. Focus on the `Data` field for entries containing 'object_name:sysadmin' and 'statement:alter server role [sysadmin] add member'. Record the actor's account used for this modification, as this will help in determining legitimacy.
+
+  - **Identify account changes:** Verify the user or service account that executed the alteration. Trusted accounts typically have documented administrative roles. Unknown or unusual accounts performing this action should raise suspension.
+
+  - **Assess audit logging configuration:** Confirm that MSSQL audit policies are properly implemented. Lack of these logs may indicate an unconfigured system that limits detection capabilities.
+
+  - **Review recent administrative activities:** Look for other recent modifications made by the same account in the Windows Event Log (IDs 4624 and 4672). Compare patterns of behavior to identify potential anomalies indicative of malicious intent.
+
+  - **Investigate legitimate usage:** Check for historical context on legitimate administrative tasks. For example, if an account is typically used for routine maintenance or updates, validate that this behavior aligns with established change management policies.
+
+  - **Cross-reference related detections:** Notice if any detected lateral movement or privilege escalation behaviors exist in conjunction with this MSSQL modification. Use Event IDs related to privilege escalation (e.g., 4672) to identify extra-ordinary access patterns.
 
   ### Prioritization
-  This alert is considered high-severity due to the potential impact of unauthorized administrative access on database integrity and confidentiality. The likelihood of these actions being malicious increases, especially when observed across accounts with no prior administrative roles.
+
+  This alert carries a **high** severity level due to the critical nature of MSSQL servers in enterprise environments. If successfully exploited, it could allow an attacker to maintain persistent control over the server. The likelihood of malicious use is significant, as adding accounts to high-privilege roles is a known tactic for attackers seeking long-term access.
 
   ### Blind Spots and Assumptions
-  The detection rule assumes that the MSSQL audit policy is enabled; without this configuration, logs relevant to unauthorized privilege changes may not be captured. Additionally, the rule may miss context from legitimate administrative activities that are rare but authorized, thus leading to potential false positives. Gaps in coverage may arise if attackers use other methods to escalate privileges that do not directly involve altering the `sysadmin` role.
+
+  Detection may have limitations due to reliance on the correctness of MSSQL auditing configurations. Attackers may utilize obfuscation techniques, such as using legitimate administrative accounts or naming conventions that mimic genuine administrative actions, to bypass detection. Additionally, routine administrative processes, such as automated scripts for maintenance or role adjustments, might trigger this alert without malicious intention. A related detection that strengthens coverage would be monitoring for unusual login attempts or access patterns from service accounts that correlate with changes to role memberships.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

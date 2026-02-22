@@ -1,9 +1,9 @@
 title: Scheduled Task Creation Masquerading as System Processes
 id: 9f8573c9-22b4-40e3-89c1-72bc2b8d49ab
 status: experimental
-description: Detects the creation of scheduled tasks that involve system processes,
-  which may indicate malicious actors masquerading as or abusing these processes to
-  execute payloads or maintain persistence.
+description: Detects the creation of scheduled tasks that involve system 
+  processes, which may indicate malicious actors masquerading as or abusing 
+  these processes to execute payloads or maintain persistence.
 references:
 - https://tria.ge/241015-l98snsyeje/behavioral2
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
@@ -49,25 +49,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects the creation of scheduled tasks that masquerade as legitimate system processes. Threat actors may exploit the functionality of `schtasks.exe` to execute malicious payloads covertly or maintain persistence on compromised systems. The technique typically involves creating tasks that mimic well-known system processes to evade detection by security tools. Attackers often aim to establish a foothold within a network, further escalate privileges, or perform stealthy lateral movements, all while maintaining a low profile.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Persistence (T1053.005)**: This involves creating scheduled tasks to ensure malicious software remains on a system even after reboots.
-  - **Execution (T1059)**: Using scripts or command-line interfaces to execute created tasks.
-  - **Privilege Escalation (T1068)**: Manipulating scheduled tasks to execute with elevated privileges if the task runs under a system account.
+  This rule detects the creation of scheduled tasks using the legitimate Windows utility `schtasks.exe`, particularly when these tasks are associated with system processes like `lsass.exe` or `svchost.exe`. The likely attacker objective is to execute payloads or establish persistence by masquerading as these trusted processes. This behavior relates to the MITRE ATT&CK tactics of Execution (T1203.005), Persistence (T1053.005), and Defense Evasion (T1036.005).
 
-  The primary data sources for detecting this behavior are process creation logs, specifically focusing on entries related to `schtasks.exe`, as well as Windows event logs that capture command-line arguments utilized during the scheduled task creation process.
+  The primary telemetry sources are Windows process creation logs from Sysmon (Event ID 1) or Security Event ID 4688. If malicious, this behavior could allow an adversary to maintain control over the system, execute unauthorized commands, or avoid detection. However, it's important to note that the alert does NOT confirm malicious intent by itself; legitimate administrative tasks may trigger the same detection.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Examine recent Windows process creation logs to identify instances of `schtasks.exe` being invoked, focusing on command line arguments indicative of task creation.
-  - **Analyze Command-Line Activity**: Investigate the command-line parameters used in the scheduled task creation. Look for suspicious arguments that reference legitimate system processes, as this may indicate an attempt to hijack or impersonate those processes.
-  - **Correlate with User Activity**: Check for correlations with user activity logs to determine whether the task creation aligns with regular administrative actions. Look for unusual times or accounts that do not typically perform such tasks.
-  - **Inspect Task Scheduler Entries**: Directly review the Task Scheduler to identify any newly created tasks that may not conform to standard organizational practices, especially those running under high-privilege accounts.
+
+  - **Inspect scheduled task creation events:** Review Windows Sysmon Event ID 1 or Security Event ID 4688 specifically for scheduled tasks created with `schtasks.exe`. Look for tasks whose command line includes system process names (e.g., 'lsass', 'svchost').
+
+  - **Identify abnormal command line usage:** Search for command lines containing system process names along with the `/create` flag in Task Scheduler logs. Legitimate use will typically not invoke sensitive system processes for scheduling tasks.
+
+  - **Correlate with system process logins:** Examine Event ID 4624 for successful logins that correspond to the time when the scheduled task was created. Legitimate activity will likely be initiated by a known administrator account, whereas malicious activity may show unusual or unexpected user accounts.
+
+  - **Check task details for persistence goals:** Review the `schtasks` output for any unusual or recurrent scheduling frequencies (e.g., every minute) or task actions that point to executing less common or untrusted executables, which are indicators of malicious persistence.
+
+  - **Analyze the host for other suspicious behavior:** Use endpoint detection tools or review recent logs for additional indicators of compromise (IoCs), such as file creations or modifications tied to the newly-scheduled tasks.
+
+  - **Validate legitimate administrative tasks:** Confirm scheduled tasks related to normal operational procedures involving trusted system processes. Document expected use cases to differentiate between benign and malicious action.
 
   ### Prioritization
-  This alert is considered high severity due to the potential for attackers to leverage scheduled tasks for persistence and execution within an environment. Given that such activities may bypass traditional endpoint defenses and could lead to further exploitation, prompt investigation is critical.
+
+  This alert should be considered high-severity due to the potential security impact of unauthorized process execution on critical systems. The likelihood of exploitation increases, particularly in environments where adversaries commonly use scheduled tasks to maintain persistence and evade defenses.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if legitimate administrative tasks are frequently performed using `schtasks.exe`, leading to potential false positives. This detection logic assumes that organization practices are consistent and that deviations can be attributed to malicious activity. Required logs include those capturing command-line executions and detailed process creation events. Proper configuration of logging policy on Windows systems is necessary for effective monitoring and detection.
+
+  Evasion techniques may include modifying the command line to mask the process names or utilizing non-standard executable names. Reliable detection requires comprehensive logging of both Sysmon and Windows Security events. Legitimate administrative actions, such as software updates or scheduled maintenance tasks, may inadvertently trigger this alert. A complementary detection would include monitoring for unusual account privilege escalations (T1068) associated with system processes to enhance contextual understanding.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

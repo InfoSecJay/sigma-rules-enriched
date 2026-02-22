@@ -29,22 +29,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious attempts to inject a sidecar container into a running Kubernetes deployment via a `kubectl patch` operation. The sidecar container conceptually enhances the main application container by providing supplementary features, such as logging or monitoring. However, if exploited, an attacker could leverage this behavior to execute arbitrary code within a legitimate pod, thereby obscuring their actions from monitoring tools and remaining undetected for longer.
 
-  Attackers aiming for sidecar injection typically seek to establish persistence, exfiltrate data, or conduct lateral movement without creating new pods that could draw attention. The primary MITRE ATT&CK tactics relevant to this scenario include **Execution** (TA0040) and more specifically the technique of **Container Injection** (T1609). These tactics highlight the malicious exploitation of container orchestration platforms such as Kubernetes, demonstrating the need for robust monitoring of deployment activities.
+  This rule detects attempts to inject a sidecar container into a running Kubernetes deployment using the `kubectl patch` command. The likely objective of an attacker is to run malicious code within the context of a legitimate container, leveraging its permissions and network access to obfuscate their activity. This behavior corresponds to the MITRE ATT&CK technique "Sidecar Injection" (T1609).
 
-  Key telemetry sources that provide vital evidence include Kubernetes audit logs, particularly focusing on `kubectl` interactions related to deployment modifications.
+  The primary telemetry sources are Kubernetes audit logs, specifically filtering for `verb: 'patch'` and targeting `objectRef.resource: 'deployments'`. If malicious, the security impact can be significant as it opens pathways for lateral movement and the execution of unauthorized code within the cluster. It's important to note that this detection does NOT confirm compromise on its own; legitimate users with appropriate permissions could also issue such commands.
 
   ### Investigation Steps
-  - **Review Audit Logs:** Check Kubernetes audit logs for any `kubectl patch` operations against deployments, specifically looking for unexpected changes to existing pod structures.
-  - **Analyze Container Configurations:** Inspect the configurations of modified pods to identify any unauthorized or unusual sidecar containers added to legitimate deployments, noting their images and command executions.
-  - **Verify User Activity:** Investigate the identity of the user or service account that executed the patch operation. Cross-reference this activity with known permissions and activities to assess legitimacy.
-  - **Correlate with Anomalies:** Look for unusual patterns or spikes in deployment and pod modification activities around the time of the detected sidecar injection, considering the context of recent changes or incidents.
+
+  - **Verify the audit log entry:** Cross-reference Kubernetes audit logs for event details, specifically looking for entries with `verb: 'patch'` and `objectRef.resource: 'deployments'` in fields like `resource.namespace` and `user.agent` (e.g., changes made by a user or service account should have identifiable details).
+
+  - **Check user activity context:** Review the identity of the user or service account executing the `kubectl patch` command. Legitimate users will have predefined roles with limited access; check for privileges against Kubernetes RBAC settings.
+
+  - **Identify sidecar specifications:** Analyze the deployment manifest in question to confirm if the injected sidecar was expected. Legitimate deployments generally have a well-defined specification; unrecognized sidecars should raise concern.
+
+  - **Investigate network connections:** Monitor network connections initiated by the newly injected container for unexpected or unauthorized outbound calls. Utilize network flow logs (e.g., from Service Mesh) to analyze communication patterns.
+
+  - **Assess cluster role bindings:** Identify whether the user or service account has elevated privileges (e.g., ClusterRole or ClusterRoleBinding) that enable modifications to deployments. A high-confidence malicious indicator would be if a low-privilege user executes such a command.
+
+  - **Evaluate pod security standards:** Cross-check with existing pod security policies to see if the injected sidecar adheres to established security protocols. Any deviations may signal further compromise.
 
   ### Prioritization
-  The medium severity of this alert is justified by the potential risk of unauthorized access and control over sensitive applications within a cluster. Given the likelihood of a successful injection leading to serious impacts on data integrity and security, proactive investigation is critical in a cloud-native environment.
+
+  This alert is medium priority as it indicates potential unauthorized alteration to a deployment, which can lead to significant security risks if the deployment is critical. The likelihood of malicious activity is moderate, given that sidecar injections can be a common technique for attackers, but they can also occur in legitimate scenarios when changes are made for valid reasons.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if Kubernetes audit logging is not enabled or improperly configured, meaning some injection attempts could be missed. The logic assumes the presence of a legitimate `kubectl patch` operation, and false positives may emerge from legitimate CI/CD processes or administrative actions. It is essential for the Kubernetes cluster to have comprehensive audit logging settings enabled to ensure complete visibility into such changes.
+
+  Detection may be limited by the configuration of Kubernetes audit logs; ensure that auditing is enabled and properly capturing all relevant events. Legitimate application updates or configurations by DevOps personnel can trigger this alert, requiring verification. A related detection would be monitoring for unexpected `kubectl exec` commands within the same deployment to identify potential abuse of the newly injected sidecar.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

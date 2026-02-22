@@ -1,8 +1,8 @@
 title: Suspicious NTLM Authentication on the Printer Spooler Service
 id: bb76d96b-821c-47cf-944b-7ce377864492
 status: test
-description: Detects a privilege elevation attempt by coercing NTLM authentication
-  on the Printer Spooler service
+description: Detects a privilege elevation attempt by coercing NTLM 
+  authentication on the Printer Spooler service
 references:
 - https://twitter.com/med0x2e/status/1520402518685200384
 - https://github.com/elastic/detection-rules/blob/dd224fb3f81d0b4bf8593c5f02a029d647ba2b2d/rules/windows/credential_access_relay_ntlm_auth_via_http_spoolss.toml
@@ -34,28 +34,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious NTLM authentication attempts that leverage the Printer Spooler service, specifically through the utilization of the `rundll32.exe` executable to manipulate authentication behavior. In this scenario, an attacker may be attempting to escalate privileges by coercively capturing NTLM credentials, taking advantage of the weak security posture commonly associated with the Printer Spooler service. Such activities typically indicate an effort to move laterally within the environment, gain unauthorized access, or escalate privileges for further exploitation.
 
-  The relevant MITRE ATT&CK tactics include:
-  - **Privilege Escalation** (TA0004) – attack techniques used to gain higher-level permissions.
-  - **Credential Access** (TA0006) – behaviors related to obtaining account credentials.
-  - **Exploitation of Remote Services** (T1212) – exploiting services with elevated privileges to execute unauthorized actions.
+  This rule detects attempts to exploit the Printer Spooler service by coercing NTLM authentication using a specific command to invoke `rundll32.exe` with the `davclnt.dll` library. The likely attacker objective is to gain unauthorized access elevated privileges on target systems via NTLM relay attacks, particularly targeting the print-related functionalities. This behavior fits within the MITRE ATT&CK framework under Tactic: **Privilege Escalation (TA0004)** and Technique: **Credential Access (T1212)**.
 
-  Primary data sources for evidence include process creation logs, which can provide insights into command line arguments and execution context, along with network logs that may detail communications through the Printer Spooler service.
+  Primary telemetry sources include Windows process creation logs, specifically Event ID 4688 and relevant entries from Sysmon Event ID 1, tracking process creation with command-line arguments. The security impact is significant as successful exploitation could lead to unauthorized system access and privilege escalation. However, this detection on its own does **NOT** confirm whether a successful compromise occurred—it merely highlights a suspicious activity pattern.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine process creation logs for instances of `rundll32.exe` executing commands containing 'spoolss' and 'davclnt.dll'. Focus on the context and any associated user accounts.
 
-  - **Analyze Network Traffic:** Investigate network logs for connections to the Printer Spooler service or unusual communications related to printing and SMB services, particularly looking for HTTP requests that may indicate credential relay attempts.
+  - **Review detailed process creation logs**: Check Security Event ID 4688 or Sysmon Event ID 1 for entries involving `rundll32.exe`, ensuring command-line parameters include `davclnt.dll,DavSetCookie` and terms like `spoolss` or `/print/pipe/`.
 
-  - **Inspect Authentication Logs:** Scrutinize NTLM authentication logs to identify any anomalies in authentication patterns, such as failed logins followed by successful ones, or logins from unusual locations or times.
+  - **Identify command execution origin**: Determine the user context or service account running the command by examining the `SubjectUserSid` or `AccountName` in Event ID 4688. Legitimate usage often involves system processes or on-demand print jobs.
 
-  - **Review Security Configurations:** Check the configurations related to the Printer Spooler service to ensure appropriate security measures are in place, and investigate any changes in settings or policies that may introduce vulnerabilities.
+  - **Correlate network activity**: Analyze network logs for connections to print servers or other network resources, focusing on NTLM authentication traffic. Look for unusual login attempts or spikes in traffic to the Print Spooler service.
+
+  - **Validate legitimate print-related activities**: Cross-reference alerts with expected print service activities, like scheduled maintenance tasks or legitimate print job submissions, as these may involve legitimate calls to the Spooler service.
+
+  - **Look for signs of payload delivery**: Review file system logs for new or modified files related to `davclnt.dll` or similar DLL files, verifying if any suspicious external payloads were delivered.
+
+  - **Identify repeat offenders**: If multiple alerts correlate to the same user or machine over a short period, flag that asset for deeper investigation as recurrent behavior may hint at internal compromise or misuse.
 
   ### Prioritization
-  This alert is of high severity due to the potential for significant impact on an organization’s security posture, as it involves techniques for privilege escalation and credential capture that could lead to further compromise and lateral movement within the network.
+
+  This alert has high severity due to its potential impact on critical systems, as exploitation could lead to significant privilege escalation. It is a known vector in sophisticated attacks, making it likely to be abused by malicious actors actively targeting enterprise environments.
 
   ### Blind Spots and Assumptions
-  This detection logic may not identify all forms of privilege escalation or credential capture activities, especially if they are executed through other means that do not utilize `rundll32.exe` or the Printer Spooler service. Additionally, the effectiveness of the detection relies on the proper logging of process creation events and the capture of relevant command-line arguments. If logging is not enabled or properly configured for these sources, detection may be impaired.
+
+  Detection can be limited by environments misconfigured for logging or lack of comprehensive monitoring of all involved processes. Legitimate activities, like automated print services interacting with file shares, could inadvertently trigger this alert. Companion detections such as monitoring NTLM authentication failures or unusual access patterns to the Print Spooler service would enhance the coverage and context for investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

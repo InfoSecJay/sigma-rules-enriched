@@ -4,9 +4,9 @@ related:
 - id: 99cf1e02-00fb-4c0d-8375-563f978dfd37
   type: derived
 status: test
-description: Detects suspicious DACL modifications via the "Set-Service" cmdlet using
-  the "SecurityDescriptorSddl" flag (Only available with PowerShell 7) that can be
-  used to hide services or make them unstopable
+description: Detects suspicious DACL modifications via the "Set-Service" cmdlet 
+  using the "SecurityDescriptorSddl" flag (Only available with PowerShell 7) 
+  that can be used to hide services or make them unstopable
 references:
 - https://www.sans.org/blog/red-team-tactics-hiding-windows-services/
 - https://learn.microsoft.com/pt-br/windows/win32/secauthz/sid-strings
@@ -42,42 +42,28 @@ falsepositives:
 - Unknown
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This detection rule identifies suspicious modifications to the Discretionary Access Control List (DACL) of Windows services via the PowerShell `Set-Service` cmdlet, specifically when the `-SecurityDescriptorSddl` flag is used. The likely attacker objective is to manipulate service permissions to either hide the service from discovery or make it unmanageable (e.g., impossible to stop) by legitimate users. This behavior aligns with the MITRE ATT&CK techniques for Privilege Escalation (T1543.003) and Persistence.
+  This rule detects modifications to Service Discretionary Access Control Lists (DACLs) using PowerShell's `Set-Service` cmdlet with the `-SecurityDescriptorSddl` flag. This behavior is often associated with attempts to hide services or manipulate their stopping capabilities, potentially allowing an adversary to persist undetected on a compromised system. Relevant MITRE ATT&CK techniques include Persistence (T1543.003) and Privilege Escalation (T1543).
 
-  The primary telemetry sources for this detection are Windows process creation logs, specifically focusing on command line arguments for the creation of PowerShell processes (Event ID 4688 and Sysmon Event ID 1). If malicious, such modifications can provide an adversary with a foothold in the environment, leading to longer-term persistence. Importantly, this detection does not independently confirm that a service has been hidden or is being misused; it simply indicates that a potentially risky command was executed.
-
-  ---
+  Primary telemetry sources include Windows process creation logs, specifically using Event ID 4688. If malicious, these behaviors can facilitate unauthorized service modifications, enabling an attacker to evade detection or persistence. Importantly, the detection does not confirm that a malicious activity occurred because legitimate administrative actions may invoke similar commands.
 
   ### Investigation Steps
 
-  - **Review command line arguments:** Check for the presence of `-SecurityDescriptorSddl` or `-sd` in the CommandLine field of the identified process (Event ID 4688 / Sysmon ID 1). Malicious indicators include usage of DACL patterns `D;;` and `;;;IU`, suggesting potentially improper permissions are being set.
+  - **Review command execution context:** Check Event ID 4688 logs for the creation of the `pwsh.exe` process. Look for user account information and parent process IDs to determine if the command was run by a legitimate administrator or an unauthorized account.
 
-  - **Correlate with service logs:** Investigate the specific service being modified by checking the `ServiceName` and `DisplayName` fields in Event ID 7045 (Service Control Manager logs). Look for any services that have recently had their DACL modified; especially any not typically altered during normal operations.
+  - **Analyze CommandLine arguments:** Specifically check the CommandLine field in Event ID 4688 logs for the presence of the `Set-Service` cmdlet combined with `-SecurityDescriptorSddl`. Focus on outputs containing `D;;` accompanied by `;;;IU`, `;;;SU`, `;;;BA`, or `;;;SY`. Benign use cases should not include modifications that excessively restrict access.
 
-  - **Identify legitimate PowerShell usage:** Confirm whether this PowerShell command is part of expected administrative actions. Typical usage may include legitimate service management, such as setting service parameters or configurations without the `-SecurityDescriptorSddl` switch.
+  - **Validate normal service configurations:** Cross-reference the list of running services with the expected configurations. Identify any changes in DACL settings that deviate from known baselines. Normal configurations should not have extensive permissions assigned or be set to 'unstopable.'
 
-  - **Analyze elevated privileges:** Review account permissions of the user executing this command. If the account does not have sufficient privileges (like SYSTEM or elevated administrator roles) for modifying service DACLs, consider this a high-confidence malicious indicator.
-
-  - **Check for related alerts:** Look for any companion detections that may indicate a broader attack pattern. Related activities might include unusual PowerShell activity, flagging for known attack tools or execution patterns (e.g., attack methods observed in related detection ID 99cf1e02-00fb-4c0d-8375-563f978dfd37).
-
-  - **Validate system impact:** If the modification was executed on critical services, assess the security impact on affected systems. Services like Windows Update or Anti-virus should not typically have their DACLs modified; any changes here could indicate a serious compromise.
-
-  ---
+  - **Correlate with other monitoring tools:** If available, check SIEM or EDR alerts for additional context around this event, such as any unusual network traffic to or from the device following the service modifications. A lack of related alerts may indicate benign activity.
 
   ### Prioritization
 
-  The severity of this alert is high due to the potential impact on critical services, which could lead to complete loss of management control over compromised environments. The likelihood of such modifications being abused by an adversary to escalate privileges or create persistence mechanisms is significant, especially given the technical knowledge required to use the `Set-Service` cmdlet in this manner.
-
-  ---
+  This alert is high severity due to the potential impact on system integrity, as malicious DACL modifications can allow an attacker to execute persistence mechanisms undetected. The likelihood of abuse is significant, as hiding services and preventing their stop commands are commonly weaponized tactics employed by advanced threat actors.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the use of legitimate administrative accounts which could also trigger this alert when performing necessary changes; therefore, context is critical. Ensure that logging is properly configured to capture all relevant PowerShell activity, as minimal logging could lead to missed detections. Additionally, related detections that monitor for abnormal PowerShell execution patterns can enhance coverage against potential evasion techniques like script obfuscation.
-
-  ---
+  Detection may be circumvented by using alternate tools or scripting languages to modify services without traditional logging. Complete PowerShell command logging must be enabled to reliably capture all service modifications. Legitimate service management activities, such as administrative changes to service permissions, might trigger this alert. Complementary detections such as monitoring for abnormal modifications in service configurations or event log access (Event ID 5145) will enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

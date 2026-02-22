@@ -1,8 +1,9 @@
 title: Potential SysInternals ProcDump Evasion
 id: 79b06761-465f-4f88-9ef2-150e24d3d737
 status: test
-description: Detects uses of the SysInternals ProcDump utility in which ProcDump or
-  its output get renamed, or a dump file is moved or copied to a different name
+description: Detects uses of the SysInternals ProcDump utility in which ProcDump
+  or its output get renamed, or a dump file is moved or copied to a different 
+  name
 references:
 - https://twitter.com/mrd0x/status/1480785527901204481
 author: Florian Roth (Nextron Systems)
@@ -35,27 +36,34 @@ detection:
     - 'move lsass.exe_'          # procdump default pattern e.g. lsass.exe_220111_085234.dmp
   condition: 1 of selection_*
 falsepositives:
-- False positives are expected in cases in which ProcDump just gets copied to a different
-  directory without any renaming
+- False positives are expected in cases in which ProcDump just gets copied to a 
+  different directory without any renaming
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential evasion tactics involving the SysInternals ProcDump utility, a tool frequently used by attackers to capture memory dumps of processes like LSASS (Local Security Authority Subsystem Service). The use of ProcDump can serve various purposes, including harvesting credentials as LSASS contains sensitive information. Specifically, this rule looks for instances when the ProcDump command or its output files are being renamed, copied, or moved, which may indicate an attempt to obscure malicious intents.
 
-  In the threat landscape, attackers leveraging ProcDump aim to execute credential theft or maintain persistence by stealthily extracting credentials from memory. This is aligned with the MITRE ATT&CK techniques of **T1036** (Masquerading), which involves disguising malicious activities to evade detection, and **T1003.001** (Credential Dumping: LSASS Memory), focusing on extracting sensitive information from LSASS memory.
+  This Sigma rule detects usage of the SysInternals ProcDump utility where either the utility itself or its output dump files are renamed or moved, which is commonly indicative of an adversary attempting to exfiltrate credential information—often from LSASS (Local Security Authority Subsystem Service). The likely attacker objective here is credential harvesting, aiming to capture sensitive information stored in the LSASS process. This behavior aligns with the MITRE ATT&CK techniques of Defense Evasion (T1036) and Credential Access (T1003.001).
 
-  To effectively detect these types of activities, primary data sources include **process creation events** that log command line arguments, enabling the identification of unusual ProcDump usage patterns and renaming activities.
+  The primary telemetry sources are Windows process creation logs, particularly Event ID 4688, with a focus on CommandLine parameters. If this activity is malicious, it poses a significant security risk, as it can lead to unauthorized access to credentials. Importantly, this detection does NOT on its own confirm that a successful exfiltration of credentials has occurred; it simply indicates the potential misuse of ProcDump.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine process creation events from EDR or SIEM for any instances of ProcDump being executed. Look specifically for command lines that include `copy procdump`, `move procdump`, or references to `lsass` and `.dmp` file extensions.
-  - **Analyze File Activity**: Investigate file system logs or monitoring solutions that capture file operations to identify any suspicious renaming, copying, or movement of dump files (e.g., files following the naming convention `lsass.exe_*`).
-  - **Check for Anomalous User Activity**: Correlate any identified ProcDump activity with user behavior, focusing on accounts with unusual privilege levels and any recent authentication events that could suggest unauthorized access.
-  - **Enhance Visibility on Standard Tools**: Ensure that logging is configured to include detailed command line arguments for all processes on endpoints, as this will enhance capabilities for detection and alerting around tools like ProcDump.
+
+  - **Review command line activity:** Focus on Event ID 4688 logs for any instances where `procDump` or associated dump files are moved or renamed. Legitimate usage of ProcDump will often have command lines without additional copy or move commands.
+
+  - **Identify high-risk process involvement:** Check for any instances with CommandLine fields containing `lsass.exe` within the same log entry. The use of `lsass.exe` suggests potential credential harvesting activity, especially if associated with a dump file (e.g., `lsass.exe_*.dmp`).
+
+  - **Cross-reference user context:** Validate the user account executing the ProcDump command by examining logons (via Event ID 4624). Confirm if the account is a standard user or part of privileged groups; unexpected usage by low-privilege accounts indicates potential compromise.
+
+  - **Search for duplicate dumps:** Examine the filesystem for any newly created or renamed .dmp files, especially in directories atypical for legitimate activities (like `C:\Windows\Temp\`). Use File Creation timestamps to detect anomalous activity within sensitive areas.
+
+  - **Look for ProcDump in script use:** Investigate logs for batch scripts or PowerShell commands where `procDump` might be invoked. Scripts can often obfuscate intent, and legitimate automated tasks typically would not rename files repeatedly.
 
   ### Prioritization
-  Given the high potential impact associated with credential theft and defense evasion tactics, this alert is rated as high severity. The likelihood of misuse in compromise scenarios and the sensitive nature of the data involved necessitate quick response and investigation.
+
+  This alert should be considered high severity due to the sensitive nature of credential exfiltration from LSASS, the potential impact on system integrity, and the commonality of the technique being weaponized by attackers. Systems compromised in this manner can lead to significant breaches involving further lateral movement or escalation.
 
   ### Blind Spots and Assumptions
-  This detection may suffer from gaps in coverage, particularly in environments where the logging of command line arguments is not thoroughly enabled or configured. Furthermore, the detection logic assumes that the standard patterns of ProcDump and its outputs are being used; unusual or custom naming schemes could evade detection. Without proper file monitoring, cases where dump files are merely moved without renaming may not be captured. Required logs for effective alerting include detailed process creation logs and file activity logs reflecting rename and copy commands.
+
+  This rule may have evasion limitations if attackers use other mechanisms to dump LSASS without utilizing ProcDump or if they obfuscate their command line entries. Ensure that process creation logs are adequately configured to capture detailed command line arguments for reliable detection. Legitimate administrative activities, such as routine debugging or system diagnostics, may trigger this alert. A companion detection rule for direct LSASS access attempts (via credential dumping techniques) would strengthen overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

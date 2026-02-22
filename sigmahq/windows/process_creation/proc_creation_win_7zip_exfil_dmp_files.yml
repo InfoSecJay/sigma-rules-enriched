@@ -4,8 +4,9 @@ related:
 - id: 1ac14d38-3dfc-4635-92c7-e3fd1c5f5bfc
   type: derived
 status: test
-description: Detects execution of 7z in order to compress a file with a ".dmp"/".dump"
-  extension, which could be a step in a process of dump file exfiltration.
+description: Detects execution of 7z in order to compress a file with a 
+  ".dmp"/".dump" extension, which could be a step in a process of dump file 
+  exfiltration.
 references:
 - https://thedfirreport.com/2022/09/26/bumblebee-round-two/
 author: Nasreddine Bencherchali (Nextron Systems)
@@ -34,30 +35,45 @@ detection:
     - '.hdmp'
   condition: all of selection_*
 falsepositives:
-- Legitimate use of 7z with a command line in which ".dmp" or ".dump" appears accidentally
+- Legitimate use of 7z with a command line in which ".dmp" or ".dump" appears 
+  accidentally
 - Legitimate use of 7z to compress WER ".dmp" files for troubleshooting
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the use of 7-Zip (`7z.exe`, `7za.exe`, `7zr.exe`) to compress files with extensions commonly associated with memory dumps, such as ".dmp" and ".dump". The execution of this tool in this specific context could indicate a malicious attempt to prepare memory dump files for exfiltration, which may follow a compromise whereby an attacker has gained access to sensitive data stored in these files.
 
-  The threat scenario likely involves an attacker utilizing this compression step as a precursor to data exfiltration aimed at stealing credentials, sensitive information, or other valuable data that may be contained in memory dumps. Such actions can align with various MITRE ATT&CK techniques, particularly under the Collection tactic. The relevant technique for this detection is **Data from Information Repositories (T1560.001)**, which includes the aggregation of sensitive data from processes and files.
+  This detection identifies the execution of 7-Zip utilities (7z.exe, 7zr.exe, 7za.exe) that are being utilized to compress files with extensions commonly associated with memory dumps (e.g., ".dmp", ".dump"). Such behavior may indicate an attempt to exfiltrate sensitive data, as compromised systems may generate dump files that contain critical information including passwords, encryption keys, or other sensitive system states.
 
-  The primary data sources for this detection include **process creation events** which log the execution of applications and their associated command-line parameters. This logging provides the necessary context to identify potentially malicious use of administrative tools like 7-Zip.
+  The apparent objective of the attacker is to compress and potentially exfiltrate these dump files without detection, taking advantage of 7-Zip's common legitimate usage. The relevant MITRE ATT&CK tactics and techniques include "Collection" (TA0046) and "Data from Information Repositories" (T1560.001). The primary telemetry sources for monitoring this behavior are Windows Process Creation events (Event ID 4688) and Sysmon logs (Event ID 1).
+
+  The security impact is significant if the activity is malicious, as it enables the adversary to remove potentially sensitive information from the environment. However, this detection alone does NOT confirm malicious intent, as legitimate use of the tool for troubleshooting or maintenance can also generate similar command lines.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Investigate the logs for instances where `7z.exe`, `7za.exe`, or `7zr.exe` are executed. Look for the context around these executions to assess if they correlate with unauthorized access or suspicious user accounts.
 
-  - **Analyze Command-Line Parameters:** Focus on command-line arguments that contain '.dmp', '.dump', or '.hdmp'. Determine if these commands are being executed in a legitimate context or if they indicate an anomalous data compression pattern.
+  - **Check Process Creation Log**: Review Windows Event ID 4688. Look for the execution of '7z.exe', '7za.exe', or '7zr.exe' with command line arguments that include '.dmp', '.dump', or similar file types. Note any values in the `Image`, `CommandLine`, and `ParentImage` fields to assess lineage.
 
-  - **Correlate with User Activity:** Check the user accounts associated with the execution of these commands. Identify any links to known malicious activities or patterns indicative of compromise, especially from accounts with elevated privileges.
+  - **Validate Legitimate Use Cases**: Analyze previous instances of the 7-Zip executions. If files being compressed are standard WER (Windows Error Reporting) ".dmp" files for system troubleshooting with typical filenames and paths (e.g., under the `C:\ProgramData\Microsoft\Windows\WER\` directory), this may indicate benign behavior.
 
-  - **Consult Additional Logs:** If available, review **file access logs** and network traffic logs to track where the compressed dump files are being sent or if any external connections align with the timing of the 7-Zip executions.
+  - **Correlate with Network Traffic**: Check for any outbound network connections around the time of 7-Zip usage via network logs. Investigate for transfers of compressed files or connections to unfamiliar external IP addresses, indicating potential data exfiltration.
+
+  - **Identify Malicious Indicators**: Look for suspicious ParentImage entries in Event ID 4688 that might suggest the process was spawned from a malicious application or command prompt, such as 'cmd.exe' or a PowerShell process.
+
+  - **Review Sysmon Logs**: Use Sysmon Event ID 1 to examine command line arguments for any unusual patterns or encoded strings that suggest the files are being prepared for exfiltration rather than legitimate use.
+
+  - **Assess System Role and Criticality**: Identify if the host where the 7-Zip execution occurred is a critical infrastructure component or contains sensitive data. Prioritize alerts from these systems for immediate review.
+
+  ---
 
   ### Prioritization
-  This alert is considered medium severity due to the potential risk of data exfiltration tied to sensitive memory dumps. While the usage of 7-Zip can be legitimate in certain contexts, its application to compress dump files could indicate malicious intent, particularly if it follows other suspicious behavior.
+
+  This alert should be treated with medium severity due to the potential impact on sensitive data loss if exploited by an adversary. The likelihood of abuse is moderate, as compressing files for exfiltration is a known malicious behavior, yet 7-Zip is widely used for legitimate purposes. Therefore, analysts must carefully discern the context of the activity.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There can be gaps in detection coverage if process creation logging is not consistently enabled across endpoints or if sufficient contextual information around user activity is missing. The detection logic assumes that malicious users will utilize `7-Zip` in an identifiable manner (i.e., using specific command line parameters); however, experienced attackers may obfuscate their actions or use alternative tools. Effective monitoring requires that logs capture all relevant process execution events, and configurations should include detailed command line capturing for comprehensive analysis.
+
+  This detection may be circumvented by adversaries who use custom file names or legitimate system processes to mask their intentions. Ensuring that logging for Windows Event ID 4688 and relevant Sysmon events is consistently enabled is crucial for reliable detection. Legitimate activities, such as IT troubleshooting and compression of legitimate application dump files, could trigger the alert. A companion detection rule that monitors for unusual file access patterns or large data transfers could enhance coverage and provide better context for this behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

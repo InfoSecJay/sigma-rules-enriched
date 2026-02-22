@@ -25,40 +25,32 @@ falsepositives:
 - Legitimate use of the EnableRegion command by authorized administrators.
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the execution of the `EnableRegion` command in AWS CloudTrail logs. This command is used to enable specific AWS regions that may not be enabled by default for the account, potentially allowing adversaries to establish unauthorized persistence and access regions for malicious activities. The relevant MITRE ATT&CK tactic is **Persistence** (TA0003), and the associated technique is **Enable Account Functionality** (T1078).
+  This Sigma rule detects the execution of the `EnableRegion` command within AWS CloudTrail logs. Attackers may utilize this command to enable AWS regions that are not enabled by default as a persistence mechanism, allowing them continued access to an environment. The relevant MITRE ATT&CK tactics and techniques are Persistence (T1546) and Cloud Service Account Credential Dumping (T1550). Primary telemetry sources include AWS CloudTrail log events, specifically looking for entries where the `eventName` is `EnableRegion` and the `eventSource` is `account.amazonaws.com`.
 
-  The primary telemetry source is AWS CloudTrail, which logs API calls and user activity within the AWS environment. If malicious, enabling additional regions can facilitate lateral movement, data exfiltration, or establishing footholds that may evade detection. It is important to note that this detection does NOT confirm malicious intent on its own; legitimate users may execute this command as part of routine administration.
-
-  ---
+  The security impact can be substantial if an unauthorized user enables a new region, as it may indicate an escalation of access privileges or an attempt to maintain persistence in the environment. Importantly, this detection alone does not confirm malicious activity; further analysis is required to evaluate the context of the command execution and associated user identities.
 
   ### Investigation Steps
 
-  - **Verify the user executing the command:** Review CloudTrail logs for the `UserIdentity` field associated with the `EnableRegion` event (Event Name: `EnableRegion`). Determine if the user has a history of administrative actions or has the requisite permissions for enabling AWS regions.
+  - **Examine CloudTrail logs for `EnableRegion` events**: Look for CloudTrail logs with `eventName` set to `EnableRegion`, filtering for the `eventSource` `account.amazonaws.com`. Check for `userIdentity` fields to determine if a legitimate user triggered the action or if it appears anomalous.
 
-  - **Check for unusual regional activity:** Look for recent `EnableRegion` commands and correlate them with any subsequent activities in those regions. Review logs for any unusual resource creation or management within these regions (Event IDs: `CreateInstance`, `LaunchConfiguration`, etc.).
+  - **Validate the IAM role of the user executing the command**: Review the associated `userIdentity.arn` in the CloudTrail event to identify the permissions granted. Compare against typical administrative role behavior; look for deviations, such as roles with limited access suddenly altering multiple regions.
 
-  - **Assess the account’s regional configuration:** Query the AWS account configuration to verify the expected enabled regions. Compare it to the regions enabled by the suspicious command to confirm legitimacy.
+  - **Check if the region was previously disabled**: Identify the existing regions within the AWS account using the AWS CLI (`aws ec2 describe-regions`). If the enabled region is not frequently utilized in the organization, it may raise suspicion.
 
-  - **Identify other related events:** Search for any preceding or subsequent command events in CloudTrail (e.g., `CreateAccessKey`, `RunInstances`) that may indicate malicious intent, focusing on how these actions relate to the recent enabling of new regions.
+  - **Look for unusual activity surrounding the command**: Investigate recent AWS API calls made by the same user or role to assess behavior patterns, focusing on account management and security services like IAM or security groups.
 
-  - **Review the IAM policies for the user:** Check IAM permissions and roles associated with the user who executed the `EnableRegion` command, focusing on policies that grant unrestricted access to modify resources across multiple regions.
+  - **Assess legitimate user patterns**: Discuss with the cloud management team to understand scheduled maintenance, testing, or expansions that may explain enabling a new region. If these reasons align with expected behaviors, document them for further clarity.
 
-  ---
+  - **Identify a high-confidence malicious indicator**: If the command execution occurs after hours or from an unusual IP address, such as a foreign location or a known proxy, flag this as a strong indicator of malicious intent.
 
   ### Prioritization
 
-  The alert is of medium severity, as enabling new regions could be a precursor to malicious activities that facilitate unauthorized access to resources. While this behavior is uncommon in routine operations, it can indicate serious intent if executed by unauthorized users or from unusual geographical locations.
-
-  ---
+  This alert should be treated as medium severity due to the potential for significant impact if an unauthorized user has enabled a new region. The likelihood of abuse is moderate, as such operations may be targeted to facilitate illicit activities. While the command itself may not be commonly weaponized, it forms a critical component in broader attack vectors associated with persistence in cloud environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss cases where the command is executed from legitimate service accounts or with high privileges that are misused. Ensure CloudTrail is properly configured to capture all API events and that logs are retained for analysis. Legitimate administrative actions may include enabling regions when scaling operations or during compliance reviews. A related detection would be monitoring for unusual API calls following region enablement, such as unexpected resource creations in enabled regions.
-
-  ---
+  Detection limitations include the possibility of legitimate commands executed by authorized users, which may trigger the alert. Further, if CloudTrail logging is not enabled for all regions, activities in those regions may go undetected. Additionally, legitimate activities such as routine expansions or configurations may cause misinterpretations of the command's intentions. A related detection to consider might include monitoring for unusual IAM changes or usage patterns (e.g., `AddUserToGroup`, `PutUserPolicy`) which could indicate compromised credentials or unauthorized access attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

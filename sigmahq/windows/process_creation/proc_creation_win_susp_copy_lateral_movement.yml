@@ -1,15 +1,15 @@
 title: Copy From Or To Admin Share Or Sysvol Folder
 id: 855bc8b5-2ae8-402e-a9ed-b889e6df1900
 status: test
-description: Detects a copy command or a copy utility execution to or from an Admin
-  share or remote
+description: Detects a copy command or a copy utility execution to or from an 
+  Admin share or remote
 references:
 - https://twitter.com/SBousseaden/status/1211636381086339073
 - https://drive.google.com/file/d/1lKya3_mLnR3UQuCoiYruO3qgu052_iS_/view
 - https://www.elastic.co/guide/en/security/current/remote-file-copy-to-a-hidden-share.html
 - https://www.microsoft.com/en-us/security/blog/2022/10/18/defenders-beware-a-case-for-post-ransomware-investigations/
-author: Florian Roth (Nextron Systems), oscd.community, Teymur Kheirkhabarov @HeirhabarovT,
-  Zach Stanford @svch0st, Nasreddine Bencherchali
+author: Florian Roth (Nextron Systems), oscd.community, Teymur Kheirkhabarov 
+  @HeirhabarovT, Zach Stanford @svch0st, Nasreddine Bencherchali
 date: 2019-12-30
 modified: 2025-10-22
 tags:
@@ -58,48 +58,38 @@ detection:
     - ' move-item'
     - ' mi '
     - ' mv '
-  condition: selection_target and (selection_other_tools or all of selection_cmd_*
-    or all of selection_pwsh_*)
+  condition: selection_target and (selection_other_tools or all of 
+    selection_cmd_* or all of selection_pwsh_*)
 falsepositives:
 - Administrative scripts
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects file copy operations involving administrative shares (like ADMIN$) or Sysvol folders, indicating potential lateral movement or data exfiltration attempts by an attacker. The likely objective is to steal sensitive information or deploy malicious payloads during post-exploitation phases. This behavior falls under the MITRE ATT&CK tactics of Lateral Movement (T1075), Collection (T1039), and Exfiltration (T1048).
+  This Sigma rule detects file copy operations executed via command-line utilities to or from Windows administrative shares (e.g., ADMIN$ and SYSVOL). Such behaviors could indicate an attacker attempting to move files for lateral movement, data exfiltration, or preparation for further exploitation, among other malicious objectives. This detection aligns with MITRE ATT&CK tactics: Lateral Movement (T1021), Collection (T1039), and Exfiltration (T1048).
 
-  The primary telemetry sources include Windows process creation events, particularly focusing on Event ID 4688, which details process execution, including command line arguments. If malicious, this behavior can lead to unauthorized data exposure or modification. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative tasks might also trigger the alert.
-
-  ---
+  The primary telemetry sources for this detection include Windows process creation logs, specifically focusing on processes and command-line parameters revealing file copy operations. If the activity is malicious, it can lead to unauthorized access to sensitive data, data breaches, or further system compromise. Importantly, this detection does NOT confirm that all file copy operations to these shares are malicious, as legitimate administrative activities might trigger similar alerts.
 
   ### Investigation Steps
 
-  - **Review process creation events**: Analyze Security Event ID 4688 logs for unusual command lines that reference ADMIN$ or Sysvol, particularly looking for terms such as `copy`, `robocopy`, or `xcopy`.
+  - **Analyze the command line details:** Examine the specific command line string leading to the alert. Look for executed commands containing `\\*\\$`, `Sysvol`, or any copy command (e.g., `copy`, `robocopy`, `xcopy`). Flag alerts involving unusual or non-administrative users for further investigation.
 
-  - **Correlate against remote access logs**: Check for prior authentication events (Event ID 4624) to determine if the user had administrative privileges or if there were abnormal access patterns before the copy action was executed.
+  - **Check process creation logs:** Review Security Event ID 4688 (Process Created) for the relevant Image Name. Look especially for `cmd.exe`, `powershell.exe`, `robocopy.exe`, or `xcopy.exe`. Identify the user account associated with the command to assess whether it is an authorized administrative user or an unexpected account.
 
-  - **Identify script execution on hosts**: Review Windows PowerShell logs (Event ID 4104) for any copy-related commands being executed, particularly focusing on those invoking `copy-item` or `move-item`. Legitimate administrative activity may include scheduled maintenance tasks running these commands.
+  - **Identify source and destination specifics:** Determine the share used (e.g., ADMIN$, SYSVOL) and the context of the file being copied. A copy to or from these network shares by non-administrative accounts is a significant red flag indicating likely malicious intent.
 
-  - **Examine associated network activity**: Investigate any network logs that might show connections to the affected administrative shares, particularly sysvol or admin shares, to identify patterns consistent with data exfiltration or misuse.
+  - **Review for legitimate use cases:** Verify any recent temp administrative activities or staffing changes that could explain the behavior. Legitimate administrative tasks may involve routine backups or deployments to the SYSVOL directory by authorized admins.
 
-  - **Confirm benign operations**: Check recent administrative tasks to determine if any authorized backup or file transfer operations utilized common tools like `xcopy.exe` or `robocopy.exe` from system administrators.
+  - **Correlate with other log sources:** Check Event ID 5140 (Network Share Access) to validate attempts to access these shares. Look for high-volume access patterns that may indicate data theft or lateral movement, especially from unexpected IP addresses.
 
-  - **Watch for high-confidence malicious patterns**: Identify instances where the COPY commands are executed by non-administrative services or unusual user accounts, especially if accompanied by failed access logs prior to the copy event.
-
-  ---
+  - **Assess network traffic:** If available, analyze network logs (e.g., firewall logs, NetFlow data) for unusual outgoing connections to external addresses following the event. Any transfers of large datasets could corroborate a malicious file exfiltration attempt.
 
   ### Prioritization
 
-  This alert should be treated with medium priority due to the potential impact on sensitive data stored in administrative shares. Given that this behavior is sometimes weaponized in lateral movement and exfiltration scenarios, the likelihood of malicious use is significant, warranting prompt investigation.
-
-  ---
+  This alert should be considered medium severity due to the potential impact on sensitive Windows administrative shares and the likelihood of exploitation. Given that the behavior could indicate either benign administrative action or malicious activity, high vigilance is necessary for user accounts without administrative privileges accessing these shares.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss scenarios where attackers use obfuscated commands or legitimate administrative tools that do not trigger the defined log events. Reliable detection requires proper logging configurations for process creation and network activity. Legitimate administrative scripts running file operations may cause false positives. Companion detections, such as monitoring for unusual RDP sessions (T1076) or suspicious file creation events, can help strengthen coverage against potential threats.
-
-  ---
+  This detection may miss legitimate administrative tasks inherently involving file operations to and from administrative shares. Evasion techniques may include using less common tools or invoking file copy operations with obfuscated commands. Reliable detection requires sufficient logging configuration of Windows Event Logs or Sysmon. Companion detections might include monitoring for unusual lateral movement through the application of process creation and network connection logs, enhancing overall visibility into anomalous activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

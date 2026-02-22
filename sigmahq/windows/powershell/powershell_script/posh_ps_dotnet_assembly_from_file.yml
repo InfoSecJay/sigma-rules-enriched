@@ -1,8 +1,8 @@
 title: Potential In-Memory Execution Using Reflection.Assembly
 id: ddcd88cb-7f62-4ce5-86f9-1704190feb0a
 status: test
-description: Detects usage of "Reflection.Assembly" load functions to dynamically
-  load assemblies in memory
+description: Detects usage of "Reflection.Assembly" load functions to 
+  dynamically load assemblies in memory
 references:
 - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse?slide=50
 author: frack113
@@ -22,42 +22,30 @@ falsepositives:
 - Legitimate use of the library
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the use of `Reflection.Assembly` loading functions within PowerShell scripts, indicating potential in-memory execution of assemblies. The likely attacker objective is to execute malicious code without creating a physical file on disk, thus evading traditional signature-based detection. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1564) and the technique of In-Memory Execution (T1620). The primary telemetry source is Windows PowerShell logs, specifically with Script Block Logging enabled, capturing the contents of executed PowerShell scripts.
+  This rule detects the use of the PowerShell `Reflection.Assembly` class to dynamically load assemblies in memory, which is a technique commonly used by adversaries to execute malicious code without touching disk. The likely attacker objective is to evade detection by executing payloads that remain resident only in memory. This behavior fits under the MITRE ATT&CK technique "Reflective DLL Injection" (T1620).
 
-  If malicious, this behavior poses significant security risks since it allows attackers to execute arbitrary code without leaving traditional artifacts, enabling stealthy operations. However, it is essential to note that this detection does NOT confirm malicious intent on its own, as legitimate applications may also utilize `Reflection.Assembly`.
-
-  ---
+  The primary telemetry source for this detection is Windows PowerShell script block logs, specifically those that capture commands containing `Reflection.Assembly::load`. If malicious, such execution could lead to significant security impacts, including unauthorized access, data exfiltration, or lateral movement. It is important to note that this detection does NOT confirm malicious activity on its own, as legitimate applications also utilize `Reflection.Assembly` for validating or loading assemblies.
 
   ### Investigation Steps
 
-  - **Review Script Block Logs**: Check PowerShell logs for Event ID 4104 containing the string `[Reflection.Assembly]::load`. Assess the execution context to determine if it's associated with non-administrative tasks.
+  - **Check PowerShell Script Block Logging:** Examine PowerShell script block logs (Event ID 4104) for script block text containing `[Reflection.Assembly]::load`. Look for unusual execution context like unexpected users or processes.
 
-  - **Analyze PowerShell Command Context**: Verify the full command context from which the script block was executed, looking for unusual parent processes or command-line arguments indicative of suspicious behavior, such as unexpected software or misused normal tools.
+  - **Analyze Parent Process Information:** Cross-reference the event with the parent process information in the logs (Event ID 4688 for process creation events) to identify if the PowerShell instance was initiated by a trusted executable (e.g., explorer.exe) or potentially malicious software.
 
-  - **Assess Related Network Activity**: Inspect network logs for suspicious outbound connections made shortly before or after the execution event. Look for unusual URLs or IP addresses in firewall logs (e.g., ASA/SonicWall logs) that may correspond to command and control servers.
+  - **Confirm User Context:** Validate whether the user executing the command is a legitimate administrator or has the necessary permissions for such actions. Unexpected user accounts or scheduled tasks using `Reflection.Assembly` may indicate malicious intent.
 
-  - **Identify Known Good Behavior**: Confirm whether the executing PowerShell script was initiated by legitimate applications or users, especially during typical operational hours. Compare the execution against a baseline of legitimate use cases.
+  - **Identify Expected Activity:** Legitimate activity might involve system maintenance scripts or application updates that use `Reflection.Assembly`. Verify if the executed command aligns with known service or application behavior for your environment.
 
-  - **Look for High-Confidence Malicious Indicators**: Check if `Reflection.Assembly` loading is followed by further obfuscation techniques, such as invoking encoded commands or using other suspicious PowerShell constructs.
-
-  - **Validate Asset Criticality**: Assess the role of the impacted system, focusing on mission-critical servers or endpoints servicing sensitive data. Investigate whether similar behavior has a provenance for legitimate platform integrations or routine administrative commands.
-
-  ---
+  - **Search for Additional Malicious Indicators:** Look for other indicators of compromise in conjunction with this action, such as anomalous outbound network connections (Event ID 5156 for Windows Filtering Platform) or unusual registry changes (Event ID 4657) that may indicate further exploitation.
 
   ### Prioritization
 
-  This alert should be considered a medium severity due to the potential impact of in-memory execution on sensitive systems. Given that the technique is known to be weaponized by various threat actors for stealthy operations, it warrants thorough investigation. However, the likelihood of it being a true positive may vary based on the specific context of the environment.
-
-  ---
+  This alert has medium severity based on the potential impact of the affected systems, particularly if the execution occurs within high-value assets such as domain controllers or file servers. The likelihood of this behavior being exploited maliciously is significant, as reflective injection techniques are increasingly weaponized in modern attack campaigns.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for skilled adversaries to employ obfuscation or alternate coding techniques to bypass detection entirely. The effectiveness of this rule hinges on having PowerShell Script Block Logging properly configured, as lack of this may result in missing relevant log data. Legitimate activities, such as software deployment scripts or automation tasks within enterprise environments, may inadvertently trigger this alert. A related detection to consider includes monitoring for execution of PowerShell scripts that utilize the `Invoke-Expression` cmdlet, which could complement the coverage against obfuscated malicious scripts.
-
-  ---
+  Limitations include the potential for legitimate PowerShell scripts to trigger this alert, especially during software installations or updates. Reliable detection relies on having PowerShell script block logging enabled. Additionally, user behavior that might trigger these alerts includes administrative tasks performed in automated deployments. Consider companion detections focusing on abnormal PowerShell usage patterns (e.g., techniques involving `Invoke-Expression` or `Invoke-WebRequest` for holistic coverage).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

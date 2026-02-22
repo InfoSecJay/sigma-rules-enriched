@@ -1,8 +1,8 @@
 title: Lsass Memory Dump via Comsvcs DLL
 id: a49fa4d5-11db-418c-8473-1e014a8dd462
 status: test
-description: Detects adversaries leveraging the MiniDump export function from comsvcs.dll
-  via rundll32 to perform a memory dump from lsass.
+description: Detects adversaries leveraging the MiniDump export function from 
+  comsvcs.dll via rundll32 to perform a memory dump from lsass.
 references:
 - https://twitter.com/shantanukhande/status/1229348874298388484
 - https://modexp.wordpress.com/2019/08/30/minidumpwritedump-via-com-services-dll/
@@ -26,26 +26,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts by adversaries to extract sensitive data from the Local Security Authority Subsystem Service (LSASS) process using the `MiniDump` function of the `comsvcs.dll` library via the `rundll32.exe` executable. By dumping LSASS memory, attackers can potentially harvest credential information, including password hashes and Kerberos tickets, which can then be used for lateral movement or privilege escalation within the network.
 
-  The rule specifically targets behavior associated with credential access, indicative of a sophisticated threat actor exploiting Windows functionality to extract sensitive information. The primary objectives are typically to gain unauthorized access, maintain persistence, or facilitate further attacks within the environment.
+  This Sigma rule detects the misuse of the `MiniDump` export function from `comsvcs.dll` through `rundll32.exe` to perform a memory dump of the Local Security Authority Subsystem Service (LSASS). The likely objective of an attacker executing this behavior is to obtain sensitive credential information from memory, which may lead to unauthorized access or further exploitation within the network. This behavior maps to the MITRE ATT&CK technique "Credential Dumping" (T1003.001).
 
-  Relevant MITRE ATT&CK tactics and techniques for this activity include:
-  - **Credential Access** (TA0006)
-  - **OS Credential Dumping: LSASS Memory** (T1003.001)
-
-  The necessary telemetry sources for detecting this behavior include process creation logs, process access logs, and potentially event logs that capture sensitive operations involving LSASS and rundll32 interactions.
+  The primary telemetry sources include process creation logs (Event ID 4688) and potentially Sysmon logs if deployed (Sysmon Event ID 1). If successful, this technique can greatly compromise system security by extracting sensitive information from memory. It is important to note that this detection alone does not confirm malicious intent, as legitimate processes may occasionally utilize similar mechanisms under specific contexts.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for instances of `rundll32.exe` launching with parameters that indicate the use of `comsvcs.dll`, focusing on timestamps correlating with alerts to identify unauthorized access attempts.
-  - **Analyze Process Access Logs:** Search for entries showing access to the `lsass.exe` process by `rundll32.exe`, specifically looking for the use of `MiniDump` calls to confirm if a memory dump was executed.
-  - **Inspect Event Logs:** Look into Windows Security and System event logs for any odd behavior or failure events that might indicate exploitation attempts, particularly around user account logins or privilege escalations that coincide with the process activity.
-  - **Collect Memory Dumps for Analysis:** If a memory dump is confirmed, ensure to collect it for further analysis with tools like Volatility or Rekall to investigate and confirm any credential harvesting activities.
+
+  - **Verify the process creation logs**: Check for Windows Security Event ID 4688 and Sysmon Event ID 1 for `rundll32.exe` spawning `lsass.exe`. Look for the full command line usage to confirm if it includes `comsvcs.dll` for an unauthorized memory dump.
+
+  - **Identify high-confidence malicious indicators**: Examine the process tree to see if `rundll32.exe` is being invoked by unexpected parent processes (e.g., PowerShell, cmd.exe). A command line containing `MiniDumpWriteDump` linked to `comsvcs.dll` is a strong indicator of credential dumping activity.
+
+  - **Assess the LSASS access**: Cross-reference detected activities with the default behavior of LSASS, which should not typically be accessed by non-system processes. Legitimate access usually involves system components or specific authorized service accounts.
+
+  - **Confirm logging configurations**: Ensure that Sysmon is deployed with comprehensive logging, particularly monitoring for Event ID 1 (process creation) and Event ID 10 (process accesses) to track unauthorized attempts to read LSASS memory.
+
+  - **Review endpoint protection**: Validate whether endpoint protection/EDR solutions are configured to block or alert on manipulation of LSASS processes, including the use of `rundll32.exe` in this context.
 
   ### Prioritization
-  This alert carries a high severity due to its potential impact on the organization’s security posture; successful memory dumps from LSASS can provide attackers with critical credentials that may lead to significant breaches and unauthorized access.
+
+  This alert is of high severity due to the potential impact on credential security that can lead to widespread network compromise. The likelihood of this behavior being used maliciously is significant, as attackers frequently leverage such techniques to obtain sensitive information. Credential dumping via LSASS is a well-established method in the attack lifecycle.
 
   ### Blind Spots and Assumptions
-  There may be blind spots in detection coverage if logging levels are insufficient or if necessary telemetry, such as detailed process access logs, is not enabled. This rule assumes that the environment is properly configured to capture the actions of common Windows processes like `rundll32.exe`, and that privilege elevation events or other potentially related activities are monitored and logged correctly. If logs are missing or configurations are improperly set, the detection may fail to trigger appropriately.
+
+  This detection may be evaded by using alternative methods to dump LSASS memory or by executing malicious code within trusted processes that do not utilize `rundll32.exe`. It assumes that the appropriate Windows logging (Event ID 4688, Sysmon Event ID 1) is configured and operational; lack of such logs can lead to gaps in detection. Legitimate administrative tasks or security tools may occasionally trigger similar alerts. A related detection could focus on PowerShell obfuscation techniques that lead to credential dumping, enhancing overall coverage against such workflows.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

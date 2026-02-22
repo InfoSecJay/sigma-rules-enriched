@@ -24,30 +24,42 @@ detection:
     - 'C:\Windows\WinSxS\'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Legitimate applications loading their own versions of the DLL mentioned in this
-  rule.
+- Legitimate applications loading their own versions of the DLL mentioned in 
+  this rule.
 level: medium
 note: |
   ### Technical Context
-  This rule detects potential DLL sideloading of the `MpSvc.dll`, which is associated with the Microsoft Defender Antivirus service. DLL sideloading is a technique used by attackers to execute malicious code by exploiting legitimate DLLs that an application may load. In this case, an attacker could attempt to place a malicious version of `MpSvc.dll` in a directory where a trusted application is likely to load it, potentially leading to privilege escalation or the persistence of malware on infected systems.
 
-  The primary attacker objective may include gaining unauthorized access to sensitive systems while evading detection capabilities that rely on monitoring known good binaries. This behavior aligns with several MITRE ATT&CK techniques, particularly `T1574.001 - DLL Side-Loading`, which falls under the tactics of `Privilege Escalation`, `Persistence`, and `Defense Evasion`.
+  This rule detects the loading of the `MpSvc.dll` file from non-standard paths, which may indicate malicious DLL sideloading attempts. Attackers often sideload malicious DLLs to evade detection by leveraging legitimate processes. The objective is typically to execute arbitrary code with elevated privileges or maintain persistence. Relevant MITRE ATT&CK tactics include Privilege Escalation (TA0004) and Defense Evasion (TA0005), specifically under technique T1574.001 (DLL Side-Loading).
 
-  Key data sources for effective detection include Windows Event logs that log image loads, specifically targeting the loading of binaries from unusual paths that typically would not contain legitimate versions of system DLLs.
+  The primary telemetry sources include Windows image load events, specifically focusing on the loading of DLL files. Security Event ID 4688 and Sysmon Event ID 7 are crucial in this context. If the behavior is confirmed as malicious, it could lead to unauthorized access or persistence on a system. However, it is important to note that this detection alone does not confirm malicious activity without additional context, as legitimate applications may also load their own versions of `MpSvc.dll`.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Examine Windows Event logs filtered by the timeframe of the alert to identify if `MpSvc.dll` was loaded from atypical directories, which may indicate potential sideloading.
 
-  - **Analyze File Paths**: Look into the full file paths of the loaded DLLs. Verify that the loading process respected the expected directory structure of legitimate Microsoft Defender components.
+  - **Confirm loading source:**
+    Review Event ID 4688 or Sysmon Event ID 7 to verify which process is loading `MpSvc.dll`. Check the `ImageLoaded` field for paths outside of typical directories (like 'C:\Program Files\Windows Defender\'), which may indicate potential sideloading.
 
-  - **Check for Unusual File Modifications**: Investigate recent file modifications or installations of software applications that could have altered the expected DLLs. Pay special attention to executables that may interact with `Microsoft Defender`.
+  - **Analyze associated process behavior:**
+    Inspect the parent process of the DLL loader. If the parent process is unrelated or flagged previously for suspicious activity, it raises the likelihood of a malicious action. Look for unusual parent-child relationships in the logs.
 
-  - **Correlate with Other Security Tools**: Cross-reference findings with any EDR alerts or logs that may indicate abnormal behavior, such as unexpected process creations or network connections that occur in conjunction with the suspicious DLL load.
+  - **Identify legitimate use cases:**
+    Check for processes associated with Windows Defender that legitimately load `MpSvc.dll` from expected paths (`C:\Program Files\Windows Defender\`). Validate that they are up to date and not modified.
+
+  - **Examine process execution attributes:**
+    Review the command line arguments and account names from Event ID 4688. If the process running the DLL loading is executing with unusual parameters or under a suspicious user account, it warrants further investigation.
+
+  - **Cross-reference threat intelligence sources:**
+    Utilize threat intelligence feeds to determine if the specific DLL or the loading process has been previously reported or associated with known malware or threat actors. Affected assets should also be evaluated based on their criticality.
+
+  - **Check for indicators of persistence:**
+    Review registry entries and scheduled tasks for potential persistence mechanisms that may be tied to the detected DLL loading. Look for suspicious modifications that coincide with the `MpSvc.dll` load event.
 
   ### Prioritization
-  This alert carries a medium severity level due to the potential of exposing sensitive systems to privilege escalation and unauthorized access. While not every instance of DLL sideloading is indicative of malicious intent, the implications of successful exploitation warrant urgent investigation.
+
+  The severity of this alert should be classified as medium. If this detection occurs on critical systems, the potential impact could be significant, allowing an attacker to gain unauthorized access. DLL sideloading techniques are frequently utilized in the wild, indicating a likelihood of malicious abuse.
 
   ### Blind Spots and Assumptions
-  The detection rule assumes that `MpSvc.dll` will be loaded from locations other than its legitimate paths. Therefore, if an attacker effectively masquerades the DLL in an expected directory or if legitimate applications behave similarly, this may yield false negatives. Additionally, adequate logging of image loads from Windows Event logs is necessary for this alert to function reliably, and environments without these logs may miss detection opportunities. It's also possible that certain legitimate applications may load their own versions of the DLL, which could lead to false positives without appropriate contextual analysis.
+
+  This detection may be limited by the use of obfuscation techniques or modifications to legitimate binaries that could bypass the rule. Reliable detection requires the proper configuration of Sysmon and Windows event logging. Legitimate applications, including cloud and IT management services, might trigger this alert if they load similar DLL files. Companion detections such as monitoring for abnormal process creation events or file integrity checks on the DLL paths can enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

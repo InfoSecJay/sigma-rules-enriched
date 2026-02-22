@@ -6,15 +6,16 @@ related:
 - id: 9a517fca-4ba3-4629-9278-a68694697b81     # Curl download
   type: similar
 status: test
-description: Detects a suspicious curl process start on Windows and outputs the requested
-  document to a local file
+description: Detects a suspicious curl process start on Windows and outputs the 
+  requested document to a local file
 references:
 - https://twitter.com/max_mal_/status/1542461200797163522
 - https://web.archive.org/web/20200128160046/https://twitter.com/reegun21/status/1222093798009790464
 - https://github.com/pr0xylife/Qakbot/blob/4f0795d79dabee5bc9dd69f17a626b48852e7869/Qakbot_AA_23.06.2022.txt
 - https://www.volexity.com/blog/2022/07/28/sharptongue-deploys-clever-mail-stealing-browser-extension-sharpext/
 - https://github.com/redcanaryco/atomic-red-team/blob/0f229c0e42bfe7ca736a14023836d65baa941ed2/atomics/T1105/T1105.md#atomic-test-18---curl-download-file
-author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
+  Systems)
 date: 2020-07-03
 modified: 2023-02-21
 tags:
@@ -61,7 +62,8 @@ detection:
     - '--silent --show-error --output '
     - 'gfw-httpget-'
     - 'AppData'
-  condition: selection_curl and 1 of selection_susp_* and not 1 of filter_optional_*
+  condition: selection_curl and 1 of selection_susp_* and not 1 of 
+    filter_optional_*
 falsepositives:
 - Unknown
 level: high
@@ -74,23 +76,31 @@ simulation:
   atomic_guid: 2b080b99-0deb-4d51-af0f-833d37c4ca6a
 note: |
   ### Technical Context
-  This detection rule identifies suspicious activity involving the execution of `curl.exe` on Windows systems, specifically when it appears to download files to potentially insecure locations such as the AppData, Temp, or Public directories. Attackers often utilize `curl` to pull down malicious payloads, such as malware, from remote servers, which can facilitate the installation of malicious software, data theft, or further exploitation within the environment. The primary objective of such actions is typically to establish a foothold on the system or to set up a Command and Control (C2) channel.
 
-  Relevant tactics from the MITRE ATT&CK framework include **Command and Control** (TA0011) and **Exploitation for Client Execution** (T1203), with the specific technique being **Data from Command-Line Interface** (T1059). The best telemetry sources for detecting this behavior will include process creation events that capture command-line arguments and the file paths being accessed.
+  This Sigma rule detects the execution of `curl.exe` when used to download files to suspicious directories or with file extensions that are commonly associated with malicious activity. The likely attacker objective is to exfiltrate data or to download malicious payloads for further exploitation. This behavior aligns with the MITRE ATT&CK technique T1105 (Ingress Tool Transfer), indicating active command and control (C2) operations.
+
+  The primary telemetry source for this detection is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing command line details, executed image paths, and parent processes. If malicious, this activity could lead to data compromise or the installation of malware. Importantly, detection of this behavior does NOT confirm malicious intent on its own; legitimate use of curl for benign file transfers may trigger the rule.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Collect logs of process creation events that contain instances of `curl.exe`, paying particular attention to the command-line arguments passed during execution. Ensure to identify any requests directed to suspicious or unknown remote servers.
 
-  - **Analyze Command-Line Arguments:** Inspect the command lines for any use of suspicious file extensions typically associated with malicious content (e.g., `.dll`, `.exe`, `.vbs`, etc.) or those saving to unusual local directories (e.g., `%Temp%`, `%AppData%`).
+  - **Review event details:** Examine Windows Event ID 4688 or Sysmon Event ID 1 for `curl.exe` activity. Look specifically at the `CommandLine` field for unusual output paths (e.g., `C:\Temp\` or `%AppData%`) and check the `Image` field to confirm it’s indeed `curl.exe`.
 
-  - **Correlate with Network Activity:** Cross-reference the identified `curl` activities with network traffic logs to observe any outbound connections to potentially malicious IPs or domains at the time of execution, which may provide additional context regarding the intent of the download.
+  - **Identify high-confidence malicious indicators:** Check for command lines that end with known malicous file extensions such as `.vbs`, `.scr`, or `.dll`. Any curl command downloading these types of files signifies potentially malicious behavior.
 
-  - **Examine Historical Execution Context:** Determine if the command was triggered by unusual parent processes, which may indicate whether the execution was part of an automated script or a more malicious sequence of actions.
+  - **Determine legitimate usage context:** Investigate `curl.exe` usage in the context of known software that utilizes it legitimately. Path indicators involving `C:\Program Files\` or installation paths for software do not trigger suspicion unless accompanied by suspicious command line patterns.
+
+  - **Correlate with network traffic:** Look for related outbound network requests corresponding to the times of the curl execution using network logs. A request to an uncommon or untrusted URL could support the notion of malicious activity.
+
+  - **Analyze parent process associations:** Note the `ParentImage` field in the logs. If `curl.exe` is spawned by unusual parent processes (e.g., a non-administrative script or tool), further investigation may be warranted.
+
+  - **Validate recent file creations:** Verify if files were created in the suspicious directories mentioned in the command line (check timestamps against the time of the curl execution) to confirm if anything was downloaded.
 
   ### Prioritization
-  The high severity level of this alert is warranted due to the potential impact of a successful malicious file download, including data compromise or lateral movement within the enterprise environment. The likelihood of this technique being utilized by an attacker seeking to gain initial access or escalate privileges is significant.
+
+  The alert has a high severity rating. The impacted systems might be critical endpoints that could serve as launch points for data breaches if exploited. The use of curl to download files, especially to suspicious locations, is a tactic frequently leveraged by adversaries, thereby indicating a clear risk of malicious activity.
 
   ### Blind Spots and Assumptions
-  There are some inherent gaps in detection coverage, particularly considering legitimate uses of `curl` in administrative tasks or within development environments. The detection logic makes assumptions that all `curl` activities outside of whitelisted paths or benign contexts are malicious. The rule's effectiveness relies on having comprehensive process creation logging enabled and may not function if logging configurations do not capture command-line data or if the designed criteria do not account for all legitimate uses of `curl` in the environment.
+
+  This detection may be limited by potential evasion techniques, such as using modified or renamed binaries instead of `curl.exe` or legitimate curl usage by trusted applications. Reliable detection also requires ensuring that Windows process creation logs are configured for collection. Common benign activities, such as updates or scripts legitimately utilizing curl for system management, may also trigger this alert. A companion detection like monitoring for unexpected outbound traffic or unusual destination IP addresses would enhance overall coverage and context for potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

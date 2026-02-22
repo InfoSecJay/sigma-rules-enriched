@@ -28,31 +28,40 @@ detection:
   filter_main_ocilibpath:
         # it is looking when oci.dll path is changed to something else like 'C:\Windows\Temp\'
     Details|contains: '%SystemRoot%\System32\'
-  condition: (selection_ocilib and not filter_main_ocilib_file) or (selection_ocilibpath
-    and not filter_main_ocilibpath)
+  condition: (selection_ocilib and not filter_main_ocilib_file) or 
+    (selection_ocilibpath and not filter_main_ocilibpath)
 falsepositives:
 - Unlikely
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies modifications in the Windows Registry related to the `OracleOciLib` and `OracleOciLibPath` keys under the MSDTC (Microsoft Distributed Transaction Coordinator) settings. Attackers may alter these registry entries to redirect legitimate calls to `oci.dll`, a core Oracle database interface library, to a malicious DLL. This technique could enable DLL hijacking, wherein adversaries execute unauthorized code while exploiting legitimate processes, aiming for persistence or privilege escalation.
 
-  The likely attacker objectives include maintaining a foothold in the environment, evading detection by blending in with legitimate processes, and ultimately compromising sensitive data or gaining elevated privileges. Relevant MITRE ATT&CK techniques include:
-  - **T1112**: Modify Registry
-  - **T1574.001**: DLL Side-Loading
+  This rule detects modifications to specific registry keys related to Oracle's OCI (Oracle Call Interface) DLL settings under the MSDTC (Microsoft Distributed Transaction Coordinator) service. Such modifications could signify an attempt by an attacker to redirect legitimate `oci.dll` calls to a malicious DLL, enabling DLL hijacking and allowing malicious code execution. Attackers may aim to leverage this technique for persistence or privilege escalation, targeting the execution of trusted applications.
 
-  The primary data sources for effective detection lie within Windows Registry logs, specifically tracking settings alterations in `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSDTC\MTxOCI`. This registry monitoring can provide critical evidence of potential malicious activity.
+  The relevant MITRE ATT&CK tactics and techniques include: Persistence (T1547), Privilege Escalation (T1068), and Defense Evasion (T1112). Primary telemetry sources for this detection are Windows registry change logs captured through security monitoring solutions. If successful, these attacks could lead to unauthorized access or control over affected systems.
+
+  It's important to note that while this detection suggests suspicious registry changes, it does not confirm malicious intent without further investigation, as legitimate applications may also modify these registry keys.
 
   ### Investigation Steps
-  - **Review Registry Changes**: Investigate recent modifications to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSDTC\MTxOCI` for entries related to `OracleOciLib` and `OracleOciLibPath`, looking for suspicious or unexpected values.
-  - **Analyze Process Activities**: Inspect running processes for `oci.dll` being replaced or called from non-standard locations. Check if any loaded DLLs are suspiciously named or located within transient directories (e.g., `%TEMP%`).
-  - **Cross-check with Known Good Values**: Compare the current registry settings against documented standard configurations for Oracle installations to identify anomalies in the expected library paths.
-  - **Correlate with User Activity**: Examine the user accounts that performed the registry modifications. Look for anomalous behaviors or access patterns that deviate from normal operational activities.
+
+  - **Identify the specific registry changes**: Review Windows Registry logs for `SOFTWARE\Microsoft\MSDTC\MTxOCI\OracleOciLib` and `SOFTWARE\Microsoft\MSDTC\MTxOCI\OracleOciLibPath`. Check for unexpected values in these keys, especially any pointing to non-standard paths or DLL names.
+
+  - **Confirm the details of the modification**: Look for Event ID 4657 in the Security log to examine Modified Registry Value Details for the keys mentioned earlier. Identify if the value contains benign entries (for example, legitimate system paths like `%SystemRoot%\System32\`) versus potentially malicious paths (e.g., pointing to `%TEMP%`).
+
+  - **Review associated process activity**: Check Sysmon logs (Event ID 1) for any recent unusual process creation that may correlate with the time of the registry modification. Look for processes attempting to load `oci.dll` and verify their parent processes for legitimacy.
+
+  - **Assess recent system changes**: Analyze Windows Event logs for administrative changes around the time of the registry modification, focusing on Event ID 4732 for group membership changes or Event ID 4616 for system time changes that could indicate potential timestamp manipulation.
+
+  - **Establish a baseline for legitimate activity**: Identify and document normal registry modification behavior related to Oracle software installations or updates, noting how and when these legit modifications typically occur.
+
+  - **Caution against false positives**: Be aware of legitimate software updates or configuration changes that might trigger this alert. Engage with application teams to validate if there were any recent legitimate changes to Oracle configurations.
 
   ### Prioritization
-  The severity of this alert is high due to the significant risk that DLL hijacking poses in an enterprise environment, potentially facilitating unauthorized access, data breaches, and system compromise. The likelihood of such attacks occurring is elevated, considering that they leverage known vulnerabilities in commonly used software.
+
+  This alert should be considered high-priority due to the potential for significant security impacts, including unauthorized access and control over critical enterprise applications. The likelihood of malicious abuse is high, as DLL hijacking is a commonly leveraged technique within exploit frameworks.
 
   ### Blind Spots and Assumptions
-  This detection mechanism may not cover alterations made directly through direct binary manipulation or if malicious code bypasses standard registry monitoring approaches. The assumption is that effective monitoring capabilities for registry changes are enabled in the environment. It is also essential to ensure logging is sufficiently detailed to capture all relevant modifications, including both successful and failed access attempts to these keys.
+
+  Evasion techniques may include the modification of registry keys by legitimate applications or the use of system utilities that inadvertently trigger this alert. Reliable detection hinges upon adequate logging from the Windows Registry and appropriate monitoring configurations. Legitimate software updates or changes, particularly from Oracle DB installations and configurations, may also trigger this alert. A related detection to enhance coverage could involve monitoring for unauthorized DLL or EXE loading events, such as those tracked through Sysmon Event ID 7 (Image loaded).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

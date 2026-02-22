@@ -33,22 +33,31 @@ falsepositives:
 level: low
 note: |
   ### Technical Context
-  This detection rule identifies the execution of `tar.exe`, a utility often leveraged for creating compressed files. While `tar` is a legitimate tool commonly used for backup, archiving, and file transfer, adversaries may misuse this functionality to prepare data for exfiltration. In particular, attackers may employ compression to obfuscate the true nature of the files before transferring them out of the network, thereby evading detection mechanisms.
 
-  In the context of this detection, the suspected threat category includes data exfiltration tactics, in which adversaries seek to illicitly remove sensitive information from an organization. The relevant MITRE ATT&CK tactics and techniques involved include **Collection (T1560)** and **Data Obfuscation (T1560.001)**. The detection leverages process creation events from the Windows operating system, specifically targeting the execution of `tar.exe` with specific command-line arguments indicative of file creation or modification.
+  This rule detects the execution of `tar.exe` with specific command-line arguments indicative of creating compressed files. Adversaries may leverage `tar.exe` for data compression or to prepare files for exfiltration as part of their operational objectives. This behavior aligns with the MITRE ATT&CK tactics of Collection (TA0009) and Exfiltration (TA0010), particularly techniques T1560 (Archive Collected Data) and T1560.001 (Archive via File Compression).
 
-  Key telemetry sources for this detection include Windows process creation logs, which capture details about executed processes along with their command-line parameters. Anomalies in how compression tools are used could indicate potential compromise or data misuse.
+  The primary telemetry source for this detection is Windows process creation events, specifically focusing on Event ID 4688 (Process Created) and fields such as CommandLine and Image Name. If malicious, this behavior can lead to unauthorized data exfiltration, especially when combined with network activity to transfer the archived files. Importantly, this detection does NOT confirm malicious intent on its own—`tar.exe` may be employed for legitimate tasks such as backup processes or data management.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine the process creation events related to `tar.exe` execution, focusing on timestamps, user context, and command-line arguments to identify any suspicious usage patterns.
-  - **Collect Command-Line Arguments**: Pay close attention to the arguments passed to `tar.exe`, especially those indicative of file creation (`-c`), appending (`-r`), or updating (`-u`), as these operations could signify an attempt to archive sensitive files.
-  - **Verify User Activity**: Investigate the account used to execute the command for any historical context, such as prior unauthorized behavior or atypical access patterns that may suggest insider threats or compromised accounts.
-  - **Audit Data Transfers**: Check for outgoing network traffic that may correlate with the timing of `tar.exe` executions, including any unusual connections to external IP addresses which could indicate active data exfiltration.
+
+  - **Examine the command-line usage of `tar.exe`:** Check Event ID 4688 and filter for `tar.exe` in the CommandLine field. Look for flags `-c`, `-r`, or `-u` indicating compression or updating. For benign activity, these commands should correlate with expected processes (e.g., regular backups) without unusual source paths.
+
+  - **Identify the source of the `tar.exe` execution:** Investigate the Image field to determine the file path of `tar.exe`. Any execution from an unusual path (e.g., user directories) may indicate malicious intent, while legitimate instances typically originate from system directories.
+
+  - **Analyze process parent-child relationships:** Use Sysmon Event ID 1 to review process creation chains. A suspicious `tar.exe` execution launched by an uncommon parent process (e.g., a scripting language or an untrusted application) could be a potential indicator of compromise.
+
+  - **Check for data upload activities post-execution:** Review endpoint network logs (such as Event ID 5156 for Windows Firewall) to detect egress traffic to unusual destinations after `tar.exe` runs. High-volume traffic patterns or unfamiliar protocols can signal data exfiltration.
+
+  - **Validate file creation and modification:** Search filesystem logs to confirm the presence and size of the compressed files created by `tar.exe`. Large, unexpected archive files in user directories or non-standard locations may indicate potential malicious behavior.
+
+  - **Document regular use cases for `tar.exe`:** Consult with stakeholders to ensure there is an understanding of legitimate applications of `tar.exe` in the environment, including any scheduled tasks or authorized backup processes that might trigger alerts.
 
   ### Prioritization
-  While the severity of this alert is classified as low, it merits attention due to the potential for data exfiltration using common utilities. In an enterprise environment, the likelihood of attackers abusing legitimate tools makes this a notable point for further investigation, especially if combined with other indicators of compromise.
+
+  Alerts generated from this detection should be treated as low severity due to the nature of `tar.exe`, which is typically used for benign purposes. However, the context of affected systems and potential misuse remains important, especially if the behavior is coincidental with other anomalous activities. While this tactic can certainly be weaponized, it is often found in legitimate data management activities.
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture all instances of malicious use of `tar.exe`, particularly if attackers modify command-line arguments to bypass detection or if they utilize alternative archiving solutions. The detection logic assumes `tar.exe` is a known and monitored executable within the environment. Adequate logging must be enabled for process creation events and command-line parameters to ensure effective monitoring and alerting functionality.
+
+  Detection may be limited by user privileges; non-administrator accounts can potentially mask malicious activity associated with compressed files. The reliability of the detection requires appropriate logging configurations to capture command-line and process creation events accurately. Legitimate activities that could trigger this alert include regular system backups or packaging of application data. Companion detections such as monitoring for unusual outbound network connections (i.e., data exfiltration attempts) will enhance the overall visibility and context surrounding `tar.exe` usage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

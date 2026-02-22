@@ -6,16 +6,16 @@ related:
 - id: 4d6c9da1-318b-4edf-bcea-b6c93fa98fd0
   type: obsolete
 status: test
-description: Detects the usage of "reg.exe" in order to dump sensitive registry hives.
-  This includes SAM, SYSTEM and SECURITY hives.
+description: Detects the usage of "reg.exe" in order to dump sensitive registry 
+  hives. This includes SAM, SYSTEM and SECURITY hives.
 references:
 - https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
 - https://eqllib.readthedocs.io/en/latest/analytics/aed95fc6-5e3f-49dc-8b35-06508613f979.html
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1003/T1003.md
 - https://www.wietzebeukema.nl/blog/windows-command-line-obfuscation
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1003.002/T1003.002.md#atomic-test-1---registry-dump-of-sam-creds-and-secrets
-author: Teymur Kheirkhabarov, Endgame, JHasenbusch, Daniil Yugoslavskiy, oscd.community,
-  frack113
+author: Teymur Kheirkhabarov, Endgame, JHasenbusch, Daniil Yugoslavskiy, 
+  oscd.community, frack113
 date: 2019-10-22
 modified: 2023-12-13
 tags:
@@ -61,25 +61,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule is designed to identify the usage of the `reg.exe` command-line utility for dumping sensitive registry hives, specifically the Security Account Manager (SAM), SYSTEM, and SECURITY hives on Windows systems. Such actions are indicative of a credential theft attempt, as these registry hives store crucial authentication credentials used in a Windows environment. Attackers may use tools like `reg.exe` to collect these sensitive pieces of information to facilitate lateral movement or gain higher privileges within a network.
 
-  The likely attacker objective is to access and exfiltrate stored credentials from the Registry, which can lead to unauthorized access to systems and sensitive data. This activity aligns with multiple MITRE ATT&CK techniques, particularly T1003.002 (Credential Dumping: Security Account Manager (SAM)), T1003.004 (Credential Dumping: Windows Vault), and T1003.005 (Credential Dumping: LSA Secrets). These techniques highlight the methods attackers employ to extract sensitive credentials from compromised environments.
+  This Sigma rule detects the invocation of `reg.exe` with commands indicating the dumping of sensitive Windows registry hives, specifically the SAM, SYSTEM, and SECURITY hives. The behavior is typically associated with attacker objectives such as credential harvesting or lateral movement within a network, as these registry hives contain critical authentication information. The relevant MITRE ATT&CK tactics include Credential Access (T1003) and specifically T1003.002 for credential dumping from the SAM hive.
 
-  The primary data sources for detecting this activity will be process creation events, which include logs from the Windows Event Log (Event ID 4688). Monitoring command-line arguments associated with `reg.exe` is crucial for identifying potential attacks, as they can reveal specific attempts to access and dump the sensitive hives mentioned.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 for process creation events, and Sysmon Event ID 1 when integrated. If malicious, the compromise of these credentials can lead to unauthorized access to systems and data. However, this detection alone does not confirm malicious intent, as legitimate tasks—such as system maintenance or forensic activities—can also trigger this alert.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine Windows Event logs (Event ID 4688) for instances of `reg.exe` being executed, paying close attention to the command-line arguments utilized. Filter for entries containing keywords like "save" or "export" related to registry hives.
 
-  - **Analyze Command-Line Arguments**: Focus on the command-line arguments associated with `reg.exe` to identify any suspicious patterns or attempts to access sensitive hives (e.g., `\system`, `\sam`, `\security`). Investigate any obfuscation or atypical flags used to execute `reg.exe`.
+  - **Check process creation logs for reg.exe:**
+    Look for Security Event ID 4688 or Sysmon Event ID 1 detailing the execution of `reg.exe`. Ensure the command line contains keywords indicative of hive dumping (e.g., 'save', 'export').
 
-  - **Cross-Reference Scheduled Tasks and Scripts**: Investigate any scheduled tasks or scripts that may invoke `reg.exe`. This can help ascertain if the execution is part of legitimate administrative tasks or indicative of malicious behavior.
+  - **Identify the command line specifics:**
+    Review the CommandLine field for sensitive hive locations such as `\sam`, `\system`, or `\security` within the context of reg.exe execution. Malicious indicators include these paths combined with dump flags.
 
-  - **Monitor for Anomalous User Behavior**: Assess the user accounts executing the command. Flag any unusual accounts or events, particularly those that do not typically require access to sensitive registry hives, for further investigation.
+  - **Validate user context and asset criticality:**
+    Determine the user who executed the command and the asset’s role. Executions on domain controllers or critical servers warrant higher scrutiny, especially if performed by non-administrative accounts.
+
+  - **Assess for legitimate operational activity:**
+    Cross-reference alerts with maintenance windows or scheduled tasks where registry hives are legitimately exported for backup purposes. This expected behavior should be documented and approved.
+
+  - **Monitor for known obfuscation patterns:**
+    Investigate any oddities in the CommandLine field that might employ character substitution (e.g., replacing 'a' with 'ˢ'). This could indicate an attempt to evade detection mechanisms.
+
+  - **Correlate with other credential access detections:**
+    Look for concurrent alerts signaling other credential dumping activities or suspicious behavior (e.g., process tree from `mimikatz` or `powershell` executions tied to known attack patterns).
 
   ### Prioritization
-  This alert is categorized with a high severity due to the significant impact of credential dumping on organizational security. The likelihood of impact is elevated in environments where sensitive data and administrative privileges are improperly accessed through compromised credentials.
+
+  This alert is considered high severity due to the critical nature of the affected systems and the potential for significant harm through exposed credentials. The likelihood of malicious abuse is high, especially considering the commonality of these techniques in modern cyber-attacks targeting Windows environments.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if process creation logs are not being collected or if they are improperly configured. The detection logic assumes that the execution of `reg.exe` with specific command-line arguments is indicative of malicious behavior, not accounting for legitimate uses such as backups or forensic investigations. To ensure the effectiveness of this alert, it is crucial to have comprehensive logging enabled for process creation events and to establish baseline user behavior for proper anomaly detection.
+
+  Detection may be limited by scenarios where logs are not properly collected or retained, especially in environments lacking Sysmon or where logging levels are insufficient. Legitimate administrative tasks or backup operations can trigger this alert, complicating initial triage. Related detections involving direct access to SAM or SYSTEM files (via file system activity) can bolster coverage and provide additional context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

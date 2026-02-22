@@ -1,9 +1,9 @@
 title: Suspicious PsExec Execution
 id: c462f537-a1e3-41a6-b5fc-b2c2cef9bf82
 status: test
-description: detects execution of psexec or paexec with renamed service name, this
-  rule helps to filter out the noise if psexec is used for legit purposes or if attacker
-  uses a different psexec client other than sysinternal one
+description: detects execution of psexec or paexec with renamed service name, 
+  this rule helps to filter out the noise if psexec is used for legit purposes 
+  or if attacker uses a different psexec client other than sysinternal one
 references:
 - https://web.archive.org/web/20230329171218/https://blog.menasec.net/2019/02/threat-hunting-3-detecting-psexec.html
 author: Samir Bousseaden
@@ -33,20 +33,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious use of PsExec or PaExec, particularly when commands are executed with a renamed service name. PsExec is a legitimate tool from Microsoft's Sysinternals suite that allows remote execution of processes, often used in administrative tasks. However, attackers can also misuse PsExec to execute malicious code on remote systems, thereby facilitating lateral movement within a network. In this context, an attacker aims to gain further access or control over systems, which is often crucial for maintaining persistence or exfiltrating data.
 
-  This rule is particularly aligned with the MITRE ATT&CK framework, specifically targeting tactics and techniques related to lateral movement. It falls under "Lateral Movement" (TA-0031) and specifically addresses the technique "Remote Services: PsExec" (T1021.002). Primary data sources for this alert include Windows Security logs that log detailed file share activity, particularly the event with ID 5145, which captures file share access events.
+  This rule detects the execution of PsExec or PaExec with a renamed service name, specifically targeting instances where the service name begins with "PSEXESVC". The behavior suggests an attacker may leverage unauthorized remote command execution as part of a lateral movement strategy within the network. The relevant MITRE ATT&CK tactic is **Lateral Movement** (TA0031) and the technique is **Remote Services: PsExec** (T1021.002).
+
+  Primary telemetry sources include Windows Security logs, specifically Event ID 5145, which logs file share access. If malicious, such activity could indicate significant security risks, including unauthorized access to sensitive systems. This detection does NOT confirm malicious intent on its own, as PsExec can also be used legitimately in administrative tasks.
 
   ### Investigation Steps
-  - **Review Security Logs**: Analyze logs for EventID 5145 to identify any instances of PsExec or PaExec being executed, particularly looking for patterns involving the `\\*\IPC$` share.
-  - **Examine Process Activity**: Investigate process creation events for any instances where `PSEXESVC` is invoked, noting any unusual command line arguments or remote targets.
-  - **Network Traffic Analysis**: Check for outbound connections that coincide with the timing of the suspicious PsExec executions, focusing on connections made to systems that typically do not communicate with the initiating host.
-  - **Validate Service Names**: Cross-reference the service names used with legitimate services to determine if any renamed PsExec instances align with known good, as attackers often disguise their tools.
+
+  - **Check Event ID 5145 for suspicious access:** Review Security Event ID 5145. Confirm any access to share `\\*\IPC$` and note any associated usernames or session IDs. Legitimate usage should originate from trusted system admins.
+
+  - **Identify non-standard service names:** Analyze logs for service names beginning with 'PSEXESVC'. If the `RelativeTargetName` ends with '-stdin', '-stdout', or '-stderr', verify the legitimacy of the execution context.
+
+  - **Cross-reference timestamps:** Correlate the time of the events with other suspicious activity, such as a spike in user logon events (Event ID 4624) from unusual hosts. Shift in user behavior before the alert may indicate unauthorized activity.
+
+  - **Validate the source of PsExec execution:** Investigate the process creation logs (Event ID 4688 or Sysmon Event ID 1) around the same time. Look for the parent process that initiated PsExec. Legitimate activity may originate from known administrative tools.
+
+  - **Review endpoint for known tools:** If a system is flagged, validate the installed software on it; ensure it's built for administrative use, such as Sysinternals Suite. Malicious use may come from unauthorized or modified versions of PsExec.
+
+  - **Check for file creation or scheduled tasks:** Investigate for new file artifacts or scheduled tasks created by the service. Legitimate PsExec usage typically does not lead to unexpected changes in the file system or task scheduler.
 
   ### Prioritization
-  This alert is categorized as high severity due to the potential for lateral movement and the broad implications an attacker has when executing commands remotely. The exploitation of legitimate administrative tools increases the likelihood of undetected malicious activity.
+
+  This alert should be considered high severity due to the potential for lateral movement across critical systems. The risk of malicious abuse is significant, especially as remote execution tools like PsExec are commonly weaponized in post-exploitation scenarios.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection for variants of PsExec or custom remote execution tools that do not utilize the typical command structure, leading to potential false negatives. The alert assumes that the audit policy "Object Access > Audit Detailed File Share" is accurately configured and operational across all necessary endpoints. Additionally, analysts should be aware that legitimate administrative use of PsExec might generate false positives, requiring contextual investigation to determine the validity of the alerts.
+
+  Detection may be limited by the absence of adequate logging configurations, specifically if detailed file share auditing is not enabled. Legitimate administrative processes may trigger this alert, particularly if systems are managed with PsExec for maintenance tasks. A companion detection to strengthen coverage would be monitoring for high-privilege account logons (Event ID 4624) to support context during investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

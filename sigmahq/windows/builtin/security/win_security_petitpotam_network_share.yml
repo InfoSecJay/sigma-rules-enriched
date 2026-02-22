@@ -29,22 +29,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to coerce authentication using the PetitPotam technique, which can enable attackers to exploit Windows systems. PetitPotam allows attackers to force a machine to authenticate to a service under the attacker's control, potentially enabling unauthorized access to sensitive resources and lateral movement within a network. The attackers likely aim to gain access to critical systems by tricking them into authenticating using NTLM to a malicious endpoint.
 
-  The relevant MITRE ATT&CK tactics include **Credential Access** (TA0006) and the technique **Credential dumping: NTLM** (T1187). This attack is typically used by threat actors who seek to obtain sensitive credentials from compromised machines or leverage them for lateral movement, making it a significant concern in enterprise environments.
+  This Sigma rule detects attempts to coerce authentication via the PetitPotam vulnerability, which allows an attacker to use the `lsarpc` service to authenticate against a target machine using an unauthenticated user (ANONYMOUS LOGON). The likely attacker objective is to gain access to sensitive information or systems without providing valid credentials. This behavior aligns with the MITRE ATT&CK tactic of Credential Access (TA0006) and specifically the technique T1187 (Forced Authentication).
 
-  Data sources indicative of this behavior include Windows security logs, specifically those configured to capture detailed file share events. The required configuration involves having the advanced audit policy setting "Object Access > Detailed File Share" configured for logging both successes and failures.
+  The primary telemetry sources include Windows Security logs, specifically looking for Event ID 5145, which logs file share access attempts. If successful, this behavior could lead to unauthorized access to files and configurations on the target system, enabling broader network compromise. Notably, this detection does NOT confirm successful authentication or access; it only indicates a coercion attempt.
 
   ### Investigation Steps
-  - **Review Event Logs**: Inspect Windows security logs for Event ID 5145, looking specifically for records that show access attempts to shares named with the pattern `\\*\\IPC$` and initiated by the user **ANONYMOUS LOGON**.
-  - **Investigate Share Access**: Analyze the circumstances around the access to the `IPC$` share. Determine if there are any legitimate processes or user accounts that should be accessing this share, and identify any anomalies.
-  - **Correlate with Network Traffic**: Monitor network logs for suspicious outbound connections that may correspond to the time of the detected events. Pay attention to communication with unfamiliar IP addresses or servers that may indicate a command and control (C2) presence.
-  - **Assess User Activity**: Evaluate the activity of accounts interacting with the targeted systems to determine if any other suspicious authentication attempts or access patterns are present, potentially revealing a broader compromise.
+
+  - **Review Event ID 5145 logs for anomalies**: Check for entries where `ShareName` starts with `\\` and ends with `\IPC$`. Significant anomalies include repeated attempts from the same source IP or unique accounts typically not used for such access.
+
+  - **Correlate source IP and user behavior**: Utilities like `Netstat` or `Whoami /user` after identifying the source IP can provide context. Look for IPs that are external or not on the corporate VPN.
+
+  - **Identify legitimate use cases**: Confirm if the `ANONYMOUS LOGON` event corresponds to an internal system process or service known to use the IPC$ share legitimately. Expect regular access attempts from internal tools or services; discrepancies should raise flags.
+
+  - **Evaluate related systems’ logs**: Examine domain controller logs for related Kerberos authentication attempts, including `Event ID 4768`, which may indicate a correlation with authentication processes during the same time frame.
+
+  - **Check for known vulnerabilities**: Search for known software versions in the environment that correspond to the PetitPotam exploit. This can include reviewing asset inventory for affected systems and ensuring they have been patched or mitigated against this vulnerability.
 
   ### Prioritization
-  This alert is categorized as high severity due to its ability to signal potential unauthorized access to critical network resources, which can lead to credential theft and lateral movement, posing significant risk to enterprise security.
+
+  This alert is high severity due to the potential impact on critical systems, as successful exploitation could lead to unauthorized access and lateral movement across the network. The likelihood of malicious abuse is significant, given that credential coercion techniques are commonly weaponized.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection if the advanced audit policies are not properly configured on all endpoints, as this rule relies heavily on detailed file sharing logs. Additionally, the detection logic assumes that unauthorized access attempts to the IPC$ share by **ANONYMOUS LOGON** are atypical and warrant investigation, which could lead to false positives if there are legitimate services operating under similar conditions. Ensuring that all relevant logs are collected and appropriately configured is crucial for the effectiveness of this alert.
+
+  Detection may be limited by the configuration of auditing settings on target systems; without proper logging, the rule may not trigger. Legitimate administrative tasks (e.g., network scanner activities) may inadvertently trigger this alert. A related detection for brute-force authentication attempts could strengthen coverage, especially if paired with monitoring for unusual access patterns on share resources.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

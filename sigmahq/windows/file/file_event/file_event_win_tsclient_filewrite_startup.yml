@@ -1,8 +1,8 @@
 title: Hijack Legit RDP Session to Move Laterally
 id: 52753ea4-b3a0-4365-910d-36cff487b789
 status: test
-description: Detects the usage of tsclient share to place a backdoor on the RDP source
-  machine's startup folder
+description: Detects the usage of tsclient share to place a backdoor on the RDP 
+  source machine's startup folder
 author: Samir Bousseaden
 references:
 - Internal Research
@@ -27,37 +27,35 @@ note: |
 
   ### Technical Context
 
-  This Sigma rule detects instances where a Remote Desktop Protocol (RDP) client (mstsc.exe) is used to place a file in the startup folder of the host machine. This behavior is commonly indicative of an attacker attempting to establish persistence on the compromised system by using a legitimate RDP session to drop malicious payloads. The manipulation of the startup folder aligns closely with MITRE ATT&CK tactics of Persistence (TA0003) and Lateral Movement (TA0008), specifically through the technique of Remote Service Session Hijacking (T1219.002).
+  This rule detects the creation or modification of files in the Startup folder of a Windows machine using `mstsc.exe`, the Microsoft Remote Desktop Connection client. This behavior is indicative of an attacker trying to establish persistence by placing a backdoor that executes automatically during the next login on the compromised system. The relevant MITRE ATT&CK tactic is "Persistence" and the technique is T1219.002 (Remote Desktop Protocol) which involves hijacking legitimate remote desktop sessions to execute further actions.
 
-  The primary telemetry for this detection comes from file system events, particularly focusing on the creation of files within the startup directory. If successful, an attacker could maintain access and control over the affected system, allowing further exploitation. Importantly, this detection alone does not confirm active malicious intent; benign uses of RDP may trigger similar alerts under specific conditions.
+  The primary telemetry sources include Windows file event logs, specifically focusing on file creation and access within the Startup directory. If the detected activity is malicious, it may allow the attacker to maintain access to the target machine even after initial intrusion vectors are closed. Importantly, this detection does not confirm whether the file itself is malicious or if the activity is part of legitimate user behavior.
 
   ---
 
   ### Investigation Steps
 
-  - **Review file creation events:** Check for **Windows Security Event ID 4663** to identify file creation in the Startup directory (`C:\Users\<username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\`). Look for unusual file names or timestamps that do not align with normal user activity.
+  - **Analyze event logs for file creation**: Investigate Windows file event logs (Event ID 4663) for any file creation events in `C:\Users\<username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\`. Check for files created by `mstsc.exe`.
 
-  - **Investigate the RDP session:** Examine **Event ID 4624** (An account was successfully logged on) to find details about RDP logins. Correlate timestamps with the file creation events. Check for non-standard users accessing critical hosts.
+  - **Check file properties of new items**: Review newly created files in the Startup folder, focusing on `FileName`, `FileSize`, and `CreationTime` attributes to determine if they have attributes typical of malware, such as obfuscation or unusual file extensions (e.g., `.exe`, `.bat`).
 
-  - **Analyze parent-child process relationships:** Look at **Sysmon Event ID 1** (Process creation) to identify the launch context of `mstsc.exe`. Identify if any child processes originate from `mstsc.exe` that could indicate malicious activity.
+  - **Correlate with user activity**: Validate whether the user connected to the RDP session was performing legitimate remote access tasks. Review Event ID 4624 in Security logs for successful logons and correlate with timestamps of file modifications.
 
-  - **Evaluate legitimate usage patterns:** Confirm expected behavior of RDP usage by reviewing operational documentation or user activity logs. Authorized users may have legitimate reasons to modify startup applications.
+  - **Identify command and control indicators**: Look for additional lateral movement indicators by checking for outbound connections from the host to suspicious domains or IPs post-session using Windows Firewall logs (Event ID 5156) or Sysmon logs.
 
-  - **Identify malicious indicators:** Look for known executable hashes or unusual file types placed in the startup folder. Cross-reference any detected files against threat intelligence sources to identify potential backdoors.
-
-  - **Check for lateral movement scenarios:** Review logs from additional hosts that were accessed after the potential compromise. Look for use of `mstsc.exe` as a remote tool and any associated file drops or script executions that may indicate a broader lateral movement pattern.
+  - **Review for multiple instances of same behavior**: Track if there were multiple instances of file creations in the same hour or unusual patterns in multiple hosts, indicating mass deployment. Use Sysmon Event ID 1 to ascertain process creation stemming from the same RDP session.
 
   ---
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential for a backdoor on high-value assets and the likelihood of exploitation if unauthorized access is confirmed. The behavior is often weaponized in lateral movement scenarios, placing critical assets at risk.
+  This alert is of high severity due to its ability to establish persistence, which can facilitate further lateral movement and data exfiltration. The likelihood of malicious abuse is high, particularly in environments with sensitive data, as RDP hijacking is a known method employed by adversaries to sustain access.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  This detection may miss instances where attackers use different methods to establish persistence, such as using scheduled tasks or registry modifications instead of the startup folder. Reliable detection requires consistent logging of file events and RDP sessions. Legitimate tasks, such as IT maintenance or automated scripts, could trigger this detection as well. A related detection might include monitoring for abnormal RDP session behavior or file modifications in the user's profile, complementing coverage of suspicious lateral movement activities.
+  Detection depends on the correct configuration of Windows file event logging, as absence may leave exploitable gaps. Evasion techniques could involve attackers using legitimate administrative tools or scripting to modify Startup items without generating detection logs. High-frequency legitimate tasks such as software installations or maintenance scripts could trigger the alert, necessitating thorough contextual review. A companion detection might involve monitoring for unusual changes in file creation patterns across critical assets, which would further strengthen coverage against such activities.
 
   ---
 

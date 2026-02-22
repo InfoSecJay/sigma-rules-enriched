@@ -1,8 +1,8 @@
 title: Schtasks From Suspicious Folders
 id: 8a8379b8-780b-4dbf-b1e9-31c8d112fefb
 status: test
-description: Detects scheduled task creations that have suspicious action command
-  and folder combinations
+description: Detects scheduled task creations that have suspicious action 
+  command and folder combinations
 references:
 - https://symantec-enterprise-blogs.security.com/blogs/threat-intelligence/lazarus-dream-job-chemical
 author: Florian Roth (Nextron Systems)
@@ -42,20 +42,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the creation of scheduled tasks using the `schtasks.exe` utility from suspicious folder paths, such as `C:\ProgramData\`. Attackers may leverage this technique to establish persistence on a compromised system, execute commands covertly, or elevate privileges. By using scheduled tasks, adversaries can ensure their malicious payloads run at specific intervals, potentially avoiding detection by security tools. The associated threat family could include advanced persistent threats (APTs) such as the Lazarus Group, which is known for employing similar tactics.
 
-  The relevant MITRE ATT&CK tactics and techniques include **Persistence (T1053.005)**, which involves creating scheduled tasks to maintain access, and **Privilege Escalation (T1068)**, which could involve tasks running under elevated privileges if configured improperly. The primary data sources that provide valuable evidence for this detection rule are **process creation logs** from Windows systems, specifically the events logged by `schtasks.exe` when tasks are created.
+  This rule detects the creation of scheduled tasks using `schtasks.exe` from potentially suspicious directories, specifically focusing on command-line patterns indicative of post-exploitation activity. The likely attacker objective is to establish persistence or execute commands at a specific time or during system startup, which aligns with tactics associated with privilege escalation and execution. The relevant MITRE ATT&CK techniques include "Scheduled Task/Job" (T1053.005).
+
+  Primary telemetry sources include Windows event logs related to process creation, specifically Event ID 4688 (for new processes) and the corresponding command line details. The security impact is significant, as an adversary leveraging this technique can maintain access and control over compromised systems. However, detection of this activity does NOT confirm malicious intent on its own, as legitimate administrative tasks may also use `schtasks.exe`.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for the execution of `schtasks.exe` to identify any irregular patterns or unusual folder paths being targeted.
-  - **Analyze Command Line Arguments**: Investigate the command line used in the `schtasks` creation to determine if it invokes potentially malicious commands, especially with references to PowerShell or cmd.exe.
-  - **Inspect Scheduled Task Configurations**: Look at the created tasks themselves within the Task Scheduler for unusual configurations, such as tasks that run exceptionally frequently or execute scripts from sensitive directories.
-  - **Correlate with User Activity**: Cross-reference process creation events with user account activity to ascertain whether the account creating the tasks has legitimate access and behavior.
+
+  - **Examine the command line for arguments**: Review Event ID 4688 for any `schtasks.exe` instances that include `CommandLine` arguments such as `/create`, especially those invoking `powershell`, `cmd`, or any other command interpreter. Malicious examples will typically have obfuscated commands or suspicious actions.
+
+  - **Identify the creation location**: Check the `CommandLine` field for paths containing `C:\ProgramData\` or `%ProgramData%`. Legitimate usage typically involves creation at user or system-defined locations, whereas suspicious activity appears from non-standard folders.
+
+  - **Cross-reference process parentage**: Analyze the `ParentProcessId` alongside Event ID 4688 to determine if `schtasks.exe` was spawned by a known malicious process or user action. High-confidence malicious indicators would show `Task Scheduler` or other adversarial tools as parents rather than benign processes.
+
+  - **Review User Accounts involved**: Validate the user account that executed the command by checking the `SubjectUserName` field. Anomalous accounts, particularly those with low activity or which appeared unexpectedly, are high-confidence indicators of potential compromise.
+
+  - **Assess for existing scheduled tasks**: Use `schtasks` output to list currently scheduled tasks. Compare against the command line log for any discrepancies or unauthorized changes made to existing tasks, which could indicate an attempt at evasion or reconfiguration by the attacker.
 
   ### Prioritization
-  The high severity of this alert stems from the ability of scheduled tasks to facilitate persistent access and execution of malicious payloads on the system. Given that such behavior can lead to significant security breaches, including data exfiltration or lateral movement, it necessitates immediate investigation.
+
+  This alert is high severity due to the potential for system compromise via persistence mechanisms. The affected system's role—whether a workstation, server, or critical infrastructure—amplifies the urgency. Additionally, these tactics are frequently weaponized in attacks, increasing the likelihood of malicious abuse.
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover scheduled tasks created through alternate methods, such as direct API calls or other legitimate task scheduling tools that do not invoke `schtasks.exe`. It assumes that the environment has logging enabled sufficiently to capture process creation events, particularly those related to `schtasks.exe`. Additionally, the rule may generate false positives if legitimate administrative tasks are performed from the monitored paths without adequate context around typical user behavior.
+
+  Detection may be limited by certain evasion techniques, such as using different executables or scripting languages to set tasks without triggering this rule. Required log sources include complete Windows Security Event logs and possibly Sysmon logs for enhanced process tracking. Legitimate activities such as scheduled maintenance or backup tasks may trigger the alert. Effective coverage can be bolstered by integrating detections for abnormal PowerShell activity or anomalies in user logon patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

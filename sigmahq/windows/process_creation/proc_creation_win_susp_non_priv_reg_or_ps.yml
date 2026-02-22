@@ -1,8 +1,8 @@
 title: Non-privileged Usage of Reg or Powershell
 id: 8f02c935-effe-45b3-8fc9-ef8696a9e41d
 status: test
-description: Search for usage of reg or Powershell by non-privileged users to modify
-  service configuration in registry
+description: Search for usage of reg or Powershell by non-privileged users to 
+  modify service configuration in registry
 references:
 - https://image.slidesharecdn.com/kheirkhabarovoffzonefinal-181117201458/95/hunting-for-privilege-escalation-in-windows-environment-20-638.jpg
 author: Teymur Kheirkhabarov (idea), Ryan Plas (rule), oscd.community
@@ -42,27 +42,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious actions where non-privileged users utilize Windows Registry commands or PowerShell scripts to modify service configurations. The presence of such actions may indicate an attempt to alter service behaviors, which attackers often exploit as a method of persistence or to bypass security mechanisms. This behavior may suggest adversarial tactics that align with privilege escalation attempts in a Windows environment.
 
-  Attacker objectives may include creating or modifying services to execute malicious payloads or establishing persistence mechanisms that are difficult to identify or remove later. These actions often coincide with techniques aimed at evading detection or maintaining control over compromised systems.
+  This Sigma rule detects the usage of `reg` commands or PowerShell by non-privileged users specifically attempting to modify Windows service configurations within the registry. The likely attacker objective is to maintain persistence in a compromised environment by altering service properties in a way that could hinder detection or facilitate re-exploitation. This behavior maps to the MITRE ATT&CK techniques for persistence (T1112) and defense evasion.
 
-  Relevant MITRE ATT&CK tactics include **Persistence** (TA0003) and **Defense Evasion** (TA0005). Techniques such as **Windows Registry Run Keys / Startup Folder** (T1112) are particularly applicable, as they highlight the method of controlling system startups and services through registry alterations.
-
-  Primary data sources for evidence collection should include **process creation events**, specifically analyzing command lines from PowerShell and registry modification attempts, as well as **Windows Event Logs** that detail command execution and integrity levels.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically focusing on `Security Event ID 4688` for command line executions and `Sysmon Event ID 1` for detailed process creation visibility. If detected activity is malicious, it could lead to unauthorized service modification, which could degrade system integrity or facilitate further attacks. Importantly, this alert does NOT inherently confirm malicious activity; legitimate scripting by system administrators could generate similar event patterns.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Look at recent process creation logs for any command-line activities involving `reg add` or PowerShell commands that include `set-itemproperty`, `sp`, or `new-itemproperty` executed by non-privileged accounts.
 
-  - **Check Integrity Levels:** Identify processes executed under medium integrity levels that are attempting to modify the registry, especially conditions where services are being altered (`ControlSet`, `Services`, `ImagePath`, etc.).
+  - **Review process creation logs:** Check `Security Event ID 4688` for any command lines containing `reg add` or PowerShell calls like `set-itemproperty` executed by non-privileged users. Look at the `User` field to identify if the user has standard user permissions.
 
-  - **Correlate User Activity:** Assess user behavior surrounding the timestamp of the alert, checking for any user accounts that have no documented need for such registry modifications or PowerShell script execution.
+  - **Verify command line parameters:** Confirm the presence of `ControlSet`, `Services`, and any alterations targeting `ImagePath`, `FailureCommand`, or `ServiceDLL`. Legitimate changes to service configuration would usually come from system admins with elevated privileges.
 
-  - **Inspect Related Logs:** If alterations to service configurations are identified, review the Windows Event Logs for any error messages or suspicious behaviors related to the services in question (e.g., unexpected service failures or restarts).
+  - **Identify non-privileged user actions:** Specifically focus on command lines executed within the context of users and validate user permissions using the `IntegrityLevel` field from `Sysmon Event ID 1`. Non-privileged operations should not be modifying critical services.
+
+  - **Cross-reference recent changes in the registry:** Utilize `Sysinternals RegJump` or other registry monitoring tools to track changes in the services branch of the registry to see if the detected command lines correlate with unauthorized activity.
+
+  - **Examine creation or modification timestamps:** Investigate timestamps of created registry modifications against user activity logins from `Security Event ID 4624`, looking for any unusual activity periods that align with the command execution times.
 
   ### Prioritization
-  The severity of this alert is high due to the potential for significant impact on system integrity and security, as unauthorized changes to service configurations can lead to system compromise or persistent access by malicious actors. The likelihood of an organization facing such an attack is notable, especially in environments where non-privileged users might have elevated access.
+
+  This alert is considered high severity as it indicates potentially unauthorized attempts to alter critical service configurations by non-privileged users. Given the potential for this activity to lead to persistence and further exploitation, combined with the fact that such methods are commonly exploited by adversaries, the response should be swift and thorough.
 
   ### Blind Spots and Assumptions
-  This detection may not capture all relevant activities due to potential gaps in logging or cases where users legitimately need to modify service configurations without sufficient logging. The rule assumes registry modifications by non-privileged users are indicative of malicious intent without fully considering benign administrative activities. It is essential to have enhanced logging enabled for PowerShell and detailed process execution logging to ensure coverage of all relevant scenarios.
+
+  The detection may miss obfuscation techniques or legitimate system scripts that utilize similar command structures for benign purposes. Reliable detection requires the logging and monitoring of both process creation and command-line arguments from all user accounts. Common legitimate tasks, such as service updates or configuration changes by IT staff, could inadvertently trigger this alert. A related detection to consider is unauthorized access to registry hives, which can similarly signal attempts at persistence or exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

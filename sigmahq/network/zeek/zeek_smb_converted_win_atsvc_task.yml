@@ -4,8 +4,8 @@ related:
 - id: f6de6525-4509-495a-8a82-1f8b0ed73a00
   type: derived
 status: test
-description: Detects remote task creation via at.exe or API interacting with ATSVC
-  namedpipe
+description: Detects remote task creation via at.exe or API interacting with 
+  ATSVC namedpipe
 references:
 - https://web.archive.org/web/20230409194125/https://blog.menasec.net/2019/03/threat-hunting-25-scheduled-tasks-for.html
 author: 'Samir Bousseaden, @neu5rn'
@@ -33,25 +33,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This Sigma rule detects the creation of remote tasks via the use of `at.exe` or API calls interacting with the ATSVC named pipe. The ability to remotely create and execute scheduled tasks can indicate malicious behavior, especially if conducted by unauthorized users or applications attempting to leverage legitimate tools for lateral movement within a network. This behavior could be indicative of an attacker aiming to establish persistence, execute commands remotely, or elevate their privileges within a target environment.
 
-  Attackers exploiting this capability might seek to execute malicious payloads on targeted systems, creating backdoors or executing further commands while evading detection. The relevant MITRE ATT&CK tactics include Privilege Escalation (TA0004), Execution (TA0002), Lateral Movement (TA0008), and Persistence (TA0003). Techniques involved include Scheduled Task/Job (T1053.002), which reflects the attacker’s use of scheduled tasks to maintain access or perform actions remotely.
+  This Sigma rule detects remote task creation through the interaction with the ATSVC named pipe, specifically when an attacker utilizes the `at.exe` tool or similar APIs. The likely objective of the attacker is to establish persistence, execute commands on a remote host, or leverage this technique for lateral movement within the network. Relevant MITRE ATT&CK tactics and techniques include **Execution (T1059)** for command execution, **Persistence (T1053.002)** for scheduled tasks, and **Lateral Movement (T1021)** when accessing remote systems.
 
-  The primary data sources for detecting this behavior include Zeek logs, particularly those related to SMB file service interactions, which can capture attempts to access named pipes such as ATSVC through which remote tasks may be scheduled.
+  The primary telemetry source for this detection is from Zeek logs focusing on SMB file sharing accesses, specifically targeting named pipes under the IPC$ share. The security impact, if malicious, could enable an adversary to execute unauthorized commands on systems, potentially leading to data compromise or system integrity violations. Importantly, this detection alone does not confirm malicious intent, as legitimate administrative operations may also generate similar events.
 
   ### Investigation Steps
-  - **Review Zeek Logs**: Collect and examine logs from Zeek related to SMB interactions, filtering for any access attempts to `\\*\IPC$` with a focus on entries that involve the ATSVC named pipe.
 
-  - **Analyze Process Creation Events**: Check for any process creation events linked to `at.exe` or other scheduling processes on target hosts around the times indicated in the Zeek logs, identifying any unusual command line arguments or parental relationships.
+  - **Identify remote task creation events:** Examine Zeek logs with attention to the `path` containing `\\*\IPC$` and the `name` as `atsvc`. Validate the associated SMB transactions (Event ID related, e.g., Event ID 10) to look for suspicious write operations specifically targeting ATSVC.
 
-  - **Investigate User Context**: Determine the user context under which the task was created. Look for accounts that may have been exploited, particularly service accounts or accounts with administrative privileges that shouldn’t typically execute such commands.
+  - **Correlate with known `at.exe` usage:** Cross-reference any found events with documented usage of the `at.exe` command to understand the context. If other administrators are known to use this tool legitimately, confirm their activity logs to establish benign behavior.
 
-  - **Correlate with Other Security Events**: Cross-reference findings with other security telemetry sources such as EDR alerts or SIEM logs to identify any additional suspicious behavior or indicators of compromise surrounding the time of the detected remote task creation.
+  - **Review other IPC traffic:** Analyze other logs (e.g., Windows Event ID 4656) for related named pipe accesses, ensuring they are not part of a broader series of suspicious activities indicating potential lateral movement.
+
+  - **Look for elevated permissions:** Check if the originating system shows signs of compromised accounts or if the task was created under a system context with elevated privileges. This can indicate a malicious actor attempting to exploit privileges (Probe Windows Event ID 4688 for reactions).
+
+  - **Establish benign context for IPC access:** Verify historical patterns of legitimate software access and task scheduling within the environment. Identifying normal scheduling patterns can help distinguish between malicious and benign activity.
 
   ### Prioritization
-  This alert is considered medium severity in an enterprise environment due to the potential for significant impact. Unauthorized remote task creation can lead to privilege escalation or the execution of malware within a network, making it essential for quick response and investigation.
+
+  This alert should be considered medium severity due to the potential for an attacker to gain unauthorized access and maintain persistence through scheduled tasks. The impact on critical systems could lead to significant data leak or compromise if exploited. While this behavior is not commonly weaponized, the tools and techniques associated with remote task creation are well documented among threat actors.
 
   ### Blind Spots and Assumptions
-  One significant blind spot is the reliance on logging and detection capabilities of Zeek; if these logs are not properly configured or if named pipe interactions occur through atypical channels, such activities may go unnoticed. The detection logic assumes that the monitored environment includes potential uses of ATSVC and that baseline behavior is well-understood, allowing deviations to be effectively identified. Comprehensive logging of SMB interactions and adequate monitoring configurations are necessary for this alert to function correctly.
+
+  This detection may be evaded through techniques such as legitimate use of administrative tools or scripting that avoids creating tasks through `at.exe`. Reliable detection also requires proper logging configuration on SMB and event logging for scheduled tasks. Legitimate administrative activities, such as IT maintenance tasks or script-based automation, might trigger this alert. Companion detections should include monitoring for unusual usage patterns of administrative tools (such as `schtasks.exe`), enhancing coverage around task scheduling activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

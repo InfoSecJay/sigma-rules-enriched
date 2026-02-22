@@ -44,27 +44,36 @@ detection:
     DestinationPort: 443
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Communication to other corporate systems that use IP addresses from public address
-  spaces
+- Communication to other corporate systems that use IP addresses from public 
+  address spaces
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies instances where the `rundll32.exe` executable communicates with public IP addresses. Such behaviors may indicate malicious activity as `rundll32.exe` is often exploited by attackers to execute hidden payloads or execute functionalities that should remain under the radar. An attacker may use this tool to establish persistence, exfiltrate data, or connect back to their command and control (C2) infrastructure.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Execution (T1203)**, as rundll32 is being used to execute code, and **Defense Evasion (T1218.011)**, as it may be trying to bypass security measures by masquerading its intent. In enterprise environments, this behavior is suspicious as legitimate operations typically don't involve `rundll32.exe` contacting external networks.
+  This Sigma rule detects instances where the `rundll32.exe` process establishes outbound network connections to public IP addresses, which are generally indicative of potential malicious activities like data exfiltration or malware command and control communication. The goal of such actions by an adversary would likely be to establish connectivity for malicious payload delivery or for data extraction from a compromised host.
 
-  Primary data sources that can substantiate this detection include Windows network connection logs, which capture the destination IP and process information, ensuring that analysts can trace the source of the initiated connections for `rundll32.exe`.
+  The relevant MITRE ATT&CK tactics and techniques associated with this activity are Defense Evasion (T1218.011) and Execution. Primary telemetry sources include Windows network connection logs, specifically related to process execution and outbound network traffic. If malicious, the impact could involve data breaches or further compromise of the network. It is important to note that this detection does NOT confirm malicious activity on its own, as legitimate applications may utilize `rundll32.exe` for various valid purposes.
 
   ### Investigation Steps
-  - **Review Network Connection Logs:** Analyze Windows network connection logs for instances of `rundll32.exe` initiating connections to any IP addresses outside the defined internal ranges (e.g., non-corporate IPs).
-  - **Examine Process Creation Events:** Investigate process creation events related to `rundll32.exe`, focusing on the command line arguments to identify potentially malicious payloads or abnormal usage patterns.
-  - **Check Parent Process Relationships:** Assess the parent process of any detected `rundll32.exe` instances, particularly looking for `svchost.exe`, which may indicate that the execution was initiated through a potentially compromised service.
-  - **Conduct IP Reputation Checks:** Perform lookups against threat intelligence databases to understand the reputation of identified external IP addresses and ascertain if they are associated with known malicious actors.
+
+  - **Review the process execution details:** Check Windows Security Event ID 4688 for the creation of `rundll32.exe` and note the parent process to rule out legitimate use cases, such as system maintenance tasks being executed by standard system processes (e.g., `svchost.exe`).
+
+  - **Analyze the network connections:** Review firewall logs and network connection logs (e.g., Windows Filtering Platform) for Event ID 5156 to capture outbound connections initiated by `rundll32.exe`, focusing on destination IPs, ports, and protocols.
+
+  - **Identify the destination IP addresses:** Cross-reference the destination IP in the alert with known benign IP ranges. Public IP addresses should be scrutinized, especially if they are previously associated with malware or C2 servers.
+
+  - **Assess for high-confidence malicious indicators:** Investigate if `rundll32.exe` is connecting to IP addresses with a reputation score of malware or if the connection is made during suspicious hours. Use reputation services as needed.
+
+  - **Look for expected legitimate behavior:** Determine if the `rundll32.exe` execution aligns with known system updates or legitimate maintenance activities that might involve outbound connections, such as Windows Update inquiries or corporate software updates.
+
+  - **Validate file creation or exfiltration artifacts:** Check for file activity on the host (e.g., using Sysmon Event ID 11) to confirm if any unusual files were created or if there are indicators of data leave-behind (e.g., temporary files being exfiltrated).
 
   ### Prioritization
-  The severity of this alert is medium due to the potential for significant data exfiltration or system compromise stemming from `rundll32.exe` contacting unknown external resources. While this activity is not inherently malicious, its context and deviation from normal operational patterns warrant prompt investigation and analysis.
+
+  The alert is categorized as medium severity due to its potential impact on sensitive data and the risk of malware or unauthorized access. Given that `rundll32.exe` is often associated with evasion techniques, the likelihood of malicious abuse is moderate, especially since this technique is weaponized in various exploit scenarios.
 
   ### Blind Spots and Assumptions
-  Detection relies heavily on the availability of thorough network connection logs and accurate process information, including parent process details. There may be gaps if the logs do not capture certain outbound connections, or if `rundll32.exe` is erroneously executed as part of legitimate applications. Additionally, the detection logic assumes that the organization has strict controls on outbound connections to public IP ranges, and such communications would be uncommon. If legitimate corporate applications or services connect to these IPs, false positives may arise, necessitating further tuning of detection parameters.
+
+  Detection limitations include the possibility of temporarily compromised legitimate applications that also use `rundll32.exe` for network connections. Ensuring all necessary logging is enabled (e.g., process creation and network connection events) is crucial for reliable detection. Legitimate bisecting activities, such as scheduled maintenance routines or software updates, may also trigger this alert. A related detection that enhances coverage would be monitoring other Windows process activities that utilize similar execution methodologies, such as `powershell.exe` outbound communications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

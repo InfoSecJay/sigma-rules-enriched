@@ -1,8 +1,8 @@
 title: Suspicious GUP Usage
 id: 0a4f6091-223b-41f6-8743-f322ec84930b
 status: test
-description: Detects execution of the Notepad++ updater in a suspicious directory,
-  which is often used in DLL side-loading attacks
+description: Detects execution of the Notepad++ updater in a suspicious 
+  directory, which is often used in DLL side-loading attacks
 references:
 - https://www.fireeye.com/blog/threat-research/2018/09/apt10-targeting-japanese-corporations-using-updated-ttps.html
 author: Florian Roth (Nextron Systems)
@@ -30,26 +30,34 @@ detection:
     - '\AppData\Roaming\Notepad++\updater\GUP.exe'
   condition: selection and not 1 of filter_*
 falsepositives:
-- Execution of tools named GUP.exe and located in folders different than Notepad++\updater
+- Execution of tools named GUP.exe and located in folders different than 
+  Notepad++\updater
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the execution of the GUP.exe (Notepad++ updater) from suspicious directories, which may indicate attempts at DLL side-loading attacks. Attackers often use legitimate applications and their update mechanisms to execute malicious payloads, evading traditional security measures. By running GUP.exe from locations outside of its standard installation path, such as user profile directories, adversaries may be trying to manipulate the allowed update process to execute arbitrary code, potentially leading to privilege escalation or the establishment of persistence mechanisms.
 
-  The rule relates to several MITRE ATT&CK tactics and techniques, including **Privilege Escalation (TA0004)**, **Persistence (TA0003)**, and **Defense Evasion (TA0005)**, particularly the technique **Trusted Developer Utilities (T1574.001)**. The critical focus here is on how attackers exploit trusted applications to gain unauthorized access or maintain their foothold within the environment using established update mechanisms.
+  This Sigma rule detects the execution of GUP.exe (Notepad++ updater) from suspicious directories, particularly user directories, which may indicate a DLL side-loading attack. The likely objective of an attacker is to exploit the GUP.exe process to load malicious DLLs, gaining persistence and elevating privileges while avoiding detection. This behavior is associated with the MITRE ATT&CK technique of **DLL Side-Loading** (T1574.001).
 
-  To effectively utilize this detection, analysts should monitor process creation events in the Windows environment, focusing on instances of GUP.exe being executed from non-standard paths, which can be critical indicators of compromise.
+  The primary telemetry source is process creation logs from Windows, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture new process creation events. If executed maliciously, this could lead to unauthorized persistence and compromise of sensitive data or system integrity. Importantly, this detection does NOT confirm malicious activity on its own; it requires further investigation to validate intent and context.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine process creation logs for instances of GUP.exe and analyze the execution paths to determine if they originate from suspicious directories, particularly within user profile folders.
-  - **Check for DLL Injections:** Investigate any DLLs that are loaded at the time of GUP.exe execution in relation to abnormal process behavior, including memory analysis to identify anomalies that may point to a side-loading attempt.
-  - **Correlate with User Activity:** Analyze user activity around the time of the detection to see if the execution correlates with known legitimate activity or indicates unauthorized access, especially if unusual access patterns are noted.
-  - **Audit Installed Applications:** Conduct an inventory of installed applications, particularly Notepad++, to ensure that only authorized versions are present and verify that no unauthorized modifications have been made to the updater executable.
+
+  - **Verify process origin:** Check the path of GUP.exe: Confirm if it is being executed from `C:\Program Files\Notepad++\updater` or `C:\Program Files (x86)\Notepad++\updater`. Legitimate activity is expected from these paths; anything from `C:\Users\<username>\AppData\Local\Notepad++\updater` or `C:\Users\<username>\AppData\Roaming\Notepad++\updater` is suspicious.
+
+  - **Review user execution context:** Examine the User Account that executed the process: Look for unusual user accounts or administrative access in process creation logs (Event ID 4688). Non-standard or generic accounts may indicate malicious use.
+
+  - **Check for DLL load events:** Investigate for associated DLLs loaded by GUP.exe: Inspect Sysmon Event ID 5 logs to identify any anomalous or unexpected DLLs residing in the same directory (`C:\Users\<username>\AppData\...`). Confirm that expected DLLs for the Notepad++ updater are being loaded.
+
+  - **Analyze command-line arguments:** Assess the command-line parameters passed to GUP.exe: Control for common flags associated with updates and ensure they align with expected benign operations. Malicious arguments may indicate an exploit attempt.
+
+  - **Correlate with threat intelligence:** Reference current threat intelligence regarding DLL side-loading activities associated with GUP.exe: Compare any observed patterns against known TTPs from related advisories, such as the one provided by FireEye, to identify potential threats.
 
   ### Prioritization
-  The alert is classified as high severity due to the potential for significant impact. If attackers successfully execute code through DLL side-loading, it could lead to extensive compromise within an organization, including data exfiltration or lateral movement.
+
+  This alert is considered high severity due to the potential for privilege escalation and persistence on critical endpoints, particularly if the affected system is a user workstation with access to sensitive data. The likelihood of misuse is increased due to the prevalence of DLL side-loading techniques in modern attacks.
 
   ### Blind Spots and Assumptions
-  There may be blind spots in detection coverage where legitimate applications or services use similarly named executables, which could produce false positives. The detection logic assumes that GUP.exe will not be found and executed from legitimate directories other than those defined in the filters. Proper logging configuration for process creation events – specifically for user-level activity and path details – is required for this alert to function effectively. Evaluation of event logs needs to ensure comprehensive coverage of user activity to minimize gaps in detection.
+
+  Detection may be limited by the absence of comprehensive Windows process creation logs, which can result in false negatives. Attackers may use different directory structures or legitimate applications in conjunction with similar names, complicating detection. Legitimate automation or standard user updates of Notepad++ may trigger this alert. Companion detection such as monitoring DLL load events could enhance detection capabilities by confirming the legitimacy of DLLs being loaded by GUP.exe.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

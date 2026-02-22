@@ -1,7 +1,8 @@
 title: Program Executed Using Proxy/Local Command Via SSH.EXE
 id: 7d6d30b8-5b91-4b90-a891-46cccaf29598
 status: test
-description: Detect usage of the "ssh.exe" binary as a proxy to launch other programs.
+description: Detect usage of the "ssh.exe" binary as a proxy to launch other 
+  programs.
 references:
 - https://lolbas-project.github.io/lolbas/Binaries/Ssh/
 - https://github.com/LOLBAS-Project/LOLBAS/pull/211/files
@@ -44,26 +45,40 @@ falsepositives:
 - Legitimate usage for administration purposes
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies instances where the `ssh.exe` binary is used to proxy or launch other programs via local commands in Windows environments. This behavior is indicative of potential misuse, where an attacker repurposes legitimate tools to create a backdoor or to conceal their actions. The use of `ssh` as a proxy can allow an attacker to tunnel traffic or remotely execute commands while avoiding traditional detection mechanisms.
 
-  Attackers leveraging this method may aim for persistence, lateral movement, or data exfiltration within the network. They may use the SSH protocol, which is typically associated with secure, legitimate administrative tasks, to mask their illicit activities. Relevant MITRE ATT&CK techniques associated with this detection include **T1218: Signed Binary Proxy Execution** and potentially others involving remote command execution and lateral movement.
+  This Sigma rule detects the execution of `ssh.exe` as a proxy or command execution medium, potentially for lateral movement or command-and-control (C2) operations. Attackers may leverage SSH, through the "ProxyCommand" or "LocalCommand" configuration options, to obfuscate the execution of their payloads, allowing for malicious programs to be launched under the guise of legitimate SSH activity. Relevant MITRE ATT&CK tactics include Execution (T1203) and Defense Evasion (T1218).
 
-  The primary data sources for detecting this behavior will be Windows process creation logs, which provide details on executed binaries and their command-line arguments. Additionally, logs from SSH-related activities—if available—may provide supplementary evidence of misuse.
+  The primary telemetry source is Windows process creation logs, specifically monitoring the execution of `ssh.exe` initiated by `sshd.exe`. A malicious execution could facilitate the running of unauthorized commands on remote systems or serve as part of a broader intrusion strategy. Importantly, this detection does NOT confirm an actual compromise on its own; it merely indicates suspicious usage of SSH.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Investigate process creation events related to `ssh.exe`, focusing on unusual command-line arguments that include `ProxyCommand` or `PermitLocalCommand=yes`.
 
-  - **Analyze Parent Process Context:** Identify the parent process that initiated `ssh.exe` to uncover potential malicious chains of execution, particularly those involving `sshd.exe` or other unusual executables.
+  - **Examine parent process IDs**: Review Windows Security Event ID 4688 logs to confirm if `ssh.exe` was launched from `C:\Windows\System32\OpenSSH\sshd.exe`. Assess whether this parent-child relationship indicates an unusual execution context.
 
-  - **Correlate with Connection Logs:** If available, check network connection logs to determine if there were any suspicious outbound connections made through `ssh.exe` following its execution.
+  - **Analyze command-line arguments**: Inspect the CommandLine field for `ssh.exe` executions, looking for the presence of 'ProxyCommand=' or 'PermitLocalCommand=yes'. These flags are potential indicators of malicious intent and should be followed by scrutiny of the commands that follow.
 
-  - **Examine User Activity Context:** Look into the user account associated with the `ssh.exe` invocation. Unusual accounts or ones with minimal expected administrative tasks should be flagged for further review.
+  - **Identify known malicious hashes**: Cross-reference the IMHashes of the executed `ssh.exe` against known threat intelligence. Utilize Sysmon Event ID 10 to extract and verify file hashes, marking those with matched or suspicious hashes as high-confidence malicious indicators.
+
+  - **Review legitimate administrative usage**: In some cases, `ssh.exe` may be legitimately used by system administrators for remote management. Confirm with your asset inventory that this activity aligns with expected administrative workflows in your environment.
+
+  - **Check for unusual network traffic**: Utilize network telemetry to identify any outbound connections made immediately following the execution of `ssh.exe`. Pay attention to connections to suspicious IP addresses or payloads indicative of external C2 communication.
+
+  ---
 
   ### Prioritization
-  This alert is deemed medium severity due to the potential for legitimate users to run SSH commands for administrative purposes. However, the misuse of `ssh.exe` for proxying other commands could indicate malicious intent and requires prompt investigation to mitigate the risk of lateral movement or data breaches.
+
+  This alert carries medium severity due to the potential for significant impact on enterprise systems, particularly if `ssh.exe` is being used for unauthorized access or lateral movement. Such behavior, while not uncommon, can represent a clear violation of security protocols, necessitating immediate investigation and response.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are several gaps in detection coverage, particularly if processes do not log their execution details or if the `ssh.exe` usage is masked under legitimate administrative tasks. The logic assumes that all instances of `ssh.exe` usage are benign unless specific flags are identified in the command line. Required logs include detailed process creation logs, which must be enabled in Windows logging configurations, as well as any associated SSH activity logs if applicable.
+
+  Detection limitations may arise from legitimate usage of SSH for management tasks, which could generate false positives. Ensure logging for Windows process execution is enabled to facilitate accurate detection. Be aware that advanced adversaries may employ encryption or modify the command structure to evade this detection. A related detection to consider is monitoring unusual `C2` communication patterns, which can help confirm malicious activity following `ssh.exe` usage.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

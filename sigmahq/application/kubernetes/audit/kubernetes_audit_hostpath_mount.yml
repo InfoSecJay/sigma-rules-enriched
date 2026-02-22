@@ -24,41 +24,36 @@ detection:
     hostPath: '*'     # Note: Add the "exists" when it's implemented in SigmaHQ/Aurora
   condition: selection
 falsepositives:
-- The DaemonSet controller creates pods with hostPath volumes within the kube-system
-  namespace.
+- The DaemonSet controller creates pods with hostPath volumes within the 
+  kube-system namespace.
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the creation of a Kubernetes container that uses a hostPath mount, which allows the container to access the underlying node's filesystem directly. This behavior can be exploited by attackers with sufficient permissions to create pods, as it may enable them to escape the container's environment, potentially leading to privilege escalation or unauthorized access to sensitive data on the node. The relevant MITRE ATT&CK technique is “Insecure Host Path Mount” (T1611) under the Privilege Escalation tactic.
+  This Sigma rule detects the creation of a Kubernetes container with a hostPath mount, which directly links a directory or file from the host node to the container. Attackers may leverage this capability to gain unauthorized access to the underlying file system, potentially leading to privilege escalation or container escape, where they can execute code outside the confines of the container environment. The relevant MITRE ATT&CK tactic is "Privilege Escalation" (TA0004) and the technique is "Container Escape via Host Path" (T1611).
 
-  Primary telemetry sources include Kubernetes audit logs that capture events related to resource activities in the cluster, specifically looking for events that include `verb: 'create'` on pods with hostPath mounts. If this activity is malicious, it could lead to significant security incidents, such as data exfiltration or complete system compromise. However, this detection does NOT confirm that the created pod is malicious on its own, as legitimate system processes like DaemonSets may also create pods with hostPath mounts.
-
-  ---
+  The primary telemetry source is the Kubernetes audit logs, which document changes to resources within the cluster, specifically logs that capture pod creation events. Malicious use of hostPath mounts can compromise the integrity of the host node and the overall Kubernetes cluster. Notably, this detection does not confirm any malicious intent on its own; legitimate system operations, such as DaemonSet controller activities in the kube-system namespace, can also generate similar events.
 
   ### Investigation Steps
 
-  - **Review audit logs for relevant events:** Extract Kubernetes audit logs filtering for `verb: 'create'`, and look for entries where `objectRef.resource: 'pods'` and `hostPath` is present. Key fields to inspect include `user.identity` and `objectRef.namespace` to determine who created the pod and in which namespace.
-  - **Identify legitimate pod creation:** Check if the pod creation occurred within the `kube-system` namespace, which often contains DaemonSets using hostPath volumes. Verify if the creator matches expected service accounts (e.g., `kubelet`, `daemonset-controller`).
-  - **Assess user permissions and roles:** Analyze the permissions for the user or service account that created the pod. Use `kubectl get clusterroles` and `kubectl get clusterrolebindings` to reveal privileges and ensure they correlate with established security policies.
-  - **Check for potential abuse indicators:** Validate if the created pod has a writable hostPath mounted. Analyze field values in the event logs such as `spec.volumes` and confirm mount paths that could introduce risks (e.g., `/etc`, `/var/lib`), indicating possible attempts to manipulate node files.
-  - **Correlate with node behavior:** Investigate related node activities and any unusual processes in the host's logs (e.g., system logs or Sysmon Event ID 1) post-pod creation that may indicate chroot or other malicious conduct linked to the created pod.
-  - **Determine exposure risk:** Assess the criticality of the affected node or cluster. If a core component of the application is compromised or at risk due to exposed filesystem access, elevate the investigation priority.
+  - **Review Kubernetes Audit Logs for Creation Events**: Check audit logs for the event of type "create" on pods with the `hostPath` field present (Kubernetes audit log entries). Look for any unusual namespaces or non-standard pod configurations that might indicate malicious intent.
 
-  ---
+  - **Identify User Permissions**: Investigate the Kubernetes Role-Based Access Control (RBAC) settings for the user who created the pod. Confirm whether they possess permissions to deploy pods with hostPath mounts. Use `kubectl auth can-i create pod --namespace=<namespace>` to validate permissions.
+
+  - **Analyze Namespace Context**: Verify if the pod was created within a standard or restricted namespace. Legitimate workloads often reside in application-specific namespaces, while deviations could indicate an attempted breach.
+
+  - **Check for Malicious Indicators**: Look for indications of a writable `hostPath` mount in the pod specification. If the specification includes hosts with sensitive paths (e.g., `/var/run/`, `/etc/`), this is a high-confidence malicious indicator that warrants further investigation.
+
+  - **Examine Historical Pod Activity**: Review historical pod creations (kubelet or stateful set activities) in the audit logs to establish patterns. Compare recent creations against the expected deployment activities during the timeframe of the alert.
+
+  - **Monitor for Unusual Behavior Post-creation**: After a pod creation alert, investigate subsequent activities for signs of exploitation attempts, such as calls to privileged host paths or attempts to execute commands on the underlying host file system.
 
   ### Prioritization
 
-  This alert is considered low severity in an enterprise context due to the potential for legitimate use of hostPath mounts in certain namespaces. However, if exploited by an adversary, it presents a notable risk of privilege escalation. The likelihood of malicious abuse is moderate, as adversaries may leverage this technique in containerized environments.
-
-  ---
+  The alert is of low severity but should not be dismissed due to the potential risk of privilege escalation. The likelihood of misuse is moderate, particularly if permissions are inappropriately assigned. This behavior can be weaponized by attackers looking to compromise cluster nodes, making it critical to monitor.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited if the audit log configuration is not comprehensive, as it relies on capturing all relevant pod creation events. Organized automation tools may create similar pods with hostPath mounts as part of their regular operations, generating false positives. Companion detections such as monitoring changes to cluster role bindings or user permissions will enhance coverage and clarify potential malicious intent.
-
-  ---
+  Log limitations include the requirement for comprehensive Kubernetes audit logging configurations to capture all necessary events reliably. Detection may miss legitimate activities such as those from DaemonSet controllers that create pods using hostPath, which might lead to false positives. Complementary detections, such as monitoring for privilege escalation attempts following pod creation, can enhance coverage and context for further analysis.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

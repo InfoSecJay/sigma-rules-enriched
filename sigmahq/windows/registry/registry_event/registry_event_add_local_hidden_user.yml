@@ -31,23 +31,31 @@ simulation:
   atomic_guid: 173126b7-afe4-45eb-8680-fa9f6400431c
 note: |
   ### Technical Context
-  This detection rule identifies the creation of a local hidden user account via Windows Registry manipulation, specifically focusing on registry events tied to the Security Account Manager (SAM). Attackers may leverage hidden user accounts to maintain persistence within a system while evading detection, enabling unauthorized access or control. The ability to create a hidden account typically signifies a malicious intent to establish a foothold and evade defensive measures, aligning with common tactics used by advanced adversaries.
 
-  Relevant MITRE ATT&CK tactics for this detection include **Persistence** (TA0003) and the technique **Account Manipulation - T1136.001**, which pertains to modifying user accounts to create hidden or unauthorized access. The telemetry that supports this detection primarily comes from Windows Registry events logged by Sysmon, which provides detailed insights into changes in critical system settings and configurations.
+  This Sigma rule detects the creation of a local hidden user account via modifications in the Windows registry, specifically targeting the `\SAM\SAM\Domains\Account\Users\Names\` path. Attackers often use this technique to establish a persistence mechanism while blending in with legitimate accounts, making them difficult to detect. This behavior correlates with the MITRE ATT&CK tactic of *Persistence* and specifically with the technique *Hidden User Accounts* (T1136.001).
+
+  The primary telemetry source for this detection is the Sysmon registry event logs, capturing relevant operations related to the `lsass.exe` process interacting with the security account manager (SAM) database. If malicious, this activity could significantly compromise the integrity of the system by allowing unauthorized access to resources. Importantly, this detection does not confirm malicious intent on its own, as benign applications could potentially trigger similar registry changes.
 
   ### Investigation Steps
-  - **Review Sysmon Registry Logs:** Check the Sysmon registry event logs for indications of changes within the `\SAM\SAM\Domains\Account\Users\Names\` path. Look for entries reflecting user accounts created with a name ending in `$(Default)`.
 
-  - **Correlate with Process Activity:** Investigate process creation logs for `lsass.exe` around the same timestamp as the registry changes. Verify if any suspicious or unexpected parent processes exist that could indicate malicious behavior.
+  - **Check Sysmon Registry Event**: Review Sysmon Event ID 13 for registry modifications that match the creation of hidden user accounts at `\SAM\SAM\Domains\Account\Users\Names\`. Evaluate the `Image` field for `lsass.exe` to identify the context of the modification.
 
-  - **Assess User Account Activity:** Examine local user account policies and logon events to detect any abnormal patterns or unauthorized access attempts associated with the newly created account.
+  - **Identify User Modifications**: Utilize Windows Event Log Security Event ID 4720 to review all user account creations. Cross-reference timings to ascertain whether legitimate accounts are created during expected maintenance windows by administrators.
 
-  - **Check Event Logs for Anomalous Behavior:** Review Windows Event Logs for signs of account manipulation actions, such as failed logon attempts or unusual privilege escalations that correlate with the timing of the registry modifications.
+  - **Analyze Event Metadata**: Examine the `User` and `TargetObject` fields in the registry event log for changes made by unauthorized accounts or systems. Flag entries where the username ends with a `$` and was created by a non-admin context.
+
+  - **Assess System Logs for Unauthorized Access**: Review Security Event IDs 4624 (logon) and 4625 (failed logon attempts) for new accounts with suspicious access patterns. Investigate any logon events tied to newly created users that occur shortly after the registry event.
+
+  - **Review Group Policy Changes**: Check Group Policy Object (GPO) logs to ensure that appropriate permissions and user rights have not been altered, potentially allowing unauthorized account access.
+
+  - **Monitor for Exfiltration Artifacts**: Identify any unusual process activity (Sysmon Event ID 1) involving outbound connections or file creation corresponding to new user accounts, indicating potential data exfiltration attempts.
 
   ### Prioritization
-  The high severity of this alert reflects the potential risk posed by the creation of hidden user accounts in an enterprise environment, as such accounts can facilitate persistent access for attackers, significantly undermining security posture.
+
+  This alert is of high severity due to the critical nature of the affected system, typically indicative of unauthorized persistence mechanisms or privilege escalation tactics. The likelihood of malicious abuse is high because creating hidden accounts is a common tactic adopted by attackers to maintain access to compromised systems, making this detection a crucial focus area in threat monitoring.
 
   ### Blind Spots and Assumptions
-  One potential blind spot is the reliance on Sysmon being properly deployed and configured across all systems, as it may not be present in all environments. Additionally, the detection logic assumes that any registry changes in the specified path are inherently suspicious, which may not account for legitimate administrative activities. Finally, logs from devices must be adequately retained and accessible for analysis; without them, detection and response efforts will be significantly hampered.
+
+  Detection may be limited by obscured registry changes made by well-crafted malware that operates with high privileges. Additionally, any misconfigured logging settings may obstruct the capture of relevant Sysmon events, impacting detection reliability. It’s important to recognize legitimate administrative tasks that could create similar alerts, such as legitimate system maintenance operations. A related detection is monitoring for unusual `cmd.exe` or `powershell.exe` usage that also signals potential scripts designed to facilitate unauthorized account creation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

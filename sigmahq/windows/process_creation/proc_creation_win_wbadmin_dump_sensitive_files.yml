@@ -33,28 +33,34 @@ detection:
     - '\Windows\NTDS\NTDS.dit'
   condition: all of selection_*
 falsepositives:
-- Legitimate backup operation by authorized administrators. Matches must be investigated
-  and allowed on a case by case basis.
+- Legitimate backup operation by authorized administrators. Matches must be 
+  investigated and allowed on a case by case basis.
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the unauthorized use of the `wbadmin.exe` utility, which can be exploited by attackers to dump sensitive files such as `NTDS.DIT` and the `SECURITY` hive. These files may contain critical credentials and sensitive information integral to the security posture of an organization. The threat scenario involves an attacker who has gained access to an environment and aims to extract sensitive data for further exploitation or lateral movement within a network.
 
-  The relevant MITRE ATT&CK techniques for this detection include Credential Access (T1003.003) specifically through credential dumping, as attackers leveraging `wbadmin` may attempt to collect hashed passwords and other sensitive kerberos tickets. The primary data sources for this detection will be process creation logs from Windows systems, which will record instances when `wbadmin.exe` is executed along with its command-line parameters.
+  This Sigma rule detects the invocation of the `wbadmin.exe` utility to dump sensitive files such as the NTDS.DIT database and the SECURITY hive, which may contain sensitive information including credentials. The likely attacker objective is to extract critical credential information for post-exploitation or lateral movement within an organization. This activity corresponds to the MITRE ATT&CK tactic of Credential Access (TA0006) and technique T1003.003 (Credential Dumping: Windows Credentials).
+
+  The primary telemetry sources involve process creation logs on Windows system endpoints, specifically Security Event ID 4688 and Sysmon Event ID 1. If the behavior is malicious, the impact can be severe, as it may lead to credential theft and further compromise of user accounts or services. However, this detection does NOT confirm that the files have been successfully accessed or exfiltrated; it merely indicates an attempt to dump sensitive information.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs to identify instances of `wbadmin.exe` being executed. Focus on the command line for suspicious parameters related to backups or sensitive file paths.
 
-  - **Analyze Command Line Arguments:** Check for instances where `wbadmin.exe` is run with commands such as `start` or `backup`, particularly looking for paths that reference `\config\SAM`, `\config\SECURITY`, or `\Windows\NTDS\NTDS.dit`.
+  - **Check process creation logs**: Review Security Event ID 4688 or Sysmon Event ID 1 for instances of `wbadmin.exe` execution. Look for unusual execution times or processes initiated by non-administrative users.
 
-  - **Cross-Reference with User Activity Logs:** Investigate the account that executed `wbadmin.exe`. Ensure that the execution aligns with legitimate administrative activities and cross-reference with user access records to confirm authorization.
+  - **Examine command line arguments**: Investigate the command line associated with `wbadmin.exe`. Legitimate usage typically does not include arguments for the NTDS.DIT or SYSTEM hive. Focus on logs containing keywords like `\config\SECURITY`, `\Windows\NTDS\NTDS.dit`, or similar.
 
-  - **Correlate with Network Activity:** Analyze any subsequent network behavior that may indicate data exfiltration or further exploitation attempts after the dump operation. Look for unusual outgoing connections or data transfer patterns.
+  - **Identify suspicious user accounts**: Analyze the user account running the command against established organizational roles. If a non-admin account ran the command, this raises suspicion. Legitimate backups are typically performed by authorized admin accounts from known management workstations.
+
+  - **Inspect for concurrent backup operations**: Verify if legitimate backup jobs are scheduled within the organization around the alert time frame. Use backup execution logs to confirm whether the process aligns with normal administrative operations.
+
+  - **Track potential file creation or access**: Review file system access logs for changes or modifications to sensitive directories such as `C:\Windows\NTDS` or `C:\Windows\System32\config`. Look for file creation or access events immediately following the detection.
 
   ### Prioritization
-  This alert necessitates a high priority within an enterprise context due to the potential exposure of sensitive information, which could lead to significant security incidents such as credential theft and lateral movement by a malicious actor.
+
+  This alert is of high severity due to the potential impact on sensitive credential leakage, which could lead to unauthorized access across the organization. The likelihood of malicious abuse is significant, particularly given that `wbadmin.exe` is often weaponized by attackers during credential dumping operations. Instances of this behavior are uncommon in routine operations, warranting immediate investigation.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection if `wbadmin.exe` is executed in legitimate contexts, such as routine backups by authorized administrators, which can lead to false positives. The detection logic assumes that any `wbadmin` invocation with specific parameters indicates potential malicious activity, which may not always hold true in well-monitored environments. Additionally, for effective alerting, it is crucial that process creation logs are configured correctly and collected continuously across all relevant endpoints.
+
+  Detection may be limited by environments where `wbadmin.exe` is frequently used for legitimate backups, potentially leading to false positives. Reliable detection requires proper logging configurations, including enabling Security and Sysmon logs. Additionally, user-initiated backups or system integrity checks could generate similar alerts. A related detection to strengthen coverage might be the monitoring of suspicious PowerShell commands, which can also be involved in credential dumping activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -36,22 +36,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies instances of **LINK.EXE** being executed with an uncommon parent process. LINK.EXE is a component of Microsoft Visual Studio, primarily used as an incremental linker, and is typically called by other legitimate development tools like **editbin.exe** and **lib.exe**. However, due to its nature, if executed from a non-standard parent process, it may indicate suspicious activity, such as potential sideloading of malicious binaries disguised as LINK.EXE.
 
-  Attackers might exploit this behavior as part of a broader attack strategy. By executing LINK.EXE from inappropriate locations, they can sidestep security measures and execute malicious payloads under the guise of a legitimate process. This tactic could facilitate the deployment of various types of malware while maintaining a lower profile to evade detection by security teams.
+  This Sigma rule detects unusual parent processes that spawn "LINK.EXE", a legitimate Microsoft utility primarily associated with Visual Studio's incremental linker. Attackers may leverage similar-named binaries or exploit tools like "editbin.exe" to execute malicious payloads masquerading as the legitimate LINK.EXE, thereby achieving malicious objectives like code execution or persistence. The relevant MITRE ATT&CK technique is "Sideloading" (T1218), which involves executing a malicious DLL or binary using a trusted executable.
 
-  The applicable MITRE ATT&CK tactics and techniques for this detection rule include **Defense Evasion (T1203)** and **Application Layer Protocol (T1218)**, where the attacker attempts to evade defenses by leveraging legitimate software processes for malicious activities. The primary data sources for this detection will be **process creation events** on Windows, providing visibility into the creation of new processes and their parent-child relationships.
+  Primary telemetry sources include process creation logs, particularly Windows Security Event ID 4688, which captures process creation events along with command line arguments. If this behavior is malicious, it can allow an attacker to execute arbitrary code within the context of trusted processes, leading to potential unauthorized access or disruption. Importantly, this detection does NOT confirm malicious intent or execution; further investigation is necessary to determine the context of the process creation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check the logs for any instances of LINK.EXE executed from uncommon parent processes that do not align with known legitimate Visual Studio tools or locations.
-  - **Analyze Command Line Arguments:** Investigate the command line used when LINK.EXE was invoked to identify any suspicious flags or parameters that could indicate malicious intent.
-  - **Cross-Reference Known Tools:** Compare the parent process paths against a list of known legitimate development tool paths to confirm whether the execution context is suspicious.
-  - **Investigate File Locations:** Examine the file path of LINK.EXE and ensure it matches expected installation directories for Visual Studio, as deviations may suggest tampering or a different threat.
+
+  - **Review process creation events:** Check Windows Security Event ID 4688 for instances where "LINK.EXE" is executed. Pay attention to the "ParentImage" field to assess the legitimacy of the spawning process.
+
+  - **Correlate parent process details:** Examine the "ParentImage" field for common Visual Studio paths (e.g., `C:\Program Files\Microsoft Visual Studio\` or `C:\Program Files (x86)\Microsoft Visual Studio\`). Legitimate instances will originate from these directories.
+
+  - **Analyze command line arguments:** Inspect the "CommandLine" field for the presence of `LINK /` commands. Malicious activities often use unusual or unexpected call patterns that deviate from the typical usage of LINK.EXE.
+
+  - **Identify high-confidence indicators:** Look for instances where "LINK.EXE" is spawned from non-standard parent processes or unusual file paths that do not correspond with documented Visual Studio utilities.
+
+  - **Consider asset criticality:** Evaluate the role of the host where the event is logged. If it is a server or critical infrastructure, prioritize further analysis due to potential higher impact.
 
   ### Prioritization
-  The alert's severity is considered **medium** in an enterprise environment due to the potential for defense evasion and malware execution. While not every uncommon parent process indicates malicious activity, the risk posed by attackers leveraging legitimate tools to execute harmful payloads warrants further investigation.
+
+  The alert is classified as medium severity due to the potential for malicious process execution, especially in high-risk environments like application servers or development environments. While this behavior could be abused by attackers for code execution, it may also stem from legitimate development activities within Visual Studio, necessitating proper contextual evaluation.
 
   ### Blind Spots and Assumptions
-  This detection may miss instances where operations appear legitimate due to the use of authorized parent processes that haven't been captured in the filtering logic. It assumes that the user environment relies on the standard installation paths for development tools and that deviations from this practice are inherently suspicious. Necessary configurations include ensuring that process creation logging is enabled and comprehensive, particularly in environments that utilize Visual Studio and its tools, to facilitate effective detection and investigation.
+
+  This detection may be limited by the potential for attackers to disguise malicious processes as legitimate ones using similar naming conventions. For reliable detection, ensure that process creation logs are enabled and properly filtered. Legitimate administrative activities, such as tool usage during development, may falsely trigger the alert. A related detection to bolster coverage would be monitoring attempts to load unauthorized DLLs via legitimate executables, which also addresses the side-loading technique (e.g., `Windows Event ID 5145` for file system access logs).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

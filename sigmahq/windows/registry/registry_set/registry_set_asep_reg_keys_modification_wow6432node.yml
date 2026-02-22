@@ -4,14 +4,15 @@ related:
 - id: 17f878b8-9968-4578-b814-c4217fc5768c
   type: obsolete
 status: test
-description: Detects modification of autostart extensibility point (ASEP) in registry.
+description: Detects modification of autostart extensibility point (ASEP) in 
+  registry.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
 - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
 - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d     # a list with registry keys
 - https://oddvar.moe/2018/03/21/persistence-using-runonceex-hidden-from-autoruns-exe/
-author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin,
-  oscd.community, Tim Shelton, frack113 (split)
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur 
+  Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
 date: 2019-10-25
 modified: 2025-12-08
 tags:
@@ -113,10 +114,11 @@ detection:
     Details:
     - '{472083B1-C522-11CF-8763-00608CC02F24}'
     - '{472083B0-C522-11CF-8763-00608CC02F24}'
-  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
-- Legitimate software automatically (mostly, during installation) sets up autorun
-  keys for legitimate reason
+- Legitimate software automatically (mostly, during installation) sets up 
+  autorun keys for legitimate reason
 - Legitimate administrator sets up autorun keys for legitimate reason
 level: medium
 note: |
@@ -124,36 +126,36 @@ note: |
 
   ### Technical Context
 
-  This Sigma rule detects modifications to autorun registry keys in the Windows Wow6432Node that may indicate persistence mechanisms employed by attackers, specifically the alteration of autostart extensibility points (ASEP) in the Windows registry. The likely objective of such behavior is to ensure that malicious payloads are executed on system startup, providing adversaries with persistent access. This activity maps to the MITRE ATT&CK technique for persistence via Registry Run Keys/Startup Folder (T1547.001).
+  This Sigma rule detects modifications to Windows registry autorun keys within the Wow6432Node directory, which is often used by malicious actors for persistence. The likely attacker objective is to establish a foothold on the system by ensuring that a malicious payload executes automatically upon user login. This behavior aligns with the MITRE ATT&CK technique for persistence: **Registry Run Keys / Startup Folder (T1547.001)**.
 
-  The primary telemetry source includes Windows Registry logs, specifically focusing on modifications to keys under `HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\[Run, RunOnce, etc.]`. The security impact of this behavior can be significant, as it may allow malware to re-establish itself or maintain control over a compromised system. However, this detection does NOT confirm malicious intent on its own, as legitimate software installations or administrative tasks may trigger similar modifications.
+  The primary telemetry sources for this detection are Windows Registry logs capturing changes (generated through tools like Sysmon or directly monitoring registry set events). If malicious, the modification of these keys can facilitate the automatic execution of malware, thereby maintaining long-term access. Importantly, this detection does NOT confirm that malicious activity is occurring on its own; benign modifications can occur from legitimate software installations or administrative actions.
 
   ---
 
   ### Investigation Steps
 
-  - **Check registry modification details:** Review the Windows Registry Event ID 4657, focusing on changes to keys under `HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\` for any unauthorized changes, especially in `Run` or `RunOnce`.
+  - **Review registry changes**: Check for `Event ID 4657` (Audit Registry) focusing on modifications to `HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run\`. Malicious changes often involve new or altered executables that are not recognized or present in established software inventories.
 
-  - **Identify malicious indicators:** Look for any PowerShell or command-line activity (Event ID 4688) that involves the execution of unusual or unknown executables linked to the registry keys that were modified, such as commands containing `"%temp%"` or references to suspicious file paths.
+  - **Cross-reference with running processes**: Match the modified autorun entries with current processes using `Event ID 4688` (Process Creation). Validate if any suspicious processes correspond to the autorun keys. Legitimate software installations may include entries from known software vendors.
 
-  - **Review recent software installations:** Inspect for legitimate software that may have modified these autorun keys, focusing on known applications such as Microsoft Office (`OfficeClickToRun.exe`) or security software (e.g., `Avira`, `AVG`). Cross-reference the changes against approved software lists.
+  - **Analyze details of modification**: Scrutinize the `Details` field associated with the registry change. Look for indicative strings such as `"/burn.runonce"` that can suggest a potentially malicious change prompted by an installer or updater process.
 
-  - **Assess system impact:** Determine if the affected system has critical roles (e.g., domain controllers, databases) or contains sensitive data that might escalate the urgency of the alert.
+  - **Verify for common benign entries**: Identify modifications made by legitimate applications like Microsoft Office or system updates. For example, check if the change was triggered by `C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe`, which is expected behavior during Office installations.
 
-  - **Baseline expected behavior:** Collect and compare against historical registry access patterns to identify normal behavior in the environment, aiming to establish a baseline of what legitimate registry modifications look like.
+  - **Check for other indicators of compromise (IOCs)**: Look for unusual behavior in conjunction with the registry modification, such as unusual network traffic or additional file creations in `%TEMP%` or `%APPDATA%` that would indicate potential malware presence.
+
+  - **Examine for evasion techniques**: Investigate if the changes relate to known products that are susceptible to abuse, such as editing keys to hide malicious executables or using unmonitored MSI execution paths (`C:\Windows\Installer\MSI`). Confirm no legitimate upgrade routines are implicated.
 
   ---
 
   ### Prioritization
 
-  This alert carries a medium severity, as the modification of autorun keys can indicate potential persistence mechanisms that are often weaponized by malicious actors. Systems in critical roles, like servers or endpoints storing sensitive data, heighten the potential impact of such alterations. While not always indicative of actual compromise, the likelihood of misuse warrants prompt investigation.
+  This alert should be classified as medium severity due to its potential impact on system integrity, given that persistence mechanisms are commonly targeted by adversaries. The likelihood of malicious exploitation is heightened since changes to autorun keys are a known tactic for maintaining presence on compromised hosts.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Detection may miss scenarios where legitimate software modifications occur due to automated installations or admin actions, potentially leading to false positives. Additionally, if logging is not properly configured for registry modifications, this detection may not capture all relevant activity. Certain software (like system updates or security tools) may also trigger the rule without malicious intent. It is advisable to have companion detections focused on process execution and network connections to further enhance visibility into potential malicious behavior.
-
-  ---
+  Detection may be limited if registry auditing is not properly configured; the absence of real-time logging can result in missed modifications. Legitimate software installations or administrative tasks may trigger similar alerts, complicating the analysis. A companion detection to consider is monitoring process execution patterns alongside registry changes to provide a more comprehensive picture of potential threats occurring within the environment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

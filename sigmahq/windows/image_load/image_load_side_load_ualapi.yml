@@ -1,8 +1,8 @@
 title: Fax Service DLL Search Order Hijack
 id: 828af599-4c53-4ed2-ba4a-a9f835c434ea
 status: test
-description: The Fax service attempts to load ualapi.dll, which is non-existent. An
-  attacker can then (side)load their own malicious DLL using this service.
+description: The Fax service attempts to load ualapi.dll, which is non-existent.
+  An attacker can then (side)load their own malicious DLL using this service.
 references:
 - https://windows-internals.com/faxing-your-way-to-system/
 author: NVISO
@@ -28,25 +28,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule monitors for a potential DLL search order hijacking exploit involving the Windows Fax service (fxssvc.exe). The attacker can take advantage of the Fax service attempting to load a non-existent DLL (ualapi.dll) to inject a malicious DLL into the process. This allows for persistence and privilege escalation, as the attacker gains control over the Fax service's execution context. The likely objective of such an attack is to maintain access to the system while evading detection mechanisms, thereby enabling further malicious activities such as data exfiltration or lateral movement within the enterprise network.
 
-  Relevant MITRE ATT&CK techniques include:
-  - **T1574.001**: DLL Search Order Hijacking
-  - **T1068**: Exploitation of Elevation of Privilege Vulnerability
-  - **T1203**: Exploit Public-Facing Application (in the context of DLL hijacks)
+  This alert detects attempts by the Windows Fax service (`fxssvc.exe`) to load the `ualapi.dll`, which is not a legitimate file within the Windows environment. Attackers can exploit this vulnerability to hijack the DLL search order and load a malicious DLL instead. The attacker’s likely objective is to achieve privilege escalation or persistence by leveraging a trusted service to execute their code stealthily. This activity falls under the MITRE ATT&CK framework’s "Privilege Escalation" tactic (TA-0004) through the "DLL Side-Loading" technique (T1574.001). The primary telemetry sources include Windows Image Load events, particularly focusing on image paths and the associated loaded libraries.
 
-  The primary data sources involved are image load events from Windows systems, specifically focusing on the loading of libraries associated with the Fax service.
+  If confirmed malicious, this action poses a significant security risk, as it allows attackers to execute arbitrary code with the privileges of the fax service. It is important to note that this detection does NOT confirm whether the loaded DLL is definitively malicious; it only indicates abnormal behavior indicative of a potential attack.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Check logs for the process `fxssvc.exe` to identify instances where `ualapi.dll` was attempted to be loaded. Look for discrepancies in the loading path or unexpected DLL names.
-  - **Examine DLL Locations**: Validate the existence of `ualapi.dll` in paths associated with legitimate system libraries, particularly `C:\Windows\WinSxS\`. Investigate any unauthorized DLLs located in this or related directories.
-  - **Analyze Process Behavior**: Conduct an analysis of the fxssvc.exe process to determine any unusual behavior, including network connections, file system changes, or spawning of other processes that could indicate further malicious activity.
-  - **Correlate with User Activities**: Review user activities and Windows logs leading up to the detection, including logins, session creation, and other administrative actions that could provide context for potential privilege escalation or persistence tactics.
+
+  - **Check the loaded DLLs for `fxssvc.exe`:** Review Windows Security Event ID 4688 or Sysmon Event ID 1 for process creation logs. Look for any `fxssvc.exe` entries that show `ualapi.dll` in logs, specifically under `ImageLoaded` field. Confirm that no legitimate application should expect to load this DLL.
+
+  - **Identify the image load source:** Verify the `ImageLoaded` field for the loading path; it should not be from `C:\Windows\WinSxS\`. Legitimate processes typically load DLLs from secure paths. If it comes from an unexpected location, this is a strong indication of malicious activity.
+
+  - **Review recent changes in the environment:** Analyze the logs for any recent changes related to the fax service configuration or unauthorized file manipulations around the time of the alert. Use Windows Event ID 7045 in the System log to find details regarding new service installations.
+
+  - **Verify host role and criticality:** Determine whether `fxssvc.exe` is running on a critical system (e.g., domain controllers or servers handling sensitive data). Assessing asset criticality provides context on the urgency of response.
+
+  - **Look for indicators of compromise (IoCs):** Search across endpoints for the presence of unauthorized `ualapi.dll` files. If found, cross-reference file hashes against known malicious databases.
 
   ### Prioritization
-  Given that this alert points to the potential exploitation of the DLL search order, the severity is high in an enterprise environment. Successful exploitation could lead to a privilege escalation that undermines the security posture and integrity of critical systems.
+
+  This alert is classified as high severity due to the role of the fax service in potentially escalating privileges and the likelihood that such exploitation techniques are weaponized. The systems under scrutiny are critical as they may handle sensitive information and operations, increasing the potential impact of a successful attack.
 
   ### Blind Spots and Assumptions
-  The detection coverage assumes that all relevant image load events are being logged and that no other legitimate processes are performing similar behaviors. A gap exists if there are misconfigured logging settings or if the attack employs techniques to obfuscate its presence. It is assumed that the detection logic is effective in identifying atypical DLL loading patterns. Required logs for optimal functionality include comprehensive image load events from Windows, specifically for processes modified or controlled by the user.
+
+  Detection limitations include the potential for evasion techniques where attackers might use legitimate DLLs existing on the system. Reliant log sources must be properly configured; if Sysmon or detailed Windows logging is not enabled, detection risks will increase. Legitimate applications that might trigger similar alerts include certain software updates or configurations for authorized fax services. Complementary detections should be established, such as monitoring for unusual DLL loading patterns across other critical services to strengthen detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

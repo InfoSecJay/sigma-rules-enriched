@@ -32,25 +32,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies specific file activities indicative of potential credential access attacks, particularly focusing on the exportation of Data Protection API (DPAPI) backup keys and certificates. The files in question are associated with tools like Mimikatz and DSInternals, which attackers may use to extract sensitive information from Windows systems. The intent behind these activities typically revolves around stealing authentication credentials to gain unauthorized access to user accounts or sensitive data.
 
-  The relevant MITRE ATT&CK tactics for this rule include **Credential Access** (TA1003) and techniques such as **DPAPI Credential Theft** (T1555) and **Private Keys** (T1552.004). By detecting such file activities, security teams can gain critical insights into potential malicious operations occurring within their environment, helping to thwart unauthorized access attempts.
+  This Sigma rule detects the generation of files with specific naming patterns associated with DPAPI (Data Protection Application Programming Interface) backup keys and certificates that are often utilized by tools such as Mimikatz and DSInternals. The likely objective of an attacker triggering this alert is to extract sensitive cryptographic keys or certificates that could compromise user credentials or grant unauthorized access to encrypted data. Relevant MITRE ATT&CK tactics and techniques include Credential Access (TA1203) and Credential Dumping (T1555).
 
-  Primary data sources for this detection include Windows file event logs, which capture activity related to the creation, modification, and access of files on the system. This includes actions performed on filenames that exhibit specific patterns associated with DPAPI backup keys and certificates.
+  Primary telemetry sources necessitate file event logs from Windows systems, particularly focusing on filenames indicative of possible malicious intent. If the generated files are malicious, the security impact is significant as they can enable the unauthorized decryption of sensitive information and facilitate the persistence of an attacker within a network. It is essential to note that this detection does NOT confirm actual theft or misuse of keys; legitimate exports may also generate similar filenames.
 
   ### Investigation Steps
-  - **Review File Activity Logs**: Check Windows file event logs for recent activity involving files containing patterns such as 'ntds_capi_', 'ntds_legacy_', or 'ntds_unknown_' with extensions like .cer, .key, .pfx, or .pvk.
 
-  - **Correlate with User Behavior**: Analyze the user accounts that accessed these files to identify any accounts that should not have legitimate access. Investigate for any unusual login times or failed authentication attempts leading up to the event.
+  - **Review generated filenames**: Check for filenames containing 'ntds_capi_', 'ntds_legacy_', or 'ntds_unknown_' and ending with extensions like '.cer', '.key', '.pfx', or '.pvk' in file event logs (Event ID 4663 or Sysmon Event ID 11). Legitimate exports may include similar files but are typically associated with authorized processes.
 
-  - **Inspect System State**: Examine the state of the system from which these files were accessed for signs of further compromise, including additional suspicious processes or unusual network connections that may indicate exfiltration attempts.
+  - **Analyze process execution**: Investigate the parent processes associated with the file creation using Process Creation logs (Event ID 4688 or Sysmon Event ID 1) to identify if a known credential dumping tool was involved. Look for suspicious parent processes like `mimikatz.exe` or `powershell.exe` running with unusual command line arguments.
 
-  - **Query Security Policies**: Verify relevant security policies and controls regarding DPAPI key and certificate management. Look for any deviations from standard operating procedures that may have facilitated the extraction of sensitive data.
+  - **Correlate with user behavior**: Examine the user accounts performing this action in Security logs (Event ID 4624). If the account is not associated with administrative functions or lacks a legitimate reason to export DPAPI keys, it may indicate a malicious activity.
+
+  - **Inspect file paths and permissions**: Confirm the file paths where these artifacts were created. Legitimate applications typically modify keys within specific directories (e.g., %USERPROFILE% or %PROGRAMDATA%). Keys created in unusual or temporary directories may indicate malicious behavior.
+
+  - **Identify abnormal access patterns**: Review access to the certificate store logs (Event ID 5145) for unusual access patterns or configuration changes that coincide with the file creation. Look for logged accesses made by non-administrative users.
+
+  - **Validate deletion or modification of keys**: Check for deletion or modification of pre-existing DPAPI keys, which may indicate an adversary is attempting to pivot or shift access after generating the backup keys. This can be tracked through logs of relevant file operations.
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact on credential security within the enterprise, as successfully extracting DPAPI keys or certificates can lead to significant data breaches and unauthorized access. The likelihood of these events occurring increases if adversaries have successfully gained initial access to the network.
+
+  This alert has a high severity due to the criticality of the systems involved and the significant likelihood of malicious abuse. The generation of certificate and key backup files is often a precursor to credential dumping and further lateral movement, making it an essential behavior to monitor.
 
   ### Blind Spots and Assumptions
-  One gap in detection coverage is the potential evasion of detection through less common file names or obscure file paths not captured by this rule. Additionally, the detection logic assumes that the necessary logging configurations are in place and that file activity is being logged comprehensively. If Windows file event logging is insufficiently configured, critical file access events may be missed. Proper auditing settings are essential for this rule to function effectively.
+
+  Detection limitations may include failure to capture benign activities that generate similar filenames under legitimate circumstances, such as backups or administrative tasks. Required log sources include comprehensive file event logging and potentially elevated process monitoring for robust detection. Additionally, legitimate administrative exports of DPAPI keys for backup purposes could trigger this alert. A companion detection such as monitoring for process creation of known credential dumping tools enhances overall visibility into potential threats in the environment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

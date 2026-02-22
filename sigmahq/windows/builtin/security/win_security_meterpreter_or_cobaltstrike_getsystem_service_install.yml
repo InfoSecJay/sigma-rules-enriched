@@ -4,8 +4,8 @@ related:
 - id: 843544a7-56e0-4dcc-a44f-5cc266dd97d6
   type: derived
 status: test
-description: Detects the use of getsystem Meterpreter/Cobalt Strike command by detecting
-  a specific service installation
+description: Detects the use of getsystem Meterpreter/Cobalt Strike command by 
+  detecting a specific service installation
 references:
 - https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
 - https://blog.cobaltstrike.com/2014/04/02/what-happens-when-i-type-getsystem/
@@ -20,8 +20,8 @@ tags:
 logsource:
   product: windows
   service: security
-  definition: The 'System Security Extension' audit subcategory need to be enabled
-    to log the EID 4697
+  definition: The 'System Security Extension' audit subcategory need to be 
+    enabled to log the EID 4697
 detection:
   selection_eid:
     EventID: 4697
@@ -50,25 +50,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule aims to identify the use of the `getsystem` command in Meterpreter and Cobalt Strike operations, which is commonly employed by attackers for privilege escalation in Windows environments. The `getsystem` command attempts to elevate the privileges of the session to that of the SYSTEM user, granting the attacker full access to the machine. Attackers likely aim to bypass user-level permissions and manipulate the system for further exploitation or lateral movement within the network. Effective use of this technique can significantly compromise system integrity and security.
 
-  The relevant MITRE ATT&CK tactics/techniques associated with this detection include:
-  - **Privilege Escalation (TA0004)**
-    - **GetSystem (T1134.001)**: Achieving SYSTEM privileges through various exploitation methods.
-    - **Service Execution (T1134.002)**: Utilizing the creation of services to execute arbitrary code with elevated privileges.
+  This Sigma rule detects the installation of services using the Meterpreter or Cobalt Strike `getsystem` command, indicative of privilege escalation attempts by an adversary. The attacker aims to gain elevated permissions on a compromised host to execute unauthorized commands or manipulate system configurations. Relevant MITRE ATT&CK techniques include **Privilege Escalation** (T1134), specifically techniques T1134.001 (Service Installation) and T1134.002 (System Service Manipulation).
 
-  Primary data sources for this detection include Windows Security logs—specifically, Event ID 4697, which logs the creation of a new service, along with command line arguments that may indicate malicious activity.
+  The primary telemetry source is Windows Security logs. Specifically, Event ID 4697 logs service installations and should be monitored closely for anomalies in service creation. If malicious, this behavior significantly compromises the security posture, allowing an attacker to install and run malicious services with elevated privileges. This detection does NOT confirm malicious intent on its own, since legitimate service installations may occur under normal administrative operations.
+
+  ---
 
   ### Investigation Steps
-  - **Review Security Logs:** Check Windows Security Event ID 4697 for new service installations that could indicate the use of the `getsystem` command. Pay attention to the `ServiceFileName` field for suspicious patterns.
-  - **Analyze Command-Line Arguments:** Look for command lines that leverage `cmd.exe` or `rundll32.exe`, specifically those containing strings like `/c`, `echo`, `\pipe\`, and `.dll,a` which could suggest exploitation attempts.
-  - **Correlate with Other Events:** Use the SIEM to correlate the timing of newly created services with previous suspicious activities, such as unauthorized access attempts or reconnaissance behavior within the environment.
-  - **Investigate Network Connections:** If the creation of a service is detected from a shared path (`\\127.0.0.1\ADMIN$`), analyze any related SMB connections and the originating IP address to confirm if it's linked to known infrastructure.
+
+  - **Verify Event ID 4697**: Check for Event ID 4697 in Security logs, focusing on the `ServiceFileName` field. Look for suspicious command patterns involving `cmd` or `rundll32`, which can indicate misuse.
+
+  - **Correlate Process Creation Events**: Review Security Event ID 4688 (Process Creation) to trace the parent process of the command associated with the service installation. Benign commands typically originated from `spoolsv.exe` or `services.exe`, while suspicious origins may include user profiles or known malicious tools.
+
+  - **Check for Admin Shares Usage**: Investigate any access to `\\127.0.0.1\ADMIN$` noted in the service installation parameters. Legitimate operations rarely involve these administrative shares, whereas malicious activity often does.
+
+  - **Review for DLL Executions**: Examine the existence of any DLL files under `C:\Users\test\AppData\Local\Temp\` or similar locations. Sample names like `tmexsn.dll` should raise red flags as they are often used in exploit scenarios.
+
+  - **Assess Service Behavior**: Look for newly created services by checking Windows Services management (services.msc) and ensuring they align with known good configurations. Malicious services often disguise themselves as legitimate ones but should lack meaningful descriptions or vendors.
+
+  - **Investigate Network Activity**: Analyze any outbound connections related to the process that triggered the rule. Use firewall or proxy logs to check for unusual destination IPs or URLs that correlate with the service creation timestamp.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of privilege escalation, which can allow attackers to gain control over critical systems and perform unauthorized actions, increasing the risk to the integrity and availability of enterprise assets.
+
+  This alert should be treated with high priority due to the significant impact of a compromised system where services are covertly installed without authorization. The likelihood of malicious abuse is considerable, as the behavior is strongly aligned with known exploitation frameworks like Meterpreter and Cobalt Strike that are frequently weaponized in attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if the `System Security Extension` audit subcategory is not enabled, as this would prevent Event ID 4697 from being logged. The detection logic assumes that the command executions remain straightforward and do not employ more sophisticated obfuscation techniques that could evade detection. Additionally, it relies heavily on proper configuration of logging and monitoring systems to ensure timely and accurate evidence collection.
+
+  Detection may be limited by the ability of attackers to obfuscate service creation commands. False positives are unlikely, but legitimate maintenance scripts or administrative actions that use similar commands may trigger alerts. Ensure that Windows Security Event logs are properly configured to capture Event ID 4697 with the correct audit settings. Related detection techniques, such as monitoring for anomalous process execution flagged by Sysmon, can complement coverage and provide additional context for investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

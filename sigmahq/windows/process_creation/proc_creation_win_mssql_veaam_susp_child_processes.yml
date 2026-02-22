@@ -4,8 +4,8 @@ related:
 - id: 869b9ca7-9ea2-4a5a-8325-e80e62f75445
   type: similar
 status: test
-description: Detects suspicious child processes of the Veeam service process. This
-  could indicate potential RCE or SQL Injection.
+description: Detects suspicious child processes of the Veeam service process. 
+  This could indicate potential RCE or SQL Injection.
 references:
 - https://labs.withsecure.com/publications/fin7-target-veeam-servers
 author: Nasreddine Bencherchali (Nextron Systems)
@@ -52,23 +52,48 @@ detection:
   condition: selection_parent and 1 of selection_child_*
 level: critical
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies potentially malicious child processes spawned by the Veeam SQL service (`sqlservr.exe`). The presence of unusual command-line patterns or known exploitation commands may indicate remote code execution (RCE) attempts or SQL injection activities targeting the Veeam backup infrastructure. Attackers aiming to gain unauthorized access to systems typically exploit services such as Veeam to elevate their privileges or access sensitive data, thereby threatening the integrity and availability of enterprise backups.
 
-  The relevant MITRE ATT&CK tactics include **Initial Access** (TA0001), through which attackers may gain foothold; **Persistence** (TA0003), reflecting their efforts to maintain access; and **Privilege Escalation** (TA0004), which emphasizes their goal of escalating their privileges within the network. The techniques most applicable here include **Remote Code Execution (T1203)** and **SQL Injection (T1190)**, as the alert can signify exploitation attempts aiming for unauthorized execution or data manipulation.
+  This Sigma rule detects suspicious child processes that are spawned by the Veeam SQL Server process (`sqlservr.exe`) with command lines that include various indicators of potential malicious behavior, such as downloading content from the internet or executing script commands. The likely attacker objective is to leverage Veeam's trusted environment to execute malicious commands or programs, which could indicate attempts of remote code execution (RCE) or exploitation of vulnerabilities through SQL injection.
 
-  Primary data sources for analyzing this detection include **process creation events** from the Windows operating system, which can provide insight into the parent and child process relationships, as well as command line arguments used during execution.
+  Relevant MITRE ATT&CK tactics and techniques include Initial Access (TA0001) and Persistence (TA0003) as well as Privilege Escalation (TA0004). The primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which record process creation events. If this activity is malicious, attackers may gain unauthorized access, exfiltrate data, or maintain persistent footholds in the environment. Importantly, this detection does NOT confirm malicious intent without additional context, as benign usage of similar commands in legitimate administrative activities can trigger this alert.
+
+  ---
 
   ### Investigation Steps
-  - **Examine Process Creation Logs**: Review logs for `sqlservr.exe` as a parent process and look for child processes with suspicious command-line arguments, which may indicate malicious activity.
-  - **Analyze Command-Line Parameters**: Focus on child processes such as `cmd.exe`, `powershell.exe`, and those with keywords like `-ex`, `bypass`, or commands that suggest scripting or network operations to understand the context of execution.
-  - **Investigate Network Traffic**: Monitor for any outbound connections initiated by these child processes to URLs that may suggest command-and-control behavior, including any connections to suspicious IP addresses.
-  - **Review System and Application Logs**: Correlate the process execution events with other system logs (e.g., Veeam application logs) to identify any abnormal behavior or patterns that could help determine the scope or impact of the potential compromise.
+
+  - **Identify the Parent Process:**
+    Check Security Event ID 4688 or Sysmon Event ID 1 for the parent process name `sqlservr.exe`. Confirm that it was executed from a legitimate location (typically `C:\Program Files\Veeam\`) as a part of expected operations.
+
+  - **Examine Child Process Command Lines:**
+    Review command line arguments associated with child processes (`cmd.exe`, `powershell.exe`, etc.) for malicious indicators such as `-ex`, `bypass`, or URLs using HTTP/HTTPS. Flags like `DownloadString` and commands such as `mshta` or `regsvr32` may indicate an attempt to download or execute unauthorized scripts.
+
+  - **Analyze Recent Process Activity:**
+    Look at the process execution history and correlate any instances of Veeam services starting around the same time as the suspicious child processes. Legitimate activities for Veeam typically include backups and recovery operations without unusual command line parameters.
+
+  - **Evaluate Network Connections:**
+    Check for any outbound connections initiated by child processes to external URLs or IP addresses, particularly those associated with suspicious command lines. Use firewall logs and network traffic analysis tools to identify unusual patterns or destinations.
+
+  - **Confirm the Location of Executables:**
+    Verify the file paths of detected child processes against file integrity monitoring logs. Files like `cmd.exe` or `powershell.exe` should originate from trusted directories, and any counterparts found in unexpected locations may be a sign of compromise.
+
+  - **Assess Host Integrity:**
+    Monitor the host’s role and sensitivity in the environment. As Veeam is often tied to critical data backups, compromised systems could lead to severe data loss or operational disruption. Prioritize investigation on hosts with elevated privileges or critical data.
+
+  ---
 
   ### Prioritization
-  The alert is classified as critical due to the potential impact of unauthorized access to backup systems, which can severely compromise data integrity and availability. Given the critical role of Veeam in data protection, any suspicious activity warrants immediate investigation.
+
+  This alert is critical due to the potential impact on critical data systems. The likelihood of malicious abuse is significant given that the detection highlights potential exploitation techniques that adversaries commonly employ. This behavior is often weaponized, particularly in environments utilizing Veeam for backup, making swift investigation essential.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection might miss scenarios where the malicious execution path uses non-standard filenames or tools not included in the command-line patterns. It assumes that process creation logs are fully enabled and sent to the monitoring systems for analysis. Additionally, if security settings or logging mechanisms for Veeam services are misconfigured or absent, this rule may not trigger alerts effectively. The overall detection effectiveness relies heavily on comprehensive logging configurations that capture process creation events across the Windows environment, especially in domain-controlled networks.
+
+  Detection may be limited by the absence of detailed command line logging, as not all environments may capture full command line input. Evasion techniques could include renaming executables or using built-in Windows utilities in seemingly benign ways. Legitimate administrative actions using PowerShell or CMD for daily operations may trigger this alert. Related detections such as unusual authenticated access to SQL Server services can strengthen coverage and provide context for further analysis.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -4,8 +4,8 @@ related:
 - id: 8344c19f-a023-45ff-ad63-a01c5396aea0
   type: derived
 status: test
-description: Detects file access requests to potentially sensitive files hosted on
-  the Windows Sysvol share.
+description: Detects file access requests to potentially sensitive files hosted 
+  on the Windows Sysvol share.
 references:
 - https://github.com/vletoux/pingcastle
 author: frack113
@@ -48,26 +48,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This rule is designed to detect access requests to potentially sensitive files located on the Windows Sysvol share, specifically targeting file access requests made by applications that are uncommon in legitimate operations. The Sysvol directory is a critical component of Active Directory, containing public files that must be accessible to all domain controllers in the domain, including Group Policy Objects (GPOs). Attackers might exploit these files to modify group policies, allowing them to execute unauthorized actions or maintain persistence within the network.
 
-  The likely objectives of an attacker utilizing uncommon applications to access Sysvol files could be to extract sensitive information, manipulate group policy settings, or perform lateral movement within the domain. Understanding the contents of files like `GptTmpl.inf` or `Registry.pol` could provide insights into the security posture of the organization or expose credentials and privileged access paths.
+  This detection rule identifies file access requests to sensitive files within the Windows Sysvol share by uncommon applications that do not typically operate in this environment. Attackers often target Sysvol to access Group Policy Objects (GPOs) and other sensitive configurations for credential access, which may facilitate lateral movement or privilege escalation within a domain. This behavior relates to the MITRE ATT&CK framework under the "Credential Access" tactic (TA-1552) and the specific technique "Access Token Manipulation" (T1552.006).
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Credential Access (T1552.006)**: Accessing sensitive files for the purpose of obtaining authentication credentials or elevated privileges.
-
-  The primary data sources for this detection include:
-  - File access logs that capture requests to the Sysvol share, particularly focusing on file paths that contain `\Policies\` or similar directories.
+  The primary telemetry source for this rule is the Microsoft Windows Kernel File ETW provider, which logs detailed file access events. If these access requests are malicious, they can severely compromise the security posture of a domain environment, leaking sensitive information or leading to unauthorized access. It is important to note that this detection does NOT confirm that the file access is malicious; legitimate administrative tools may also trigger this alert when accessing these files.
 
   ### Investigation Steps
-  - **Review File Access Logs**: Collect logs related to file access on the Windows Sysvol share. Pay close attention to the specific filenames or patterns highlighted in the detection rule.
-  - **Identify Uncommon Applications**: Investigate the processes initiating the access requests. Determine if these applications are standard enterprise software or indicative of suspicious behavior.
-  - **Check Event Logs**: Examine Windows security event logs to correlate file access attempts with user activity and determine if there were failed access attempts, indicating potential reconnaissance.
-  - **Analyze Group Policy Changes**: After confirming unauthorized access, look for any changes made to Group Policies and assess their implications on security and operations.
+
+  - **Verify the process making the request**: Check the `Image` field in logs for known legitimate applications (such as `C:\Windows\explorer.exe`) against unfamiliar processes. Uncommon or unexpected executables accessing Sysvol can indicate malicious intent.
+
+  - **Review the accessed file names**: Identify which files were accessed based on the `FileName` field. Review for critical files like `Registry.pol` or `GptTmpl.inf`, as these are sensitive and commonly targeted; accesses from unexpected applications are concerning.
+
+  - **Cross-reference with file access history**: Investigate the `event ID 4663` of the Security event log for additional context on the file access event, which logs the specifics of who accessed which file and when.
+
+  - **Identify legitimate administrative access**: Look for baseline behavior by confirming normal administrative access patterns in your environment. Review personnel likely to access these files for tasks related to policy changes or updates.
+
+  - **Analyze access patterns over time**: Use a log analytics platform to visualize access requests targeting Sysvol over a selected timeframe, pinpointing anomalies or sudden spikes in access attempts from uncommon applications.
+
+  - **Check for high-confidence indicators of compromise**: If recognized malicious tools (e.g., `Mimikatz` or `BloodHound`) are present in the `Image` field of the logs alongside suspicious file accesses, prioritize further investigation for potential credential theft activities.
 
   ### Prioritization
-  The alert should be considered of medium severity in an enterprise environment due to the potential risk associated with unauthorized access to sensitive configuration files. While the likelihood of misuse by common applications is low, the use of uncommon tools may indicate a security incident requiring immediate investigation.
+
+  The severity of this alert is medium due to the potential access to sensitive configuration files, which can facilitate further attacks in the environment. Malicious exploitation of this rule can lead to significant security breaches, given that accessing these files is sometimes associated with tactics for privilege escalation. While this behavior is actionable, it is not commonly weaponized outside of specific adversary campaigns focusing on domain attacks.
 
   ### Blind Spots and Assumptions
-  This detection may have gaps in coverage, especially if file access logging is not comprehensive or if the Windows Sysvol share is improperly configured to omit certain activities. The detection logic assumes that unusual applications will not typically access Sysvol files regularly, which may not hold true in every enterprise environment. Lastly, adequate logging configurations must be in place, particularly enabling the Microsoft-Windows-Kernel-File ETW provider, for this rule to function effectively.
+
+  This detection may have limitations if legitimate administrative tools commonly access sensitive Sysvol files, leading to potential false positives. Ensure that logging for file access events is fully configured to capture all relevant actions. Legitimate activities, such as regular policy edits, may trigger alerts, complicating detection. A related detection, such as user activity surrounding Group Policy updates, can enhance coverage and provide context to reduce false positive rates on this rule.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

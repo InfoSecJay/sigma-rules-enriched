@@ -4,8 +4,8 @@ related:
 - id: c4eeeeae-89f4-43a7-8b48-8d1bdfa66c78
   type: derived
 status: test
-description: Detects the creation of a schtasks that potentially executes a payload
-  stored in the Windows Registry using PowerShell.
+description: Detects the creation of a schtasks that potentially executes a 
+  payload stored in the Windows Registry using PowerShell.
 references:
 - https://thedfirreport.com/2022/02/21/qbot-and-zerologon-lead-to-full-domain-compromise/
 author: X__Junior (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
@@ -46,25 +46,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the creation of Windows scheduled tasks that potentially execute malicious payloads stored in the Windows Registry using PowerShell. The scheduled tasks are constructed via `schtasks.exe` with a specific command line format that indicates an attempt to retrieve and execute encoded commands. Attackers may employ this technique to maintain persistence within a compromised environment while using PowerShell for execution, which is a common behavior among various threat actors.
 
-  The likely attacker objectives in this scenario include privilege escalation and maintaining access to the system, achieved through the execution of payloads that may perform malicious actions such as data exfiltration or lateral movement within the network. This behavior aligns with multiple MITRE ATT&CK techniques, including **T1053.005** (Scheduled Task/Job: Scheduled Tasks with Task Scheduler) and **T1059.001** (Command and Scripting Interpreter: Windows Command Shell).
+  This Sigma rule detects potentially malicious behavior involving the creation of scheduled tasks using the `schtasks.exe` utility to execute a payload that is retrieved from the Windows Registry. The objective of the attacker in this case is likely to establish persistence on the compromised system by executing a PowerShell command that decodes and runs a hidden payload. This activity aligns with the MITRE ATT&CK techniques for Persistence (T1053.005) and Command and Scripting Interpreter (T1059.001).
 
-  The primary data sources that provide evidence for this detection include **process creation events** that capture the execution of `schtasks.exe`, along with command line arguments that indicate the creation and execution of the task.
+  Primary telemetry sources include process creation logs from Windows (Security Event ID 4688) and Sysmon Event ID 1, which capture details about command line execution. If this behavior is indeed malicious, it can lead to unauthorized access, data exfiltration, or lateral movement within the network. However, it’s important to note that this detection does NOT confirm whether the payload executed is indeed malicious — it simply indicates that a scheduled task creation was attempted under suspicious circumstances.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Analyze the logs for any instances of `schtasks.exe` being executed, focusing on the command line arguments to identify unusual or unauthorized task creations.
 
-  - **Examine Command Line Arguments:** Pay special attention to command lines containing terms like `/Create`, and look for references to `Get-ItemProperty` as well as any mentions of Windows Registry paths (`HKCU:`, `HKLM:`).
+  - **Identify the scheduled task creation event:** Review Security Event ID 4688 for process creation by `schtasks.exe`. Check for paths involved in command line arguments and validate against expected command structures.
 
-  - **Inspect Registry Access Logs:** If available, gather logs associated with registry access, specifically looking for any unusual activity that correlates with the execution of scheduled tasks.
+  - **Analyze command line details:** Examine the command line of the detected process creation for keywords such as `/Create`, `Get-ItemProperty`, and Base64 encoding indicators. Legitimate scheduled tasks do not typically involve fetching commands from the registry using these methods.
 
-  - **Correlate with Other Activity:** Look for additional suspicious activities around the time of the scheduled task's creation, such as unusual account logins, unexpected network connections, or other indicators of lateral movement.
+  - **Correlate with Sysmon logs:** Validate against Sysmon Event ID 1 for additional context on process creation. Look for parent-child process relationships to identify if `schtasks.exe` was spawned from a legitimate application or a suspicious parent process.
+
+  - **Review registry access logs:** Check for any `HKCU:\SOFTWARE` or `HKLM:\SOFTWARE` changes around the time of detection. This could indicate unusual registry access patterns relevant to the task creation.
+
+  - **Identify high-confidence malicious indicators:** If the command contains `FromBase64String`, any output generated from this command should be logged and evaluated for potential malware signatures or unusual behavior.
+
+  - **Review legitimate scheduled task patterns:** Note the typical structure and operation of scheduled tasks in the environment; they should usually refer to known executables with clear policy use cases and not involve registry-based encoding or obfuscation mechanisms.
 
   ### Prioritization
-  This alert is considered medium to high severity due to the potential consequences of a successful payload execution from a scheduled task. The likelihood of this behavior indicating malicious activity is increased by its association with known attack techniques that facilitate persistence and privilege escalation.
+
+  This alert is of medium severity. The impact can be significant if a system with sensitive information is compromised. Scheduled tasks executing obfuscated commands indicate a high likelihood of malicious intent, particularly if consistent with known attack patterns, like those observed in malware incidents. Such behavior is common in exploitation attempts aiming for persistence within the environment.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage may arise from environments not logging detailed command line arguments or process creations, which could prevent the detection logic from functioning correctly. The detection logic assumes that commands executed through `schtasks.exe` will include recognizable patterns of registry manipulation, which might not always be the case. Furthermore, if logs are not appropriately collected or configured for the system under observation, the alert may generate false negatives or miss legitimate threats entirely.
+
+  Detection limitations include potential evasion techniques where an attacker may use legitimate user credentials or obfuscate command lines to avoid detection. Reliable detection relies on the availability of detailed process creation logs and Sysmon logs, which must be configured correctly. Legitimate scheduled tasks created by system administrators or maintenance scripts that use registry access might trigger this alert, leading to false positives. A companion detection related to abnormal registry changes (e.g., monitoring `reg add` or `reg delete` events) can strengthen coverage against this behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -74,22 +74,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious modifications made to existing Windows scheduled tasks, which may indicate malicious activity such as persistence or privilege escalation by an attacker. By altering a scheduled task after its initial creation, attackers can stealthily introduce malicious payloads without triggering alerts typically associated with the creation of new tasks. The objective behind this technique is often to maintain a foothold within the environment and execute malicious code at predefined intervals or under specific conditions.
 
-  The relevant MITRE ATT&CK tactics associated with this activity include **Persistence** (TA0003), where attackers establish methods to maintain presence on a system; **Privilege Escalation** (TA0004), where attackers gain higher-level permissions; and **Execution** (TA0002), used to run malicious code. Specifically, this rule relates to the technique **Scheduled Task/Job (T1053.005)**, which covers the manipulation of scheduled tasks as a means of executing code in an adversarial manner.
+  This rule detects modifications to existing Windows Scheduled Tasks using the `schtasks.exe` utility, particularly when these tasks are altered to execute commands from suspicious directories, such as temporary or public user folders. Attackers may aim to execute malicious payloads secretly by changing pre-existing tasks instead of creating new ones, which can draw more scrutiny. The relevant MITRE ATT&CK tactic is "Persistence" (TA0003) and the technique is "Scheduled Task/Job" (T1053.005). The primary telemetry sources include Windows Security Event IDs related to process creation (ID 4688) and the command-line arguments executed.
 
-  Key telemetry sources that provide the best evidence for detecting this behavior include **process creation events** that capture commands run alongside scheduled tasks, as well as Windows Event Logs that record task modifications and other administrative activities.
+  If malicious, this behavior can indicate an attempt to establish persistence on a compromised system, enabling attackers to maintain control. However, this detection does NOT confirm that the activity is malicious; legitimate administrative actions can also modify scheduled tasks under normal operations.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for instances of `schtasks.exe` being executed, specifically focusing on command lines containing `/Change` and `/TN`.
-  - **Analyze Command Line Arguments**: Identify all command lines that disclose execution paths leading to temporary or common user directories (e.g., `%TEMP%`, `C:\ProgramData\`), which are suspect locations for malicious payloads.
-  - **Correlate with Scheduled Task Logs**: Utilize Windows Security Event Logs related to task modifications to determine if changes align with observed process creation events, noting the original and new configurations of the affected tasks.
-  - **Investigate Executor Tools**: Examine possible tools used in the command line (e.g., `powershell`, `cmd`, `regsvr32`, etc.) for abnormal usage patterns that might indicate the use of legitimate utilities for malicious execution.
+
+  - **Examine process creation logs for schtasks.exe usage**: Review Security Event ID 4688 logs for instances of `schtasks.exe` being executed. Pay attention to the command line for the usage of ` /Change ` followed by ` /TN ` which indicates task modification.
+
+  - **Analyze command line for malicious indicators**: Check the CommandLine field in process creation logs for references to suspicious directories such as `\AppData\Local\Temp` or `\Downloads\`. If found, correlate these with the task name being changed.
+
+  - **Identify typical benign behavior**: Look for the creation or modification of scheduled tasks by administrative users or system accounts, which may occur during system updates or legitimate maintenance tasks. These typically point to standard directories like `C:\Windows\System32` and use clearly defined script names.
+
+  - **Correlate with Execution of known malicious commands**: Check for execution of potentially harmful command line applications such as `powershell.exe`, `cmd.exe`, or `mshta.exe`. If they appear with the schtasks modification, it increases the confidence that the activity is malicious.
+
+  - **Validate task status and scheduled times**: Use `Get-ScheduledTask` PowerShell command to check if the modified task is currently running or scheduled at unusual times, such as after hours, which may indicate malicious intent.
+
+  - **Assess asset criticality**: Determine the nature of the asset affected by viewing its role in the organization (critical server, user workstation, etc.). Higher severity should be assigned if critical business assets are involved.
 
   ### Prioritization
-  The alert is classified as high severity because modifications to scheduled tasks can facilitate persistent unauthorized access to systems. Given that attackers often leverage such capabilities to maintain control and execute malicious operations, timely detection is critical in mitigating potential risks.
+
+  This alert should be treated with high severity due to the potential for attackers to leverage scheduled tasks for persistence on critical systems. The likelihood of abuse is high, as such modifications can enable silent execution of malicious code. Additionally, the behavior detected here is commonly weaponized in malware campaigns seeking long-term access.
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover all potential methods of persistence and execution, especially if attackers use non-default or less common tools for modifying tasks. The detection logic assumes that scheduled tasks exist in the monitored environment and any changes will be reflected in the available logs. Additionally, comprehensive logging of process creation events must be enabled for effective detection, and certain configurations on endpoints could lead to missed alerts if improperly configured or disabled.
+
+  This detection may be limited by users legitimately modifying scheduled tasks, resulting in false positives. The effectiveness of this rule depends on having comprehensive logging enabled, specifically around process creation events. Additionally, legitimate administrative tools may inadvertently trigger this alert. Companion detections, such as monitoring for unauthorized access attempts to `schtasks` and `taskschd.msc`, can enhance overall coverage and reduce blind spots.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

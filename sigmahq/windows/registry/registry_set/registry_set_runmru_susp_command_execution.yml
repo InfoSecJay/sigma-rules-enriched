@@ -45,34 +45,38 @@ detection:
     Details|contains:
     - 'shadowcopy'
     - 'process call create'
-  condition: selection_key and (all of selection_powershell_* or all of selection_wmic_*)
+  condition: selection_key and (all of selection_powershell_* or all of 
+    selection_wmic_*)
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potentially suspicious commands executed through the Windows Run dialog box by monitoring the "RunMRU" registry key. Attackers have been known to exploit this feature by tricking users into executing harmful commands that are often disguised as legitimate activities, such as CAPTCHA verifications. The analysis of this key can reveal commands that align with phishing or malware delivery tactics.
 
-  The primary objective of attackers using this technique is to execute malicious commands without raising suspicion, thus facilitating further stages of an attack such as data exfiltration or system compromise. The rule is particularly relevant in cases where commands originate from potentially obfuscated PowerShell or WMIC commands, which may be employed to bypass traditional security measures.
+  This rule detects the execution of potentially suspicious commands via the Windows Run dialog, by monitoring changes to the "RunMRU" registry key. Such behavior often indicates that an attacker is attempting to execute commands that could lead to command and control (C2) communication, data exfiltration, or lateral movement. The likely objective is to execute malicious payloads disguised as legitimate commands, commonly seen in attacks leveraging social engineering tactics, such as fake CAPTCHA verifications. The relevant MITRE ATT&CK technique is **Execution via Command-Line Interface (T1059.001)**.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Execution (TA0002)**: The overall tactic under which these activities fall.
-  - **Command and Scripting Interpreter: Windows Command Shell (T1059.001)**: This specific technique encompasses the use of the command shell through various means, including Run dialog execution.
-
-  Primary data sources for this detection include:
-  - Registry logs that provide insights into RunMRU key modifications.
-  - Process creation events that would capture the execution of commands via the Run dialog.
+  Primary telemetry sources include Windows registry changes, specifically Registry Set logs, with a focus on Event IDs related to registry modifications. If malicious, this behavior could allow an attacker to execute arbitrary commands on the target system, significantly increasing risk. However, this detection does NOT confirm that malicious activity has occurred; it merely indicates that suspicious commands have been executed.
 
   ### Investigation Steps
-  - **Review Registry Logs**: Examine the "RunMRU" registry key entries to identify any recently executed commands that appear suspicious or unusual.
-  - **Analyze Process Creation Events**: Look for entries in process creation logs that correlate with the commands found in the RunMRU key, particularly those invoking PowerShell or WMIC.
-  - **Correlate with Command Patterns**: Identify any commands that contain malicious keywords or obfuscation techniques commonly associated with scripting threats (e.g., 'Invoke-', 'ftp', or encoded PowerShell commands).
-  - **Conduct Behavioral Analysis**: Investigate the broader context of any suspicious command execution, including user activity and system changes that coincide with the observed registry modifications.
+
+  - **Check registry modification details:** Review Registry Set logs for changes to `\Microsoft\Windows\CurrentVersion\Explorer\RunMRU` (Event ID 4657), focusing on the `TargetObject` and `Details` fields for suspicious command patterns.
+
+  - **Analyze command context:** Look for execution of commands using `powershell` or `wmic` in the `Details` field. Malicious indicators include usage of encoded PowerShell commands (e.g., containing `-enc`) or key terms like `Invoke-` and `shadowcopy`.
+
+  - **Identify legitimate usage:** Determine if the commands executed through the Run dialog align with approved organizational processes. For instance, legitimate users may invoke system tools like `cmd` or `control` that are consistent with normal operational tasks.
+
+  - **Correlate with other security events:** Investigate any recent User Account Control (UAC) prompts or unusual user behavior leading up to the command execution. Look for signs of other alerts such as anomalous logins (Event ID 4624) or unexpected process creations (Sysmon Event ID 1).
+
+  - **Cross-reference timeline:** Check if the timing of this registry modification corresponds with known phishing campaigns or other relevant threat intelligence (e.g., alerts around fake CAPTCHA campaigns mentioned in related references).
+
+  - **Validate network activity:** Use network logs to confirm if commands led to outbound connections, which can be captured using tools like Windows Firewall logs (Event ID 5156) or proxy logs that show connections made following the suspicious command execution.
 
   ### Prioritization
-  This alert is classified as high severity due to its potential to indicate an ongoing attack where legitimate users may inadvertently execute commands carried out by an attacker, leading to data compromise or system integrity loss.
+
+  This alert should be treated with high severity due to the potential impact on the affected system and the likelihood of malicious exploitation. The ability to execute commands via the Run dialog is often weaponized by adversaries seeking to perform further malicious actions post-compromise.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss cases where attackers manipulate the registry without executing commands through the Run dialog, or they may use legitimate commands that do not trigger the alert. Additionally, reliance on PowerShell and WMIC commands implies that any actions taken through other methods (e.g., direct executables) might not be detected. Furthermore, complete registry auditing and logging must be enabled for this detection rule to function effectively. If logging is not enabled or incomplete, critical artifacts may be missing, compromising the integrity of the analysis.
+
+  Detection limitations include the possibility that legitimate administrative tools or applications may trigger this alert, especially if they perform registry writes. Proper logging configurations (e.g., ensuring auditing for registry modifications is enabled) are crucial for reliable detection. Additionally, users performing legitimate script execution or automation may inadvertently trigger this rule, which can lead to false positives. Supplemental alerts, such as those detecting suspicious network connections or abnormal process execution, can provide better context and assist in confirming or denying the malicious nature of the observed behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

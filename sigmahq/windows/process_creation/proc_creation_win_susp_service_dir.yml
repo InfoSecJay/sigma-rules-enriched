@@ -36,22 +36,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious service binaries that are executed from non-standard directories typically used for legitimate user data. Attackers often exploit these unconventional service paths to evade detection while executing malicious payloads. The presence of a service binary originating from directories such as `C:\Users\Public\` or `C:\$Recycle.bin\` may indicate an unauthorized attempt to maintain persistence, conduct espionage, or facilitate lateral movement within the network.
 
-  The potential threat actors behind this activity are likely to be exploiting vulnerabilities related to service misconfigurations and using techniques associated with the Defense Evasion tactic in the MITRE ATT&CK framework. Specifically, this rule relates to the technique T1202 (Indirect Command Execution), which describes how executables may be placed in deceptive paths to execute without raising immediate suspicion.
+  This Sigma rule detects Windows services running from suspicious directories that are not typical for service binaries. Such directories may be used by attackers to hide malicious payloads meant to persist on the system while misleading analysts during investigations. The likely attacker objective is to establish persistence and maintain control over the compromised system. Relevant MITRE ATT&CK tactics and techniques include **Defense Evasion (T1202)**.
 
-  Key data sources for this detection include process creation logs from Windows Event Logging, which record the commencement of new processes along with their associated paths and parent processes. These logs help in assessing whether the origins of service binaries are legitimate.
+  The primary telemetry sources are Windows process creation logs, specifically focusing on Event IDs 4688 (process creation) and Sysmon Event ID 1. If malicious, this behavior could lead to unauthorized access, data exfiltration, and lateral movement within the network. It is essential to note that this detection does NOT prove malicious activity without further context and investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Look into the Windows process creation logs for instances of services executing from the specified suspicious directories. Verify the details of the binaries and their parent processes to confirm potential malicious behavior.
-  - **Analyze Service Configurations:** Check the configuration of any services that were found in the suspicious paths. Look for unusual start types or binaries that do not match expected applications, as these may indicate tampering.
-  - **Correlate with User Activity:** Investigate user accounts that may have been active around the time of the detection. Determine if there are anomalous logins or account activities that coincide with the execution of the service binary, as this could suggest lateral movement.
-  - **Inspect Network Connections:** Monitor outbound connections initiated by the identified services. Suspicious destination IPs or unusual patterns could further indicate malicious activity, especially if the traffic appears to be communicating with known indicators of compromise.
+
+  - **Review process creation event details:** Examine Event ID 4688 and Sysmon Event ID 1 for any service binaries running from paths such as `C:\Users\Public\`, `$Recycle.bin`, or other specified suspicious directories. Check the `Image` and `ParentImage` fields for indicators of compromise.
+
+  - **Identify parent processes:** Confirm that the suspicious binary was initiated by a known Windows service host (`services.exe` or `svchost.exe`). Legitimate services typically run from `C:\Windows\System32\`. Look for connections to suspicious binaries from legitimate services.
+
+  - **Audit for related services:** Check if multiple services are running from the same suspicious directory. Use PowerShell commands (e.g., `Get-Service`) to list all running services and validate their paths against common paths for legitimate services.
+
+  - **Analyze for persistence mechanisms:** Investigate any scheduled tasks or startup items that may initiate the service. Search for Event ID 4697 (service installation) or scheduled tasks in `C:\Windows\System32\Tasks` related to the suspicious service.
+
+  - **Collect additional forensic artifacts:** Validate if any suspicious files were created or modified around the same time, particularly in the specified directories, using file creation timestamps. Look for any anomalies in file hashes, especially against files expected (whitelisted) on the system.
 
   ### Prioritization
-  The alert is categorized as high severity due to the potential for critical compromise within enterprise environments. Malicious services can lead to unauthorized access, data exfiltration, or other detrimental impacts on the organization's operations and security posture.
+
+  This alert is of **high severity** due to the potential for an attacker to establish persistence via a service running from a non-standard directory. The likelihood of malicious abuse is high, as adversaries commonly utilize such tactics to evade detection and maintain access once an initial breach has occurred.
 
   ### Blind Spots and Assumptions
-  One potential blind spot in this detection logic is the assumption that all malicious activity will necessarily result in services executing from unusual directories. Legitimate applications may also utilize these paths under certain configurations. Additionally, the effectiveness of this detection depends on comprehensive logging configurations for Windows process creation events. If process creation logging is not enabled or properly configured, this detection may fail to trigger, allowing malicious actors to operate undetected.
+
+  There are limitations in detection due to potential evasion techniques such as renaming or obfuscating malicious binaries. Reliable detection relies on thorough logging configurations for process creation, specifically ensuring that Sysmon and Windows event logging are properly set up. Legitimate applications may also run from similar directories, thus introducing noise to the alert. A companion detection to strengthen coverage would include monitoring service installations through Event ID 4697, which could highlight newly created services and assist in validating findings.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

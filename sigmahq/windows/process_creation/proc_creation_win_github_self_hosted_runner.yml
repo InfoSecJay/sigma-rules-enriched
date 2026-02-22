@@ -32,36 +32,44 @@ detection:
     - 'configure'
   condition: all of selection_worker_* or all of selection_listener_*
 falsepositives:
-- Legitimate GitHub self-hosted runner installations on designated CI/CD infrastructure
-- Authorized runner deployments by DevOps/Platform teams following change management
+- Legitimate GitHub self-hosted runner installations on designated CI/CD 
+  infrastructure
+- Authorized runner deployments by DevOps/Platform teams following change 
+  management
 - Scheduled runner updates or reconfigurations on existing build agents
 - Self-hosted runners that follow expected/known naming patterns
-- Installation via expected/known configuration management tools (reflected mostly
-  as parent process name)
+- Installation via expected/known configuration management tools (reflected 
+  mostly as parent process name)
 level: medium
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_github_self_hosted_runner/info.yml
 note: |
   ### Technical Context
-  This detection rule identifies the execution of GitHub self-hosted runners on Windows systems, which can be exploited by attackers for maintaining persistence and executing malicious workflows. A threat actor could leverage a self-hosted runner to gain unauthorized access to internal networks or to execute code that interacts with sensitive information, especially if they have previously stolen credentials. The rule specifically looks for the execution of GitHub Actions runner components that could indicate that these workflows are being misused in a compromised environment.
 
-  In terms of MITRE ATT&CK framework relevance, this detection ties into multiple tactics and techniques. The notable tactics include **Execution** (TA0002), as the detection captures unauthorized code execution via runners, and **Command and Control** (TA0011), as these components can be used to maintain communication with an external server. The techniques primarily associated with this detection are **Command-Line Interface** (T1059) and **Application Layer Protocol** (T1071), as the communication between the GitHub runners and the attacker's server often involves API calls over HTTPS.
+  This Sigma rule detects the execution of GitHub self-hosted runners on local systems, specifically targeting instances where `Runner.Worker.exe` or `Runner.Listener.exe` is executed with certain command-line arguments indicative of suspicious or unauthorized activity. The detection aims to highlight potential abuses in CI/CD environments, which attackers may exploit to maintain persistence, especially when using npm supply chain vulnerabilities like the "Shai-Hulud" worm. Relevant MITRE ATT&CK tactics and techniques include Command and Control (T1102.002) and Application Layer Protocol (T1071).
 
-  The primary data sources for this detection come from `process creation events` on Windows. These events can provide visibility into the execution of specific executables associated with GitHub's self-hosted runners.
+  The primary telemetry sources are Windows process creation logs. This includes Event IDs 4688 (Process Creation) and Sysmon Event ID 1. A successful detection indicates that a GitHub self-hosted runner is being executed, potentially allowing an adversary to establish a foothold within the environment. However, this detection does NOT confirm that the activity is malicious on its own; it requires further context and analysis.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Investigate the specific process creation logs for the executables `Runner.Worker.exe` and `Runner.Listener.exe` along with their associated command line parameters to verify if they were invoked inappropriately.
 
-  - **Analyze Command-Line Arguments:** Look for unusual or suspicious command-line arguments associated with the runners, especially those that contain keywords like 'spawnclient', 'run', or 'configure' that do not conform to expected usage patterns.
+  - **Verify process creation logs for suspicious executions:** Review Event ID 4688 and Sysmon Event ID 1 to identify any instances of `Runner.Worker.exe` or `Runner.Listener.exe` being executed. Ensure command lines contain `spawnclient`, `run`, or `configure`.
 
-  - **Examine Parent Processes:** Check the parent processes that initiated these runners. Identify if they were spawned by legitimate tools or if there are signs of exploitation, such as unexpected parent processes that do not fit the known deployment method.
+  - **Check parent process relationships:** Investigate parent process IDs linked to the suspicious executions. Legitimate runner installations typically originate from known processes like a CI/CD system or automated deployment tools (e.g., Ansible, Chef).
 
-  - **Correlate with User Accounts:** Correlate the activity with user accounts that executed the runners. Look for non-admin or unusual accounts that lack proper authorization to deploy such CI/CD infrastructure or access internal resources.
+  - **Analyze command-line arguments for malicious patterns:** Validate the command arguments against known legitimate patterns. Malicious executions might include unexpected tokens or URLs that deviate from standard deployment practices.
+
+  - **Assess asset classification and role:** Review if the executing machine is classified as a CI/CD server. Alert severity increases if the process is running on critical infrastructure where sensitive code or secrets are present.
+
+  - **Identify any known runner naming conventions:** Disambiguate any installations matching expected naming patterns as these may indicate legitimate behavior, such as `runner-username-agent`.
+
+  - **Look for additional indicators of compromise (IoCs):** Search for network connections or data transmission events that correlate with the execution, especially outbound communications to unauthorized domains as per logs like Windows Firewall or proxy logs.
 
   ### Prioritization
-  This alert carries a medium severity due to the potential impact of unauthorized code execution within CI/CD pipelines, which could lead to system compromise or data leaks. The likelihood of this being a true positive is heightened given the growing trend of supply chain attacks targeting CI/CD environments.
+
+  The medium-severity alert suggests a moderate risk; while it indicates possible unauthorized CI/CD runner activity, the likelihood of malicious intent can be lower in environments with frequent changes. If the affected system hosts sensitive workloads, this behavior is concerning, especially given the potential for exploitation through supply chain attacks.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited in environments where GitHub runners are used legitimately, as the rule could lead to false positives if extensive whitelisting controls are not implemented. The detection logic assumes that attacks will utilize recognized executables and command-line patterns, which could be bypassed by skilled attackers using obfuscation techniques. Additionally, proper logging settings must be enabled on Windows systems to capture relevant process creation events, and any absence of such logs may hinder the effectiveness of this detection.
+
+  The detection may miss legitimate instances of runner execution from authorized deployments by DevOps teams or configuration management tools. Ensuring comprehensive logging from all CI/CD infrastructure components is essential for reliability. Authentic installations may trigger the alert if patterns deviate slightly; therefore, understanding baseline behavior is crucial. Related detections, such as unusual command-line arguments in process creation events (e.g., via a second Sigma rule for generic CI/CD toolchains), can enhance overall coverage and confidence in identifying adversarial activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

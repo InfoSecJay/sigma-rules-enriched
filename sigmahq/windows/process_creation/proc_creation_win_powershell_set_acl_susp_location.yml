@@ -8,7 +8,8 @@ related:
 - id: 3bf1d859-3a7e-44cb-8809-a99e066d3478     # PsScript High
   type: derived
 status: test
-description: Detects PowerShell scripts to set the ACL to a file in the Windows folder
+description: Detects PowerShell scripts to set the ACL to a file in the Windows 
+  folder
 references:
 - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-acl?view=powershell-5.1
 - https://github.com/redcanaryco/atomic-red-team/blob/74438b0237d141ee9c99747976447dc884cb1a39/atomics/T1505.005/T1505.005.md
@@ -49,20 +50,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets the use of PowerShell to modify file Access Control Lists (ACLs) in the Windows folder using the `Set-Acl` cmdlet. Attackers may utilize this method to manipulate permissions on system files or critical folders in an effort to conceal their tracks, escalate privileges, or establish persistence within the environment. By altering ACLs, an adversary can grant themselves or others unauthorized access or control over sensitive files or services.
 
-  The relevant MITRE ATT&CK tactics for this activity include **Defense Evasion** (TA0005) and techniques such as **Modify Permissions** (T1505.005). These techniques are often employed by threat actors to maintain access and evade detection by altering the normal behavior of the file system, making it challenging for defenders to spot malicious activities. Primary data sources for detecting these actions include process creation events, which log the command-line arguments of executables like PowerShell, providing critical context for the analysis.
+  This Sigma rule detects the use of PowerShell commands to modify Access Control Lists (ACLs) on Windows system files, particularly within the `C:\Windows` directory. The behavior typically signifies an attacker’s attempt to manipulate permissions on critical system files to facilitate persistence, conceal malicious activities, or prevent legitimate access. The relevant MITRE ATT&CK tactic is Defense Evasion (TA0005) and the technique is T1505.005 (Web Shell).
+
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which provide insights into command lines and file paths used in the PowerShell executions. If executed maliciously, this action could compromise system integrity and enable further exploitation. It is important to note that this rule does NOT confirm malicious intent on its own, as legitimate administrative activities might execute similar commands.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine the process creation logs for entries that indicate the execution of `powershell.exe` or `pwsh.exe` with strange command line arguments, specifically those involving the `Set-Acl` cmdlet targeting the Windows directory.
-  - **Inspect Command Line Arguments:** Focus on command-line inputs containing `-Path` and `-AclObject`, especially those with keywords like ‘FullControl’ or ‘Allow’, to identify unauthorized permission modifications.
-  - **Analyze File Permission Changes:** If possible, cross-reference file permission changes in the Windows folder with the timestamps of the detected PowerShell execution to assess whether suspicious modifications occurred.
-  - **Check Access Control Lists:** Validate the current ACLs of critical Windows files and directories against known good baselines to identify any unauthorized permissions that may have been set recently.
+
+  - **Review command line arguments: ** Examine Event ID 4688 for the PowerShell command line where `Set-Acl` is used, especially for flags like `-Path "C:\Windows"` and `-AclObject`. Check if the ACL changes are legitimate modifications made by administrators.
+
+  - **Correlate against known processes: ** Validate if the instance of PowerShell associated with the alert (Event ID 4688) was initiated by a legitimate process (e.g., local admin tools or automation scripts) or if it’s unusual for the host's role.
+
+  - **Identify high-confidence malicious indicators: ** Look for the strings `FullControl` and `Allow` in command lines (Event ID 4688) indicating attempts to grant excessive permissions. Match with any unauthorized user accounts or anomalous behavior in user logs.
+
+  - **Analyze account usage: ** Check user account activity in concurrent events or Active Directory logs for suspicious logins or actions from non-admin users. A legitimate administrator making this change should have appropriate context in logs.
+
+  - **Examine elective timestamp: ** Look for timestamps of the detected events (Event ID 4688) to correlate with any other alerts or unusual activities occurring on the same host or across the network around that time.
 
   ### Prioritization
-  Given the critical nature of the Windows folder and the potential impact of an unauthorized privilege escalation, this alert is considered high severity. Such activities often precede further malicious actions, and timely response is essential to mitigate any ongoing threats.
+
+  This alert should be considered high priority due to the potential impact on critical system file permissions, which could allow attackers to operate undetected. Since such permission changes are often leveraged in attacks to conceal activities, the likelihood of malicious intent is significant.
 
   ### Blind Spots and Assumptions
-  This detection may not capture all instances of unauthorized ACL modifications, especially those executed via other tools or scripting languages beyond PowerShell. The logic assumes that the `Set-Acl` cmdlet will be used with recognizable patterns and commands, and relies on proper logging configurations for both PowerShell execution and file auditing. Ensuring that detailed process creation logging and file system auditing are enabled is crucial for the effective operation of this detection rule.
+
+  Detection may be limited by the absence of logging for certain PowerShell executions or the potential use of encoded commands to evade detection. Adequate logging configurations, including FIPS compliance settings in PowerShell, are necessary for reliable detection. Legitimate activities by trusted admin accounts might also invoke similar commands, particularly during maintenance tasks. A complementary detection to consider is monitoring for unusual user account behavior associated with automation that frequently involves ACL modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

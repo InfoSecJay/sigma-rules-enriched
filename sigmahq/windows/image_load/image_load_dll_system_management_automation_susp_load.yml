@@ -12,8 +12,8 @@ description: |
 references:
 - https://adsecurity.org/?p=2921
 - https://github.com/p3nt4/PowerShdll
-author: Tom Kern, oscd.community, Natalia Shornikova, Tim Shelton, Roberto Rodriguez
-  (Cyb3rWard0g), OTR (Open Threat Research)
+author: Tom Kern, oscd.community, Natalia Shornikova, Tim Shelton, Roberto 
+  Rodriguez (Cyb3rWard0g), OTR (Open Threat Research)
 date: 2019-11-14
 modified: 2025-10-07
 tags:
@@ -95,20 +95,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule monitors for the loading of the PowerShell Core Dynamic Link Libraries (DLLs) by non-PowerShell processes, which may indicate malicious activity. Attackers often leverage PowerShell for its powerful scripting capabilities, and employing it in unexpected contexts can signify an attempt to execute or manipulate code stealthily. The presence of non-PowerShell processes loading critical PowerShell libraries, such as `System.Management.Automation.dll`, is especially indicative of behaviors associated with tools like Metasploit's Meterpreter, which has a "load powershell" extension that can facilitate remote command execution.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Execution** (TA0002) and specifically reflects the **Command and Scripting Interpreter: PowerShell** technique (T1059.001). Attackers may aim to achieve their objectives through lateral movement or data exfiltration by exploiting PowerShell's inherent capabilities, resulting in potential data breaches or system compromises. The telemetry that offers the best insight into this behavior primarily comes from image load events, which capture DLL interactions across processes on Windows systems.
+  This Sigma rule detects the loading of the `System.Management.Automation.dll`, a key library for PowerShell, by non-PowerShell processes. Such behavior may indicate an attacker utilizing PowerShell's functionality without starting its executable, potentially leveraging tools like Meterpreter to bypass typical security controls. This behavior typically relates to the Execution tactic within the MITRE ATT&CK framework, specifically under technique T1059.001, which focuses on command and scripting interpreters.
+
+  The primary telemetry source for this detection is the Windows image load events logged in Event ID 10 (Image Load) from the Windows Event Log. If malicious, this behavior can lead to unauthorized command execution, malware deployment, or privilege escalation. Importantly, this detection does not confirm malicious intent or activity on its own as legitimate applications may also load this DLL.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Collect image loading logs that show which processes are loading `System.Management.Automation.dll`. Focus on any processes outside of expected PowerShell executable paths.
-  - **Analyze Process Creation Logs**: Examine process creation records to identify the command line arguments and parent processes associated with the suspicious processes. Look for unusual execution patterns or command sequences.
-  - **Correlate with Network Activity**: Check for any outbound network connections initiated by suspicious processes that could indicate data exfiltration or remote command and control sessions.
-  - **Investigate File Path Anomalies**: Validate the legitimacy of the processes loading the PowerShell DLLs. Investigate any irregular file paths or names that do not conform to standard application or operating system installations.
+
+  - **Examine Image Load Events:** Review Windows Event Log (Event ID 10) specifically filtering for entries with `ImageLoaded` containing `System.Management.Automation.dll`. Check the `ProcessId` and `ImageLoaded` fields to identify the non-PowerShell process.
+
+  - **Identify Process Origins:** For each flagged event, correlate the `ParentProcessId` from the log to identify what initiated the loading of the DLL. A legitimate invocation usually comes directly from a PowerShell process, whereas a non-PowerShell parent (e.g., `cmd.exe`, `powershell_ise.exe`) might indicate suspicious behavior.
+
+  - **Look for Known Malicious Indicators:** Investigate the presence of known attack tools within the same process. For example, if the parent process is identified as `C:\Windows\Temp\asgard2-agent\thor.exe`, flag it as potentially malicious due to its association with malicious behavior.
+
+  - **Validate Legitimate Use Cases:** Cross-reference the alerting entry with legitimate applications known to utilize this DLL, like Microsoft SQL Server Management Studio (SSMS) or ASP.NET applications, to determine if the behavior can be expected in your environment.
+
+  - **Check for Concurrent Alerts:** Assess the system for related detections such as process creation events (Event ID 4688) that correspond to instances where the same non-PowerShell process was launching other unusual processes.
+
+  - **Evaluate Timeframes and User Privileges:** Determine the context by checking timestamps of the DLL load incidents relative to user login sessions and privilege elevating activities. Unusual times or low-privilege users triggering the load can be suggestive of compromise.
 
   ### Prioritization
-  This alert should be prioritized as medium severity due to the potential for significant impact from the use of PowerShell in unauthorized contexts. Given the accessibility and power of PowerShell for executing code, the likelihood of being targeted by adversaries is high, making rapid investigation crucial.
+
+  Given that this detection signals a non-PowerShell process trying to load PowerShell-related libraries, it should be treated with high priority due to the potential for malicious execution. Non-standard use of PowerShell's libraries can lead to advanced persistent threat behavior if abused. The likelihood of malicious use is elevated, as attackers commonly exploit PowerShell for post-exploitation tasks.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss instances where legitimate applications misuse PowerShell libraries, such as .NET applications or SQL Server Management Studio, which might lead to false positives. Additionally, the rule assumes the use of standard PowerShell paths for detection efficacy and could overlook custom installations or malicious impersonation of PowerShell. Comprehensive logging configurations across all relevant processes and appropriate monitoring for image load events are essential for effective detection.
+
+  This detection may be evaded if attackers use obfuscation techniques or custom DLLs to mimic legitimate behavior. Additionally, it assumes that Windows Event Log (Event ID 10) is enabled and correctly configured; without this logging, the detection will fail. Legitimate activities, such as those initiated by trusted applications or service accounts, may inadvertently trigger the alert. A related detection is monitoring for suspicious commands executed in PowerShell (e.g., T1059.001) across your environment, as this enhances visibility into potential exploitation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

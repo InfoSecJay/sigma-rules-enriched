@@ -1,8 +1,8 @@
 title: AWS STS AssumeRole Misuse
 id: 905d389b-b853-46d0-9d3d-dea0d3a3cd49
 status: test
-description: Identifies the suspicious use of AssumeRole. Attackers could move laterally
-  and escalate privileges.
+description: Identifies the suspicious use of AssumeRole. Attackers could move 
+  laterally and escalate privileges.
 references:
 - https://github.com/elastic/detection-rules/pull/1214
 - https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html
@@ -25,39 +25,38 @@ detection:
     userIdentity.sessionContext.sessionIssuer.type: Role
   condition: selection
 falsepositives:
-- AssumeRole may be done by a system or network administrator. Verify whether the
-  user identity, user agent, and/or hostname should be making changes in your environment.
-- AssumeRole from unfamiliar users or hosts should be investigated. If known behavior
-  is causing false positives, it can be exempted from the rule.
+- AssumeRole may be done by a system or network administrator. Verify whether 
+  the user identity, user agent, and/or hostname should be making changes in 
+  your environment.
+- AssumeRole from unfamiliar users or hosts should be investigated. If known 
+  behavior is causing false positives, it can be exempted from the rule.
 - Automated processes that uses Terraform may lead to false positives.
 level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects the suspicious use of the AWS STS AssumeRole API call, specifically when the user identity is an assumed role. This behavior is commonly exploited by attackers to move laterally within an AWS environment or escalate privileges, as it allows them to assume more powerful roles. The relevant MITRE ATT&CK tactics are Lateral Movement (TA0008) and Privilege Escalation (TA0004), along with techniques T1548 (Abuse Elevation Control Mechanism) and T1550 (Use Alternate Authentication Material).
-
-  The primary telemetry source is AWS CloudTrail, which logs API actions across your AWS account. Key log types include events with `eventName` set to `AssumeRole`. If malicious, this behavior could indicate an ongoing lateral movement or privilege escalation attempt, potentially compromising sensitive resources. It is crucial to note that this detection does NOT confirm malicious activity by itself, as legitimate administrative actions may trigger these alerts.
+  This rule detects the suspicious use of the AWS STS AssumeRole API, indicating a potential lateral movement or privilege escalation attempt by an unauthorized user or compromised account. Attackers may leverage AssumeRole for accessing additional permissions from other roles, facilitating their movement within an AWS environment. Relevant MITRE ATT&CK tactics are Lateral Movement (TA0008) and Privilege Escalation (TA0004), specifically the technique T1548 for abuse of elevation control. The primary telemetry source is AWS CloudTrail logs, particularly focusing on `userIdentity.type` and `userIdentity.sessionContext.sessionIssuer.type`. If malicious, this behavior can enable unauthorized access to sensitive resources, increasing the overall attack surface. This detection does NOT confirm malicious intent on its own, as legitimate administrative activities may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Review CloudTrail logs for relevant events:** Search CloudTrail logs for events where `eventName` equals `AssumeRole` and `userIdentity.type` equals `AssumedRole`. Filter by timestamps matching the alert to identify associated activities.
+  - **Correlate user identity and session context:** Check for the `userIdentity` in the CloudTrail logs (EventName: AssumeRole) to identify roles that are being assumed and verify if the `sessionIssuer.type` is a legitimate role or user, which could indicate benign activity.
 
-  - **Identify the context of the role assumption:** Examine the `userIdentity.sessionContext.sessionIssuer` fields to understand which role was assumed and the originating user. Legitimate actions by known administrators should be logged under expected roles.
+  - **Validate expected role assumptions:** Review the role assumption in conjunction with known architectural practices; legitimate administrators typically assume roles from specific IP addresses or via designated applications (e.g., AWS CLI or Terraform). Compare against known good practices.
 
-  - **Assess user identity legitimacy:** Verify the user identity associated with the assume role action against your user database. Look for unusual or unauthorized users attempting to assume roles that grant elevated privileges.
+  - **Analyze API call frequency:** Monitor the frequency of AssumeRole calls (CloudTrail Event Time, EventName: AssumeRole). Unusually high volumes from a single user or source could indicate malicious activity.
 
-  - **Examine resource access following assume role actions:** Investigate subsequent actions taken by the assumed role, such as access to sensitive data or resources. Look for `eventSource` indicating changes to IAM policies or access logs showing unexpected S3 bucket access.
+  - **Investigate user agent and host details:** Verify the `userAgent` (CloudTrail EventSource) and `sourceIPAddress` fields for the AssumeRole call; any requests from unfamiliar or suspicious agents or addresses should warrant further investigation.
 
-  - **Check for automated process involvement:** Determine if the AssumeRole action correlates with tasks managed by Terraform or other automated tools. Filter tags or identifiable patterns in API calls made using automation, as these may indicate benign activity.
+  - **Create an alert for known automation signatures:** If the logs indicate AssumeRole calls by automated tools (e.g., from CI/CD pipeline), validate their expected behavior and ensure that the user identity matches authorized automation accounts.
 
-  - **Document indicators of compromise:** Identify high-confidence malicious indicators such as unusual sources for AssumeRole actions or signatures indicating scripted access patterns (e.g., repeated or rapid API calls from the same IP range).
+  - **Cross-reference with user permissions:** Map the AWS Identity and Access Management (IAM) policies of the user making the AssumeRole request. Any permissions that exceed expected privileges should be flagged for deeper examination.
 
   ### Prioritization
 
-  The alert carries a low severity level due to the likelihood of benign administrative actions triggering it. However, if detected in the context of compromised credentials or unusual user behavior, it poses a risk to the integrity of cloud resources. It is essential to observe if the behavior appears to fit a trend of privilege escalation, which is often a precursor to further exploits.
+  This alert is low severity within the enterprise context as legitimate administrative account usage may trigger it often. However, it could signal potential privilege escalation or lateral movement attempts by unauthorized users, which is a common tactic in AWS environments.
 
   ### Blind Spots and Assumptions
 
-  Detection can be limited if CloudTrail logging is misconfigured or incomplete. Legitimate actions from automated processes or recognized administrators may trigger alerts, leading to noise in the data. Attackers might employ evasion techniques such as rotating assumed roles frequently or mimicking legitimate user behavior. A related detection to improve coverage is monitoring AWS IAM policy changes (T1503), as privilege escalation often accompanies lateral movement behaviors.
+  Detection may be limited by users legitimately assuming roles as part of their responsibilities, potentially masking malicious behavior. Reliable detection mandates consistent CloudTrail logging configurations. Additionally, automated tools such as Terraform can cause false positives if their activity is not adequately monitored. A related detection to consider implementing is monitoring IAM policy change notifications to strengthen the overall security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -27,42 +27,32 @@ falsepositives:
 - Legitimate user account administration
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects changes made to AWS user login profiles through the `iam:UpdateLoginProfile` API. The likely attacker objective is to gain unauthorized access to the AWS Management Console by changing the passwords of other users, thereby enabling further actions within the environment. The relevant MITRE ATT&CK technique is Privilege Escalation via the `User Credentials` manipulation (T1098).
+  This Sigma rule detects modifications to AWS user login profiles through the `UpdateLoginProfile` event, indicating potential unauthorized password changes. An attacker who has been granted permissions to update login profiles can misuse this capability to gain access to accounts, facilitating further privilege escalation and lateral movement within the AWS environment. This falls under the MITRE ATT&CK tactic of Persistence, specifically technique T1098 (Account Manipulation).
 
-  Primary telemetry comes from AWS CloudTrail logs, specifically tracking any `UpdateLoginProfile` event. A malicious change to a user's login profile can allow an adversary to bypass authentication safeguards and potentially compromise sensitive resources. This detection does NOT confirm that an unauthorized account compromise occurred, as legitimate administrative activities can trigger similar events.
-
-  ---
+  The primary telemetry source for this detection is AWS CloudTrail, specifically monitoring events from the IAM service. If malicious, this action could compromise account integrity and lead to unauthorized access to sensitive resources. It is important to note that this detection does NOT alone confirm malicious activity, as legitimate user account administration can also result in these events.
 
   ### Investigation Steps
 
-  - **Verify the user modification request source:** Check CloudTrail logs for the `UpdateLoginProfile` API call. Look for suspect `userIdentity.arn` which may indicate an unusual login path (e.g., unfamiliar IP addresses or geographic locations).
+  - **Review CloudTrail logs for `UpdateLoginProfile`:** Search for `eventName: "UpdateLoginProfile"` in the CloudTrail logs (Event Source: `iam.amazonaws.com`). This indicates a password change attempt on a login profile.
 
-  - **Identify the affected user accounts:** Review the `requestParameters.userName` field in the CloudTrail log entry to determine which user’s login profile was modified. Compare this against your organization's user account matrix.
+  - **Identify user identity in the event:** Correlate the `userIdentity.arn` with `requestParameters.userName` to determine which user’s login profile was modified. Check if the modifying user has appropriate administrative privileges or unusual access levels.
 
-  - **Assess login activity of the modified account:** Investigate the login history of the affected user(s) to confirm if they have logged in recently and if the access was legitimate. Check for AWS CloudTrail `ConsoleLogin` events associated with the affected user.
+  - **Assess role and permissions of the modifying user:** Validate the IAM policies associated with the user performing the modification. Compare permissions against what is necessary for their role to identify any privilege escalation.
 
-  - **Document legitimate administrative actions:** Consult your IAM and administration policies to ascertain if this password change aligns with expected administrative tasks. If done through an authorized process or on a scheduled basis, it may be benign.
+  - **Check for legitimate account administration:** Look for expected administrative activity timestamps aligned with user role responsibilities. Identify whether the event corresponds with regular maintenance windows or known administrative actions.
 
-  - **Look for indicators of account compromise:** Analyze the account activity logs for the IAM user executing the password change. Look for any recent unauthorized AWS services access attempts or unusual CloudTrail event patterns linked with that IAM user.
+  - **Correlate with other account activity:** Investigate other actions performed by the modifying user around the same timeframe using CloudTrail to identify potentially malicious patterns, such as access to sensitive S3 buckets or changes to other IAM policies.
 
-  - **Review any IAM policy changes:** Verify if any IAM policies were modified recently that grant elevated privileges to the user initiating the change. Search through CloudTrail logs for `PutUserPolicy`, `AttachUserPolicy`, or `DetachUserPolicy` events.
-
-  ---
+  - **Monitor for unusual login behavior post-modification:** Review CloudTrail logs for subsequent `ConsoleLogin` events for the affected user to determine if unauthorized access occurred after the password change.
 
   ### Prioritization
 
-  This alert has a high severity due to the inherent risks associated with unauthorized password changes in cloud environments. The affected system's criticality may be significant if it involves users with access to sensitive or high-value resources, and this behavior is a common tactic used by adversaries to exploit AWS accounts and escalate privileges.
-
-  ---
+  This alert is high severity due to the potential impact on account integrity and access to AWS resources. The likelihood of malicious use is significant if the event is performed by an unauthorized user or an administrator with excessive privileges. Such behavior is commonly weaponized by attackers to gain persistent access within compromised environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss attempts where an attacker uses shared accounts or impersonates legitimate users. Ensure that AWS CloudTrail logging is fully enabled for comprehensive coverage and consider the use of multi-factor authentication (MFA) to mitigate risks. Legitimate administrative functions may trigger this alert during user management tasks. A related detection to consider is monitoring for the `DeleteLoginProfile` API call, which can also indicate malicious intent if occurring alongside other suspicious activities.
-
-  ---
+  Detection may be limited if logging for CloudTrail is not configured comprehensively; the absence of logs can hinder the ability to catch unauthorized changes. Legitimate user activity, such as routine password updates for compliance, may also trigger this alert. A related detection to strengthen coverage could involve monitoring for `CreateUser` or `DeleteUser` events, which may accompany malicious account modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

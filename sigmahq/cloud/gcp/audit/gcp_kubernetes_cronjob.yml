@@ -27,26 +27,36 @@ detection:
   condition: selection
 falsepositives:
 - Google Cloud Kubernetes CronJob/Job may be done by a system administrator.
-- If known behavior is causing false positives, it can be exempted from the rule.
+- If known behavior is causing false positives, it can be exempted from the 
+  rule.
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies when a Google Cloud Kubernetes CronJob is executed within an Azure Cloud environment. Kubernetes CronJobs are designed to schedule and manage the execution of batch jobs in Kubernetes clusters, which can be beneficial for legitimate administrative tasks. However, they can also be exploited by adversaries to execute malicious code within the cluster, enabling potential persistence, executing unauthorized tasks, or moving laterally within the infrastructure.
 
-  The likely attacker objectives include the deployment of malicious containers consistently or executing scheduled attacks that take advantage of misconfigured cloud resources. This behavior aligns with several MITRE ATT&CK techniques, particularly those under the persistence and execution tactics. Relevant techniques include T1546 (Event Triggered Execution) and T1053 (Scheduled Task/Job), as the use of CronJobs directly involves scheduling execution of tasks.
+  This Sigma rule detects the execution of Google Cloud Kubernetes CronJobs within a cluster, which can be an indicator of adversarial activity, as attackers may schedule malicious tasks using CronJobs. The objective could be to automate processes such as data exfiltration, payload delivery, or further propagation within the environment. This behavior aligns with the MITRE ATT&CK tactics of Persistence (TA0003), Privilege Escalation (TA0004), and Execution (TA0002) using the techniques for Scheduled Task/Job (T1053).
 
-  The primary data source that will capture evidence of this activity is Google Cloud audit logs, specifically focusing on audit logs related to Kubernetes methods for job and CronJob creation.
+  The primary telemetry sources include GCP audit logs, specifically looking for events where the `method_name` corresponds to Job or CronJob executions. If malicious, the impact includes further exploitation of the Kubernetes environment, potential data loss, or operational disruption. It is important to note that this detection does NOT confirm malicious activity on its own; legitimate system administrators may also schedule CronJobs.
 
   ### Investigation Steps
-  - **Review Kubernetes Audit Logs:** Examine the GCP audit logs for unusual entries related to the execution of CronJobs and Jobs that originate from unexpected sources or times.
-  - **Analyze Job Specifications:** Investigate the specifications of the detected CronJob for references to unfamiliar images or commands that could indicate malicious intent.
-  - **Confirm Source Context:** Validate the identity and intent of the user or service account that initiated the CronJob to ascertain if it aligns with normal operational patterns.
-  - **Monitor Container Activity:** Check for any containers spawned by the CronJob to evaluate their behavior and interactions with the network and other resources in the environment.
+
+  - **Verify the details of the CronJob execution:** Examine GCP audit logs for Event Type `io.k8s.api.batch.v*.CronJob` with fields including `project_id`, `user`, and `timestamp`. Compare the user executing the job against known administrators. Legitimate execution typically comes from known service accounts or administrators performing scheduled maintenance.
+
+  - **Cross-reference identifying information:** Identify the creator of the CronJob using the field `requestPrincipal`. Document if this user is part of an authorized administrative role; unexpected users may indicate a compromise.
+
+  - **Check for unusual execution patterns:** Look for CronJobs that run at odd hours or with high frequency by analyzing the `schedule` field in the GCP audit logs. Legitimate CronJobs often have predictable schedules aligned with business operations.
+
+  - **Determine the impact of the CronJob:** Review the container image used by the CronJob with the field `requestBody` for any known malicious images or unusual repository sources. High-confidence indicators include the usage of images from untrusted or unknown repositories.
+
+  - **Investigate subsequent Pod activity:** Assess any Pods created by the CronJob using `io.k8s.api.batch.v*.Job` logs. Check for suspicious activity such as high resource usage or network requests to external IPs, especially if they correspond to short-lived (ephemeral) jobs.
+
+  - **Document relationships to prior activities:** Consider potential lateral movement or access to sensitive data if the CronJob accesses critical resources, recorded in the Kubernetes resource access logs or IAM policy logs.
 
   ### Prioritization
-  This alert is classified as medium severity due to the potential for significant impact if an adversary successfully uses a CronJob to deploy malicious activities in critical systems. The likelihood is moderately high given that misconfigurations and insecure setups are common in cloud environments.
+
+  The alert severity is medium due to the potential for impact on core cloud infrastructure through automation of malicious activities. Given that CronJobs can be leveraged for various purposes, including data theft or arbitrary code execution, the likelihood of misuse is significant, particularly in environments with less stringent access controls.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage related to legitimate administrative CronJobs that might not be configured in the expected manner. The detection logic assumes that any CronJob execution in the Azure environment is anomalous and could indicate a threat; however, regular administrative activities may generate false positives. The effectiveness of this alert relies on proper logging configurations in GCP to ensure that sufficient audit data is being captured and analyzed.
+
+  Detection limitations may arise from misconfigurations in GCP audit logging, potentially resulting in missing logs for CronJob execution. Legitimate activities that may trigger the alert include regular maintenance tasks or scheduled reporting jobs by system administrators. A companion detection to strengthen coverage includes monitoring for abnormal network traffic from Pods created by these Jobs, as well as any unauthorized changes to Kubernetes RBAC permissions that might indicate privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

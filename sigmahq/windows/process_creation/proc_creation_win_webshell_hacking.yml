@@ -101,25 +101,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies sophisticated webshell activity on Windows servers, particularly focusing on parent-child process relationships that suggest malicious behavior. Webshells often serve as a foothold for attackers to execute arbitrary commands on compromised systems. In this case, the rule looks for activity associated with webservers (e.g., Caddy, Nginx) as the initial point of compromise, which is then used to drop malicious payloads or perform credential dumping and other exfiltration activities.
 
-  The attacker may aim to escalate privileges, gather sensitive information, or maintain persistence within the environment. Given the nature of web shells, the detected patterns could point to various tactics, including credential dumping and lateral movement. The relevant MITRE ATT&CK tactics and techniques include:
-  - **Persistence (T1505.003)**: Web shell installation allows attackers prolonged access.
-  - **Credential Access (T1003)**: Techniques like credential dumping are prior objectives of the attacker.
-  - **Discovery (T1018) and (T1087)**: Attackers may also seek to gather information about user accounts and system configurations.
+  This Sigma rule detects suspicious parent-child process relationships indicative of web shell activity seeking to perform credential dumping or exfiltration. Attackers may leverage compromised web servers to execute subsequent commands for extracting sensitive information or adjusting permissions in the environment, using tools like Mimikatz or built-in Windows command utilities.
 
-  Primary telemetry sources for these detections include Windows process creation events, command-line arguments from those processes, and logs that detail the execution paths of applications, which can help analysts map out the activities of the attackers.
+  The relevant MITRE ATT&CK tactics include **Persistence** (T1537), **Discovery** (T1018), and more specifically techniques like **Credential Dumping** (T1003.001) and **Active Directory enumeration** (T1087). Primary telemetry sources include Windows process creation logs—particularly Security Event ID 4688 and Sysmon Event ID 1—highlighting the execution of commands from web servers.
+
+  If malicious, the impact could be significant, including data breaches, loss of credentials, or unauthorized changes to user privileges. However, this detection does NOT confirm that an attack has occurred on its own; further investigation is required to corroborate malicious intent and context.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine Windows Event logs for process creation events involving known web server executables (e.g., Caddy, Nginx). Look for unusual child processes spawned from these parent processes.
-  - **Analyze Command-Line Arguments**: Focus on command-line arguments associated with suspicious child processes that are indicative of credential dumping or user enumeration (e.g., `whoami /priv`, `net user /add`).
-  - **Check for Known Bad Tools**: Identify Execution of known Windows tools associated with credential access and system information gathering (such as `procdump.exe`, `ntdsutil.exe`, and `ldifde.exe`) that may have been invoked from web server processes.
-  - **Correlate with Network Logs**: Look at network traffic logs to identify any data exfiltration attempts or external command and control callbacks that may relate to the detected malicious activity.
+
+  - **Review parent-child process relationships**: Investigate Security Event ID 4688 or Sysmon Event ID 1 for process creation details, focusing on any child processes with parent processes such as `httpd.exe` or `nginx.exe`. Look for suspicious child executions linked to credential dumping or system manipulation.
+
+  - **Validate command execution context**: Check the `CommandLine` used in the logs for key phrases such as `rundll32 comsvcs`, `net user /add`, or credential manipulation terms (e.g., `sekurlsa`, `whoami /priv`) to identify potentially malicious activity.
+
+  - **Correlate other signs of compromise**: Inspect surrounding telemetry for signs of web shell deployment, such as outbound connections or abnormal file changes in web server directories. Review file creation times and analyze logs for unusual access patterns.
+
+  - **Identify recent changes in user accounts**: Scrutinize Event ID 4720 (user creation) and Event ID 4728 (added to a group) to detect unauthorized account modifications that might accompany the detected behaviors.
+
+  - **Examine legitimate operational behavior**: Validate expected behavior from the affected web application instances. For example, ensure that the processes are only executing legitimate scripts or functions, with no unexpected connections or high-frequency command executions.
 
   ### Prioritization
-  This alert is classified as high severity due to the substantial threat posed by webshells, which can lead to widespread credential compromise and further exploitation in enterprise environments. The likelihood of successful exploitation using a webshell is significant, and a rapid response is critical.
+
+  This alert carries a high severity rating, as it may indicate an attack exploiting a compromised web server used for credential dumping and potentially undermining user accounts. The likelihood of abuse is considerable, given the established patterns and tools used in web shells and their links to prevalent attack vectors.
 
   ### Blind Spots and Assumptions
-  There are several potential blind spots in this detection logic. If malicious user activity is obfuscated or if tools are renamed, the detection may fail to trigger. The logic assumes that the web server's process tree will not be significantly altered by the attacker to avoid detection. Reliable logging of process creation events, including command-line execution, is essential for this alert to function effectively. Additionally, if logging is not properly configured or if important processes are running with altered command arguments, detection may be impaired.
+
+  Detection limitations include the possibility of evasion techniques such as legitimate command execution or the use of obfuscated command-line arguments that could bypass the rule. Successful detection relies on comprehensive logging configurations, including Sysmon and Windows Event logs. Legitimate administrative tasks might trigger this alert, particularly during periods of server maintenance or updates. A related companion detection is establishing alerts for abnormal outbound network traffic that might indicate data exfiltration following suspicious process activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

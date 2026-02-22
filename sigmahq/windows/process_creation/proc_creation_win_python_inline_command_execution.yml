@@ -1,8 +1,8 @@
 title: Python Inline Command Execution
 id: 899133d5-4d7c-4a7f-94ee-27355c879d90
 status: test
-description: Detects execution of python using the "-c" flag. This is could be used
-  as a way to launch a reverse shell or execute live python code.
+description: Detects execution of python using the "-c" flag. This is could be 
+  used as a way to launch a reverse shell or execute live python code.
 references:
 - https://docs.python.org/3/using/cmdline.html#cmdoption-c
 - https://www.revshells.com/
@@ -49,35 +49,51 @@ detection:
     CommandLine|contains|all:
     - '<pip-setuptools-caller>'
     - 'exec(compile('
-  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
-- Python libraries that use a flag starting with "-c". Filter according to your environment
+- Python libraries that use a flag starting with "-c". Filter according to your 
+  environment
 level: medium
 note: |
   ### Technical Context
-  This detection rule focuses on identifying the execution of Python with the `-c` command-line flag, which allows execution of Python code directly from the command line. Attackers may leverage this functionality to execute arbitrary commands, potentially spawning reverse shells or executing other malicious scripts. The capability to execute code in this manner poses a significant risk, as it could allow an attacker to gain further access or control over compromised systems.
 
-  In a targeted attack scenario, an adversary may exploit this feature to run malicious payloads that can facilitate lateral movement, data exfiltration, or credential harvesting within the enterprise's environment. By utilizing Python in such a way, the attacker may blend the execution within normal operational activity, trying to evade detection.
+  This Sigma rule detects the execution of Python commands using the `-c` flag, which allows execution of Python code via the command line. Attackers may exploit this to launch reverse shells, execute malicious scripts, or perform live code execution remotely. The rule maps to the MITRE ATT&CK tactic of Execution (TA0002) and specifically targets the technique T1059 - Command and Scripting Interpreter.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Execution** - T1059 (Command and Scripting Interpreter: Python)
+  The primary telemetry source for this rule is process creation logs on Windows systems, particularly Security Event ID 4688 and Sysmon Event ID 1. If this behavior is malicious, it may lead to unauthorized access, data exfiltration, or system compromise. This detection does NOT confirm that all use of the `-c` flag is malicious; legitimate scripts and administrative tasks may trigger the alert.
 
-  The primary data sources for this detection include:
-  - Process creation logs, which provide information on executed commands and the associated parent processes (e.g., PowerShell, cmd.exe).
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Start by examining process creation logs where Python executables such as `python.exe` or `python3.exe` are initiated with the `-c` flag. Look for unusual command strings that deviate from expected behavior.
 
-  - **Analyze Parent Process:** Investigate the parent process associated with the Python execution to determine how the command was initiated. Check if it correlates with other suspicious activities or known attacker tools.
+  - **Review the command line arguments:**
+    - Check for any instances of `python.exe`, `python3.exe`, or `python2.exe` along with the `-c` flag in Security Event ID 4688 or Sysmon Event ID 1 logs.
 
-  - **Correlate with Other Telemetry:** Cross-reference findings with other telemetry sources, such as EDR logs or network traffic, to identify any outbound connections or API calls to external services that may indicate data exfiltration or command-and-control communications.
+  - **Identify high-confidence malicious indicators:**
+    - Look for command lines that contain suspicious or obfuscated Python code, particularly if they appear to reference external hosts or include netcat or reverse shell commands.
 
-  - **Filter False Positives:** Evaluate the context of any detected instances against normal user behavior and application usage patterns in your environment. It is important to distinguish between legitimate use of Python for automation or development and potential malicious activity.
+  - **Analyze the parent process:**
+    - Investigate the ParentImage field to confirm the legitimacy of the parent process. For valid usages, expect parents to be legitimate Python installations, e.g., `C:\Program Files\Python\python.exe`.
+
+  - **Correlate with expected usage patterns:**
+    - Review documentation or communication from development teams. Legitimate uses of the `-c` flag often follow predictable patterns, such as standard library imports for web scraping or data manipulation tasks that do not involve suspicious external connections.
+
+  - **Monitor for potential user context abuse:**
+    - Check logs for execution by privileged accounts. Malicious activities often involve higher privileges to bypass user restrictions, thus warranting further scrutiny.
+
+  - **Validate for file creation/exfiltration artifacts:**
+    - If associated with file operations, check for unusual file access or changes in temporary or suspicious directories (e.g., `C:\Users\<User>\AppData\Local\Temp`) through File System events (Windows Event ID 4663).
+
+  ---
 
   ### Prioritization
-  The alert is of medium severity because, while the use of the `-c` flag can indicate benign operations, its application for executing malicious code is particularly concerning. Given the potential for operational disruption and data loss, timely investigation is necessary.
+
+  This alert holds medium severity in an enterprise context as it indicates a potentially unauthorized execution of commands that could lead to data compromise. The likelihood of malicious abuse is significant given the usage of a well-known scripting interpreter for potentially executing harmful code, especially if accompanied by anomalous patterns related to user behavior.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may arise from legitimate applications that utilize the Python `-c` flag for valid purposes, leading to false positives that could distract responders from true threats. The detection logic assumes that the executed Python command is not typically associated with the standard operational procedures of users within the organization. Required logs include comprehensive process creation logs, which must capture enough details about command-line arguments and parent processes for the detection to be effective. Specific configurations may need to be adjusted to reduce false positives based on the organization's Python usage policies and common command-line practices.
+
+  Detection validity relies on appropriately configured logging sources such as Sysmon for complete coverage of command-line arguments. Legitimate applications, especially development environments or automated update scripts, could trigger this alert if they invoke Python with the `-c` flag. Companion detections, like monitoring for use of Python libraries that could indicate malicious exploitation of standard packages (e.g., the use of pip to install backdoors), can strengthen overall security coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

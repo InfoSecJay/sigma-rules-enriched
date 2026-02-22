@@ -37,8 +37,8 @@ references:
 - https://twitter.com/SagieSec/status/1469001618863624194?t=HRf0eA0W1YYzkTSHb-Ky1A&s=03     # Related to the Shadow RPD technique
 - https://web.archive.org/web/20200929062532/https://blog.menasec.net/2019/02/threat-hunting-rdp-hijacking-via.html     # Related to RDP hijacking via the "ServiceDll" key
 - https://www.trendmicro.com/en_us/research/25/i/unmasking-the-gentlemen-ransomware.html
-author: Samir Bousseaden, David ANDRE, Roberto Rodriguez @Cyb3rWard0g, Nasreddine
-  Bencherchali
+author: Samir Bousseaden, David ANDRE, Roberto Rodriguez @Cyb3rWard0g, 
+  Nasreddine Bencherchali
 date: 2022-08-06
 modified: 2025-11-22
 tags:
@@ -80,49 +80,39 @@ detection:
   filter_main_securitylayer_tls:
     TargetObject|endswith: '\SecurityLayer'
     Details: 'DWORD (0x00000002)'     # TLS Enabled
-  condition: (selection_shadow or selection_terminal_services_key or selection_tamper_only)
-    and not 1 of filter_main_*
+  condition: (selection_shadow or selection_terminal_services_key or 
+    selection_tamper_only) and not 1 of filter_main_*
 falsepositives:
-- Some of the keys mentioned here could be modified by an administrator while setting
-  group policy (it should be investigated either way)
+- Some of the keys mentioned here could be modified by an administrator while 
+  setting group policy (it should be investigated either way)
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects unauthorized changes to critical Remote Desktop Protocol (RDP) settings, such as enabling unsolicited remote assistance or altering security configurations that could expose systems to exploitation. The likely attacker objective is to gain unauthorized access or perform session hijacking on targets through modified settings. This behavior is relevant to the MITRE ATT&CK technique **T1112: Modify Registry**.
+  This rule detects modifications to sensitive Remote Desktop Protocol (RDP) settings in the Windows registry, which could allow unauthorized access or remote session hijacking. The likely attacker objective is to facilitate illicit RDP access, either for lateral movement within a network or to exfiltrate data directly from a compromised host. Relevant MITRE ATT&CK techniques include Persistence via Remote Services (T1112) and Defense Evasion related to RDP settings.
 
-  The primary telemetry sources include Windows Registry logs that capture registry key modifications, notably `Control\Terminal Server\` and `Windows NT\Terminal Services\`. If these changes were made maliciously, the security impact is significant, potentially allowing unauthorized access and remote control of systems. However, this detection does not confirm that an attack is in progress on its own; legitimate administrative changes could trigger the alert.
-
-  ---
+  Primary telemetry sources include Windows Registry change logs, specifically looking for alterations in keys related to RDP configurations, such as '\Control\Terminal Server\' and associated subkeys. If these modifications are malicious, they could lead to unauthorized system access or control. Importantly, this detection does NOT confirm that a successful compromise or breach has occurred—further investigation into user activity is necessary.
 
   ### Investigation Steps
 
-  - **Verify the registry modifications:** Check logs for Windows Event ID 4657 (Registry Value Modified) for keys under `\Control\Terminal Server\` or `\Windows NT\Terminal Services\`. Look for modifications to `fAllowUnsolicited`, `fDenyTSConnections`, or `SecurityLayer`. Legitimate changes should include valid admin identifiers and timestamps that align with scheduled maintenance tasks.
+  - **Check associated registry keys for changes:** Examine Windows Registry Event IDs 4657 or 4663 for modifications under `HKLM\Control\Terminal Server\` and subkeys like `Shadow`, `fAllowUnsolicited`, or `SecurityLayer`. Look for unauthorized changes made by non-administrators.
 
-  - **Assess user account activity:** Investigate recent logins and account activity linked to administrators as seen in Security Event ID 4624. Look for anomalies such as unexpected admin logins outside of typical hours or from unusual IP addresses that may indicate adversarial use.
+  - **Analyze user activity around the changes:** Review user logins and RDP access logs (Event ID 4624 for successful logins) to correlate changes with specific users or accounts, focusing on mismatched login times or unusual accounts.
 
-  - **Check for concurrent suspicious process execution:** Correlate any registry changes with System Process Event IDs 4688 (Process Creation) to identify if any processes associated with RDP clients or unauthorized tools were running at the same time, such as remote administration tools or known malware signatures.
+  - **Identify legitimate administrative changes:** Validate whether recent changes were made by recognized administrative accounts as part of a group policy update or maintenance procedure, noting Event IDs 4688 for process creation indicating administrative actions.
 
-  - **Correlate impacted asset criticality:** Determine the asset role for the machines that have these registry keys modified. Highly critical assets (e.g., servers), when changed, should raise the prioritization of the investigation due to potential greater impacts if compromised.
+  - **Determine if settings align with organization policy:** Assess if changes are aligned with documented security policies for RDP, especially settings like `DisableSecuritySettings` or `fDenyTSConnections`. Any deviation from expected configurations should prompt deeper investigation.
 
-  - **Identify high-confidence malicious indicators:** Look for the presence of unusual `ServiceDll` configurations under `\services\TermService\Parameters\ServiceDll`, which may point to RDP hijacking techniques. Malicious values such as URLs or executables unrelated to the system should be flagged.
+  - **Look for indicators of compromise:** Search for high-confidence malicious indicators associated with known RDP hijacking techniques, such as the presence of suspicious `ServiceDll` values in `TermService` parameters that redirect control during RDP sessions.
 
-  - **Scan for anti-virus/EDR alerts:** Review alerts from EDR solutions or anti-virus tools for detections of recent unauthorized attempts to utilize altered RDP settings, especially during times when recent registry events logged activity that could be malicious.
-
-  ---
+  - **Validate file creation or deletion related to RDP settings:** Check for logs of file creation or modifications that may indicate further exploitation attempts, such as the presence of abnormal executables or scripts intended for RDP manipulation.
 
   ### Prioritization
 
-  The alert severity should be considered high due to the potential impact on critical systems through unauthorized remote access. The likelihood of malicious abuse is significant as attackers often exploit RDP settings to maintain persistence or gain further access. This behavior is commonly weaponized in ransomware and other targeted attacks.
-
-  ---
+  This alert is high severity due to the potential for serious security implications if unauthorized RDP access is granted. If successful, an attacker could exploit this for lateral movement or data exfiltration. Furthermore, the behavior detected is commonly weaponized in targeted attacks and ransomware.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include possible legitimate administrative changes that could be confused with malicious intent, requiring thorough contextual investigation. Reliably detecting such changes demands proper logging configurations, especially for context around admin activities. Legitimate activities like GPO applications can trigger this alert. Companion detections such as monitoring for unusual process executions or user access patterns can help strengthen overall threat visibility.
-
-  ---
+  The detection may be limited by the ability of adversaries to hide registry changes or modify logs, thus evading detection. Reliable detection requires continuous logging of specific registry changes configured on endpoints. Legitimate administrative activities, particularly during maintenance, can trigger this alert, necessitating careful analysis of context. Related detections, such as monitoring unusual RDP connection patterns or failed login attempts (Event ID 4625), can strengthen overall security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

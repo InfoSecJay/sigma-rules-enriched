@@ -1,8 +1,8 @@
 title: Container Residence Discovery Via Proc Virtual FS
 id: 746c86fb-ccda-4816-8997-01386263acc4
 status: test
-description: Detects potential container discovery via listing of certain kernel features
-  in the "/proc" virtual filesystem
+description: Detects potential container discovery via listing of certain kernel
+  features in the "/proc" virtual filesystem
 references:
 - https://blog.skyplabs.net/posts/container-detection/
 - https://stackoverflow.com/questions/20010199/how-to-determine-if-a-process-runs-inside-lxc-docker
@@ -35,42 +35,34 @@ detection:
   condition: selection_tools and 1 of selection_procfs_*
 falsepositives:
 - Legitimate system administrator usage of these commands
-- Some container tools or deployments may use these techniques natively to determine
-  how they proceed with execution, and will need to be filtered
+- Some container tools or deployments may use these techniques natively to 
+  determine how they proceed with execution, and will need to be filtered
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects potential container discovery activities through the listing of specific kernel features in the "/proc" virtual filesystem. Attackers may aim to enumerate the host environment or gather information about other containers, facilitating further lateral movement or privilege escalation. The relevant MITRE ATT&CK tactic is **Discovery** (T1082) specifically targeting system information discovery. The primary telemetry sources include process creation logs on Linux, specifically the logs capturing command-line arguments and invoked processes. If the detected behavior is malicious, it may indicate an attacker gathering intelligence on running containers and their environments. Importantly, this detection does NOT confirm that malicious activity has occurred without further context.
+  This detection rule identifies attempts at container discovery through the listing of specific features in the Linux `/proc` virtual filesystem using common command-line tools (e.g., `awk`, `grep`). The likely objective of an attacker is to identify the operating environment and running containers, which could enable further exploitation or lateral movement within the system. This activity corresponds to the MITRE ATT&CK tactic of Discovery, specifically Technique T1082 (System Information Discovery).
 
-  ---
+  The primary telemetry sources required are process creation events from Linux systems, specifically monitoring command lines for tools that query `/proc/` paths. If malicious, this behavior could aid attackers in recognizing a target environment for subsequent exploitation. Importantly, this detection does NOT confirm that an actual compromise has occurred; it simply indicates the execution of commands typically associated with container inspection.
 
   ### Investigation Steps
 
-  - **Review command history:** Check for recent command execution involving tools like `cat`, `grep`, `awk`, etc., by reviewing `/var/log/auth.log` or equivalent authentication logs. Legitimate usage may include system monitoring or troubleshooting tasks.
+  - **Examine process creation logs**: Look for Security Linux Event Logs (Syslog) capturing command lines with keywords from `/proc/` or specific tools (`awk`, `grep`). Focus on Syslog fields such as `command` or `args` to identify potential misuse.
 
-  - **Inspect process details:** Examine process creation events (Linux syscalls or entries in `/proc/[PID]/cmdline`) for any instances where the command-line arguments include `/proc/[any PID]/`. Focus on unexpected usage on production systems.
+  - **Identify user and process context**: Cross-reference the user executing the command against the system’s user roles. Legitimate administrative users may execute these commands, but anomalous activity by non-privileged accounts warrants further scrutiny.
 
-  - **Check for container tools:** Identify whether legitimate container management tools (such as Docker or Kubernetes) were used around the time of the alert. Investigate permissions and roles associated with these containers for unusual access patterns.
+  - **Check for command patterns**: Look for multiple invocations of `/proc/sched` or `/proc/cgroup` shortly after each other within the same process context (Event ID representation) to spot automated discovery attempts.
 
-  - **Look for anomalies in PID structures:** Analyze processes with PID 2 to see if there are instances where they are involved in discovering container information without expected normal behavior. Use process listing commands (`ps` or `top`) to confirm expected parent-child relationships.
+  - **Correlate with network logs**: Monitor for corresponding outbound connections to unfamiliar IP addresses that may follow container discovery patterns, as attackers may probe for services after identifying running containers.
 
-  - **Cross-reference external logs:** Validate against firewall or network logs to ensure no external scanning or discovery attempts correlate with this behavior. Look for unusual outbound connections that may indicate command-and-control activity.
-
-  ---
+  - **Validate the presence of containers**: Confirm legitimate container management activities, such as running expected container lifecycle commands (like `docker ps` or `kubectl get pods`), which may involve querying process information.
 
   ### Prioritization
 
-  This alert is classified as low severity due to the lower likelihood of direct exploitation aimed at the affected system. However, the behavior is notable as it may facilitate later phases of an attack, and the tools used for discovery are commonly weaponized by adversaries.
-
-  ---
+  This alert is assigned a low severity due to the ambiguity surrounding the observed behavior. While it can indicate potential reconnaissance activities within a containerized environment, such actions are not always indicative of malicious intent and may frequently be performed by system administrators or automated tools in a normal operational context.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss adversaries using redirected or obfuscated command line inputs to avoid triggering this alert. The effectiveness of this detection relies heavily on the proper configuration of process logs on Linux systems. Legitimate requests from system administrators for container information may cause false positives, particularly in environments where tools for container orchestration heavily utilize process discovery. A companion detection rule focusing on anomalous container creation events could enhance overall monitoring effectiveness in this context.
-
-  ---
+  Detection may be limited by legitimate container tooling, as these tools might inherently utilize commands that trigger this alert, leading to false positives. It’s crucial to ensure logs for process creation are comprehensive and configured correctly. Also, legitimate queries conducted by authorized users who manage containers might trigger similar alerts. A companion detection strategy can involve monitoring for unauthorized access attempts to the container management API, enhancing visibility into potentially malicious activities following discovered container paths.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -6,8 +6,8 @@ related:
 - id: 514e7e3e-b3b4-4a67-af60-be20f139198b
   type: similar
 status: test
-description: Detects active directory enumeration activity using known AdFind CLI
-  flags
+description: Detects active directory enumeration activity using known AdFind 
+  CLI flags
 references:
 - https://www.joeware.net/freetools/tools/adfind/
 - https://social.technet.microsoft.com/wiki/contents/articles/7535.adfind-command-examples.aspx
@@ -43,24 +43,42 @@ level: high
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_pua_adfind_enumeration/info.yml
 note: |
-  ### Technical Context
-  This rule is designed to detect suspicious enumeration activities related to Active Directory (AD) leveraging the AdFind tool, a commonly used CLI utility for retrieving information from AD. The detected behavior indicates an attempt to gather sensitive information about the user's environment, including password policies and user permissions, which can be leveraged by attackers for lateral movement or privilege escalation. Attackers may employ this tool to map out the organization's AD structure, making it easier to identify potential targets for attacks.
+  ---
 
-  The relevant MITRE ATT&CK tactics include **Discovery** (TA0007) and **Active Directory Enumeration** (T1087.002). These tactics and techniques indicate that the suspected adversaries may intend to identify and exploit accounts with administrative privileges, particularly if they are not authorized personnel. The primary data sources utilized for detection include process creation logs from Windows systems, which capture the command-line arguments used during execution, allowing for the identification of the script or tool used for enumeration.
+  ### Technical Context
+
+  This Sigma rule detects suspicious Active Directory (AD) enumeration using the AdFind tool with specific command-line arguments. Such behaviors can indicate an attacker’s objective to gather information about the AD environment, especially focusing on user accounts, password policies, or Exchange configurations. This activity aligns with the MITRE ATT&CK tactic of Discovery, specifically technique T1087.002 (Account Discovery via Active Directory).
+
+  The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688, which captures the details of executed processes. If this behavior is malicious, it poses a significant security risk as attackers may leverage enumerated data to plan further attacks or escalate privileges. Importantly, this detection does NOT confirm that the activity is malicious by itself, as legitimate administrative tasks may also trigger similar alerts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine the process creation logs for instances of AdFind.EXE being executed, specifically focusing on command lines that contain known flags associated with AD enumeration such as `-sc admincountdmp` or password policy flags.
 
-  - **Check for Unusual User Activity**: Analyze the user accounts running the AdFind.EXE command for unusual behaviors or patterns, including accounts that have not been previously known to perform AD enumeration, which could indicate a compromised account.
+  - **Review command-line arguments:** Check for execution of AdFind with flagged parameters in Security Event ID 4688 logs. Look specifically for `-sc admincountdmp` or flags indicating password policy queries. Benign usage typically relates to system administrators performing legitimate account audits.
 
-  - **Correlate with Network Traffic**: Investigate any related network traffic that corresponds with the time of AdFind execution to identify unusual connections or attempts to communicate with other systems that may suggest lateral movement.
+  - **Analyze process lineage:** Utilize Sysmon Event ID 1 to ascertain the parent process of the AdFind execution. If it originated from a management tool (e.g., PowerShell, Task Scheduler) or a known administrative application, it may suggest legitimate behavior.
 
-  - **Audit Account Permissions**: Review user account permissions and roles within Active Directory to determine if the accounts executing these commands have legitimate administrative privileges or if they may represent a misconfiguration or breach.
+  - **Assess user context:** Identify the user who executed AdFind. In Security logs (Event ID 4624), assess the account's role. Administrative accounts performing enumeration may be legitimate, whereas unknown or low-privilege accounts could indicate potential compromise.
+
+  - **Investigate repeated execution:** Check for multiple executions within a short timeframe in Security Event ID 4688 logs. Frequent runs from a single account can indicate an automated attack attempt, reflecting high confidence in malicious intent.
+
+  - **Cross-reference network activity:** Review network logs for suspicious connections or other unusual behavior around the time of the AdFind execution, such as failed logons or communication with known malicious IPs.
+
+  - **Check for associated detections:** Look for alerts corresponding to similar detection rules that may indicate a broader enumeration or lateral movement activity, such as T1087.001 (Account Discovery via Net.session).
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity due to its potential to indicate an attacker enumerating Active Directory for sensitive information. The likelihood of exploitation from unauthorized enumeration makes it critical to investigate swiftly to prevent further compromise.
+
+  This alert is high severity as it involves potential unauthorized enumeration of critical AD configurations, which could facilitate identity theft or privilege escalation. The likelihood of malicious abuse is elevated, especially if tied to unauthorized accounts or conducted in rapid succession. Active Directory enumerations are frequently weaponized tactics in advanced persistent threat (APT) frameworks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection coverage, particularly if the AdFind tool has been misconfigured or renamed in a way that bypasses detection mechanisms. The detection logic assumes that the command-line arguments will be logged appropriately and that the execution of AdFind.EXE is not part of normal authorized activities by IT administrators. For the alert to function effectively, process creation logs must be enabled and correctly configured on all Windows endpoints.
+
+  Detection may be limited by the absence of logs from systems where AdFind may run or due to legitimate administrative use of the tool, leading to false positives. It's essential to ensure comprehensive logging is enabled for process creations and that the environment is free from misconfigured administrative privileges that could permit misuse. Companion detections such as monitoring for suspicious PowerShell activity (like obfuscated script executions) can enhance coverage against similar enumeration techniques.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

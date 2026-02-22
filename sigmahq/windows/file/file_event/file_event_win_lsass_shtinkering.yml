@@ -1,9 +1,10 @@
 title: LSASS Process Dump Artefact In CrashDumps Folder
 id: 6902955a-01b7-432c-b32a-6f5f81d8f625
 status: test
-description: Detects the presence of an LSASS dump file in the "CrashDumps" folder.
-  This could be a sign of LSASS credential dumping. Techniques such as the LSASS Shtinkering
-  have been seen abusing the Windows Error Reporting to dump said process.
+description: Detects the presence of an LSASS dump file in the "CrashDumps" 
+  folder. This could be a sign of LSASS credential dumping. Techniques such as 
+  the LSASS Shtinkering have been seen abusing the Windows Error Reporting to 
+  dump said process.
 references:
 - https://github.com/deepinstinct/Lsass-Shtinkering
 - https://media.defcon.org/DEF%20CON%2030/DEF%20CON%2030%20presentations/Asaf%20Gilboa%20-%20LSASS%20Shtinkering%20Abusing%20Windows%20Error%20Reporting%20to%20Dump%20LSASS.pdf
@@ -22,28 +23,30 @@ detection:
     TargetFilename|endswith: '.dmp'
   condition: selection
 falsepositives:
-- Rare legitimate dump of the process by the operating system due to a crash of lsass
+- Rare legitimate dump of the process by the operating system due to a crash of 
+  lsass
 level: high
 note: |
   ### Technical Context
-  This rule detects the presence of LSASS (Local Security Authority Subsystem Service) dump files located in the "CrashDumps" folder, which may indicate attempts at credential dumping. In typical attack scenarios, threat actors may employ techniques such as LSASS Shtinkering, which exploits the Windows Error Reporting system to create memory dumps of the LSASS process. Successfully extracting credentials from LSASS allows attackers to gain unauthorized access to privileged accounts.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Credential Access** (TA0006)
-  - **Credential Dumping** (T1003.001)
+  This rule detects the creation of a dump file for the LSASS (Local Security Authority Subsystem Service) process in the "CrashDumps" folder, indicating potential credential dumping activity. Attackers often target LSASS to extract sensitive credentials for lateral movement or privilege escalation within an environment. This behavior aligns with the MITRE ATT&CK technique "LSASS Memory Dumping" (T1003.001).
 
-  The primary data sources necessary for effective detection are file system logs that capture events related to file creation and modification. Monitoring for file creation events in system directories can yield incidents of unauthorized credential extraction attempts.
+  The primary telemetry source is Windows file event logs, specifically monitoring the creation of files under the path `C:\Windows\System32\config\systemprofile\AppData\Local\CrashDumps\`. If malicious, an unauthorized LSASS dump can lead to credential theft and escalate an attacker’s access within the network. However, the detection of the dump file itself does not confirm that malicious activity has occurred, as there are rare legitimate scenarios where LSASS may create crash dump files.
 
   ### Investigation Steps
-  - **Review File Creation Events**: Check for any recent file creations in the "CrashDumps" folder, specifically for files that match patterns indicating LSASS dumps (e.g., containing "lsass.exe" and ending with ".dmp").
-  - **Analyze Process Execution**: Investigate process creation logs around the same timestamp to identify unusual activities related to the `lsass.exe` process, including any suspicious parent processes.
-  - **Correlate with User Activity Logs**: Look for anomalous user or service account activity that coincides with the presence of the dump files, as this may indicate unauthorized access attempts or privilege escalation activities.
-  - **Evaluate System Stability Events**: Assess Windows Event Logs for stability events leading to the creation of crash dumps, to distinguish between legitimate system crashes and potentially malicious activities.
+
+  - **Check for recent dump file creation:** Review Windows event logs (Event ID 4663) for file creation events in the `C:\Windows\System32\config\systemprofile\AppData\Local\CrashDumps\` directory, focusing on `.dmp` files containing `lsass.exe.`.
+  - **Verify LSASS dump source:** Identify if the dump was created following a crash event. Review Event ID 1001 from the Windows Error Reporting logs around the same timeframe to correlate legitimate process crashes. If there's no correlation, further investigation is needed.
+  - **Analyze process behavior:** Use Sysmon (Event ID 1) to evaluate the process tree. Confirm if any suspicious parent processes (e.g., `wermgr.exe`) initiated the dump. An unexpected or unauthorized process is a strong indicator of potential malicious activity.
+  - **Assess Host Role:** Verify the role of the affected host. If it’s a sensitive or privileged system (e.g., Domain Controller, application server), escalate the investigation due to higher risk impact if compromised.
+  - **Evaluate User Activity:** Check the user context under which the LSASS dump operation occurred (Event ID 4648). If the initiating user account shows suspicious logins or privilege abuse prior to the dump, it indicates potential malicious intent.
 
   ### Prioritization
-  The severity of this alert is classified as high due to the potential impact of unauthorized credential access, which could lead to further escalated privileges within an enterprise environment. The likelihood of exploitation makes it critical for timely investigative actions.
+
+  This alert is classified as high severity due to the critical role of LSASS in managing security policies, credentials, and local authentication. The likelihood of this behavior being abused is significant, as credential dumping techniques are commonly weaponized by attackers to gain unauthorized access to sensitive areas of the network.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding legitimate system processes that can also generate LSASS dumps during unexpected crashes, which may lead to false positives. The detection logic assumes that the paths and file naming conventions remain consistent, and that the file system logs are correctly configured to capture these events. Required configurations include ensuring that file logging is enabled for sensitive directories where credential dumps may occur.
+
+  Detection effectiveness may be limited by legitimate LSASS crashes not causing immediate alerts. Ensure logging configuration captures Windows error reporting events and file creation accurately. Legitimate software that interacts with LSASS may also create dumps. Companion detections such as monitoring for misuse of `wermgr.exe` or its associated processes can strengthen overall monitoring against credential dumping strategies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

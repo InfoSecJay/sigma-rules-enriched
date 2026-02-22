@@ -1,8 +1,8 @@
 title: Unauthorized System Time Modification
 id: faa031b5-21ed-4e02-8881-2591f98d82ed
 status: test
-description: Detect scenarios where a potentially unauthorized application or user
-  is modifying the system time.
+description: Detect scenarios where a potentially unauthorized application or 
+  user is modifying the system time.
 references:
 - Private Cuckoo Sandbox (from many years ago, no longer have hash, NDA as well)
 - Live environment caused by malware
@@ -33,25 +33,40 @@ detection:
     - 'C:\Windows\System32\oobe\msoobe.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- HyperV or other virtualization technologies with binary not listed in filter portion
-  of detection
+- HyperV or other virtualization technologies with binary not listed in filter 
+  portion of detection
 level: low
 note: |
   ### Technical Context
-  This detection rule identifies unauthorized modifications to the system time on Windows operating systems. Such alterations can be indicative of various malicious activity including obscuring log timestamps to hinder forensic analysis or bypassing time-based security controls. Attackers may manipulate system time to evade detection, especially in environments where accurate timekeeping is crucial for operations or incident responses.
 
-  The most relevant MITRE ATT&CK tactic for this activity is **Defense Evasion** (TA0005), specifically technique **T1070.006: Clear Command History**. The primary data source for this rule is Windows Security logs, particularly focusing on Event ID 4616, which tracks changes to system time settings. Analysts should be vigilant for any processes, particularly those not typically associated with legitimate time changes, attempting to alter system time without proper authorization.
+  This Sigma rule detects unauthorized modification of system time on Windows machines, specifically by applications or users not flagged as legitimate by the detection filters. The likely attacker objective includes the manipulation of timestamps to conceal malicious activity or to enable evasion of detection mechanisms. This behavior aligns with the MITRE ATT&CK framework, particularly with the **Defense Evasion** tactic (T1070.006). The primary telemetry source for this rule is Windows Security Logs with Event ID **4616**, which captures changes made to the system time. If the activity is malicious, it could result in inaccurate timestamps on logged events, making forensic investigations difficult. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate applications may also change system time.
 
   ### Investigation Steps
-  - **Review Security Logs:** Check Windows Security logs for Event ID 4616 to investigate any unusual changes to system time. Pay attention to the timestamps and the user context of the events.
-  - **Identify Processes:** Analyze the processes that triggered the time change. Look for non-standard applications executing around the time of the event and document their execution paths.
-  - **Correlate with User Activity:** Examine user activity logs to understand if the change in system time correlates with particular user actions, especially from non-administrative accounts or times of inactivity.
-  - **Assess Virtualization Impact:** Determine if the detection is influenced by known virtualization technologies like VMware or Hyper-V causing legitimate changes to the system time and filter those out to reduce false positives.
+
+  - **Check for Event ID 4616:**
+    Review the Windows Security Logs for Event ID 4616, which indicates a change in system time. Pay attention to the **SubjectUserSid** field to identify if the request was made by a process other than those in the exclusion filters.
+
+  - **Identify the Process Name:**
+    Examine the **ProcessName** field in Event ID 4616. Legitimate processes like `svchost.exe` or `vmtoolsd.exe` may change the time, but any other process should raise a red flag for further investigation.
+
+  - **Analyze Time Change Values:**
+    Review the **NewTime** field in Event ID 4616 to determine the nature of the time change. Significant backward adjustments, especially at odd hours, can suggest malicious intent.
+
+  - **Correlate with Other Events:**
+    Look for correlated suspicious activities in the same timeframe (e.g., login attempts, service manipulations) using Event IDs **4624** (Logon) or **4688** (Process Creation). This can help establish context about what user or application triggered the time change.
+
+  - **Review Relevant Exclusion Lists:**
+    Validate against the exclusion criteria for legitimate applications such as VMware or Hyper-V components. If these processes are not involved, treat the activity as potentially malicious.
+
+  - **Assess Asset Criticality:**
+    Understand the role of the machine performing the time change. Changes on critical servers (e.g., domain controllers or application servers) should be handled with higher urgency than non-critical endpoints.
 
   ### Prioritization
-  Given the potential impact of unauthorized time changes on security controls and forensic investigations, alerts generated by this detection rule should be treated with moderate priority. Such behavior could indicate an ongoing attack or compromise that warrants immediate scrutiny in an enterprise environment.
+
+  This alert is of **low severity** in the context of non-critical systems but may warrant higher priority on critical assets like domain controllers. The likelihood of malicious abuse exists, particularly in environments where timing manipulation is used to camouflage actions, as attackers often weaponize such tactics to evade detection.
 
   ### Blind Spots and Assumptions
-  This detection logic may miss legitimate time changes made by approved virtualization tools or other system processes not accounted for in the filter conditions. It operates under the assumption that any alteration not executed by standard processes or secure context is suspicious. Ensuring that the required audit policy for security state changes is configured correctly on all relevant systems is essential for accurate detection. If this audit policy is not enforced, Event ID 4616 may not generate, leading to missed detections.
+
+  This detection may miss subtle evasion techniques where attackers use whitelisted processes for time changes undetected. Reliance on Windows Security Logs means any misconfigured audit policy could result in missed detections. It is important to note that legitimate system activities, such as scheduled administrative tasks or virtual machine services, may trigger this alert. A related detection to consider is **Event ID 4611**, which logs changes to the audit policy, enhancing the coverage of unauthorized system changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

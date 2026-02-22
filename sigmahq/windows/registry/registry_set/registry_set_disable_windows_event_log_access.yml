@@ -44,33 +44,38 @@ detection:
     Image: ''
   filter_optional_null:
     Image:
-  condition: 1 of selection_key_* and selection_details and not 1 of filter_main_*
-    and not 1 of filter_optional_*
+  condition: 1 of selection_key_* and selection_details and not 1 of 
+    filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Administrative activity, still unlikely
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential tampering with Windows Event Log access permissions by monitoring changes to the registry keys related to Event Log channels. Attackers may modify the Security Descriptor Definition Language (SDDL) strings to restrict or eliminate visibility of specific logs, potentially aiding in defense evasion. This behavior often occurs during stages of advanced persistent threat (APT) attacks, where the attacker seeks to maintain persistence while covering their tracks. By manipulating these permissions, an adversary can prevent system administrators from detecting malicious activities or unauthorized actions.
 
-  Relevant MITRE ATT&CK techniques include:
-  - **T1112**: Modify Registry
-  - **T1547.001**: Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder
-  - **T1562.002**: Impair Defenses: Disable or Modify Tools
+  This Sigma rule detects unauthorized modifications to Windows Event Log channel permissions, specifically targeting changes to the Security Descriptor Definition Language (SDDL) strings. Attackers may modify these permissions to cover their tracks, preventing the detection of malicious activity by restricting access to event logs. This behavior aligns with the MITRE ATT&CK techniques for Defense Evasion (T1562.002) and Privilege Escalation (T1547.001).
 
-  Primary data sources for this detection include:
-  - Registry change logs that capture modifications made to registry keys, specifically under `\SYSTEM\CurrentControlSet\Services\EventLog\`, as well as custom and channel access permissions locations.
+  The primary telemetry sources for this detection include Windows Registry event logs related to registry modifications (Event ID 4657). If this rule triggers, it can indicate a serious security concern since altering event log access can obfuscate malicious actions and limit detection capabilities. However, merely triggering this detection does NOT confirm malicious intent; legitimate administrative actions may also invoke similar changes.
 
   ### Investigation Steps
-  - **Review Registry Logs**: Examine the registry logs for changes to the SDDL string in the specified Event Log channel paths, focusing on any suspicious entries that may indicate an unauthorized modification.
-  - **Correlate System Activity**: Analyze system process creation logs around the time of the registry change. Look for unexpected executions of `TrustedInstaller.exe`, `TiWorker.exe`, or other unknown processes that may have modified the keys.
-  - **Assess Event Log Isolation**: If the detection triggers an alert, attempt to access the affected event logs using `Get-EventLog` or `wevtutil`. If access is restricted, document the details and further investigate possible tampering.
-  - **Check User Accounts and Permissions**: Identify which user accounts made the modifications and correlate them to their respective permissions and roles. Investigate any anomalies, particularly if the modifications were made by non-administrative accounts.
+
+  - **Review Registry Modification Events**: Check Windows Event ID 4657 logs for changes to registry keys related to EventLog permissions, particularly those under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\EventLog\`. Note any changes to values containing `CustomSD` or `ChannelAccess`.
+
+  - **Verify User Context of Changes**: Identify who made the changes by reviewing the `SubjectUserName` and `SubjectDomainName` in associated logs. Legitimate administrative changes typically come from users with known elevated privileges.
+
+  - **Analyze the SDDL Changes**: Inspect the modified SDDL strings for any apparent removals of access rights that could indicate an attempt to hide log entries. Malicious configurations often remove rights for SYSTEM or administrator accounts.
+
+  - **Cross-Reference with Process Creation Logs**: Check Security Event ID 4688 to correlate if changes to the registry were made in conjunction with suspicious process creation events. Look for processes launching Powershell with arguments indicating log manipulation or registry editing.
+
+  - **Check for Anomalous Change Patterns**: Determine if changes were applied in bulk or if there are rapid successive modifications leading to a suspicious state. Multiple changes within a short timeframe can indicate an active tampering session.
+
+  - **Identify Baseline Legitimate Activity**: Document typical administrative tasks pertaining to event log management in your environment. Recognizing these baseline behaviors will help distinguish between benign changes and potentially malicious actions.
 
   ### Prioritization
-  The alert is classified as high severity due to the potential impact on organizational security. Unauthorized changes to event log access can significantly hinder incident detection and response, allowing attackers to operate without detection, thus increasing the likelihood of data exfiltration or further exploitation.
+
+  This alert should be prioritized as high due to the significant impact that alterations to event log access can have on an enterprise environment. The likelihood of malicious abuse is elevated, particularly in the context of post-compromise activities aimed at evading detection. It reflects behavior that is frequently employed in the exploitation phase of an attack lifecycle.
 
   ### Blind Spots and Assumptions
-  This detection approach may not capture all instances of registry modifications if log retention policies are insufficient or if certain types of modifications are performed by trusted system processes. The rule assumes that all changes are logged accurately and that legitimate administrative changes are infrequent. Continuous monitoring of relevant registry paths is required for effective detection. Any system misconfigurations that prevent specific logs from being generated could lead to undetected tampering activities.
+
+  This detection may be evaded if an attacker uses legitimate administrative accounts to make changes, so understanding normal administrative behavior is critical. Additionally, reliable detection requires proper auditing configurations to ensure that registry changes are logged accurately. Legitimate scenarios, such as routine administrative tasks or system updates, might trigger this alert. A related detection is monitoring for unusual Powershell command execution (T1059.001), which can provide further context to understand whether the registry changes align with suspicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

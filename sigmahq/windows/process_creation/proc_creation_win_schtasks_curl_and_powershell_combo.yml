@@ -39,33 +39,37 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the creation of scheduled tasks using `schtasks.exe`, which is potentially combined with `curl` for downloading malicious payloads and executing them via PowerShell. This technique allows an attacker to maintain persistence on a compromised host without leaving malware samples behind, making it a stealthy method for executing commands or connecting to a Command-and-Control (C&C) server.
 
-  The likely threat scenario involves an attacker utilizing these tools to set up automated tasks that execute malicious scripts or binaries, aiming to establish long-term control over the target systems. Such activities typically fall within the realm of evading detection through scheduled automation, allowing for continuation of malicious operations even after reboots or user logouts.
+  This Sigma rule detects the creation of a scheduled task using `schtasks.exe` in conjunction with `curl` for downloading payloads and `PowerShell` for execution. The rule targets a technique often used by attackers to execute malicious scripts or facilitate command-and-control (C&C) persistence without directly deploying the payload on the host system. The relevant MITRE ATT&CK tactics include Persistence (T1053.005) and Execution (T1218), which describe scenarios of establishing and maintaining access alongside executing scripts.
 
-  This behavior aligns with several MITRE ATT&CK tactics and techniques, including:
-  - **Execution** (T1203): Exploiting the system to execute commands.
-  - **Persistence** (T1053.005): Creating a scheduled task to maintain access.
-  - **Defense Evasion** (T1218): Using trusted Windows tools to perform malicious actions covertly.
-  - **Command and Control** (T1105): Downloading payloads from external sources.
-
-  Primary data sources that contain critical evidence include:
-  - Process creation events, which log command-line arguments and the applications invoked.
-  - Audit logs from Windows Task Scheduler that can show when and how tasks were created.
+  The primary telemetry source is Windows process creation events, specifically looking for Event ID 4688 in Security logs or Sysmon Event ID 1. If the activity is confirmed as malicious, it can lead to unauthorized execution of code, potential data exfiltration, and long-term persistence on the affected systems. It is crucial to note that this detection does NOT confirm malicious activity on its own, as legitimate administrative actions may trigger similar behaviors.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine logs for the process creation of `schtasks.exe`, filtering specifically for commands that include `/create`. Pay attention to command lines with suspicious or unusual parameters.
 
-  - **Analyze Command-Line for Downloading and Execution:** Check for instances where `curl` is used in conjunction with `powershell`. Determine if the command line indicates the download of content from external servers, as this may signify an attempt to execute unvetted scripts or binaries.
+  - **Review scheduled tasks:**
+    Check scheduled tasks on the affected system using PowerShell command `Get-ScheduledTask` or Event ID 4698 in Security logs. Look for unusual task names and execution triggers that deviate from standard operational procedures.
 
-  - **Inspect Scheduled Task Definitions:** Investigate the scheduled tasks that have been recently created for any that may use unusual task names or execute untrusted scripts. Identify the execution context and frequency of these tasks.
+  - **Analyze process creation logs:**
+    Examine Security Event ID 4688 and Sysmon Event ID 1 for instances where `schtasks.exe` is called with the ` /create ` parameter. Correlate these with any known administrators to distinguish legitimate task creations from suspicious ones.
 
-  - **Monitor Network Connections:** Look out for outbound network connections triggered by newly created scheduled tasks, especially those reaching external IPs or domains. Validate if these align with known malicious infrastructures.
+  - **Verify command line arguments:**
+    Investigate the CommandLine field for the specific task, ensuring it does not contain parameters that call external resources or use `curl` to download files. Legitimate tasks typically do not include calls to `curl` or similar downloading utilities.
+
+  - **Identify PowerShell usage:**
+    Check for any PowerShell execution logs linked with the scheduled task creation, focusing on Event ID 400 for PowerShell logs. Review any associated commands for known malicious indicators like encoded commands or suspicious URLs.
+
+  - **Cross-reference with network activity:**
+    Validate whether the system attempted connections to known malicious domains or IPs during the timeframe the scheduled task was created. Utilize DNS logs and proxy logs to confirm automated connections during or shortly after the task creation.
+
+  - **Establish high-confidence malicious indicators:**
+    Look for the usage of `curl` to download from unusual URLs, particularly those that redirect through several domains or contain obfuscated parameters. This may indicate that a malicious payload is being fetched for execution.
 
   ### Prioritization
-  The severity of this alert is medium due to the potential impact associated with unauthorized persistence mechanisms and command execution that could lead to further compromise of the environment. However, legitimate administrative use cases may lead to false positives, requiring nuanced analysis.
+
+  This alert carries medium severity due to the potential for significant impact on systems that host sensitive data or serve critical functions. Scheduled task creation is a common tactic used by adversaries for persistence, and the combination of `curl` and `PowerShell` for executing downloaded payloads is frequently weaponized in various attacks.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage for scheduled tasks created with legitimate administrative intent. The detection logic assumes that any usage of `schtasks.exe` with `curl` and `PowerShell` in combination signifies malicious intent, which may not always hold true. Ensuring appropriate logging of process creation events and command-line arguments is essential for the rule to function effectively, alongside monitoring configurations of Windows Task Scheduler for auditing.
+
+  Detection may be limited if logging is not consistently enabled for process creation or if PowerShell script block logging isn't active. Legitimate administrative tasks, particularly in automation scripts, could trigger false positives due to the use of `schtasks.exe`, `curl`, and `PowerShell`. Additional detection, such as monitoring for high-frequency PowerShell executions or abnormal outbound network traffic, could strengthen the overall coverage against these threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

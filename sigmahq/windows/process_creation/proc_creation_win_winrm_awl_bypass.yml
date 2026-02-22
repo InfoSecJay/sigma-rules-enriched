@@ -1,8 +1,8 @@
 title: AWL Bypass with Winrm.vbs and Malicious WsmPty.xsl/WsmTxt.xsl
 id: 074e0ded-6ced-4ebd-8b4d-53f55908119d
 status: test
-description: Detects execution of attacker-controlled WsmPty.xsl or WsmTxt.xsl via
-  winrm.vbs and copied cscript.exe (can be renamed)
+description: Detects execution of attacker-controlled WsmPty.xsl or WsmTxt.xsl 
+  via winrm.vbs and copied cscript.exe (can be renamed)
 references:
 - https://posts.specterops.io/application-whitelisting-bypass-and-arbitrary-unsigned-code-execution-technique-in-winrm-vbs-c8c24fb40404
 author: Julia Fomina, oscd.community
@@ -27,28 +27,34 @@ detection:
     - 'C:\Windows\SysWOW64\'
   contains_winrm:
     CommandLine|contains: 'winrm'
-  condition: contains_winrm and (contains_format_pretty_arg and not image_from_system_folder)
+  condition: contains_winrm and (contains_format_pretty_arg and not 
+    image_from_system_folder)
 falsepositives:
 - Unlikely
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the execution of potentially malicious scripts using the Windows Remote Management (WinRM) service through the manipulation of `winrm.vbs`. The primary focus is on the execution of attacker-controlled XML stylesheets (`WsmPty.xsl` and `WsmTxt.xsl`), which are loaded via a copied instance of `cscript.exe`. Attackers may leverage this technique to bypass application whitelisting and execute arbitrary code, thereby gaining unauthorized access or executing malicious actions within a target environment.
 
-  The threat scenario typically involves an adversary looking to exploit the WinRM service for lateral movement or remote code execution. By using obfuscated scripts or renamed binaries, they attempt to carry out their objectives while evading security controls. This behavior falls under the MITRE ATT&CK tactics of “Defense Evasion” (T1216), where attackers try to bypass whitelisting solutions.
+  This rule detects the execution of WsmPty.xsl or WsmTxt.xsl files through winrm.vbs using a copied version of cscript.exe, which attackers may leverage to execute arbitrary unsigned code and bypass application whitelisting mechanisms. The likely objective of the attacker is to remotely execute malicious scripts on compromised hosts without triggering security defenses. This behavior fits into the MITRE ATT&CK framework under the tactic "Defense Evasion" (TA0005) and technique "Indicator Removal on Host" (T1216).
 
-  The primary data sources for this detection rule include process creation events, providing insights into command-line arguments and the executables being run. This telemetry is critical due to its capacity to capture detailed information on how scripts are executed, particularly in contexts where common binaries are renamed or manipulated.
+  Primary telemetry sources for this detection include process creation logs from Windows, particularly focusing on Event ID 4688, which records process creation events containing the command line arguments associated with winrm.vbs and the malicious XSL files. If successful, this behavior can lead to significant security breaches, including remote code execution and unauthorized access to sensitive data. However, this detection alone does NOT confirm that a compromise has occurred; further investigation is necessary to determine the context and intent behind the command execution.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for commands related to `winrm.vbs` and the presence of `cscript.exe`. Pay particular attention to unusual arguments such as `format:pretty` or `format:"text"`.
-  - **Analyze Suspicious Scripts:** Locate and analyze the contents of any `WsmPty.xsl` and `WsmTxt.xsl` scripts that were executed. This can help identify if they contain malicious payloads or obfuscated code.
-  - **Correlate with WinRM Activity:** Investigate recent WinRM activity on affected machines, checking for unusual remote commands or connections that may correlate with the timestamps of the suspicious script executions.
-  - **Examine Environment Configurations:** Validate the application whitelisting configurations on affected endpoints to ensure that they are working as intended and that no unauthorized changes have been made that would permit this behavior.
+
+  - **Review event logs for suspicious script execution:** Look for Security Event ID 4688 logs where the command line contains "winrm" and observed parameters such as 'format:pretty' or any similar variations. Pay attention to the ParentProcessId to trace back to its spawning process.
+
+  - **Check for presence of malicious files:** Identify if WsmPty.xsl or WsmTxt.xsl exists on the system by reviewing file paths or creation events in Windows Event Log (e.g., File System Access logs). The presence of these files, especially if located in directories like C:\Windows\Temp, is a high-confidence indicator of malicious intent.
+
+  - **Correlate with network activity:** Investigate any outbound traffic related to Windows Remote Management (WinRM). Check for unusual external connections or command and control communications using firewall or proxy logs, specifically reviewing IP addresses that flow through non-standard ports (like 5985/5986).
+
+  - **Evaluate legitimate usage patterns:** Establish a baseline of expected WinRM usage within the organization. Review environment-specific documentation and user account logs for those authorized to invoke WinRM commands—check for consistent user activity patterns.
 
   ### Prioritization
-  The severity of this alert is considered medium due to the potential impact of successful exploitation leading to unauthorized remote access or execution of malicious code. Such activities can facilitate further attacks in the environment and may pose a real threat if left undetected.
+
+  This alert has medium severity due to the potential impact on critical systems and the likelihood of abuse by malicious actors focusing on stealthy code execution methods. Although not commonly weaponized for mass exploits, variations of this technique can be tailored for targeted attacks, warranting timely investigation.
 
   ### Blind Spots and Assumptions
-  This detection rule assumes that logs from process creation events are enabled and configured correctly. A potential gap in detection coverage exists if the attacker utilizes legitimate applications to achieve their goals, thus evading scrutiny. Additionally, if the attacker creates alternate means of executing these scripts outside the standard application paths or configurations monitored, detection may be ineffective. Proper configuration of logging for WinRM and script executions is essential for this alert to function adequately.
+
+  Detection may be limited by the presence of legitimate WinRM usage in certain environments, which can lead to false positives. It is crucial to ensure that complete Windows Security logs are collected, including detailed command lines from process creation logs. Moreover, benign scripts triggered by legitimate automation tools could also inadvertently trigger this alert. Companion detections, like monitoring for unusual PowerShell commands that interact with WinRM, can enhance coverage and provide context for the observed behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

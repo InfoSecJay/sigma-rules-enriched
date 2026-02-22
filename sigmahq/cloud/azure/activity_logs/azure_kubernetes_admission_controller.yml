@@ -37,26 +37,36 @@ detection:
   condition: selection
 falsepositives:
 - Azure Kubernetes Admissions Controller may be done by a system administrator.
-- If known behavior is causing false positives, it can be exempted from the rule.
+- If known behavior is causing false positives, it can be exempted from the 
+  rule.
 level: medium
 note: |
   ### Technical Context
-  This rule detects the use of Azure Kubernetes Admission Controllers, specifically when an admission webhook is executed. Admission controllers are mechanisms in Kubernetes that intercept requests to the API server, allowing administrators to enforce policies on resource creation and modification. However, an attacker can exploit these webhooks for malicious activities, such as inserting backdoors or capturing sensitive information like credentials.
 
-  In a potential threat scenario, an adversary with access to the cluster could deploy a malicious admission controller as a `MutatingAdmissionWebhook`, allowing them to automatically modify any new pods to include malicious containers. Alternatively, a `ValidatingAdmissionWebhook` could be used to capture and record sensitive information from API requests, like secrets. This behavior aligns with multiple MITRE ATT&CK tactics, including **Initial Access (TA0001)**, **Privilege Escalation (TA0004)**, **Persistence (TA0003)**, and **Credential Access (TA0006)**, particularly techniques like **T1078** (Valid Accounts) and **T1552.007** (Application Layer Protocol).
+  This Sigma rule detects modifications related to Kubernetes admission controllers, specifically when a user creates or modifies MutatingAdmissionWebhook or ValidatingAdmissionWebhook configurations in Azure Kubernetes Service. The likely attacker objective is to gain persistence or compromise the security of the Kubernetes cluster by manipulating pod creation requests, either to introduce malicious containers or to capture sensitive information such as secrets. This behavior aligns with the MITRE ATT&CK tactics and techniques of Privilege Escalation (T1078) and Credential Access (T1552).
 
-  The primary data sources for this detection include Azure activity logs related to Kubernetes operations, specifically logs that capture events associated with AdmissionRegistration and webhook configuration changes.
+  The primary telemetry source for this detection is Azure Activity Logs, specifically looking for events related to the operation of admission registration in Kubernetes. If the actions are malicious, they could lead to unauthorized access or data breaches. However, this detection does not confirm the intent behind the changes to the admission webhooks without additional context; legitimate configuration changes by authorized personnel can also trigger the rule.
 
   ### Investigation Steps
-  - **Review Admission Controller Logs:** Examine Azure activity logs for entries related to `AdmissionRegistration.k8s.io` to identify any unauthorized or unusual configuration changes.
-  - **Analyze Pod Creation Events:** Investigate pod creation logs to determine if any pods were altered with malicious containers through the admission webhook.
-  - **Inspect Webhook Configurations:** Look for newly created or modified `MutatingWebhookConfiguration` and `ValidatingWebhookConfiguration` resources, analyzing their payloads and any endpoints they connect to.
-  - **Check for Anomalous Access:** Monitor activity for unusual API requests or access patterns that may indicate an adversary is attempting to capture sensitive information via interception.
+
+  - **Check Azure Activity Logs:** Review Azure Activity Logs for Event Type: “Operation” and filter for `operationName` entries starting with `MICROSOFT.KUBERNETES/CONNECTEDCLUSTERS` or `MICROSOFT.CONTAINERSERVICE/MANAGEDCLUSTERS`. Look for entries involving `MUTATINGWEBHOOKCONFIGURATIONS/WRITE` or `VALIDATINGWEBHOOKCONFIGURATIONS/WRITE`.
+
+  - **Identify suspicious modifications:** Assess the `properties` field in the logs to identify whether the webhook configurations include unrecognized or potentially malicious container images, or if they are targeting sensitive namespaces.
+
+  - **Review access controls:** Evaluate any changes in Role-Based Access Control (RBAC) linked to the SANDBOX environment. Identify whether any unauthorized principal has been granted write access to webhook configurations through `RoleAssignments`.
+
+  - **Examine legitimate behavior patterns:** Compare recent webhook creation/modification logs against known system administrator behavior. Identify expected patterns, such as typical JSON configurations or timestamps aligning with maintenance windows.
+
+  - **Correlate with known indicators:** Look for signs of malicious activity such as known bad container images in the webhook configuration data, or correlate with threat intelligence feeds for identification of malicious webhook patterns.
+
+  - **Check for additional security configurations:** Review any related detections or alerts in your Security Information and Event Management (SIEM) platform that may indicate broader Kubernetes-related threats, such as unusual API calls or unexpected deployment activities in the cluster.
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of unauthorized access and persistence methods in a Kubernetes environment. Attackers leveraging admission controllers pose a significant risk to the integrity and confidentiality of the cluster and its workloads.
+
+  This alert should be treated with medium priority because unauthorized modifications to admission controllers can significantly compromise the integrity of the Kubernetes environment. While the likelihood of abuse is moderate, the potential impact on sensitive data and services is critical, making this behavior warrant further investigation. Admission controllers are commonly targeted by adversaries for persistence and access, increasing the overall risk.
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may include environments where logging for Kubernetes API calls is not properly configured or secured. The detection logic assumes that all legitimate access to admission controller operations is expected behavior, meaning that misconfigurations or approved administrative actions could generate false positives. For this alert to function effectively, logging for Azure activity must be enabled and properly configured to capture all relevant events related to admission controllers.
+
+  This detection may struggle against evasion techniques such as legitimate privilege escalation or misconfigured RBAC rules that allow unauthorized users to modify webhook configurations unnoticed. Reliable detection requires full access to Azure Activity Logs and appropriate monitoring of account permissions within the cluster environment. Legitimate activities such as routine updates by vetted system admins could trigger this alert mistakenly. Companion detections should include alerting on unusual deployment patterns or changes in Kubernetes API interactions to strengthen coverage against potential abuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -26,7 +26,8 @@ detection:
     Image: 'C:\WINDOWS\system32\svchost.exe'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Maybe some system utilities in rare cases use linking keys for backward compatibility
+- Maybe some system utilities in rare cases use linking keys for backward 
+  compatibility
 level: medium
 regression_tests_path: 
   regression_data/rules/windows/registry/registry_set/registry_set_persistence_com_key_linking/info.yml
@@ -37,25 +38,31 @@ simulation:
   atomic_guid: 33eacead-f117-4863-8eb0-5c6304fbfaa9
 note: |
   ### Technical Context
-  This detection rule identifies potential COM (Component Object Model) object hijacking via the TreatAs subkey in the Windows registry. Attackers may exploit this vulnerability to redirect call requests for legitimate COM objects to malicious code, enabling them to execute arbitrary code or escalate privileges on the affected system. The threat scenario often involves an adversary aiming for persistence or privilege escalation, taking advantage of the registry's structure to ensure their code runs in place of a trusted process.
 
-  The relevant MITRE ATT&CK tactics include **Persistence** (TA0002) and **Privilege Escalation** (TA0004), specifically techniques such as **"COM Hijacking"** (T1546.015). The detection logic focuses on monitoring registry changes, particularly the creation or modification of registry keys under the `HKU\` and `Classes\CLSID\` paths, specifically those that include the subkey `TreatAs`.
+  This rule detects attempts at COM object hijacking via the TreatAs subkey in the Windows registry. Attackers may manipulate this registry key to redirect component object model (COM) calls to malicious executables, allowing them to achieve persistence or escalate privileges. The relevant MITRE ATT&CK tactics/techniques are Persistence (T1546.015) and Privilege Escalation.
 
-  Primary data sources for this detection include security logs related to registry modifications, which are crucial in identifying unauthorized changes that may indicate malicious behavior.
+  Primary telemetry comes from Windows registry modifications, specifically monitoring changes to the "HKU\" and "Classes\CLSID\" paths. If this behavior is malicious, it could lead to unauthorized execution of malicious payloads or persistent malware installed in the system. However, this detection does not confirm malicious intent on its own, as legitimate system utilities may also interact with registry keys for valid reasons.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Examine registry logs for changes to the `HKU\` and `Classes\CLSID\` paths, paying close attention to any entries that include the `TreatAs` subkey. Identify any unauthorized modifications leading to potential hijacking.
 
-  - **Analyze Process Creation Events:** Investigate process creation logs for instances of `svchost.exe`, particularly those associated with modifications to COM objects. Look for unusual command-line parameters or parent-child process relationships that may indicate malicious activity.
+  - **Examine the affected registry key**: Query the registry for changes to `HKU\<User SID>\Classes\CLSID\<Class ID>\TreatAs` using PowerShell command `Get-ItemProperty -Path HKU:\<User SID>\Classes\CLSID\<Class ID>\TreatAs`. Look for unusual values pointing to non-standard paths or executables.
 
-  - **Check for Unusual User Activity:** Monitor for any abnormal user activity surrounding the changes detected, such as high privilege account interactions or actions executed during off-hours, which may suggest a compromise.
+  - **Verify the parent COM object**: Cross-reference the COM object being hijacked with known legitimate applications. Use `Get-Item -Path HKU:\<User SID>\Classes\CLSID\<Class ID>` to check the underlying application legitimacy based on GUID information.
 
-  - **Validate Trusted Path Integrity:** Cross-check registered CLSIDs against known good values. Any deviations should be flagged for further scrutiny, particularly those linking to instances of hijacking noted in previous investigations.
+  - **Check for unexpected svchost.exe usage**: Analyze event logs identifying that `svchost.exe` is modifying these registry keys (Security Event ID 4657). Look for instances where its image path does not match common legitimate svchost usage.
+
+  - **Identify recent system activity**: Review Windows Event Log Security (Event ID 4688) for recent process creations associated with the given user account, especially for processes that may interact with COM objects or modify registry keys.
+
+  - **Look for common legitimate uses**: Legitimate applications may modify the TreatAs subkey for compatibility reasons. However, these instances are often limited and should not appear frequently. Investigate the context around benign activity for background processes.
+
+  - **Search for other indicators of compromise**: Validate file creation or modification artifacts correlated with the suspicious registry entries by checking for uncommon or hidden files created in typical executable paths (C:\Program Files\ or C:\Windows\Temp\), combined with file timestamps.
 
   ### Prioritization
-  The alert should be considered of medium severity, reflecting the potential for significant impact if an attacker successfully hijacks a COM object. Given the likelihood of both persistence and privilege escalation through such methods, it's critical for incident responders to investigate promptly.
+
+  This alert is considered medium severity due to the potential for privilege escalation and persistence on critical systems. The likelihood of malicious exploitation is notable, given the specific behavior of registry tampering for COM hijacking is a recognized technique often employed by adversaries to gain control or maintain footholds.
 
   ### Blind Spots and Assumptions
-  There are inherent gaps in detection coverage, particularly relating to legitimate system utilities that might use linking keys for backward compatibility, which can lead to false positives. The detection logic assumes that registry modifications are malicious unless verified otherwise, which may not capture legitimate administrative activities. Additionally, proper logging configurations must be in place to ensure all relevant registry changes are captured for analysis, including access to the Windows registry audit logs.
+
+  Detection may miss sophisticated evasion techniques where attackers could manipulate the registry without apparent changes (e.g., employing legitimate-looking values). Reliable detection requires that registry auditing is enabled. Furthermore, some legitimate applications or system updates could trigger this alert without malicious intent, such as updating COM components for compatibility. Related detections include monitoring for unusual administrative access to the Windows registry itself or unexpected process creation events associated with COM objects.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

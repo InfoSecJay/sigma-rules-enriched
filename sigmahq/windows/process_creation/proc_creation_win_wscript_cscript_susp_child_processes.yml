@@ -8,7 +8,8 @@ references:
 - Internal Research
 - https://github.com/pr0xylife/Pikabot/blob/fc58126127adf0f65e78f4eec59675523f48f086/Pikabot_30.10.2023.txt
 - https://github.com/pr0xylife/Pikabot/blob/fc58126127adf0f65e78f4eec59675523f48f086/Pikabot_22.12.2023.txt
-author: Nasreddine Bencherchali (Nextron Systems), Alejandro Houspanossian ('@lekz86')
+author: Nasreddine Bencherchali (Nextron Systems), Alejandro Houspanossian 
+  ('@lekz86')
 date: 2023-05-15
 modified: 2024-01-02
 tags:
@@ -44,47 +45,46 @@ detection:
     - 'UpdatePerUserSystemParameters'
     - 'PrintUIEntry'
     - 'ClearMyTracksByProcess'
-  condition: selection_parent and ( selection_cli_standalone or (selection_cli_script_main
-    and 1 of selection_cli_script_option_*) ) and not 1 of filter_main_*
+  condition: selection_parent and ( selection_cli_standalone or 
+    (selection_cli_script_main and 1 of selection_cli_script_option_*) ) and not
+    1 of filter_main_*
 falsepositives:
-- Some false positives might occur with admin or third party software scripts. Investigate
-  and apply additional filters accordingly.
+- Some false positives might occur with admin or third party software scripts. 
+  Investigate and apply additional filters accordingly.
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects potentially malicious child processes spawned by Wscript or Cscript, particularly looking for unusual behavior such as spawning `rundll32`, `regsvr32`, or invoking `mshta` with suspicious command-line arguments. Attackers may utilize these techniques to execute payloads or scripts in a manner that evades common security controls. The relevant MITRE ATT&CK tactics for this detection include Execution (TA0002) and the techniques for Command-Line Interface (T1059) as well as Scripting (T1064).
+  This Sigma rule detects the execution of potentially malicious child processes spawned by Windows Script Host (either `wscript.exe` or `cscript.exe`). The most common attacker objective is to execute payloads or scripts that utilize common Windows executable files like `rundll32.exe` or `regsvr32.exe` to perform malicious activities without raising alarms. This behavior aligns with the MITRE ATT&CK tactic of Execution (T1203) and technique of Execution through String Manipulation (T1203). The primary telemetry sources are Windows Security logs (Event ID 4688) capturing process creation and Sysmon logs that provide detailed insights into process behavior and command line arguments passed.
 
-  Primary telemetry sources include process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1. If this activity is malicious, it may lead to unauthorized remote access, data exfiltration, or lateral movement within the network. Importantly, this alert does not confirm that the observed behavior is definitively malicious; legitimate administrative scripts may produce similar artifacts.
-
-  ---
+  If malicious, the impact could be severe, potentially leading to system compromise or lateral movement. However, this detection does NOT confirm malicious intent on its own, as it may also arise from legitimate administrative scripts or third-party software actions.
 
   ### Investigation Steps
 
-  - **Check process creation logs for suspicious parent-child relationships**: Review Security Event ID 4688 or Sysmon Event ID 1 for instances where `wscript.exe` or `cscript.exe` are spawning processes such as `rundll32.exe`, `regsvr32.exe`, or `mshta.exe` with uncommon command-line arguments.
+  - **Review Process Tree:**
+    Examine the parent-child process relationships in the telemetry provided, focusing on Event ID 4688 for process creation. Look for `wscript.exe` or `cscript.exe` as the parent processes and identify if subsequent commands executed are part of known malicious patterns.
 
-  - **Inspect command-line arguments for potential indicators of compromise**: Focus on command-line strings in processes spawned by Wscript/Cscript. Look for unusual terms like 'mshta' paired with URLs or suspicious commands in `cmd.exe` or `powershell.exe` processes.
+  - **Analyze Command Line Arguments:**
+    Inspect the command line arguments associated with suspicious child processes using Sysmon Event ID 1 logs. Specific attention should be paid to commands involving `rundll32`, `mshta`, or `regsvr32`. Compare against a list of benign options to distinguish between legitimate and potentially malicious behavior.
 
-  - **Identify known benign executions**: Verify if the observed behavior correlates with known administrative tasks or third-party scripts. Document any legitimate `rundll32` or `regsvr32` operations, noting typical arguments associated with them.
+  - **Validate Process Execution Origin:**
+    Identify the execution path of the suspicious process through Event ID 4688. If the image path of `rundll32.exe` or `regsvr32.exe` is atypical (e.g., located in a user profile or temp folders), it is a strong indicator of compromise.
 
-  - **Correlate against threat intelligence**: Cross-reference the identified process and command-line activities with known threat actors or techniques, particularly those attributed to malware such as Pikabot or Qakbot.
+  - **Check for Known Export Usage:**
+    Reference the specific exports being invoked by `rundll32.exe` in the context of the command line. Exports like `UpdatePerUserSystemParameters`, `PrintUIEntry`, or `ClearMyTracksByProcess` should not be present; their usage may indicate misuse for malicious payload delivery.
 
-  - **Monitor for additional signs of lateral movement**: Search for any follow-up processes initiated from these suspicious executions that connect to remote servers or interact with sensitive resources (e.g., files on share drives).
+  - **Identify Benign Activity:**
+    Acknowledge that the execution of scripts via `wscript.exe` or `cscript.exe` can be legitimate in administrative contexts, especially by IT staff for task automation. Cross-reference the users and processes involved with a known inventory of administrative tasks and authorized scripts.
 
-  ---
+  - **Cross-Reference with Threat Intelligence:**
+    If identified behaviors match documented malware indicators, such as those linked to Pikabot or Qakbot, escalate accordingly. Utilize threat intelligence feeds to validate if the detected patterns align with known malicious behaviors.
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential for significant impact when malicious software exploits legitimate Windows scripting hosts to execute payloads. The likelihood of malicious activity utilizing these techniques is moderate, as adversaries frequently abuse script execution for persistence and attack vectors.
-
-  ---
+  The medium severity of this alert indicates that while the execution of suspicious processes could lead to severe security incidents, not all triggers are malicious. The likelihood of exploitation is moderate due to the nature of the involved applications, which are commonly found in both benign and malicious contexts.
 
   ### Blind Spots and Assumptions
 
-  This detection is limited by the possibility of effective obfuscation or non-standard command-line patterns; attackers may employ more legitimate-looking arguments to evade detection. Dependency on accurate process creation logging is crucial for reliable alerts, so ensure logging is configured correctly across all relevant hosts. Legitimate administrative scripts could trigger this alert, warranting a careful review of script usage in the environment. A companion detection rule for monitoring PowerShell commands and script executions (T1059.001) can enhance coverage of suspicious activity.
-
-  ---
+  Detection may be limited by legitimate administrative scripts that spawn these child processes, leading to false positives. It is essential to have full auditing enabled on process creation (Event ID 4688) and appropriate Sysmon configurations to capture critical command line data. Legitimate system maintenance activities could generate similar alerts. A related detection to consider is the monitoring of unusual outbound connections initiated by `rundll32.exe`, which can strengthen context around the executed script and its intent.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

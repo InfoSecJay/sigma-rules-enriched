@@ -6,8 +6,9 @@ related:
 - id: 98c5aeef-32d5-492f-b174-64a691896d25     # Generic SD tampering
   type: similar
 status: test
-description: Detects usage of the "sc.exe" utility adding a new service with special
-  permission seen used by threat actors which makes the service hidden and unremovable.
+description: Detects usage of the "sc.exe" utility adding a new service with 
+  special permission seen used by threat actors which makes the service hidden 
+  and unremovable.
 references:
 - https://blog.talosintelligence.com/2021/10/threat-hunting-in-large-datasets-by.html
 - https://www.sans.org/blog/red-team-tactics-hiding-windows-services/
@@ -44,29 +45,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the use of the `sc.exe` utility to create a Windows service with specialized permissions that renders the service hidden and potentially unremovable. This behavior is indicative of attacker activity aimed at maintaining persistence and evading detection by making malicious services less visible to system administrators and security tools. Threat actors may exploit this technique to further their objectives, such as establishing a backdoor or ensuring that their malware remains operational even after system reboots or administrative cleanup efforts.
 
-  Relevant MITRE ATT&CK tactics and techniques applicable to this detection include:
-  - **Persistence**: The technique of creating services that allow malware to execute upon system startup (T1543.003).
-  - **Defense Evasion**: Techniques that involve obfuscating malicious activities to avoid detection (T1564).
-  - **Privilege Escalation**: Activities that aim to gain elevated permissions (T1574.011), which is specifically highlighted in this rule due to the manipulation of service permissions.
+  This rule detects the misuse of the Windows command-line utility `sc.exe` to modify service permissions in a way that may conceal services from standard views, potentially facilitating persistent malicious activity on a system. Attackers aim to hide their malicious services to maintain a foothold and evade detection by security tools and personnel. The relevant MITRE ATT&CK technique is T1574.011: **Service DACL Abuse**.
 
-  Primary data sources for detecting this activity include:
-  - **Process Creation Logs**: These logs capture command-line arguments and executable processes on Windows systems, providing insight into the use of `sc.exe` and its command-line parameters.
+  The primary telemetry source for this detection is Windows process creation logs, specifically capturing Event ID 4688 (process creation) along with relevant command line arguments used in the `sc.exe` command. If executed with elevated privileges, the modification of service permissions can lead to unmonitored runtime behavior on the system, significantly increasing the security impact if performed maliciously. Importantly, this detection does NOT confirm malicious intent on its own; it requires contextual analysis to determine if the activity is an authorized administrative action.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Check for any instances of `sc.exe` with command-line arguments indicating modifications to service permissions, specifically looking for the use of `sdset` and unusual SDDL strings like 'DCLCWPDTSD'.
 
-  - **Analyze Service Configuration**: Investigate the list of services on the affected system and examine their properties for discrepancies, particularly any services created or altered shortly before the detection.
+  - **Review process creation logs:** Check Windows Security Event ID 4688 for instances of `sc.exe`. Focus on the `CommandLine` to identify usage of `sdset` with permissions string `DCLCWPDTSD`, indicating potential service abuse.
 
-  - **Correlate with User Activity**: Identify the user account that executed the `sc.exe` command. Look for any unusual login activity or administrative actions around the time of the service creation to establish context.
+  - **Verify service status:** Use `Get-Service` PowerShell command or query system services in Event Viewer to identify newly added or modified services. Legitimate services typically have known names and descriptions, while hidden or modified services may not appear in standard service queries.
 
-  - **Examine Related Artifacts**: Check system logs for other signs of compromise that may correlate with the service creation, such as unexpected process executions, active network connections, and other suspicious system modifications.
+  - **Check for elevated privileges:** Look at Security Event ID 4672 (Special privileges assigned) to confirm if the command was executed by an account with administrative privileges. Confirm unauthorized accounts have not been used.
+
+  - **Identify unusual service characteristics:** Examine the registry for the service under `HKLM\SYSTEM\CurrentControlSet\Services`. Note any created services that lack an associated executable path or are set to start automatically but are hidden.
+
+  - **Cross-reference with threat intelligence:** Consult threat intelligence sources for known behavior or signatures associated with service abuse, especially in the context of recent incidents or malware campaigns.
+
+  - **Assess host criticality:** Consider the role and criticality of the host device involved. If it manages sensitive data or critical infrastructure, immediate escalation may be warranted.
 
   ### Prioritization
-  The alert should be treated with high urgency in an enterprise environment due to the potential impact of an attacker leveraging this technique to maintain undetected access and control over compromised systems, which can lead to further breaches or data exfiltration.
+
+  This alert is prioritized as high severity due to the potential for high-impact malicious behavior, particularly if it is targeting critical systems. The likelihood of adversaries weaponizing service DACL abuse is significant, especially in mature threat environments where evasion tactics are prevalent.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by systems not generating comprehensive process creation logs or configurations not being set up to capture command-line arguments. It is assumed that the presence of process creation logs is a consistent aspect of the environment; if these logs are unavailable or disabled, the detection will fail. Additionally, the logic assumes that the `sdset` command usage is unique or uncommon within the environment, which may lead to false positives if legitimate administration and service modifications are prevalent.
+
+  Detection may be limited as some legitimate administrative tasks might trigger this alert, especially if conducted by system administrators. Ensure adequate logging policies are in place for both process creation and service modifications to facilitate detection. Common evasion techniques might include using alternate utilities or manipulating permissions in ways that do not trigger standard logging. A related detection to consider is the identification of unauthorized service creation or modification via generic service tampering rules.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

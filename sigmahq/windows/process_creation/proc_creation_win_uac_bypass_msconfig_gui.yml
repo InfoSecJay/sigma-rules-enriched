@@ -1,7 +1,8 @@
 title: UAC Bypass Using MSConfig Token Modification - Process
 id: ad92e3f9-7eb6-460e-96b1-582b0ccbb980
 status: test
-description: Detects the pattern of UAC Bypass using a msconfig GUI hack (UACMe 55)
+description: Detects the pattern of UAC Bypass using a msconfig GUI hack (UACMe 
+  55)
 references:
 - https://github.com/hfiref0x/UACME
 author: Christian Burkard (Nextron Systems)
@@ -29,22 +30,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to bypass User Account Control (UAC) by leveraging a known technique involving the modification of Windows token properties through the `msconfig` application. The tactic exploited is commonly described in the usage of tools like UACMe, specifically the version corresponding to method number 55. Attackers typically aim to escalate privileges without raising immediate alarms, allowing them to execute malicious code with elevated permissions.
 
-  In this threat scenario, the predominant objectives of the attacker include gaining unauthorized access to higher privilege levels or executing commands in a high-integrity process space. This behavior is classified under the MITRE ATT&CK framework, specifically targeting techniques related to Defense Evasion (T1548) and Privilege Escalation (T1548.002), highlighting how attackers manipulate processes to avoid detection while advancing their operational goals.
+  This rule detects potential User Account Control (UAC) bypass attempts through a specific modification of the MSConfig token, particularly triggered by the application package manager (pkgmgr.exe) running as a parent process. The likely attacker objective is to gain higher privileges on a Windows system without triggering UAC prompts, which is a common step in privilege escalation. This behavior maps to the MITRE ATT&CK technique **"Bypass User Account Control" (T1548.002)**.
 
-  The primary data source for this detection rule is the Windows process creation logs, which provide comprehensive insights into the execution of processes and their respective command-line arguments, as well as their parent processes. By analyzing these logs, security analysts can pinpoint suspicious activities indicative of UAC bypass attempts.
+  The primary telemetry source for this detection is Windows process creation logs, specifically monitoring for executable processes with high or system integrity levels. If malicious, this could allow an adversary to execute privileged commands without detection. This detection does NOT, on its own, confirm that a UAC bypass was successful or that malicious intention is present, as legitimate administrative actions could produce similar logs.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Collect and analyze process creation event logs for instances where `msconfig.exe` is invoked, particularly focusing on command line parameters and parent process details.
-  - **Examine Parent Process:** Verify any instances where the parent process is `pkgmgr.exe` found in the `C:\Users\<username>\AppData\Local\Temp\` directory, as this combination may indicate an attempted UAC bypass.
-  - **Check Integrity Levels:** Investigate the integrity levels of the processes involved, specifically looking for processes that are running with High or System integrity levels, which may suggest that the UAC bypass was successful.
-  - **Correlate with Other Events:** Enhance the investigation by correlating findings with other potentially relevant security events, such as unusual login activities or prior privilege escalation attempts, to assess the broader context of the observed behavior.
+
+  - **Analyze process creation logs:** Check for Windows Security Event ID **4688** or Sysmon Event ID **1** to see if the process `msconfig.exe` was executed with the command line argument `-5`. Review the **CommandLine** field for this specific parameter.
+
+  - **Examine parent process context:** Confirm the parent process is `pkgmgr.exe`. The presence of this parent in the context of UAC bypass raises suspicion. Validate using the **ParentImage** field of the process creation event.
+
+  - **Identify executed with high integrity levels:** Filter results to events where the **IntegrityLevel** is set to **High** or **System**. Legitimate system maintenance actions should not involve the `msconfig.exe` process executed this way.
+
+  - **Investigate for known compromise indicators:** Check for previous alerts associated with `pkgmgr.exe` and `msconfig.exe` in the last 30 days. Elevated execution from arbitrary paths can indicate a compromised host.
+
+  - **Correlate with user authentication:** Examine logs in **Event ID 4624** or **4625** for the user that executed `msconfig.exe`. Unusual users or systems correlating with this event may warrant further investigation.
+
+  - **Review legitimate use cases:** Acknowledge expected behavior where legitimate system administrators might execute `msconfig.exe`. This typically involves command lines without the `-5` argument and may involve tools for system troubleshooting.
 
   ### Prioritization
-  This alert holds a high severity in an enterprise environment as it indicates a successful attempt at privilege escalation, which can lead to significant security breaches if left unaddressed. The likelihood of this tactic being employed in real-world attacks is notable, given its practicality and effectiveness among adversaries.
+
+  This alert should be considered high severity due to the potential for significant security impact via privilege escalation in enterprise environments. The likelihood of malicious actors exploiting UAC bypass techniques is well-documented, increasing the urgency of investigation, especially in high-value assets.
 
   ### Blind Spots and Assumptions
-  The detection logic may not account for instances where UAC is disabled or where other legitimate administrative activities could produce similar command-line arguments. Additionally, if logging levels are insufficient or if process creation events are not adequately captured, the effectiveness of this rule may be compromised. As such, it is essential to ensure that the logging configuration for Windows Security Auditing is appropriately set to capture detailed process creation events to leverage this detection effectively.
+
+  This detection may be evaded through modifications in the command line or the use of different parent process mechanisms. It relies on the presence of accurate process creation logs; if Windows auditing is not properly configured, key events may be missed. Legitimate administrative tasks could trigger this alert, especially in environments with high activity. A companion detection that strengthens coverage includes monitoring for **Windows Event ID 4697**, which captures new service creation, as persistence mechanisms may accompany such privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

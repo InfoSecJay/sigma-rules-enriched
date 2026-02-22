@@ -1,14 +1,14 @@
 title: Suspicious LSASS Access Via MalSecLogon
 id: 472159c5-31b9-4f56-b794-b766faa8b0a7
 status: test
-description: Detects suspicious access to LSASS handle via a call trace to "seclogon.dll"
-  with a suspicious access right.
+description: Detects suspicious access to LSASS handle via a call trace to 
+  "seclogon.dll" with a suspicious access right.
 references:
 - https://twitter.com/SBousseaden/status/1541920424635912196
 - https://github.com/elastic/detection-rules/blob/2bc1795f3d7bcc3946452eb4f07ae799a756d94e/rules/windows/credential_access_lsass_handle_via_malseclogon.toml
 - https://splintercod3.blogspot.com/p/the-hidden-side-of-seclogon-part-3.html
-author: Samir Bousseaden (original elastic rule), Nasreddine Bencherchali (Nextron
-  Systems)
+author: Samir Bousseaden (original elastic rule), Nasreddine Bencherchali 
+  (Nextron Systems)
 date: 2022-06-29
 tags:
 - attack.credential-access
@@ -28,23 +28,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious access to the Local Security Authority Subsystem Service (LSASS) executable through a call trace that includes the "seclogon.dll" library. Attackers leveraging this method may attempt to extract sensitive information such as passwords or authentication tokens by manipulating LSASS, a crucial component of Windows security involved in authentication and security policy enforcement. The likely objective is to gain unauthorized access and escalate privileges within the targeted environment to facilitate further attacks.
 
-  The primary MITRE ATT&CK tactics involved here are **Credential Access** (TA0006) and the specific technique **Credential Dumping: LSASS Memory** (T1003.001). This technique highlights how adversaries can exploit LSASS to obtain credentials. Effective detection of this activity hinges upon specific telemetry data, primarily **process access logs** that capture interactions with sensitive processes on Windows systems.
+  This Sigma rule detects suspicious access to the LSASS (Local Security Authority Subsystem Service) process via a call trace to "seclogon.dll" with a specific access right. The behavior indicates that an attacker may be attempting to extract credentials from LSASS using a less common method, which typically involves leveraging the "svchost.exe" process. The likely attacker objective is to obtain sensitive credential information for lateral movement or privilege escalation.
+
+  This detection aligns with the MITRE ATT&CK technique for Credential Access: LSASS Injection (T1003.001). The primary telemetry sources include Windows process access logs and specific Event IDs related to process creation and access, notably Event ID 4656 (Access Attempt) and Event ID 4688 (Process Creation). If malicious, this behavior can lead to the compromise of user credentials and further attacks on the organization’s resources. It’s important to note that this detection does NOT confirm a successful credential extraction, only that a suspicious access attempt occurred.
 
   ### Investigation Steps
-  - **Review Process Access Logs**: Examine process access logs to identify any instances of svchost.exe attempting to access LSASS with granted access rights indicative of credential dumping, such as 0x14c0.
 
-  - **Analyze Call Trace Data**: Investigate the call traces correlated with the detected events, specifically looking for any references to "seclogon.dll," which may suggest an attempt to manipulate LSASS via unauthorized means.
+  - **Check Event IDs 4656 and 4688 for detailed analysis:** Review the Security Event Logs for Event ID 4656 (Access Attempt) to examine the access right (ensure it matches 0x14c0) and Event ID 4688 (Process Creation) to confirm the creation of 'svchost.exe' and its parameters.
 
-  - **Inspect Network Connections**: Check for suspicious network connections initiated by svchost.exe, particularly towards known attacker infrastructure or other internal endpoints that could be indicative of lateral movement.
+  - **Analyze process call traces for legitimacy:** Inspect any call traces for ‘seclogon.dll’ to establish whether they are part of legitimate activity, such as standard system operations. Verify their origin and ensure they don't have unusual or unexpected parameters.
 
-  - **Assess User Activity and Context**: Validate the context of the user account performing the action, ensuring it aligns with expected behavior. Look for anomalies in user activity around the time of the detection, such as unusual logon times or access to sensitive systems.
+  - **Identify account privileges associated with the access:** Look up the processes’ owner and account under which 'svchost.exe' ran. Accounts with administrative or elevated privileges accessing LSASS may indicate a higher risk of malicious behavior.
+
+  - **Cross-reference with typical system behavior:** For normal operations, 'svchost.exe' may access LSASS but not through ‘seclogon.dll’. Validate that expected access matches known behavior patterns (e.g., typical applications triggering LSASS access for legitimate purposes, such as authentication).
+
+  - **Investigate surrounding context for anomalous behaviors:** Correlate this alert with other activities such as new service installations, account logins, or anomalous process behavior over the same timeframe to identify potential malicious intent.
 
   ### Prioritization
-  This alert should be treated with high severity in an enterprise environment due to the significant risk posed by credential dumping activities. The potential impact of compromised credentials can lead to unauthorized access to critical systems, data breaches, and extensive lateral movement within the network.
+
+  The alert should be treated with high severity due to the potential compromise of sensitive credentials and the involvement of LSASS, a critical Windows service. Attackers often exploit this pathway to facilitate lateral movement, making it a common vector among sophisticated attacks.
 
   ### Blind Spots and Assumptions
-  Detection of suspicious LSASS access via MalSecLogon may have gaps if specific logging features are not enabled within the Windows environment, particularly those capturing detailed process access logs. This detection logic assumes that the svchost.exe process genuinely behaves as a benign service host, and any deviations are potentially malicious. Additionally, an absence of comprehensive process auditing configurations could hinder the ability to effectively detect and respond to incidents of this nature.
+
+  There are potential limitations in detection if logging is not configured to capture detailed process access events effectively. Legitimate access patterns could trigger the alert, especially from trusted services or administrative accounts. Also, adversaries may obfuscate their actions or exploit similar methods, making it crucial to incorporate companion detections like monitoring for unusual process parent-child relationships or abnormal svchost.exe network behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

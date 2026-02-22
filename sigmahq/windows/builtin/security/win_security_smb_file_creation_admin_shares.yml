@@ -1,8 +1,8 @@
 title: SMB Create Remote File Admin Share
 id: b210394c-ba12-4f89-9117-44a2464b9511
 status: test
-description: Look for non-system accounts SMB accessing a file with write (0x2) access
-  mask via administrative share (i.e C$).
+description: Look for non-system accounts SMB accessing a file with write (0x2) 
+  access mask via administrative share (i.e C$).
 references:
 - https://github.com/OTRF/ThreatHunter-Playbook/blob/f7a58156dbfc9b019f17f638b8c62d22e557d350/playbooks/WIN-201012004336.yaml
 - https://securitydatasets.com/notebooks/atomic/windows/lateral_movement/SDWIN-200806015757.html?highlight=create%20file
@@ -30,22 +30,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule is designed to detect suspicious access to administrative shares, specifically the creation of files on the C$ share using non-system accounts. Administrative shares (e.g., C$) are common targets for attackers aiming to move laterally within a network, as they provide access to the file system of remote machines. Unauthorized file creation via administrative shares can indicate potential exploitation, data exfiltration, or placement of malicious payloads.
 
-  The threat scenario typically involves insider threats or external attackers leveraging compromised credentials to gain elevated privileges within a network. Common attacker objectives include lateral movement, persistence establishment, and data compromise. The detection aligns with the MITRE ATT&CK framework, particularly the **Lateral Movement** tactic, specifically the technique **T1021.002: SMB/Windows Admin Shares**.
+  This rule detects the creation of a remote file over an SMB administrative share (e.g., C$) when initiated by a non-system account, signifying potential lateral movement or unauthorized access attempts on the network. The likely attacker objective is to establish persistence, exfiltrate data, or deploy malicious files in a target environment. This behavior aligns with the MITRE ATT&CK framework under the tactic "Lateral Movement" and technique "Lateral File Copy" (T1021.002).
 
-  To effectively monitor for this type of activity, telemetry from Windows security logs is essential, focusing on Event ID 5145, which records events related to network share access. This logging can help identify when non-system accounts attempt to interact with administrative shares in unusual ways.
+  Primary telemetry sources include Windows Security Event logs, specifically Event ID 5145, which records SMB file share access events. If malicious, this behavior could lead to unauthorized data manipulation or lead to further compromise of the system. It is important to note that this detection does NOT confirm that a malicious activity actually occurred without reviewing the context and other related activities.
 
   ### Investigation Steps
-  - **Review Security Logs:** Check Windows Security logs for Event ID 5145 and confirm the User Account involved, ensuring it is indeed a non-system account attempting SMB access.
-  - **Analyze Access Patterns:** Investigate the timeline of access events for the involved account, looking for any preceding authentication events or lateral movement patterns that may indicate compromise.
-  - **Check for Other Indicators:** Validate if there are additional security alerts or anomalies related to the same endpoint or user account, such as multiple unsuccessful login attempts or access to sensitive data.
-  - **Correlate with Network Traffic:** Utilize network detection tools to analyze traffic to and from the affected host, searching for unusual outbound connections or data transfers following the file creation event.
+
+  - **Check Event ID 5145 logs for the alert:** Gather logs where Event ID 5145 is present with the ShareName ending in 'C$' and AccessMask '0x2'. Validate the user account; non-system accounts accessing these shares should raise immediate concern.
+
+  - **Identify the initiating user account:** Review the `SubjectUserName` field. If the username does not end with a '$' (indicating a service account), this may be indicative of potentially malicious activity.
+
+  - **Assess the timestamp and source IP:** Verify the timestamp of the event and correlate it with known good behaviors or expected scheduled tasks. Check the `IpAddress` field to rule out local system activity (e.g., "::1" signifies localhost).
+
+  - **Look for associated file activity:** Investigate the presence of any new or modified files in the administrative share's path using `FileSystem` audit logs (Security Event IDs 4663 or relevant Sysmon logs for file integrity changes), focusing on unusual file types or timestamps that do not match organizational norms.
+
+  - **Consider legitimate administrative operations:** Review recent administrative changes or legitimate maintenance activities that may have necessitated this access, such as patch updates or script execution from a trusted account.
+
+  - **Identify potential lateral movement:** Cross-reference the user account with recent successful logins and permission changes. Look for other logs indicating elevated privileges or abnormal connections to the SMB share, such as logs from Event ID 4624 and 4672, which indicate logon events and special privileges respectively.
 
   ### Prioritization
-  This alert should be classified as high severity due to the potential impact of lateral movement and unauthorized access to sensitive systems, which could lead to broader network compromise. The likelihood of such events signifies a critical need for prompt investigation.
+
+  Alerts generated by this detection rule should be regarded with high priority due to the elevated permissions associated with administrative shares. The likelihood of malicious abuse is significant, as SMB shares are commonly targeted by adversaries for lateral movement and data manipulation. This behavior is notably weaponized in various attack scenarios.
 
   ### Blind Spots and Assumptions
-  There are some gaps in detection coverage, particularly around identifying all potential user accounts that might access administrative shares. The detection logic assumes that non-system accounts are not permitted access; however, if legitimate accounts are misconfigured or if security policies are lax, this could lead to false negatives. For this alert to function properly, adequate logging must be enabled on Windows systems, specifically ensuring Event ID 5145 is being collected consistently across the environment.
+
+  Detection limitations include the potential for legitimate administrative actions to trigger this alert, where IT staff may require access for maintenance. Additionally, if necessary logging configurations are not in place (especially capturing Event ID 5145), this detection may fail. Administrators could also use service accounts to conduct legitimate access that mimics this activity. A related detection to strengthen coverage would be monitoring for unusual logon patterns (Event ID 4624) following remote file creation activities, as it can capture correlated suspicious behaviors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

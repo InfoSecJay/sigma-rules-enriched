@@ -45,28 +45,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule aims to identify suspicious local connections made to the AD FS (Active Directory Federation Services) configuration database via named pipes. Specifically, it captures events where tools not typically associated with the management of AD FS, like certain instances of `mmc.exe` or `svchost.exe`, connect to the database. Such suspicious connections may indicate an unauthorized attempt to access sensitive information about AD FS configurations, which are critical for signing SAML tokens used in federated identity scenarios. Attackers may seek to exploit this data for identity theft, account compromise, or unauthorized access to services.
 
-  The relevant MITRE ATT&CK techniques for this detection include **Credential Dumping (T1005)** and **Command and Scripting Interpreter (T1059)** when attackers leverage scripts or commands to manipulate or interact with AD FS databases without proper authorization. The detection leverages Sysmon events specifically targeting named pipe creation logs, which provide insight into inter-process communication in Windows environments.
+  This Sigma rule detects suspicious local connections to the Active Directory Federation Services (ADFS) configuration database via named pipes. The detected behavior is indicative of an attempt to access sensitive configuration settings related to SAML token signing. An attacker may aim to gather or exfiltrate sensitive data stored within the ADFS configuration, potentially leading to unauthorized access to federated services.
 
-  Primary data sources for this detection include:
-  - Sysmon logs configured to capture named pipe events (Event ID 17 and Event ID 18).
-  - Security event logs that monitor connections to sensitive database components.
+  This detection maps to the MITRE ATT&CK technique "Data from Information Repositories" (T1005). Primary telemetry sources include Windows Sysmon logs capturing named pipe creations (Event ID 17 and Event ID 18), which require specific configuration to ensure accurate monitoring. The security impact of malicious activity here is significant, as it could compromise the integrity of authentication mechanisms. However, this detection does NOT confirm malicious intent on its own, as legitimate processes may also interact with these named pipes under normal operations.
+
+  ---
 
   ### Investigation Steps
-  - **Review Named Pipe Events:** Analyze Sysmon logs for Event ID 17 and Event ID 18 to identify any unexpected connections to `\\MICROSOFT##WID\tsql\query`. Look for processes that engaged in these connections and verify their legitimacy.
 
-  - **Validate Process Origins:** Cross-reference the observed processes (e.g., `mmc.exe`, `svchost.exe`) with known allowed applications interacting with the AD FS database. Flag any inconsistencies or use of uncommon tools.
+  - **Check Sysmon logs for relevant events:** Review Sysmon Event ID 17 and Event ID 18 for connections to the named pipe `\\MICROSOFT##WID\tsql\query`. Focus on the `ProcessId` and `Image` fields. Look for unexpected processes that are not part of standard administrative or management activities.
 
-  - **Assess User Activity:** Investigate the user accounts associated with the identified processes. Determine if they have the necessary permissions for accessing the AD FS configuration database. Look for any anomalies such as elevated privileges or unusual login patterns.
+  - **Identify process legitimacy:** Investigate the parent process of the detected connection. Legitimate connections typically come from `mmc.exe`, `svchost.exe`, or other known system scripts. If the parent process is unknown or associated with uncommon tools, consider marking it as suspicious.
 
-  - **Correlate with Other Logs:** Expand the investigation by correlating findings with other sources such as EDR logs, network traffic to the AD FS service, and authentication logs. This provides a broader context of potential lateral movement or data exfiltration efforts.
+  - **Analyze account behavior:** Review user account activity associated with the detected connection in Active Directory logs. Check for logins to the system or use of administrative tools by accounts that do not typically engage with ADFS configuration tasks.
+
+  - **Cross-reference with known good configurations:** Verify whether the detected named pipe connections align with normal operational baselines in your environment. Use historical logs to identify typical access patterns to ADFS.
+
+  - **Investigate outbound connections:** If a connection to the named pipe is correlated with outbound network connections (e.g., to uncommon external IP addresses), analyze those logs from your next-gen firewall or proxy solutions for potential data exfiltration.
+
+  - **Assess the environment for common tools:** Look for known tooling used for ADFS interactions, such as `AzureADConnect.exe` or `Microsoft.IdentityServer.ServiceHost.exe`. However, be cautious of these being used in unauthorized manners or from non-standard locations.
+
+  ---
 
   ### Prioritization
-  The alert is marked as medium severity due to the potential impact of unauthorized access to sensitive AD FS configurations, which could lead to significant security compromises. Given the specialized nature of the tools and processes involved, the likelihood of exploitation by skilled attackers warrants timely investigation.
+
+  The alert holds a medium priority in an enterprise context, particularly for systems managing federated services. The potential for compromised authentication flows increases the severity, especially if the behavior deviates from known benign processes. This activity is not commonly weaponized but can be indicative of preliminary steps in a broader attack strategy targeting authentication mechanisms.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection may exist if Sysmon logging for named pipes is not appropriately configured or enabled in the enterprise environment. The detection assumes that any named pipe connection initiated outside of baseline normal process behavior could indicate malicious intent. Furthermore, if a legitimate application is identified as communicating with the AD FS database through named pipes without appropriate monitoring, this could lead to false negatives. Adequate configuration and continuous monitoring of Sysmon settings are essential for the alert's efficacy to function correctly.
+
+  The detection capability can be limited if Sysmon is not correctly configured to log named pipe events (Event IDs 17 and 18). Evasion techniques could include using legitimate processes disguised under different contexts or utilizing custom scripts to interact with the ADFS database without triggering alerts. Legitimate administrative activities, such as configuration changes to ADFS, might also generate similar alerts. A companion detection that enhances coverage would involve monitoring access to ADFS logs and database directly for anomalous queries or operations.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

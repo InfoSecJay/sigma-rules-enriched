@@ -4,8 +4,8 @@ related:
 - id: 6b269392-9eba-40b5-acb6-55c882b20ba6
   type: similar
 status: test
-description: Detects suspicious file type dropped by an Exchange component in IIS
-  into a suspicious folder
+description: Detects suspicious file type dropped by an Exchange component in 
+  IIS into a suspicious folder
 references:
 - https://www.microsoft.com/security/blog/2022/09/30/analyzing-attacks-using-the-exchange-vulnerabilities-cve-2022-41040-and-cve-2022-41082/
 - https://www.gteltsc.vn/blog/canh-bao-chien-dich-tan-cong-su-dung-lo-hong-zero-day-tren-microsoft-exchange-server-12714.html
@@ -36,25 +36,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious file drops by an Exchange component running on Internet Information Services (IIS), specifically targeting ASPX file types into unusual folders. This behavior may indicate an ongoing or attempted exploitation of vulnerabilities within Microsoft Exchange, particularly in relation to the exploitation of vulnerabilities such as CVE-2022-41040 and CVE-2022-41082. Attackers targeting Exchange servers can aim to gain persistence, exfiltrate data, or establish a foothold in an environment.
 
-  The primary motivation for this type of attack is to deploy malicious payloads that could facilitate further access or control over the targeted Exchange server and, by extension, the broader organizational network. The attack likely falls under the MITRE ATT&CK tactics of **Persistence** and **Defense Evasion**, specifically utilizing techniques like **Remote File Copy** (T1105) and **Web Shell** (T1505.003).
+  This Sigma rule detects the unauthorized creation of ASPX and similar file types in specific folders related to Microsoft Exchange's IIS component. The behavior suggests an attacker may be leveraging vulnerabilities in Exchange, potentially aiming to establish a web shell or similar persistent mechanism on the server. This aligns with the MITRE ATT&CK framework's Persistence tactic under technique T1505.003 (Web Shell).
 
-  Key data sources to consider include file event logs from Windows systems, particularly those associated with IIS, as they would provide visibility into file operations and help trace any unorthodox file writes, especially into the `FrontEnd\HttpProxy` and `inetpub\wwwroot\aspnet_client` directories.
+  The primary telemetry source involves Windows file creation events filtered to IIS worker processes (w3wp.exe) within specified directories like `FrontEnd\HttpProxy` and `inetpub\wwwroot\aspnet_client`. If malicious, this behavior could allow an attacker to maintain access and control over the Exchange server, leading to further data compromise or lateral movement within the environment. Importantly, detection of this event does NOT confirm malicious intent on its own without validating context and additional indicators.
 
   ### Investigation Steps
-  - **Review File Event Logs**: Inspect Windows file event logs for entries related to the creation or modification of files with the .aspx, .asp, or .ashx extensions, particularly in specified suspicious directories. Look for entries associated with the `w3wp.exe` process.
 
-  - **Analyze Command-Line Activity**: Check command-line execution logs for arguments that contain 'MSExchange' when the `w3wp.exe` process is active. This might give insight into potentially malicious operations that are linked to the Exchange instance.
+  - **Check file creation logs:** Review Windows Security Event ID 4663 for object access events related to newly created files in the targeted folders (`FrontEnd\HttpProxy`, `inetpub\wwwroot\aspnet_client`) logged on the Exchange server. Look for ASPX file types; multiple entries within short timeframes may indicate malicious activity.
 
-  - **Assess System Behavior**: Conduct a higher-level investigation of the affected Exchange server, scrutinizing recent changes to its service configuration and identifying any unauthorized user accounts or unusual access patterns to the Exchange application.
+  - **Validate the command line usage:** Inspect Sysmon Event ID 1 for the `CommandLine` parameter related to `w3wp.exe` processes, filtering for entries that contain "MSExchange." Analyze the context of execution to identify unusual parameters suggesting exploitation.
 
-  - **Correlate Network Traffic**: Analyze network traffic associated with the Exchange server to identify unusual outbound connections or potential data exfiltration attempts. Use your NDR tools to correlate any anomalies with the identified suspicious file activity.
+  - **Assess file ownership and access control:** Use PowerShell or filesystem tools to verify permissions on newly created files. Legitimate ASPX files should be owned by system accounts or trusted users, not by unknown or suspicious user accounts.
+
+  - **Consider legitimate Exchange behavior:** Document expected file activities for the Exchange application. This should include regular updates or deployments generating ASPX files under normal operational conditions. Note any occurrences that deviate from standard practices.
+
+  - **Identify known malicious indicators:** Look for strings or patterns in the newly created ASPX files suggesting known web shell signatures or embedded malicious scripts. Correlate with MITRE-related threat intelligence to confirm.
+
+  - **Cross-reference with related detections:** Ensure logs covering process, network, and authentication events align with this alert. Utilize companion detections to spot lateral movement or privilege escalation efforts, such as suspicious account logins (Event ID 4624) or unusual outbound connections (NetFlow or firewall logs).
 
   ### Prioritization
-  Given the potential impact of unauthorized file drops on critical services and the likeliness of exploitation against unpatched Exchange instances, this alert is classified as high severity. Such activities may lead to significant data breaches or compromise of sensitive organizational communications.
+
+  This alert must be treated with high priority due to its potential impact on critical Exchange servers, where exploitation can lead to data leakage or further network infiltration. The likelihood of this behavior being weaponized is elevated, given the public disclosures of vulnerabilities associated with Exchange.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage for legitimate use cases of file drops into these directories, leading to false positives. The detection logic assumes that the threat actor will use the specified file extensions and directories to execute their malicious activities. For this alert to function effectively, it requires comprehensive logging of file creation events and adequate monitoring of command-line arguments from the Exchange services running on the affected systems.
+
+  Current detection capabilities rely heavily on Windows event logging; ensure audit configurations are appropriately set for both file and process activity to capture necessary data. Evasion techniques might include the use of legitimate file types altered to appear benign. Additionally, legitimate maintenance activities or updates by Exchange administrators could inadvertently trigger this alert, necessitating a thorough contextual review. A related detection to bolster coverage would include monitoring for unusual outbound connections or downloads from the affected Exchange server to identify potential data exfiltration.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

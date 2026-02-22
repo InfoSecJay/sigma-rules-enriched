@@ -8,9 +8,10 @@ related:
 - id: cacef8fc-9d3d-41f7-956d-455c6e881bc5     # PS ScriptBlock
   type: similar
 status: test
-description: Detects calls to the AtomicTestHarnesses "Invoke-ATHRemoteFXvGPUDisablementCommand"
-  which is designed to abuse the "RemoteFXvGPUDisablement.exe" binary to run custom
-  PowerShell code via module load-order hijacking.
+description: Detects calls to the AtomicTestHarnesses 
+  "Invoke-ATHRemoteFXvGPUDisablementCommand" which is designed to abuse the 
+  "RemoteFXvGPUDisablement.exe" binary to run custom PowerShell code via module 
+  load-order hijacking.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1218/T1218.md
 - https://github.com/redcanaryco/AtomicTestHarnesses/blob/7e1e4da116801e3d6fcc6bedb207064577e40572/TestHarnesses/T1218_SignedBinaryProxyExecution/InvokeRemoteFXvGPUDisablementCommand.ps1
@@ -34,25 +35,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets potential abuse of the `RemoteFXvGPUDisablement.exe` application through the AtomicTestHarnesses module, specifically detecting the use of the `Invoke-ATHRemoteFXvGPUDisablementCommand`. Attackers may exploit this functionality to execute arbitrary PowerShell scripts or commands, under the guise of legitimate application operations. The primary objective of such an attack might be to evade security measures, maintain persistence, or conduct other malicious activities without raising suspicion.
 
-  The relevant MITRE ATT&CK technique for this detection is **T1218 - Signed Binary Proxy Execution**, which allows attackers to execute malicious scripts or commands using legitimate, signed binaries to bypass detection mechanisms. Due to its capabilities, `RemoteFXvGPUDisablement` could be misused for various malicious intents, making it crucial for security teams to monitor activities associated with its command executions.
+  This Sigma rule detects the execution of the PowerShell command `Invoke-ATHRemoteFXvGPUDisablementCommand`, which is related to the exploitation of the RemoteFX vGPU feature in Windows. Attackers may use this command to execute arbitrary PowerShell code through module load-order hijacking, with the potential objective of bypassing security controls and executing malicious payloads. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (ID: T1218), as it seeks to evade detection mechanisms that protect against unauthorized command execution.
 
-  The primary data source this rule relies upon is **process creation logs** which will track invocation of commands that utilize the associated application and PowerShell scripts. Examining these logs can help identify potentially harmful activities driven by attackers who misuse trusted binaries for evasion purposes.
+  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on command lines originating from PowerShell (Event ID 4688). If successful, this activity can have severe implications, potentially leading to unauthorized access, persistence mechanisms, or lateral movement within the network. Importantly, this detection merely indicates a suspicious invocation of the command and does NOT confirm malicious intent on its own.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine process creation events for instances of `RemoteFXvGPUDisablement.exe` being invoked alongside the `Invoke-ATHRemoteFXvGPUDisablementCommand` command. Capture details like timestamps, parent processes, and user accounts associated with the activity.
 
-  - **Analyze Command Line Arguments**: Investigate the specific command line arguments used during execution for signs of abnormalities or unintended modifications that might indicate malicious intent.
+  - **Review the command line arguments:** Check for instances of `Invoke-ATHRemoteFXvGPUDisablementCommand` in process creation logs (Event ID 4688). Note the user context and parent process; atypical user accounts or unusual parent processes (e.g., `powershell.exe` initiated by `explorer.exe`) may indicate a threat.
 
-  - **Identify Parent Processes**: Assess the parent processes of any identified instances to determine if there were any preceding activities that could correlate to suspicious behavior, such as launching processes through exploitation or lateral movement.
+  - **Correlate with other execution logs:** Look for related PowerShell logs, specifically using `Get-WinEvent` to review Windows PowerShell logs for logs that correspond to the execution timestamp. Inspect for errors or anomalies in `Event ID 4104` that may indicate additional suspicious activity.
 
-  - **Correlation with Other Events**: Cross-reference the findings with additional telemetry sources, such as EDR alerts or logins via VPN, to build a timeline of the actions taken by the user or system account performing the commands.
+  - **Identify legitimate use cases:** Determine if the execution is part of a known administrative task, such as updates or configuration management tasks. Logged executions by known IT accounts with clear purpose typically indicate benign activity.
+
+  - **Assess parent-child process relationships:** Verify the chain of process execution. A benign PowerShell script initializing this command should often follow expected patterns, such as being initiated by a security tool or IT management systems. Suspicious hierarchies (e.g., scripts spawning from unexpected processes) may indicate malicious activity.
+
+  - **Extract user and network activity context:** Inspect user account activity around the time of execution via Event ID 4624 (logon events). Look for unusual user access patterns or failed login attempts that might imply credential theft or misuse.
+
+  - **Validate file creation and persistence artifacts:** Check for unexpected modifications or access to `RemoteFXvGPUDisablement.exe` or other related binaries in the filesystem. Look for new items in System32 or Environment variables that may suggest changes to execution paths that could facilitate malicious activity.
 
   ### Prioritization
-  Given the potential for arbitrary code execution and the use of legitimate binaries to obfuscate malicious intent, this alert is of high priority in an enterprise environment. The likelihood of exploitation through such tactics underscores the need for immediate investigation and response.
+
+  This alert is high severity due to the critical security implications associated with RemoteFX vGPU exploitation on enterprise systems. Given that unauthorized command execution facilitates malicious actions, and that PowerShell is frequently weaponized for broader attacks, swift investigation is necessary.
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may include environments lacking comprehensive logging or insufficient monitoring of PowerShell execution or process creation. The detection logic assumes that any invocation of the specified command indicates potential abuse, which may not account for legitimate use cases within administrative functions. Additionally, logs from systems must be configured correctly to capture the necessary process creation events for this alert to be effective, ensuring both logging granularity and retention policies are appropriately managed.
+
+  Limitations of this detection may include conflicts with legitimate administrative use cases of PowerShell for virtualization management, which could trigger false positives. Additionally, this rule relies on detailed process creation logs, thus requiring adequate logging configurations in place. Analysts should be aware that actors may utilize obfuscation techniques or modify command signatures to evade detection. Related detections, such as commonly weaponized PowerShell cmdlets or evidence of other T1218 techniques, can enhance the confidence level of identifying malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

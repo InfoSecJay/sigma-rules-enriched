@@ -33,27 +33,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify potential privilege escalation attempts via local Kerberos relay attacks. Specifically, it flags successful logon events where the Logon Package is "Kerberos," the remote address is configured to localhost (127.0.0.1), and the target user is the built-in local Administrator account (S-1-5-21-*-500). This pattern may indicate malicious activity where an attacker, using a compromised or limited user account, attempts to elevate privileges on a domain-joined machine to gain local System level access.
 
-  The primary objectives for an attacker using this technique typically include gaining elevated privileges on a compromised system — a critical step towards further exploitation or lateral movement within the network. Attackers are known to leverage Kerberos relay attacks to misuse the authentication process, allowing them to impersonate trusted services and escalate their privileges without needing direct access to sensitive credentials.
+  This Sigma rule detects suspicious local logon events leveraging Kerberos authentication where the logon attempt comes from the localhost IP address (127.0.0.1) and targets the built-in local Administrator account (SID ending with -500). The likely attacker objective is to escalate privileges from a non-administrator account to the local system account using a Kerberos relay attack variant. This behavior aligns with the MITRE ATT&CK technique for Privilege Escalation (T1548) and could indicate an adversary attempting to elevate their access rights within the system without proper credentials.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Privilege Escalation** (TA0004)
-    - **Kerberos Ticket Granting Ticket (TGT)** (T1558.002)
+  The primary telemetry source consists of Windows Security Event Logs, specifically Event ID 4624 (An account was successfully logged on). If malicious, this behavior could allow an attacker to gain extensive control over the affected system. Importantly, this detection does NOT confirm malicious intent on its own; it requires further investigation to determine the legitimacy of the logon.
 
-  The best sources of telemetry for this detection are Windows security event logs, particularly those associated with Event ID 4624, which captures logon events, as they contain pertinent information about the authentication method and the user involved.
+  ---
 
   ### Investigation Steps
-  - **Review Security Logs:** Examine Windows security event logs for Event ID 4624, filtering for logon events with LogonType 3, AuthenticationPackageName "Kerberos," and the IP address set to localhost.
-  - **Analyze User Activity:** Investigate the activity of the user account that triggered this event. Review prior and subsequent logon events and actions taken to discern any unusual or suspicious patterns.
-  - **Correlate with System Changes:** Look for other system logs or alerts that coincide with the detected logon event, such as changes in user privileges, modifications to critical system files, or service startups that might indicate active exploitation attempts.
-  - **Confirm User Compliance:** Verify whether the logged user account is authorized to perform actions as the local Administrator, and check if any unauthorized access has occurred on the system by cross-referencing with other access logs.
+
+  - **Identify logon details**: Review Event ID 4624 logs for the action timestamp, user account, and workstation name. Note the logon type (should be 3) and verify if the authenticated user is a known legitimate administrator account or an unexpected one.
+
+  - **Corroborate with process creation logs**: Investigate any related process creation events (Event ID 4688) occurring around the same timestamp to check for suspicious executable activity initiated by the Administrator account.
+
+  - **Assess recent account activity**: Query Active Directory for recent changes or unusual patterns in the user account activity; this can help identify any legitimate administrative uses versus potentially malicious behavior.
+
+  - **Look for lateral movement indicators**: Examine related logs (such as DNS or outbound connections) for unusual patterns that may indicate lateral movement attempts emanating from the local system’s network context, particularly around localhost connections.
+
+  - **Evaluate expected behavior**: Consider legitimate administrative tasks executed by the Local Administrator account (e.g., software installations or system updates). Document any known instances where this account was used under expected conditions.
+
+  - **Trace connection paths in logs**: Analyze network logs (e.g., Windows Firewall logs) for any traffic coming from or going to localhost around the event, especially querying unusual ports or services commonly associated with Kerberos relay attacks.
+
+  ---
 
   ### Prioritization
-  This alert is rated as high severity because it signals a critical risk of privilege escalation that can lead to significant breaches of sensitive systems or data. The likelihood of exploitation is notable, particularly in environments where local accounts have substantial permissions.
+
+  This alert should be treated as high severity due to its potential to indicate a privilege escalation attempt affecting critical systems. The likelihood of malicious abuse is notable given the specific user account and authentication method involved, and similar behaviors are often observed in active exploitation scenarios.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are gaps in detection coverage, including potential false negatives when attackers use authentic accounts or mimic legitimate activity to avoid detection. The logic assumes that no legitimate process would utilize a Kerberos logon with localhost to the local Administrator account in typical operations, which may not always hold true in every environment. Also, for this alert to function effectively, logging should be properly configured to capture Event ID 4624, and monitoring of Kerberos authentication should be enabled across the network.
+
+  Detection may be limited if logs are not being captured properly; ensure that Security Event Logs are configured for detailed logon events, specifically capturing Event ID 4624. This alert may also trigger from legitimate administrative functions, requiring context and a deeper investigation into recent account activities. Companion detections, such as monitoring for unusual account creations or modification events in Active Directory, can strengthen overall coverage against privilege escalation attempts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

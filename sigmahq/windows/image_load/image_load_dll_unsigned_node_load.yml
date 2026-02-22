@@ -37,28 +37,37 @@ detection:
     - '\node.napi.glibc.node'
   condition: all of selection_* and not 1 of filter_optional_*
 falsepositives:
-- VsCode extensions or similar legitimate tools might use unsigned .node files. These
-  should be investigated on a case-by-case basis, and whitelisted if determined to
-  be benign.
+- VsCode extensions or similar legitimate tools might use unsigned .node files. 
+  These should be investigated on a case-by-case basis, and whitelisted if 
+  determined to be benign.
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the loading of unsigned `.node` files within Electron-based applications like Slack or Discord. Attackers may exploit the lack of integrity checks for these files to inject and execute arbitrary code in trusted environments, leveraging popular applications as potential backdoors for malware such as DripLoader.
 
-  The primary objective of such attacks is to gain unauthorized access to sensitive data or remote control over compromised systems, often bypassing traditional security mechanisms. The relevant MITRE ATT&CK techniques involved include **T1129 - Execution through API,** where adversaries utilize the application programming interfaces of legitimate software to execute malicious code, and **T1574.001 - Compromise Software Dependencies and Development Tools**, which involves manipulating native modules to maintain persistence and evade detection.
+  This Sigma rule detects attempts to load unsigned .node files within Electron applications, such as Slack and Visual Studio Code. Attackers may leverage this behavior to execute arbitrary code within trusted applications, potentially facilitating exploitation, persistence, or privilege escalation. The relevant MITRE ATT&CK techniques include **Execution: Malicious Native Code (T1129)** and **Defense Evasion: Application Layer Protocol (T1574.001)**, as well as **Persistence: Boot or Logon Autostart Script (T1036.005)**.
 
-  The most pertinent data sources for this detection include image load logs specific to Windows systems, which track the execution of application binaries and their associated modules.
+  The primary telemetry source is the Windows image load event, specifically focusing on events that capture DLL and code execution. If malicious, the loading of unsigned .node files could enable significant compromise of host integrity and application security. Importantly, this detection does NOT confirm an active threat; it merely identifies potential risk indicators that require further investigation.
 
   ### Investigation Steps
-  - **Review Event Logs:** Examine image load logs to identify instances of `.node` files being loaded within applications like Slack or Visual Studio Code, paying attention to their signed status.
-  - **Correlate with Application Activity:** Cross-reference the detected `.node` file loads with user activity logs or session data to understand the context in which these files were executed. Look for unusual user behavior or application usage patterns.
-  - **Analyze Installed Extensions:** Investigate any extensions installed within Electron-based applications that may utilize `.node` files, assessing whether they are legitimate or potentially malicious. Focus on extensions tied to recent events of concern or that are not well-known.
-  - **Conduct Endpoint Investigation:** Utilize EDR tools to assess the impacted host for other indicators of compromise, such as unusual network traffic, recent file changes, or suspicious process hierarchies involving the affected applications.
+
+  - **Identify the software loading the .node file:** Review the telemetry for the parent application responsible for loading the unsigned .node file. Look at Security Event ID 4688 for process creation details and ensure the process is legitimate (i.e., `Code.exe` for VSCode).
+
+  - **Assess the .node file specifics:** Validate the file path of the loaded .node files. Significant paths can include `'\electron.napi.node'` or `'\node.napi.glibc.node'`. Determine if these files have been loaded from unusual locations, outside of typical application directories.
+
+  - **Verify signature status:** Examine the properties of the .node file, specifically looking for the `Signed` status being false or `SignatureStatus` being 'Unavailable'. Unsigned or improperly signed files should raise flags for further scrutiny.
+
+  - **Determine benign application usage:** Confirm legitimate usage of .node files. For example, if the `.vscode\extensions\ms-toolsai.jupyter-` path is detected, investigate current extensions in use to ensure they match known good lists from the organization.
+
+  - **Monitor for other malicious indicators:** Cross-reference any other suspicious events surrounding the time of the alert. Utilize Sysmon Event ID 1 to look for concurrent unusual process behavior that might indicate exploitation of the application.
+
+  - **Check for exfiltration artifacts:** If files were created or modified, validate against known paths of unauthorized data exfiltration to ascertain if this activity correlates with wider malicious behavior. Review log types like process creation and file access events.
 
   ### Prioritization
-  This alert is classified as medium severity due to the potential for significant impact if malicious code is executed within trusted applications, which could lead to data exfiltration or lateral movement within the network. The likelihood of such exploitation varies based on the presence of vulnerable or improperly configured applications.
+
+  The severity of this alert is medium, reflecting the potential for serious compromise within high-impact applications (Slack, Visual Studio Code). While loading unsigned .node files can indicate benign behavior in development, it poses a high risk for malicious exploitation, especially when employed in common attack vectors.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited in environments where applications rely heavily on legitimate unsigned `.node` files, such as certain third-party extensions in Visual Studio Code or similar tools. This logic assumes that unsigned files are usually indicative of malicious activity, which may not hold true for all organizations. Proper logging configuration and monitoring of image loads are essential for the effectiveness of this alert, necessitating that appropriate logs are enabled and retained within the environment.
+
+  Evasion techniques may include benign extensions using unsigned .node files, causing legitimate alerts; therefore, careful review is required. Reliability of detection hinges on accurate configuration of log sources with a focus on image load events in Windows. Be aware that legitimate software updates or misconfigured environments may trigger this alert. Related detections may include monitoring for unusual process execution patterns to provide context and enhance coverage of potential exploitation activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

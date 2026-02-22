@@ -4,9 +4,9 @@ related:
 - id: a0bed973-45fa-4625-adb5-6ecdf9be70ac
   type: derived
 status: test
-description: Detects changes to registry keys related to "Trusted Location" of Microsoft
-  Office where the path is set to something uncommon. Attackers might add additional
-  trusted locations to avoid macro security restrictions.
+description: Detects changes to registry keys related to "Trusted Location" of 
+  Microsoft Office where the path is set to something uncommon. Attackers might 
+  add additional trusted locations to avoid macro security restrictions.
 references:
 - Internal Research
 - https://admx.help/?Category=Office2016&Policy=excel16.Office.Microsoft.Policies.Windows::L_TrustedLoc01
@@ -43,26 +43,36 @@ detection:
     - ':\Program Files (x86)\Microsoft Office\'
   condition: selection and not 1 of filter_main_* and not 1 of filter_exclude_*
 falsepositives:
-- Other unknown legitimate or custom paths need to be filtered to avoid false positives
+- Other unknown legitimate or custom paths need to be filtered to avoid false 
+  positives
 level: high
 note: |
   ### Technical Context
-  This detection rule monitors changes to the registry keys associated with Microsoft Office's "Trusted Locations." Specifically, it identifies when a new trusted location is added that does not conform to well-known paths. Uncommon trusted locations can provide attackers with a mechanism to execute malicious macros without triggering security safeguards, thereby facilitating further actions like data theft or lateral movement within an organization.
 
-  Attackers may aim to evade macro security warnings by placing malicious documents in these newly created trusted locations, making this operation a critical step in their persistence and defense-evasion tactics. The rule is relevant to the MITRE ATT&CK techniques of **T1112 - Modify Registry**, which focuses on altering the registry to influence system behavior, thus supporting broader persistence efforts.
+  This Sigma rule detects changes made to Windows registry keys that relate to "Trusted Locations" in Microsoft Office, specifically targeting alterations where the path is uncommon. An attacker’s goal in modifying these paths is typically to bypass built-in security controls around macros, allowing potentially malicious documents to run without triggering alerts. This activity aligns with the MITRE ATT&CK tactic of Persistence (TA0003) via the technique of Modify Existing Service (T1112).
 
-  Primary data sources for this detection include **registry change logs**, which capture alterations to registry settings, and **Windows event logs** that detail the execution context during which the changes occur, specifically focusing on process creation and other system activities that may indicate malicious behavior.
+  The primary telemetry source for this detection is Windows Registry log data, specifically focused on registry key changes. Critical implications of a successful change could include unauthorized access or execution of malware disguised as legitimate Office documents. Importantly, this detection does NOT confirm malicious intent solely based on the registry modification; further investigation is necessary to establish the context of the change.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Inspect registry change logs to identify any entries related to "Trusted Locations" that don’t match expected legitimate paths or are outside of typical user or application behavior.
-  - **Correlate with Process Activity:** Analyze process creation logs around the time of the registry modification to see if there are any unexpected processes or patterns that could indicate malicious activity, such as instances of `OfficeClickToRun.exe`.
-  - **Validate Trusted Location Path:** Verify if the newly added trusted location is being used for storing files, especially if associated with suspicious document activity or file transfers; ensure it is not a path common to your environment.
-  - **Check User Permissions:** Look at the user account or system context under which these changes were made. Ensure that the account has appropriate permissions and is not associated with known suspicious activity.
+
+  - **Examine the registry change specifics**: Check Registry Event IDs (e.g., 4657) for the exact key modified: `HKEY_CURRENT_USER\Software\Microsoft\Office\<version>\Excel\Security\Trusted Locations`. Look for any paths that are not in the known legitimate list.
+
+  - **Identify the user responsible for the change**: Cross-reference the User SID associated with the registry modification against your Active Directory (AD) logs. Look for unusual or unauthorized users making changes.
+
+  - **Confirm legitimate paths in use**: A baseline review of what typical trusted locations are in your environment should show frequent paths like `%APPDATA%\Microsoft\Templates` or other documented patterns. Compare against any uncommon entries flagged by the detection.
+
+  - **Investigate the process creaded**: Review Security Event ID 4688 for process creation correlating with `svchost.exe` or other unexpected executables that might indicate script or batch file execution related to the Office change.
+
+  - **Check if the changes coincide with other suspicious activity**: Look for correlations with other detections or alerts, particularly regarding document processing activities or VBA execution warnings within the Microsoft Office suite.
+
+  - **Validate potential file creation or exfiltration**: Review any changes in document storage or movement indicators, such as scrutinizing logs for file creation events (Event ID 4663) related to `.docm` or `.xlsm` files in untrusted directories post-registry modification.
 
   ### Prioritization
-  This alert should be considered high severity because the ability to modify trusted locations in Microsoft Office can enable attackers to execute malicious macros undetected, posing a significant risk to data integrity and security.
+
+  The alert severity is high due to the potential security risks associated with unauthorized changes to Office Trusted Locations, which could facilitate macro-based malware execution. The likelihood of this behavior being exploited by adversaries is moderate to high, especially given the common weaponization of Office documents in phishing schemes.
 
   ### Blind Spots and Assumptions
-  One key blind spot in this detection could be the addition of legitimate custom trusted paths that have not been predefined, leading to possible false positives. The detection logic assumes that unusual paths are indicative of malicious activity, which may not always hold true in every environment. For the alert to function effectively, it requires comprehensive logging from the Windows registry and adequate monitoring capabilities to track process execution associated with these registry modifications.
+
+  Detection may be limited by the presence of legitimate third-party applications that create or modify trusted locations. Configuration for comprehensive registry monitoring must be validated to ensure coverage of potential evasion techniques, such as malware using hidden or obscure paths. Furthermore, it is essential to acknowledge that legitimate administrative actions may inadvertently trigger this alert. A companion detection mechanism to strengthen coverage would involve monitoring for unexpected macro execution events from Office applications (e.g., Event ID 1300).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

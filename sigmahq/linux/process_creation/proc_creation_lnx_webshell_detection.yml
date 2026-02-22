@@ -5,7 +5,8 @@ description: Detects suspicious sub processes of web server processes
 references:
 - https://www.acunetix.com/blog/articles/web-shells-101-using-php-introduction-web-shells-part-2/
 - https://media.defense.gov/2020/Jun/09/2002313081/-1/-1/0/CSI-DETECT-AND-PREVENT-WEB-SHELL-MALWARE-20200422.PDF
-author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
+  Systems)
 date: 2021-10-15
 modified: 2022-12-28
 tags:
@@ -50,20 +51,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential webshell activity on Linux systems by monitoring for suspicious subprocesses initiated by web server processes such as Apache, Nginx, or Node.js. Attackers often rely on webshells to gain unauthorized access to a server, allowing them to execute commands, exfiltrate data, or maintain persistence within the environment. This rule aims to flag commonly used commands that might be executed by webshells, helping security teams intercept malicious execution before further exploitation can occur.
 
-  The likely attacker objective in this scenario is to interact with the server's filesystem or network through potentially unauthorized means, leveraging the web server as a means to execute arbitrary commands. The relevant MITRE ATT&CK tactics here include **Persistence** (TA0003) and **Command and Control** (TA0011), with techniques like **Web Shell** (T1505.003). The primary data source for this detection is process creation events, specifically focusing on the command items tied to web server processes and their subprocesses.
+  This rule detects the execution of suspicious subprocesses initiated by web server processes, such as Apache or NGINX. The likely attacker objective is to execute commands that could compromise the server, gather information, or establish persistence through a web shell. The relevant MITRE ATT&CK technique is "Web Shell" (T1505.003), which falls under the "Persistence" tactic. Logs from Linux process creation, specifically `audit` logs, will provide evidence of this behavior through event types related to process initiation. If malicious, this activity can lead to data exfiltration, server takeover, or further lateral movement within the environment. However, this detection does NOT confirm whether the detected process usage is inherently malicious, as legitimate applications may also invoke these commands.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine detailed process creation logs on the Linux server for instances matching the parent images of web servers (e.g., httpd, nginx) followed by suspicious subprocess execution.
-  - **Analyze Parent Command Lines:** For flagged processes, investigate the complete command line arguments to confirm the context and to identify any suspicious patterns or parameters that may indicate a compromise.
-  - **Correlate with Known Indicators:** Compare the identified processes and command strings against a list of known malicious tools or techniques commonly associated with web shells to assess the legitimacy of the operations.
-  - **Assess Network Connections:** Investigate any abnormal outbound network connections made by these suspicious subprocesses, focusing on unexpected protocols, remote hosts, or unusual data exfiltration patterns.
+
+  - **Review process lineage**: Check the parent process of detected subprocesses in `audit` logs (Event ID 2260 for RHEL) to confirm it originated from a legitimate web server (e.g., Apache, NGINX). Benign usage would typically originate from automated scripts or scheduled jobs without associated suspicious subprocess calls.
+
+  - **Examine command outputs**: Analyze logs for command invocations from the subprocesses detected. Suspicious invocations of commands like `/bin/cat`, `/whoami`, or `/netstat` may indicate probing or investigation activity by an attacker.
+
+  - **Identify anomalies in process creation**: Look for unusual command patterns or execution times in process creation events that do not align with normal operational behavior. Legitimate user behavior might include infrequent, low-volume command usage; high-volume command calls could suggest adversarial actions.
+
+  - **Cross-reference user activity**: Identify the user account that initiated the web server process using logs from `/var/log/auth.log` or `/var/log/secure`. Validate whether the user has appropriate permissions and if their actions align with expected operational behavior.
+
+  - **Correlate with known threat intelligence**: Check the detected subprocess commands against known indicators of compromise (IoCs) related to web shells or various attack signatures. A match may indicate a higher likelihood of compromise.
+
+  - **Validate file creation and modification logs**: Review logs for any creation or alteration of files, such as web shell scripts, on the web server directory (commonly `/var/www/html/`). Look for unexpected changes in files or new file creation events, especially those with suspicious content or patterns.
 
   ### Prioritization
-  Given the high likelihood of significant impact from webshell activity, including potential data breaches and system compromise, this alert should be considered high-priority in any enterprise environment. The use of webshells is a clear indicator of exploitation, warranting immediate investigation and response.
+
+  The alert is considered high severity due to the potential for significant impact if a web server is compromised. The likelihood of malicious behavior is high, as commands found in the alert are commonly weaponized by attackers leveraging web shells for persistence or reconnaissance.
 
   ### Blind Spots and Assumptions
-  This detection rule may not fully cover all webshell behaviors, particularly if custom or less common command-line utilities are utilized by the attacker, resulting in potential evasion. The detection logic assumes a typical server configuration where subprocesses are executed directly through the monitored parent processes. For effective coverage, it is essential to ensure that detailed process creation logs are enabled and aggregated, especially in environments where non-standard web server configurations might exist.
+
+  This detection may be evaded by attackers employing obfuscation techniques to disguise legitimate command invocations or by using less common subprocesses. Reliable detection requires comprehensive logging from process creation mechanisms. Legitimate web applications that invoke native Linux commands may generate false positives, necessitating on-the-fly analysis. Companion detections include monitoring for unusual file modifications within web directories to enhance coverage against potential web shell activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

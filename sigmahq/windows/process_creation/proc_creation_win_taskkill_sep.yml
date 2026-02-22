@@ -30,24 +30,35 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to disable Symantec Endpoint Protection (SEP) by executing the `taskkill` command with specific parameters targeting the `ccSvcHst.exe` process. An attacker, or a compromised user, may leverage this technique to disable antivirus protections, opening the system to further exploitation or malware installation undetected. The likely objective is to circumvent security measures to execute malicious actions such as deploying payloads or stealing sensitive data.
 
-  The relevant MITRE ATT&CK tactics and techniques include:
-  - **Tactic: Defense Evasion**
-    - **Technique: Process Injection (T1562.001)** – The ability to terminate processes protected by the security software indicates attempts to evade detection and maintain further access to the environment.
+  This Sigma rule detects the execution of commands aimed at terminating the Symantec Endpoint Protection process (ccSvcHst.exe) through the `taskkill` command. This behavior could indicate an attacker attempting to disable antivirus protections to facilitate further malicious activities, such as deploying malware without detection. The relevant MITRE ATT&CK tactic is Defense Evasion (TA0005) and the technique specifically is T1562.001, which involves disabling security features.
 
-  Primary data sources for this detection rule include process creation events, which capture command-line executions within the Windows environment. Additionally, telemetry from endpoint security devices and logs can provide context around process terminations that align with the timing of this command.
+  The primary telemetry source for this detection is Windows Process Creation logs, captured as Security Event ID 4688 and Sysmon Event ID 1. If this behavior is confirmed as malicious, it may lead to heightened exposure to further attacks, data breaches, or system compromise. However, this detection does NOT confirm that malicious activity occurred without additional context regarding the system and user behaviors prior to the command execution.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine the process creation logs for instances of the `taskkill` command, focusing on any occurrences targeting `ccSvcHst.exe`.
-  - **Analyze Command-Line Arguments:** Look closely at the command-line arguments used with `taskkill`, specifically checking for the presence of `/F`, `/IM`, and the mentioned executable to confirm the nature of the command issued.
-  - **Check Security Event Logs:** Inspect security event logs for any other actions taken immediately before or after the `taskkill` command to identify potentially malicious behavior associated with disabling antivirus services.
-  - **Correlate with User Activity:** Identify the user context in which the command was executed to determine if it aligns with legitimate administrative actions or if it points to potential user compromise.
+
+  - **Verify the command execution source:** Review Security Event ID 4688 logs for the `taskkill` execution. Check the 'New Process Name' field for the process path. If the command was initiated by a non-admin user and within an unusual context, it may indicate suspicious activity.
+
+  - **Assess the parent process:** Check the 'Process ID' and 'Parent Process ID' in the Event ID 4688 logs to identify the parent process calling `taskkill`. Legitimate commands may originate from known management tools like SCCM or PowerShell; anything unusual or outside expected usage may suggest malicious intent.
+
+  - **Correlate user behavior:** Examine user activity logs, especially any prior alerts or unusual logins around the time of command execution. If the `taskkill` command aligns with previously logged malicious activity or behavior atypical for the user (e.g., abnormal login time or location), escalate as potentially high-risk.
+
+  - **Evaluate system criticality and security solutions:** Review the asset's role within the organization. If this command was run on a critical server that hosts sensitive data or external-facing services, the security impact is severe. Check for expected service uptime or state changes on this system post-execution (e.g., ccSvcHst.exe should be running).
+
+  - **Identify high-confidence malicious indicators:** Look for other related Event IDs within the same time frame (such as 4624 for logon attempts) to identify any related behavior patterns. Confirm whether the Symantec service has been stopped or restarted immediately following the command execution.
+
+  ---
 
   ### Prioritization
-  This alert is marked as high severity due to the critical role that antivirus solutions like Symantec Endpoint Protection play in defending the enterprise environment. The ability to disable such protection significantly increases the risk of undetected threats and malware, making it imperative for security teams to respond swiftly.
+
+  This alert is of high severity due to the potential impact on endpoint security, especially on systems hosting sensitive applications or data. As `taskkill` can be weaponized to disable protective mechanisms, there is a strong likelihood of malicious abuse if this behavior is observed within non-standard contexts.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There are several gaps in detection coverage; for instance, this rule solely focuses on the termination of the Symantec process without considering other potential circumvention methods that may not involve this executable. The detection logic assumes that the attacker will utilize the `taskkill` command, which may not always be the case. This rule also requires logging for process creation events to operate effectively, and any misconfigurations or lack of logging on endpoints could result in missed detection opportunities.
+
+  This detection may have limitations, as legitimate administrative users could execute similar commands during maintenance, leading to potential false positives. Required log sources include comprehensive Process Creation logs and proper Sysmon configuration for reliable detection. Routine system administration tasks, such as managed service updates or software maintenance, may trigger this alert. Companion detections like monitoring for unusual PowerShell commands (e.g., Accessing `Get-Process` on sensitive services) could strengthen overall coverage against potential abuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

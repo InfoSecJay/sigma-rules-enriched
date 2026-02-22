@@ -31,24 +31,38 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify the use of the `tasklist.exe` utility to enumerate loaded modules associated with specific DLLs or executables within a Windows environment. The `tasklist.exe` command allows an attacker to retrieve a list of currently running processes along with their identifiers and loaded DLLs, enabling them to pinpoint processes that may contain exploitable vulnerabilities or sensitive information.
 
-  Attackers often employ this technique as part of a broader strategy to conduct memory dumping or other post-exploitation activities. By identifying the exact process identifier (PID) for a targeted DLL, threats such as credential dumping or lateral movement can be executed more effectively. This behavior is relevant to the MITRE ATT&CK framework, particularly in the following tactics and techniques:
-  - Credential Access (TA0006, T1003).
+  This rule detects the use of `tasklist.exe` to enumerate loaded modules, specifically targeting the `rdpcorets.dll`. This behavior is often observed when attackers identify process IDs (PIDs) before dumping memory or executing further malicious actions involving that library. The relevant MITRE ATT&CK tactic is Credential Access (TA0006), specifically technique T1003 (Credential Dumping). The primary telemetry sources include Windows process creation logs, specifically from Event ID 4688, logged during the execution of `tasklist.exe`. If malicious, this activity may indicate a sophisticated attempt to extract credentials or manipulate user sessions. This detection does NOT confirm actual credential theft or successful exploitation on its own.
 
-  Data sources that will provide the necessary evidence include process creation event logs, which capture command-line activity and can reveal instances of `tasklist.exe` being executed with specific flags or arguments.
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine process creation logs for instances of `tasklist.exe` being run, especially looking for command-line arguments indicating module enumeration (e.g., `-m`).
-  - **Investigate Targeted DLLs:** Focus on any recorded command-line executions that involve notable DLLs such as `rdpcorets.dll`, and explore the context of their usage, including the parent processes.
-  - **Analyze Network Connections:** Look for network activity that may correspond with processes identified in the enumeration, providing insight into suspicious behavior, such as connections to command and control servers or unauthorized data exfiltration.
-  - **Correlate User Actions:** Determine if the account initiating the task has a valid reason for its actions. Check for unusual user activity or logon events correlating with the enumeration timeframe.
+
+  - **Confirm the invocation of tasklist.exe: ** Check Windows Security Event ID 4688 for `tasklist.exe` execution on affected hosts, noting the `NewProcessName` and `CommandLine` fields for details on parameters used.
+
+  - **Identify usage of the specified DLL: ** Search for the presence of `rdpcorets.dll` within the CommandLine parameters of the tasklist process. Cross-reference with Event ID 4688 for suspicious activity related to this specific module.
+
+  - **Evaluate process context: ** Analyze the parent process of `tasklist.exe` using the `ParentProcessId` from Event ID 4688 logs. Legitimate usage typically sees `tasklist.exe` invoked by system-level processes (e.g., `explorer.exe`, `powershell.exe`). Anomalous parent processes may indicate malicious intent.
+
+  - **Check execution frequency: ** Review the frequency of `tasklist.exe` executions. A high volume in a short timeframe may signal automated malicious activity rather than legitimate administrative use (e.g., IT staff troubleshooting).
+
+  - **Investigate related artifact creation: ** Validate if any process dumping activity, such as memory readings from the identified PID, follows shortly after this enumeration. Look for additional artifacts in security logs or Sysmon Event ID 10 (ProcessAccess) indicating memory access on those processes.
+
+  ---
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of successful credential dumping and the likelihood of unauthorized access that could result from such a technique. Monitoring for this behavior is essential to prevent further compromise.
+
+  This alert is of medium severity due to the potential security impact of exposing credentials. Although the likelihood of misuse is moderate, the enumeration of sensitive modules like `rdpcorets.dll` can indicate a preparatory step for credential dumping, which is a common tactic utilized by adversaries.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage depending on the logging configuration and event retention policies in place for process creation events. The detection logic assumes `tasklist.exe` is being used in a suspicious context; however, legitimate administrative tasks could also trigger this alert. Proper monitoring and logging of administrative activities are necessary to ensure the reliability of this detection, as well as configurations that capture comprehensive process creation events.
+
+  Detection may be limited by the absence of logs from systems not fully monitored or configured to capture all process creation events. Attackers could employ evasion techniques, such as using tools other than `tasklist.exe` for module enumeration. Legitimate activities might include admin tasks or troubleshooting scenarios that involve monitoring processes. Companion detections include monitoring `Sysmon` logs for suspicious process injection or memory access activities that could indicate credential dumping following module enumeration.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

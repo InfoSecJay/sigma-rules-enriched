@@ -30,23 +30,31 @@ falsepositives:
 level: low
 note: |
   ### Technical Context
-  This detection rule identifies the creation of privileged containers within a Kubernetes environment. A privileged container has unrestricted access to the host system, possessing all the capabilities of the root user. This capability can be exploited by threat actors to execute container breakout attacks, allowing them to compromise the host system and access sensitive resources, manipulate processes, or execute arbitrary commands. The ability to create privileged containers can often be a precursor to unauthorized access or data exfiltration, making it a significant security concern.
 
-  In terms of MITRE ATT&CK, this detection aligns with the tactic of **Privilege Escalation (TA0004)**, particularly the technique **Container Escaping (T1611)**. Attackers may utilize privileged containers as a means to escalate their privileges within the infrastructure without sufficient monitoring or oversight. The primary data source for this rule is the Kubernetes audit logs, specifically focusing on events indicating the creation of pods with privileged configurations.
+  This Sigma rule detects the creation of privileged containers within a Kubernetes environment, which can indicate attempts by an attacker to escalate privileges and execute potentially harmful actions on the host. The likely objective of creating a privileged container is to gain unrestricted access to the host’s operating system, facilitating actions such as data exfiltration or lateral movement. This behavior aligns with the MITRE ATT&CK tactic of Privilege Escalation (TA0004) and technique T1611, which involves attacker exploitation through elevated permissions in a containerized environment.
+
+  The primary telemetry sources are Kubernetes audit logs, specifically focusing on events recorded during pod creation. The security impact of a malicious privileged container is significant, as it can enable unauthorized access to sensitive information and system controls. However, this detection does NOT confirm that a malicious action has occurred. It merely indicates that a new privileged container has been deployed, which may also be part of legitimate administrative actions.
 
   ### Investigation Steps
-  - **Review Kubernetes Audit Logs**: Analyze the Kubernetes audit logs for any events corresponding to the creation of pods with the `privileged` security context. Pay special attention to the verb `create` and the resource type `pods`.
 
-  - **Examine Pod Specifications**: Look into the configurations of the created pods to identify any use of the `securityContext.privileged` option, modifications of Linux capabilities, or settings of `hostNetwork` or `hostPID` fields that deviate from the organization’s best practices.
+  - **Review Kubernetes Audit Logs:** Check audit logs for Event IDs indicating pod creation (verb: 'create') in the `kube-apiserver` logs. Examine fields for `objectRef.resource` set to 'pods' and any entries marking `securityContext.privileged` as true.
 
-  - **Check for Unauthorized Access**: Investigate whether any suspicious or unrecognized users or service accounts initiated the creation of the privileged containers. Verify the legitimacy of their access and actions within the cluster.
+  - **Assess Context of Container Creation:** Identify if the creation of the privileged container coincided with unusual times, such as outside of regular maintenance windows or during infrequent deployment schedules, which may indicate suspicious activity.
 
-  - **Assess Historical Changes**: If possible, review the historical configuration and deployment actions within the Kubernetes environment for any prior instances of privileged container deployments, especially from unexpected sources or during unusual hours.
+  - **Identify Anomalous Capabilities:** Look for additional Linux capabilities granted to the container beyond default settings, such as `SYS_ADMIN` or `ALL`, and investigate corresponding fields (`capabilities`) in the audit logs that may signal an intent to execute complex attack scenarios.
+
+  - **Correlate with Legitimate Activity:** Cross-reference with normal operational patterns, such as scheduled maintenance or deployment tasks. Legitimate container deployment typically involves minimal or no privileges and should not require `hostNetwork` or `hostPID` configurations.
+
+  - **Determine Affected Host Criticality:** Investigate if the host associated with the privileged container is critical to business operations, as a compromise could lead to broader system impacts. Evaluate the asset’s role in the environment (e.g., production vs. development).
+
+  - **Check for Unrecognized Deployment Patterns:** Validate whether the creation of the privileged pod aligns with known deployment workflows or known users. Look for deviations, such as unfamiliar user accounts or automated scripts initiating the pod creation.
 
   ### Prioritization
-  This alert holds a **low** severity level; however, it should not be ignored as the presence of privileged containers can indicate potential threats to the integrity of the entire Kubernetes environment. Given that such configurations can lead to significant privilege escalation, organizations should monitor for these activities as part of a broader defense strategy.
+
+  The severity of this alert is moderate in an enterprise context, given that a compromised host could lead to significant data breaches and infrastructure manipulation. While creating privileged containers can be part of standard operations, the likelihood of malicious usage is high, especially if combined with other suspicious behavior, making it a relevant vector for attackers.
 
   ### Blind Spots and Assumptions
-  A critical blind spot for this detection is the reliance on exhaustive logging of Kubernetes audit events; if audit logging is misconfigured or disabled, the detection will fail. Additionally, there is an assumption that all deployments adhere to the organization’s established security policies and standards regarding container provisioning. The rule presupposes that access controls are in place to limit who can create privileged containers, a capability that may not be uniformly enforced across the environment. To successfully implement this detection, ensure that Kubernetes audit logs are enabled and properly configured to record all relevant events.
+
+  This detection may be circumvented by adversaries who place significant scrutiny on container configurations to avoid trigger alerts through privileged container creations. Proper logging configurations should include the complete capture of Kubernetes audit events for reliable detection. Benign activities that could trigger the alert involve DevOps personnel deploying necessary privileges for compliant applications. A companion detection might involve tracking for unusual access patterns or privilege escalation actions within Kubernetes clusters (e.g., via RBAC changes or elevated privileges).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

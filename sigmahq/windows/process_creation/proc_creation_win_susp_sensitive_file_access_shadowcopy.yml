@@ -31,42 +31,32 @@ falsepositives:
 - Unlikely
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects commands that access Volume Shadow Copies, specifically targeting sensitive files such as the NTDS.dit file (Active Directory database), SYSTEM, and SECURITY registry hives. The likely objective of an attacker is to extract sensitive information, such as password hashes or other security-critical data, enabling further attacks or lateral movement. This behavior aligns with the MITRE ATT&CK technique for data from local system (T1490).
+  This Sigma rule detects attempts to access Volume Shadow Copies (VSS) to extract sensitive files, such as the NTDS.dit (Active Directory database), SYSTEM, and SECURITY registry hives. The likely attacker objective is to obtain credential data or other sensitive information that can be exploited for privilege escalation or lateral movement. This behavior aligns with the MITRE ATT&CK tactic for Credential Access (TA0006) and technique Credential Dumping (T1003).
 
-  The primary telemetry source for this detection is Windows process creation logs, specifically related to command line activities that interact with Volume Shadow Copies. The security impact of a successful extraction of these files can be severe, resulting in unauthorized access to sensitive credentials and the potential compromise of the entire Active Directory ecosystem. It is crucial to note that this detection does NOT confirm malicious activity on its own, as legitimate administrative tasks may also access these files under certain controlled circumstances.
-
-  ---
+  Primary telemetry sources include Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process creation events detailed in command lines. If malicious, the security impact could lead to a full domain compromise, given that sensitive Active Directory data was accessed. However, this detection does NOT confirm that a successful exfiltration occurred or that the extracted data was utilized maliciously.
 
   ### Investigation Steps
 
-  - **Identify the command used**: Review the process creation logs for Event ID 4688 to find instances where the CommandLine contains `\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy`. Look for potential command execution patterns that align with the rule's signature.
+  - **Review the command line used**: Look for command lines containing `\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy` or any of the specified sensitive files, especially `NTDS.dit` (Event ID 4688/Sysmon ID 1). Malicious indicators would involve commands accessing VSS, while benign commands would typically not reference these directory structures.
 
-  - **Analyze for high-confidence malicious indicators**: Validate instances where the CommandLine contains references to `NTDS.dit`, `SYSTEM`, or `SECURITY`. Confirm that such commands are executed by non-admin users or processes not typically associated with legitimate administrative tasks. Prioritize processes initiated by unusual user accounts.
+  - **Correlate with user activity logs**: Check the account executing the command against user activity logs within Windows Event ID 4624 (Logon) to determine if it was a legitimate administrative user performing standard maintenance tasks.
 
-  - **Check for legitimate access patterns**: Investigate if the command was executed by known administrative accounts or during designated maintenance windows. Note instances where system administrators use these commands for backup or recovery purposes. Regular authorized access should show specific usernames tied to legitimate operational activities.
+  - **Check for abnormal file creation**: Survey temporary directories (like `C:\temp`) for recent file creation using File Creation Logs. Look for unusual timestamps or files following the alert, especially if created by the same user/process associated with the command line execution.
 
-  - **Correlate with additional telemetry**: Utilize Windows Event ID 4104 and logs from PowerShell to assess for scripts or commands that reference the Volume Shadow Copy. Look for unusual PowerShell executions that may be related to the command line in question.
+  - **Evaluate host role**: Assess the role of the affected host. If it is a Domain Controller or has elevated privileges, the potential impact from this alert is much higher compared to a standard user workstation.
 
-  - **Assess system role and asset criticality**: Determine the role of the affected system (e.g., Domain Controller vs. standard workstation). Higher criticality systems, especially those managing Active Directory, warrant immediate escalations if this behavior is detected.
+  - **Document any legitimate shadow copy use**: Identify and record if any scheduled backup or maintenance tasks that may legitimately use shadow copies have occurred around the same timestamp, aiding in differentiating benign from malicious activity.
 
-  - **Monitor for file creation or exfiltration evidence**: Check if files like `ntds.dit` or equivalent were copied to unexpected locations during the time of the alert. Use file system auditing logs (Security Event ID 4663) to identify any unauthorized file accesses or writes to directories like `C:\temp`.
-
-  ---
+  - **Cross-reference related logs**: Examine PowerShell execution logs (Event ID 4103) for any usage of cmdlets related to VSS or file manipulation to establish if there was a prior indication of suspicious behavior going to this alert.
 
   ### Prioritization
 
-  The severity of this alert is high due to the critical nature of the systems involved (e.g., Domain Controllers) and the likelihood of malicious actors using such techniques for credential harvesting. This behavior is a known tactic leveraged in numerous threat incidents, elevating its risk level.
-
-  ---
+  This alert is high-priority due to the potential compromise of critical domain credentials and sensitive information stored in the Active Directory. The likelihood of malicious abuse is significant, given that accessing VSS is a known technique for credential dumping. Such behaviors are commonly weaponized, making this a routine attack vector against enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  Detection might miss instances of authorized administrative accesses, as legitimate users with high privileges may trigger this alert while performing routine tasks. There must be comprehensive logging enabled for both process creation and file activities related to Volume Shadow Copies for reliable detection. Additionally, activities such as backups or disaster recovery operations may also produce alerts, necessitating context for proper triage. Complementary detections along the lines of suspicious PowerShell activity (T1059.001) could strengthen the overall coverage against this tactic.
-
-  ---
+  Detection may be limited by the absence of shadow copies in environments with strict backup policies or due to misconfigurations in auditing settings that fail to log process executions adequately. Legitimate administrative actions, such as backup processes or maintenance scripts, may trigger the alert. A related detection to bolster coverage would be monitoring for large file copies or unusual network activity after shadow copy access to observe potential data exfiltration attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

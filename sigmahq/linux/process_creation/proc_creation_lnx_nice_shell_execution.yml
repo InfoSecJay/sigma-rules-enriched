@@ -6,7 +6,8 @@ description: |
 references:
 - https://gtfobins.github.io/gtfobins/nice/#shell
 - https://www.elastic.co/guide/en/security/current/linux-restricted-shell-breakout-via-linux-binary-s.html
-author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg L.P.)
+author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg 
+  L.P.)
 date: 2024-09-02
 tags:
 - attack.discovery
@@ -29,22 +30,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the execution of shell commands via the "nice" utility in a Linux environment. The "nice" command is typically used to adjust the priority of processes, but when misused to execute a shell, it may indicate privilege escalation attempts or unauthorized command execution in environments with restricted shells. Attackers could use this technique to gain increased privileges or to pivot within the network, potentially leading to data exfiltration or further compromise.
 
-  Relevant MITRE ATT&CK tactics include **Execution** (TA0002) and its technique **Command-Line Interface** (T1059.003), which covers command executions through various command-line tools. Additionally, this behavior may interface with techniques related to **Discovery** (TA0007) given its potential to probe the system for sensitive information or system configurations.
+  This rule detects the execution of shell commands via the "nice" utility on Linux systems. Attackers may use "nice" as a method to manipulate the scheduling of processes to gain unauthorized access or perform privilege escalation, especially when breaking out from restricted environments or executing commands where user permissions may be limited. This behavior aligns with the MITRE ATT&CK tactic of Discovery (TA0007) and the specific technique for Unrestricted/Excessive Resource Consumption (T1083).
 
-  The primary data source for this detection is process creation logs, which capture execution of commands and can reveal unexpected or malicious uses of standard utilities like "nice."
+  The primary telemetry source is Linux process creation logs, specifically monitoring the execution of processes where "nice" is used alongside commonly exploited shell interpreters like `/bin/bash`, `/bin/sh`, `/bin/zsh`, and so forth. If this activity is malicious, it could lead to compromise or lateral movement within the network. It's essential to note that this detection does NOT, on its own, confirm malicious intent; it merely highlights suspicious command execution that requires further contextual investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze logs for instances where "nice" is used to launch a shell. Search for corresponding parent processes to identify any anomalies in execution context.
-  - **Assess Command-Line Arguments**: Check the command-line arguments for unusual or suspicious patterns that indicate the execution of potentially harmful shell commands. Focus on the use of standard shells like `/bin/bash` or `/bin/sh`.
-  - **Validate User Context**: Investigate the user context in which the "nice" command was executed. Determine if the user has legitimate permissions for such actions or if it's an indicator of compromised credentials.
-  - **Correlate with Other Sources**: Look for associated network activity, such as outbound connections or file access patterns that may denote further malicious objectives. Employ EDR tools to check for subsequent processes launched by the shell.
+
+  - **Review recent process executions:** Check Linux process creation logs (e.g., `/var/log/audit/audit.log` or Systemd journal logs) for `execve` syscall events. Look for Event ID that indicates the execution of "nice" followed by a shell interpreter. Validating unusual time stamps or user contexts may reveal illegitimate access patterns.
+
+  - **Examine command history:** Investigate `.bash_history` or similar files for the user context under which "nice" was executed. Document any commands run immediately before or after the usage of "nice" that appear suspect or out of the ordinary.
+
+  - **Identify abnormal user activity:** Look for patterns of usage, such as unusually high "nice" priority levels, executed by non-administrative users, indicating potential abuse. Cross-reference usage with expected operational behavior for the specific user role (e.g., a standard user is not expected to regularly escalate their process priority).
+
+  - **Collect related network activity:** Utilize network monitoring (e.g., netstat or system logs) to correlate network connections established just after the execution of commands via "nice." Check if there are any outgoing connections to known malicious IPs or ports.
+
+  - **Check for additional persistence mechanisms:** Investigate for any scripts or binaries that might have been executed in conjunction with or as a result of the "nice" command invocation. Determine if created files have unusual permissions or ownerships, indicating potential backdoor activity.
 
   ### Prioritization
-  Given the potential for privilege escalation and unauthorized access that this detection represents, alerts triggered by this rule should be prioritized as high. The likelihood of an attacker exploiting this technique in an enterprise environment increases the urgency for investigation and response.
+
+  This alert is considered high-severity due to the potential for privilege escalation and unauthorized execution of commands from a compromised system. The likelihood of this behavior being malicious is significant, as it is a commonly utilized tactic by attackers to manipulate processes and escalate their privileges within a Linux environment.
 
   ### Blind Spots and Assumptions
-  Detection of this behavior may be limited if process creation logs are not configured to capture all relevant executions or if the "nice" command is used in legitimate scenarios without malicious intent. The detection logic assumes that the presence of specific shell binaries indicates probable malicious activity. Continuous auditing and configuration of logging mechanisms are necessary to ensure comprehensive coverage for such alerts.
+
+  Detection is limited by the potential for users with legitimate needs to employ "nice" without malicious intent, especially system administrators or developers using it for valid purposes. Additionally, false negatives may occur if telemetry is not comprehensive or if logging is improperly configured (e.g., Audit framework). Legitimate administrative activities, such as process management during performance tuning, may also trigger the alert. Companion detection, such as monitoring for unapproved SSH sessions or escalations (e.g., via `sudo` usage), can help strengthen the overall detection coverage of potentially malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -4,13 +4,14 @@ related:
 - id: 207b0396-3689-42d9-8399-4222658efc99     # Generic rule based on similar cli flags
   type: similar
 status: test
-description: Detects suspicious commandline flags used by PsExec and PAExec to escalate
-  a command line to LOCAL_SYSTEM rights
+description: Detects suspicious commandline flags used by PsExec and PAExec to 
+  escalate a command line to LOCAL_SYSTEM rights
 references:
 - https://learn.microsoft.com/en-us/sysinternals/downloads/psexec
 - https://www.poweradmin.com/paexec/
 - https://www.fireeye.com/blog/threat-research/2020/10/kegtap-and-singlemalt-with-a-ransomware-chaser.html
-author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron Systems)
+author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
+  Systems)
 date: 2021-11-23
 modified: 2024-03-05
 tags:
@@ -44,46 +45,35 @@ detection:
     - 'accepteula'
   condition: all of selection_*
 falsepositives:
-- Admins that use PsExec or PAExec to escalate to the SYSTEM account for maintenance
-  purposes (rare)
-- Users that debug Microsoft Intune issues using the commands mentioned in the official
-  documentation; see https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension
+- Admins that use PsExec or PAExec to escalate to the SYSTEM account for 
+  maintenance purposes (rare)
+- Users that debug Microsoft Intune issues using the commands mentioned in the 
+  official documentation; see 
+  https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the execution of PsExec or PAExec with command-line flags that escalate privileges to the LOCAL SYSTEM account. This behavior is typically leveraged by attackers to gain higher access rights, which can be used to move laterally within the network or execute malicious payloads. The relevant MITRE ATT&CK tactic is "Privilege Escalation" (TA0004) with techniques T1587.001 (Develop Capabilities: Tools). Primary telemetry sources include Windows process creation logs (Event ID 4688 and Sysmon Event ID 1), which capture command-line executions. If malicious, this behavior can lead to significant security impacts, including unauthorized access to sensitive data or systems. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative uses may occur.
-
-  ---
+  This Sigma rule detects the use of PsExec or PAExec with command-line flags indicative of attempting to escalate privileges to the LOCAL_SYSTEM account. This behavior typically suggests an attacker is aiming to gain elevated access for persistence, lateral movement, or initiating other malicious activities on a target system. It aligns with the MITRE ATT&CK framework under the tactic "Privilege Escalation" (TA0004) and specifically the technique "Exploitation for Credential Access" (T1587.001). The primary telemetry sources are Windows process creation logs, particularly Security Event ID 4688, which captures command-line execution details. If this behavior is confirmed as malicious, it poses significant security risks, as gaining SYSTEM-level access can lead to full compromise of the host. However, this detection alone does not confirm the intent behind the escalation nor does it indicate abuse if legitimate administrative activities are performed.
 
   ### Investigation Steps
 
-  - **Review event details:** Check Event ID 4688 entries for any `CommandLine` fields containing the strings `psexec`, `paexec`, `-s`, and variants. Look for unexpected execution contexts, especially if they originate from non-admin accounts or non-secured network segments.
+  - **Review process creation logs**: Check Windows Security Event ID 4688 for command-line usage of 'psexec' or 'paexec' with flags indicating escalated execution (e.g., ' -s cmd'). Look for any unusual timing or system context that does not align with standard operations.
 
-  - **Validate account privileges:** Examine the user account that executed the command. Legitimate administrative activities by known system admins typically occur during scheduled maintenance with expected timeframes; look for known maintenance windows.
+  - **Identify host role and criticality**: Determine if the affected system is a server or workstation and evaluate its role in the environment (e.g., domain controller, file server). Critical systems execute commands differently than end-user workstations.
 
-  - **Cross-reference process tree:** Use Sysmon Event ID 10 (Process Access) and Event ID 1 (Process Creation) to analyze parent-child relationships. Legitimate executions often originate from known administrative tools or are initiated by user-level processes, while malicious activity may show anomalous parent processes.
+  - **Investigate user account legitimacy**: Assess the user account that executed the command. Look for any signs of credential compromise, such as a low-reputation user initiating SYSTEM-level commands (e.g., by cross-referencing the Account Name field in event logs).
 
-  - **Investigate related artifacts:** Check for any associated new or modified files in sensitive or critical areas (e.g., `C:\Windows\System32\`). Look for results from the creation or access of files that coincide with the time of PsExec execution, particularly any scripts or binaries that could be used for persistence or lateral movement.
+  - **Analyze recent administrative activity**: Check for documented maintenance or troubleshooting activities that justify the use of PsExec or PAExec. This includes legitimate tasks related to Microsoft Intune or other management activities to differentiate from potential abuse.
 
-  - **Identify legitimate PsExec usage:** Confirm any documented use of PsExec or PAExec by your IT team through change management records. Investigate any flagged incidents that were logged for debugging or administrative purposes, particularly any that occurred outside of normal windows.
-
-  - **Examine logs for evasion attempts:** Search for common evasion patterns that may accompany PsExec usage, such as obfuscation of command arguments or modifications in execution paths. Investigate any unusual command-line parameters that do not conform to standard administrative practices.
-
-  ---
+  - **Cross-check file creation and output**: Validate any spawned processes or scripts created through PsExec/PAExec for anomalies. File paths, executed scripts, or dropped payloads should be examined for high-confidence malicious artifacts.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential for critical systems to be compromised through privilege escalation. The likelihood of such techniques being weaponized in the enterprise is high, especially if combined with other malicious activities. The presence of PsExec/PAExec in environments lacking stringent access controls presents a clear risk.
-
-  ---
+  This alert is considered high-severity, as it involves a method frequently leveraged by adversaries to escalate privileges and potentially compromise sensitive systems. The likelihood of malicious abuse is elevated, particularly if occurring on critical infrastructure. This behavior is often weaponized in various cyber incidents, justifying immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the ability of attackers to use command-line obfuscation, which may evade detection. Required log sources include Sysmon with proper configuration to capture all relevant process creation events and command-line arguments. Legitimate administrative activities, especially from IT staff performing routine maintenance or troubleshooting, may trigger this alert. Strengthening coverage can be achieved by correlating with other intrusion detection rules for lateral movement detection and privilege escalation events.
-
-  ---
+  Limitations include that not all legitimate administrative actions are captured unless exhaustive logs are enabled. Users with administrative privileges may trigger this alert benignly during troubleshooting or maintenance processes. It's essential to ensure that log settings for capturing command-line arguments are properly configured in Group Policy. A companion detection to consider is monitoring for unusual service creations or modifications (e.g., Service Control Manager logs), which can further indicate privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

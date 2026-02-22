@@ -1,8 +1,8 @@
 title: Suspicious Scheduled Task Creation Involving Temp Folder
 id: 39019a4e-317f-4ce3-ae63-309a8c6b53c5
 status: test
-description: Detects the creation of scheduled tasks that involves a temporary folder
-  and runs only once
+description: Detects the creation of scheduled tasks that involves a temporary 
+  folder and runs only once
 references:
 - https://discuss.elastic.co/t/detection-and-response-for-hafnium-activity/266289/3
 author: Florian Roth (Nextron Systems)
@@ -30,24 +30,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the creation of scheduled tasks on Windows systems that reference a temporary folder and are designed to execute only once. Such behavior is often leveraged by attackers to execute malicious payloads without creating a persistent presence that could be easily identified by security tools. The usage of temporary folders may indicate an attempt to hide the execution technique, making it more challenging for traditional security measures to catch it.
 
-  The suspected threat scenario aligns with tactics employed by various threat actors using malware to establish initial footholds or deliver payloads that could escalate privileges or exert malicious control over a system. Notably, this activity can include executing initial access techniques or privilege escalation strategies as defined within the MITRE ATT&CK framework. Relevant tactics and techniques include:
-  - **Execution** (TA0002) and specifically **Scheduled Task/Job (T1053.005)**
-  - **Persistence** (TA0003), since the creation of a scheduled task is indicative of an attacker attempting to maintain a foothold.
+  This Sigma rule detects the creation of scheduled tasks using the Windows `schtasks.exe` command, specifically targeting tasks that run once and utilize the system's temporary folder. This behavior is characteristic of lateral movement or post-exploitation activities by an attacker, likely aiming to maintain persistence or execute malicious payloads without alerting defenses. The relevant MITRE ATT&CK tactic is Persistence, with the associated technique being Scheduled Task/Job (T1053.005).
 
-  Primary data sources for detection include process creation events, specifically monitoring command-line activity and the use of the `schtasks.exe` utility.
+  The primary telemetry source for this detection is Windows Process Creation logs, particularly focusing on event logs related to task creation, which can highlight unauthorized scheduled tasks. If this activity is malicious, it could allow an attacker to execute payloads with elevated privileges, potentially leading to further exploitation or data exfiltration. However, this detection does NOT confirm that malicious activity is ongoing or that the task is indeed harmful; it merely indicates a suspicious behavior that requires further investigation.
 
   ### Investigation Steps
-  - **Review Task Scheduler Logs:** Investigate the Windows Task Scheduler logs to identify any newly created or modified tasks that utilize temporary directories and run under suspicious user accounts.
-  - **Analyze Command-Line Arguments:** Examine the command-line arguments passed to the `schtasks.exe` process for patterns that match the creation of tasks. Look for malicious parameters indicating one-time executions in temporary folders.
-  - **Correlate User Activity:** Cross-reference the execution of this scheduled task with user activity logs to determine if the task creation corresponds to legitimate administrative actions or malicious activity attempting to utilize system functionality for nefarious purposes.
-  - **Check for Cleanup/Deletion Patterns:** Monitor for subsequent deletions of the scheduled tasks and associated temporary files, which might indicate an attempt to cover tracks after the execution of a malicious payload.
+
+  - **Review the Process Creation Logs:** Examine Windows Security Event ID 4688 for instances of `schtasks.exe` with a CommandLine parameter containing both `/create` and `/sc once`. Check for legitimate administrative activities that may show expected uses of the Temp folder.
+
+  - **Validate Suspicious CommandLine Parameters:** Inspect the CommandLine for unusual parameters or obfuscation techniques. An example of a high-confidence malicious indicator would be a CommandLine including encoded or obfuscated scripts intended to run from the Temp folder.
+
+  - **Cross-Reference Scheduled Tasks:** Use `schtasks` or PowerShell cmdlets (e.g., `Get-ScheduledTask`) to list all scheduled tasks on the system. Determine if the newly created task matches an expected administrative task, such as backups or maintenance routines.
+
+  - **Identify Creation User Context:** Correlate the event with the User field from Event ID 4688 to determine which account created the scheduled task. Look for unfamiliar accounts or accounts with unusual activity patterns.
+
+  - **Check for Temporary Folder Artifacts:** Investigate the contents of the Temp folder (C:\Users\<Username>\AppData\Local\Temp) for unexpected or recently created files that might be associated with the newly scheduled task.
+
+  - **Assess System Context and Asset Criticality:** Determine if the affected system is critical to operations, such as domain controllers or servers handling sensitive data. Elevated risk may require immediate remediation actions or heightened monitoring.
 
   ### Prioritization
-  The alert is categorized as high severity due to the impactful nature of malicious scheduled tasks that can be leveraged for privilege escalation or data exfiltration. The likelihood of such tasks being used for advanced attacks increases in environments where administrative oversight is limited or user permissions are misconfigured.
+
+  This alert should be prioritized as high due to the potential for immediate impact if a malicious actor gains persistence on a critical enterprise system. Malicious scheduling of tasks has been commonly weaponized in various cyber threat scenarios, raising the likelihood of exploitation.
 
   ### Blind Spots and Assumptions
-  A potential gap in detection coverage may include legitimate administrative use of scheduled tasks that could exhibit similar command-line patterns, leading to false positives. The detection rule assumes that the environment's logging level captures detailed process creation events and that `schtasks.exe` is the only way tasks are created through command-line interface. To ensure the alert functions correctly, comprehensive logging of process creations and command-line parameters must be enabled, particularly on endpoints where unusual task creation is monitored.
+
+  This detection may miss scheduled tasks created by legitimate administrative processes if proper logging is not enabled. It relies on detailed Windows event logging, which must be configured correctly to catch all instances. Legitimate activities such as software installation can trigger this alert, possibly leading to false positives. A related detection to strengthen coverage would be monitoring for unexpected PowerShell executions (T1059.001) that often precede or follow the creation of malicious tasks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,8 @@
 title: RDP to HTTP or HTTPS Target Ports
 id: b1e5da3b-ca8e-4adf-915c-9921f3d85481
 status: test
-description: Detects svchost hosting RDP termsvcs communicating to target systems
-  on TCP port 80 or 443
+description: Detects svchost hosting RDP termsvcs communicating to target 
+  systems on TCP port 80 or 443
 references:
 - https://twitter.com/tekdefense/status/1519711183162556416?s=12&t=OTsHCBkQOTNs1k3USz65Zg
 - https://www.mandiant.com/resources/bypassing-network-restrictions-through-rdp-tunneling
@@ -32,24 +32,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects a potentially malicious behavior where the Windows Service Host (svchost.exe) is using Remote Desktop Protocol (RDP) to communicate over non-standard ports, specifically TCP ports 80 or 443, which are typically reserved for HTTP and HTTPS traffic. Attackers may use this tactic to bypass network restrictions, creating covert tunnels that allow for unauthorized remote access to systems. The objective may be to maintain persistence, exfiltrate data, or perform lateral movement within the network.
 
-  The relevant MITRE ATT&CK tactics and techniques associated with this detection include:
-  - Command and Control (T1071.001) - Application Layer Protocol: Web Protocols
-  - Lateral Movement (T1021.001) - Remote Desktop Protocol
+  This Sigma rule detects instances where the Windows process `svchost.exe`, associated with a Remote Desktop Protocol (RDP) service, initiates communication to target systems over HTTP (port 80) or HTTPS (port 443). The likely attacker objective is to establish a covert communication channel or tunnel for command and control (C2) traffic, bypassing network security controls. This behavior aligns with MITRE ATT&CK tactics for Command and Control (T1071) and T1021.001 (Remote Service Session).
 
-  The primary data source for this detection will be network connection logs from Windows, which should capture detailed information about connections initiated by svchost.exe, including source and destination IP addresses and ports.
+  The primary telemetry source is network connection logs, specifically capturing events where `svchost.exe` is involved in outbound connections. If malicious, this activity can lead to unauthorized access or control over targeted systems. However, detection alone does not confirm nefarious intent; legitimate services may exhibit similar behavior.
+
+  ---
 
   ### Investigation Steps
-  - **Review Network Logs:** Check Windows network connection logs for instances of svchost.exe initiating connections to TCP ports 80 or 443, especially originating from 3389. Investigate the destination IPs and whether they correspond to known or legitimate external services.
-  - **Analyze Process Behavior:** Investigate the process tree and parent-child relationships around svchost.exe instances to determine their legitimacy. Review running processes for unusual parent processes or signs of compromise.
-  - **Correlate with User Activity:** Look at user activity related to RDP access. Verify if the user account associated with the svchost.exe instance had an administrator or unauthorized privilege that allows for RDP connections.
-  - **Check Firewall and Proxy Logs:** Review logs for unusual outbound traffic to external URLs associated with HTTP/HTTPS requests initiated from internal systems. Assess if any legitimate business needs exist for such activity.
+
+  - **Verify the process initiating the connection**: Cross-reference the `svchost.exe` process with Security Event ID 4688 (Process Creation) to ensure it is executing in a legitimate context on a Windows host. Check the command line parameters for atypical behaviors.
+
+  - **Inspect Destination IP/Domain**: Look up the destination IP or hostname in network logs for known malicious indicators or categorize them using threat intelligence feeds to assess risk. Compare against benign domains associated with business applications.
+
+  - **Monitor for unusual outgoing traffic**: Use network monitoring tools to analyze bandwidth usage associated with the specific time the alert triggered. Legitimate RDP shadows or service communications often have predictable patterns, unlike malicious tunnels.
+
+  - **Check network appliance logs**: Review firewall or proxy logs for any rules or alerts triggered around the time of the event (look for Event ID 5156 from Windows Filtering Platform logs). Confirm if the traffic was indeed allowed on your network.
+
+  - **Identify logged user activity**: Review Event ID 4624 (Logon) and correlate with the time frame leading up to the outbound connection. Document any unusual logins, particularly if the account has administrative privileges.
+
+  - **Assess host role**: Determine if the host running the RDP session is critical in your environment (e.g. a member of the domain controller or application server). Malicious actions from these hosts could pose a higher risk than from less critical systems.
+
+  ---
 
   ### Prioritization
-  The alert's severity is considered high in an enterprise environment due to the potential for significant impact by enabling unauthorized access and data exfiltration through non-standard, obfuscated channels.
+
+  This alert should be treated with high severity as it could indicate active exploitation of RDP services for malicious purposes. Given that RDP is frequently targeted for lateral movement and command and control by adversaries, the presence of this activity warrants immediate investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may miss instances of legitimate remote management activities that utilize RDP on standard ports. An assumption is that network configurations do not categorize port 80 or 443 traffic as suspicious under normal conditions, thus potentially overlooking certain legitimate uses. It requires proper logging and monitoring configurations of Windows network connections to function effectively, specifically ensuring that logs differentiate between various process activities and connection types.
+
+  Detection may be blind to legitimate RDP usage that requires outbound HTTP/HTTPS traffic for legitimate software or updates. If logging is not comprehensive or restrictive firewall settings are not configured to log, detection could be less reliable. Common scenarios, such as users accessing cloud web services or software updates through RDP, may trigger this alert. Implementing detections for lateral movement techniques on the same endpoints (e.g., T1021.002 - Remote Services: SMB/Windows Admin Shares) will bolster overall security coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

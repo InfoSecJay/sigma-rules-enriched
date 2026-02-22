@@ -29,22 +29,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the execution of Impacket's PsExec tool, a common utility used for remote system administration and lateral movement within a network. By monitoring Windows Security Event Logs for specific Event IDs tied to file share access, this rule highlights potential misuse of PsExec, which can be employed by attackers to execute arbitrary commands on remote systems, facilitating further compromise or establishing persistence.
 
-  The primary threat scenario involves a malicious actor gaining initial access to a network and subsequently using PsExec to propagate their attack, taking control of additional hosts in an environment. The likely objectives include exfiltrating sensitive data, deploying malware, or leveraging compromised assets for further exploitation. The relevant MITRE ATT&CK techniques for this detection include **Lateral Movement (TA0008)** and **PsExec (T1021.002)**, which describes the exploitation of legitimate administrative tools for unauthorized access to remote systems.
+  This Sigma rule detects the execution of Impacket's PsExec tool through specific network share access events. The behavior indicates that an attacker may be attempting lateral movement within the network to execute commands on other machines, potentially compromising additional systems. The associated MITRE ATT&CK technique is "Lateral Movement: Remote Services" (T1021.002).
 
-  The primary data sources for this detection come from Windows Security Logs, specifically targeting events related to file share access, particularly those that monitor the use of the IPC$ share, which is often used for remote command execution.
+  The primary telemetry source is Windows security logs, specifically Event ID 5145, which captures access attempts to shared resources like IPC$. If successful, this behavior may lead to further exploitation, data exfiltration, or a full network compromise. It’s crucial to note that this detection does NOT confirm malicious intent on its own; legitimate administrative actions can trigger similar events.
 
   ### Investigation Steps
-  - **Review Security Event Logs:** Examine Windows Security Event Logs for Event ID 5145 related to IPC$ share access. Pay attention to events involving `RemCom_stdin`, `RemCom_stdout`, and `RemCom_stderr`, as these entries indicate potential PsExec usage.
-  - **Correlate with Process Execution Logs:** Check process creation events around the same timestamps to identify any unexpected or suspicious command-line arguments or parent-child process relationships that could reveal the use of PsExec or other malicious activity.
-  - **Analyze Network Traffic:** Utilize network detection logs to identify any unusual outbound connections made from the host using PsExec, especially to internal or external IP addresses that do not align with normal operating behavior.
-  - **Conduct Endpoint Forensics:** If a potential compromise is confirmed, conduct a forensic analysis on the endpoint involved, focusing on recent file changes, running services, and the presence of any malicious executables associated with PsExec or similar tools.
+
+  - **Verify Event ID 5145:** Look for Event ID 5145 in the Security logs. Focus on entries with ShareName set to '\\\\\*\\IPC$' and RelativeTargetName containing 'RemCom_stdin', 'RemCom_stdout', or 'RemCom_stderr'. A combination of these values indicates potential malicious PsExec usage.
+
+  - **Assess source IP addresses:** Check the originating IP address from the logs. If the IP is not a recognized administrator workstation or is from an unexpected source, it raises suspicion. Use correlation with other logs to determine the host’s normal activity patterns.
+
+  - **Evaluate user account activity:** Review the user accounts associated with the Event ID 5145. Legitimate administrative user accounts should show expected patterns of activity, while unknown or service accounts may indicate malicious behavior.
+
+  - **Cross-reference with network logs:** Look for connections on port 445 to the affected IPs in Windows Firewall logs or network traffic logs. An outbound connection initiated by a compromised host to another system via SMB should be highlighted.
+
+  - **Inspect for file creation or modification:** Validate any new files created or modified on the target machine around the time of the Event ID 5145 logs. Look for unusual scripts or executables in common PsExec temp directories (e.g., C:\Windows\Temp) that may confirm usage.
+
+  - **Identify administrative usage:** Compare the logged activity against known legitimate administrative actions and tools used within your organization. Frequent use of PsExec in non-administrative roles, especially by generic or non-privileged accounts, should be flagged for further review.
 
   ### Prioritization
-  This alert should be prioritized as high due to the potential for significant impact on network integrity and confidentiality. The use of PsExec can facilitate lateral movement within the network, allowing attackers to spread their foothold and potentially control sensitive systems.
+
+  The alert severity is high due to the potential impact of lateral movement and system compromise. The likelihood of malicious exploitation is significant if detected outside of administratively sanctioned workflows. This behavior is commonly weaponized in attacks to escalate privileges or spread malware across the network.
 
   ### Blind Spots and Assumptions
-  Detection capabilities may be limited if logging configurations are not correctly set, specifically if "Object Access > Audit Detailed File Share" settings are not enabled on Windows servers. The detection logic assumes that attack scenarios involving PsExec are recognizable through the specified Event ID; however, sophisticated attackers may utilize alternate methods to achieve similar objectives without triggering these logs. Analysts should be aware that legitimate administrative activity could produce similar logs, causing potential false positives.
+
+  Detection may be hindered by misconfigured audit settings which are necessary to capture Event ID 5145. Evasion techniques include using alternative lateral movement tools or invoking PsExec through legitimate user accounts which could mask malicious activity. Legitimate automated tasks, API calls, or system management actions might trigger the same alerts, necessitating thorough contextual analysis. A companion detection rule focusing on unusual account behavior or privilege escalation attempts would enhance overall coverage and accuracy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

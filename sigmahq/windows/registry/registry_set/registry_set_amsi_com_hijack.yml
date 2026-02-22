@@ -1,11 +1,11 @@
 title: Potential AMSI COM Server Hijacking
 id: 160d2780-31f7-4922-8b3a-efce30e63e96
 status: test
-description: Detects changes to the AMSI come server registry key in order disable
-  AMSI scanning functionalities. When AMSI attempts to starts its COM component, it
-  will query its registered CLSID and return a non-existent COM server. This causes
-  a load failure and prevents any scanning methods from being accessed, ultimately
-  rendering AMSI useless
+description: Detects changes to the AMSI come server registry key in order 
+  disable AMSI scanning functionalities. When AMSI attempts to starts its COM 
+  component, it will query its registered CLSID and return a non-existent COM 
+  server. This causes a load failure and prevents any scanning methods from 
+  being accessed, ultimately rendering AMSI useless
 references:
 - https://enigma0x3.net/2017/07/19/bypassing-amsi-via-com-server-hijacking/
 - https://github.com/r00t-3xp10it/hacking-material-books/blob/43cb1e1932c16ff1f58b755bc9ab6b096046853f/obfuscation/simple_obfuscation.md#amsi-comreg-bypass
@@ -28,40 +28,32 @@ falsepositives:
 - Unknown
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects modifications to the AMSI COM server registry key, specifically targeting the loading of the AMSI scanning functions by manipulating its COM object registration. The likely attacker objective is to disable AMSI functionality, which is a defense mechanism against script-based malware, thereby allowing malicious scripts to execute undetected. This behavior falls under the MITRE ATT&CK tactic of **Defense Evasion** (T1562.001).
+  This rule detects modifications to the Windows Registry key associated with the Anti-Malware Scan Interface (AMSI) COM server, specifically targeting the CLSID that points to the AMSI DLL. An attacker may seek to hijack this registry setting to disable AMSI, effectively bypassing security controls designed to detect and block malicious activities. This behavior fits into the MITRE ATT&CK framework under the tactic of Defense Evasion (T1562.001).
 
-  The primary telemetry source for this detection is the Windows Registry, specifically monitoring registry set actions that alter the key located at `\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`. If successful, this modification could disable AMSI, enabling script-based attacks without triggering defenses. Importantly, this detection does NOT confirm malicious intent on its own—legitimate software could also modify this registry key.
-
-  ---
+  The primary telemetry source is Windows Registry event logs regarding changes to `HKEY_CLASSES_ROOT\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`. If successful, such modifications could allow malware to execute without detection, significantly impacting the organization's security posture. It should be noted that this alert alone does not confirm an active attack; rather, it indicates a potential bypass of built-in security mechanisms.
 
   ### Investigation Steps
 
-  - **Review the registry key modification: **Check for changes to the registry key at `HKEY_CLASSES_ROOT\CLSID\{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`:** Correlate with security event logs (Event ID 4663) that document which user or process made the change. A legitimate application’s path should not point to anything unusual or non-standard.
+  - **Verify the registry change**: Check `HKEY_CLASSES_ROOT\CLSID` for the modification to the key `{fdb00e52-a214-4aa1-8fba-4357bb0072ec}\InProcServer32\(Default)`. Compare the current value against known good states or standard configurations for legitimate AMSI deployment.
 
-  - **Correlate with recent process activity: **Examine associated process creation logs (Event ID 4688 or Sysmon Event ID 1) to identify any processes that executed around the same time as the registry change:** Look for unexpected script execution (such as PowerShell or command scripts) that could indicate malicious activity.
+  - **Identify the user context of the change**: Retrieve the user and process that made the registry change using Security Event ID 4688 (process creation) to track any suspicious activity. Pay close attention to processes initiated by unexpected users or from unusual locations.
 
-  - **Check for existing AMSI.dll presence: **Ensure that `amsi.dll` exists at `%windir%\system32\`:** If absent, it’s a strong indication that something is trying to disable AMSI, and you should escalate the incident.
+  - **Monitor for related process execution**: Look for recent executions of AMSI-invoking executables or scripts (e.g., PowerShell) by correlating Sysmon Event ID 1 (process creation) with telemetry indicating attempts to call AMSI functions following the registry change.
 
-  - **Identify known malicious indicators: **Search for event logs that include execution of known Meterpreter or malicious PowerShell commands:** The presence of such commands would indicate a higher confidence in malicious activity correlating with the registry key modification.
+  - **Investigate system and application logs**: Review Windows Event Logs (Application and Security logs) for relevant activity within the timeframe of the registry change. Look for events indicating script execution or application behavior that may correlate with the registry modification.
 
-  - **Analyze Windows event logs for anomalies: **Investigate other Event IDs such as 4672 (Special Logon) and 4648 (Logon Attempt) that coincide with the modification:** This can help identify if an elevated privilege was used inappropriately during the change to the registry settings.
+  - **Assess the asset criticality**: Determine the role of the affected system. If it’s a critical asset within the environment (e.g., domain controllers, endpoints with sensitive data), prioritize the investigation.
 
-  ---
+  - **Establish baseline behavior**: Document expected legitimate configurations and application behavior that would typically invoke AMSI functions, such as standard software installations or updates. Compare these against the current telemetry to identify discrepancies.
 
   ### Prioritization
 
-  This alert has a **high** severity due to the potential impact on endpoint security; disabling AMSI could allow significant script-based attacks. The likelihood of malicious abuse is elevated as the behavior is commonly weaponized by threat actors seeking to evade detection mechanisms.
-
-  ---
+  This alert carries a high severity due to its potential impact on security controls, specifically the disabling of AMIS functionalities, which is critical for malware detection and prevention. The likelihood of abuse is significant, as disabling AMSI is a tactic frequently employed by sophisticated attackers, especially in environments where AMSI offers a primary layer of defense.
 
   ### Blind Spots and Assumptions
 
-  The detection may be evaded if the attacker employs techniques to revert changes or create multiple layers of software obscuring the modification. Reliable detection is contingent upon logging policy ensuring that registry modifications (Event ID 4663) are captured. Additionally, legitimate applications using non-standard scripts may trigger this alert, necessitating thorough investigation into executive behavior. A related detection rule to consider is one that alerts on unusual PowerShell execution, providing additional context to script activity.
-
-  ---
+  Evasion techniques may include legitimate software installations altering the registry without malicious intent, potentially generating false positives. Effective detection requires registry monitoring and System Internals tools (like Sysmon) configured to capture process execution events accurately. Legitimate activities such as software updates may trigger this alert and should be carefully considered in the investigation. Companion detections, such as monitoring for unexpected PowerShell activity, can enhance coverage against this kind of evasion technique.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

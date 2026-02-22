@@ -8,7 +8,8 @@ references:
 - https://gtfobins.github.io/gtfobins/c89/#shell
 - https://gtfobins.github.io/gtfobins/c99/#shell
 - https://www.elastic.co/guide/en/security/current/linux-restricted-shell-breakout-via-linux-binary-s.html
-author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg L.P.)
+author: Li Ling, Andy Parkidomo, Robert Rakowski, Blake Hartstein (Bloomberg 
+  L.P.)
 date: 2024-09-02
 tags:
 - attack.discovery
@@ -35,42 +36,32 @@ falsepositives:
 - Unknown
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the invocation of the `gcc` utility with a command-line parameter that suggests it is being used to execute a shell (e.g., using `-wrapper` or invoking a specific shell like `/bin/bash`). This behavior can be indicative of privilege escalation attempts, unauthorized command execution, or attempts to escape from a restricted environment, significantly heightening security risks.
+  This Sigma rule detects the use of the GCC compiler to execute shell commands, which may indicate attempts at privilege escalation or unauthorized command execution in a Linux environment. The likely objective of an attacker leveraging this behavior is to escape restricted shells or limited environments to gain broader command execution capabilities. This detection relates to the MITRE ATT&CK tactic "Discovery" (TA0007) and technique "Permission Groups Discovery" (T1083).
 
-  The tactic involved is **Execution** (TA0002), specifically leveraging the technique **Command and Scripting Interpreter** (T1059). Primary telemetry sources include process creation logs from Linux systems, particularly focusing on command invocations. If this detection proves malicious, it may result in unauthorized access to sensitive data or system control. Importantly, this detection does NOT confirm that any malicious activity has occurred on its own; further investigation is necessary to validate intent.
-
-  ---
+  The primary telemetry source is the process creation logs from Linux systems that capture command line execution. Log types should include `auditd` logs or `syslog` entries that detail process creation and command line arguments. If this behavior is malicious, it could compromise system integrity and potentially lead to unauthorized access to sensitive data or system-level operations. Importantly, this detection does NOT confirm that malicious activity is occurring on its own; it merely identifies an anomalous use of GCC that requires further investigation.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Security Event ID  exec (Linux process creation) capturing the execution of gcc, focusing on fields like `Image` and `CommandLine` for patterns indicating potential abuse.
+  - **Check command execution details:** Review process creation logs, specifically `auditd` entries (Event ID 32768) and `syslog`, filtering for entries where `Image` ends with `/gcc`, `/c89`, or `/c99`, and `CommandLine` contains `-wrapper` or shell commands. Look for command lines that invoke a shell with `-s` switching.
 
-  - **Correlate with user activity:** Examine relevant user activity during the time of the alert, particularly checking for `sudo` or `su` commands from the same user to identify whether they had escalated privileges prior to the gcc execution.
+  - **Identify known benign usage:** Investigate historical usage of GCC on the affected system. If legitimate developers are using GCC to compile software, verify their command lines do not attempt to execute any shell with `-s`. Document typical valid processes for comparison.
 
-  - **Assess for benign use cases:** Audit permissions and recent changes to environments where `gcc` is commonly utilized for legitimate development purposes, noting executables or scripts that may reference expected command lines without suspicious flags.
+  - **Correlate with user account activity:** Examine user account activity around the same time by extracting user login sessions or shell history (`~/.bash_history`) to establish context. Look for unusual users executing GCC or across multiple systems.
 
-  - **Identify high-confidence malicious indicators:** Look for the invocation of shells through gcc where the command line contains flags like `-s` attached to various shells (e.g., `/bin/bash,-s`), especially run by users without development roles.
+  - **Identify high-confidence malicious indicators:** Look for known bad command patterns in logs, specifically those that include sequences like `/bin/bash,-s` within the `CommandLine` field, indicating an attempt to spawn a shell directly.
 
-  - **Check for associated file changes:** Investigate creation or modification of script files (e.g., `/tmp/shellscript.sh`) which could indicate exploitation frameworks being executed post gcc invocation, validating unusual file paths and permissions.
+  - **Decipher additional execution flags:** Cross-reference all commands that invoke GCC or its aliases to see if they utilize any flags indicative of shell access or redirect output, particularly `-o`, `-f`, or redirections to `/dev/null`.
 
-  - **Validate host role and criticality:** Determine if gcc was executed on sensitive systems (e.g., production servers) where unauthorized shell access could lead to significant data breaches.
-
-  ---
+  - **Check for follow-on activities:** Confirm if any further suspicious behavior followed the GCC execution. Investigate for any newly-created files or executables that could indicate a payload or additional persistence mechanisms on the system.
 
   ### Prioritization
 
-  Given the potential to escalate privileges and execute arbitrary commands, alerts of this nature are critical, especially on production or sensitive systems. The likelihood of malicious abuse is high due to the common usage of `gcc` in both development and exploitation scenarios, making it a frequently weaponized tool.
-
-  ---
+  This alert should be treated with high severity due to the potential for system compromise if executed with malicious intent. The likelihood of malicious abuse is significant, particularly as enablement of shell access through GCC has been documented in various exploitation scenarios. Given its common usage in privilege escalation techniques, it is crucial to respond swiftly.
 
   ### Blind Spots and Assumptions
 
-  Detection may be circumvented by legitimate development activities that involve gcc usage, particularly if logged events are not retained or monitored closely. Dependencies on specific Linux distributions and their configurations are essential for accurate log collection. A relevant companion detection could include monitoring for script execution patterns that follow `gcc` usage, such as invoking typical shell commands that may indicate payload execution.
-
-  ---
+  Detection limitations include the potential for skilled adversaries to spoof benign GCC usage or obfuscate shell access through alternate methods. Reliable detection may rely on enhanced logging configurations, including complete `auditd` rules capture for all processes and command line arguments. Be aware that legitimate developers may trigger this alert during software compilation tasks. Related detections that could strengthen coverage include monitoring for `.bash_history` modifications or additional subprocess creation patterns linked to unexpected user access.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

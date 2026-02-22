@@ -47,22 +47,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects the modification of a specific registry key associated with the Windows Input Method Editor (IME), particularly the "Ime File" value, which can indicate malicious behavior. Attackers may manipulate this registry setting to load a malicious Dynamic Link Library (DLL) into a process by sending a `WM_INPUTLANGCHANGEREQUEST` message, potentially leading to the execution of unauthorized code or the establishment of persistent malware on a system. The use of IMEs is especially relevant in environments that support languages with extensive character sets such as Chinese, Japanese, and Korean.
 
-  The primary threat scenario involves an attacker attempting to exploit the IME functionality to execute malicious payloads without raising detection flags. Such tactics align with the MITRE ATT&CK framework, specifically under the **Defense Evasion** tactic, where techniques like **Indicator Removal on Host (T1562.001)** may be employed to obscure malicious activities. Detection here is crucial, as loading unsigned or unverified DLLs can lead to severe compromise of system integrity and confidentiality.
+  This Sigma rule detects the registration of a suspicious Input Method Editor (IME) file path in the Windows registry. Specifically, it identifies cases where an attacker may register a malicious DLL to execute malicious payloads when the IME keyboard layout is invoked. The likely attacker objective is to leverage the IME to inject malicious code into the user session or to facilitate command-and-control communication. This behavior corresponds to the MITRE ATT&CK tactic of Defense Evasion (T1562.001) by manipulating input methods to disguise malicious activities.
 
-  Key data sources for detecting suspicious activity related to this rule will primarily include registry change logs, which can reveal unauthorized modifications. In addition, examining process creation events in conjunction with the registry changes may provide further insights into the execution of potentially malicious DLLs.
+  The primary telemetry source is the Windows registry, particularly for registry modifications involving keyboard layouts (specifically targeting `\Control\Keyboard Layouts\`). The security impact is significant as it may lead to unauthorized execution of code, data exfiltration, or system compromise. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate applications may also modify IME settings.
 
   ### Investigation Steps
-  - **Review Registry Changes:** Look into the registry for modifications under `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Control\Keyboard Layouts\` focusing on the "Ime File" values that have been recently added or changed.
-  - **Analyze Process Creation Logs:** Check for any process creation events that coincide with the timing of the registry changes, specifically looking for processes that are loading DLLs from suspicious paths.
-  - **Monitor File System Activity:** Conduct an analysis of file system changes for DLLs located in temp directories, `AppData`, and other user-specific folders to identify potentially malicious files created or modified around the same time.
-  - **Investigate Network Connections:** If applicable, examine any outgoing network connections initiated by processes related to the suspicious registry modifications to detect potential command and control (C2) activity.
+
+  - **Review registry changes**: Query the registry for modifications to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Controls Folder\Keyboard Layouts\`. Check for values named "Ime File" pointing to non-standard DLLs or directories that may indicate malicious intent.
+
+  - **Compare against known good paths**: Ensure that paths leading to the registered DLLs do not match typical, legitimate software locations (e.g., `C:\Windows\System32\` or standard applications in `C:\Program Files\`). Malicious indicators often lead to unusual directories or temporary locations (e.g., `C:\Users\Public\Temp\`).
+
+  - **Audit DLL properties**: If a suspicious path is found, investigate the properties of the DLL file referenced (use `Get-FileHash` command or similar). Assess file creation dates and digital signatures to determine legitimacy; malicious DLLs may lack valid digital signatures.
+
+  - **Monitor for user interaction**: Check for the legitimacy of user actions that may trigger this IME (e.g., language switching). Review Windows Event ID 164 and 4688 for user activity involving language changes around the same time as the registry change.
+
+  - **Identify lateral movement or persistence attempts**: Check for unusual networking behaviors or logins (Event ID 4624) from the user/system executing the IME command. Correlate with any known indicators of compromise (IoCs) or alerts from other detection systems.
 
   ### Prioritization
-  The alert's severity level is marked as high due to the critical nature of registry manipulations associated with the execution of remote or unauthorized code, potentially leading to system compromise. In enterprise environments, timely detection and response are essential to mitigate the risk of exploitation via malicious DLLs.
+
+  This alert is considered high severity due to the potential impact of the affected system, which may be critical to business operations. The likelihood of malicious activity is elevated as the registry modification is a technique often used in advanced attacks to evade detection and maintain persistence. This behavior is also not uncommon among threat actors targeting Windows environments.
 
   ### Blind Spots and Assumptions
-  This detection rule may not effectively capture all instances of legitimate IME DLL usage, leading to potential false positives. The detection logic assumes that attackers will target common user directories and not use bespoke paths to evade detection. Successful detection relies on the availability of comprehensive logs that track registry changes and process executions, necessitating proper configuration of logging on Windows systems to ensure all relevant events are captured.
+
+  Detection limitations include the potential for legitimate applications to trigger this alert mistakenly, such as language input systems that modify IME settings for user convenience. Reliable detection requires complete registry logging and real-time monitoring of system modifications. Other legitimate processes could also utilize similar registry paths. A related detection that strengthens coverage includes monitoring for unusual process creation events (Windows Event ID 4688) that occur after modification of the IME registry key, indicating potential execution of malicious payloads.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

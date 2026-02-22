@@ -1,8 +1,8 @@
 title: ADSI-Cache File Creation By Uncommon Tool
 id: 75bf09fa-1dd7-4d18-9af9-dd9e492562eb
 status: test
-description: Detects the creation of an "Active Directory Schema Cache File" (.sch)
-  file by an uncommon tool.
+description: Detects the creation of an "Active Directory Schema Cache File" 
+  (.sch) file by an uncommon tool.
 references:
 - https://medium.com/@ivecodoe/detecting-ldapfragger-a-newly-released-cobalt-strike-beacon-using-ldap-for-c2-communication-c274a7f00961
 - https://blog.fox-it.com/2020/03/19/ldapfragger-command-and-control-over-ldap-attributes/
@@ -47,27 +47,36 @@ detection:
     Image|endswith: ':\Program Files\Citrix\Receiver StoreFront\Services\DefaultDomainServices\Citrix.DeliveryServices.DomainServices.ServiceHost.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Other legimate tools, which do ADSI (LDAP) operations, e.g. any remoting activity
-  by MMC, Powershell, Windows etc.
+- Other legimate tools, which do ADSI (LDAP) operations, e.g. any remoting 
+  activity by MMC, Powershell, Windows etc.
 level: medium
 note: |
   ### Technical Context
-  This detection rule is designed to identify the creation of Active Directory Schema Cache files (`.sch`) by uncommon tools, which may indicate the use of malicious tactics by an attacker. The creation of these files is typically not associated with legitimate administrative activities, suggesting that the system might be compromised or actively targeted for malicious purposes. Attackers may utilize uncommon tools to manipulate Active Directory or conceal their activities, creating a risk to the integrity and confidentiality of sensitive data within the organization.
 
-  The suspected threat family associated with this behavior includes Cobalt Strike, particularly its LDAPFragger module, which is known for utilizing LDAP for command-and-control operations. This activity is relevant to MITRE ATT&CK Tactics under **Command and Control (TA0011)** using techniques such as **Application Layer Protocol (T1071)** and specifically **Protocol Tunneling (T1001.003)**.
+  This Sigma rule detects the creation of an Active Directory Schema Cache file (*.sch) by uncommon tools, which could indicate an adversary is attempting to manipulate or exploit Active Directory. The likely attacker objective is to establish a foothold or facilitate data exfiltration by leveraging LDAP-based command and control methods. This behavior falls under the MITRE ATT&CK tactic of Command and Control (ID: T1001.003).
 
-  Key telemetry sources for this detection include file creation events on Windows endpoints, which will capture the creation of `.sch` files in the SchCache directory. Anomalous process execution logs associated with uncommon tools may also provide context to the detection.
+  The primary telemetry sources are Windows file event logs, specifically capturing events related to file creation in the path `C:\Local\Microsoft\Windows\SchCache\`. If malicious, this activity can lead to unauthorized access to system resources or aid in lateral movement within the network. This detection does NOT confirm actual malicious activity on its own, as legitimate tools may also create these files during normal operations.
 
   ### Investigation Steps
-  - **Review File Creation Logs**: Check for the creation of `.sch` files in the directory `C:\Local\Microsoft\Windows\SchCache\` to verify the occurrence of such events.
-  - **Analyze Parent Process Activity**: Investigate the parent processes that spawned the file creation, focusing on any uncommon or unexpected tools. Compare their behavior against established baselines for legitimate administrative tools.
-  - **Correlate with Active Directory Logs**: Look for any unusual LDAP or Active Directory queries or modifications surrounding the time of the file creation to gain insights into potential malicious actions.
-  - **Investigate Network Traffic**: Monitor outbound connections to ensure that any associated tools do not attempt to establish unauthorized command-and-control communications, particularly over LDAP protocols.
+
+  - **Identify the Creation Event**: Review Windows Security Event ID 4663 (File Creation) for the specific path `C:\Local\Microsoft\Windows\SchCache\` to find the creation of *.sch files. Analyze the `Object Name` field to confirm the file type and path.
+
+  - **Validate Process Origin**: Check the `NewProcessId` field associated with Event ID 4688 (Process Creation). Look for uncommon process names not part of authorized tools. An example of a suspicious process could be `ldapwhoami.exe` if observed in usage context.
+
+  - **Analyze Event User Context**: Investigate the user account associated with the file creation through Event ID 4624 (Logon). Identify if the user has legitimate administrative privileges or if it appears to belong to an abnormal session or system account.
+
+  - **Correlate with Other Activities**: Examine other logs around the same timeframe such as Sysmon Event ID 1 (Process Creation) to identify if the detected process interacts with known malicious indicators or targets, such as unusual outbound network connections.
+
+  - **Establish Baseline Behaviors**: Review normal operational usage patterns for Active Directory access within your environment. Legitimate interactions often involve standard utilities such as `PowerShell` or `dsac.exe` during network management tasks, with established times and user accounts.
+
+  - **Look for External Indicators**: Investigate potential indicators of compromise by checking for outbound LDAP traffic from the device associated with the detected behavior. Monitor unusual HTTP/S traffic that may signal command and control communication.
 
   ### Prioritization
-  This alert warrants medium severity due to the potential impact of unauthorized changes to Active Directory configurations and the high likelihood of exploitation by advanced persistent threats (APTs) striving for deeper network access or data exfiltration.
+
+  This alert is of medium severity due to the potential impact on Active Directory integrity and the high likelihood of malicious exploitation by tools like LDAPFragger. While not frequently weaponized, its presence alongside other suspicious behaviors may indicate serious security risks.
 
   ### Blind Spots and Assumptions
-  Potential gaps in detection coverage include the possibility of legitimate administrative actions that could also create `.sch` files. The detection logic assumes that the creation of these files by only a narrow set of tools is suspicious and may overlook benign uses by secure tools. Additionally, sufficient logging for file creation events must be enabled on Windows systems for the alert to function correctly, and other common administrative tools performing similar functions must be considered as potential false positives.
+
+  This detection may be evaded by legitimate processes that perform similar file operations, leading to potential false positives. Reliable detection requires ensuring logging configurations are in place to capture all relevant file creation events. Legitimate tools performing ADSI operations, such as legitimate Windows services running PowerShell scripts, may also trigger this alert. Companion detections may include monitoring for abnormal LDAP queries or suspicious process creations, enhancing overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

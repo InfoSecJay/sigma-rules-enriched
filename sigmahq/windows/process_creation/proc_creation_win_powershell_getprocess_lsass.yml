@@ -1,8 +1,8 @@
 title: PowerShell Get-Process LSASS
 id: b2815d0d-7481-4bf0-9b6c-a4c48a94b349
 status: test
-description: Detects a "Get-Process" cmdlet and it's aliases on lsass process, which
-  is in almost all cases a sign of malicious activity
+description: Detects a "Get-Process" cmdlet and it's aliases on lsass process, 
+  which is in almost all cases a sign of malicious activity
 references:
 - https://web.archive.org/web/20220205033028/https://twitter.com/PythonResponder/status/1385064506049630211
 author: Florian Roth (Nextron Systems)
@@ -27,30 +27,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets the execution of the PowerShell `Get-Process` cmdlet and its aliases (like `ps` and `gps`) specifically on the Local Security Authority Subsystem Service (LSASS) process. The rule aims to uncover potential credential harvesting attempts, as malicious actors often access LSASS to steal credentials from memory using PowerShell, a common technique employed by various exploit tools and malware families. The LSASS process is critical for system security and contains sensitive user authentication data.
 
-  The likely attack scenario involves an adversary using PowerShell to query the LSASS process. The goal is typically to extract sensitive information that can be leveraged for lateral movement within the organization, privilege escalation, or full domain compromise. The associated risk is significant due to the potential for credential theft leading to unauthorized access and data breaches.
+  This rule detects the execution of the PowerShell cmdlet "Get-Process" specifically targeting the Local Security Authority Subsystem Service (LSASS) process. Detecting such activity is indicative of an attacker trying to access sensitive information from LSASS, which could include accessing credentials in memory. This behavior falls under the MITRE ATT&CK framework's tactic of Credential Access (TA0006) and the technique named Credential Dumping (T1552.004).
 
-  Relevant MITRE ATT&CK tactics and techniques for this detection include:
-  - **Credential Access** (TA0006)
-  - **Credentials from Password Stores** (T1552.004)
-
-  The primary data sources to monitor for this detection include:
-  - Process creation events from host-based logging solutions, primarily on Windows systems.
+  The primary telemetry source for this detection is the process creation logs on Windows systems, particularly Security Event ID 4688. The potential security impact is significant, as successful exploitation could lead to credential theft, enabling further access or lateral movement within the network. However, it is important to note that the detection does NOT confirm that a malicious act has occurred on its own, as legitimate administration scripts or troubleshooting actions could invoke similar commands.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Collect Windows process creation logs to identify instances where the `Get-Process lsass`, `ps lsass`, or `gps lsass` command is executed. Look for any parent processes that could indicate potentially malicious behavior.
 
-  - **Analyze Cmdlet Context**: Investigate the context in which the cmdlet was executed, including user accounts involved and the time of execution. Correlate this with other unusual activity in the environment.
+  - **Review process creation logs:** Check Security Event ID 4688 for the command line that includes "Get-Process lsas", "ps lsas", or "gps lsas". Focus on the parent process; PowerShell or a scripting environment indicates potential scripting by legitimate admins versus an attacker.
 
-  - **Investigate LSASS Access Patterns**: Cross-reference the identified command executions with standard behavioral patterns for privileged users. Look for anomalous patterns, such as sudden access or command executions by non-administrative accounts.
+  - **Analyze user context:** Identify the user account associated with the process creation. Suspicious accounts (non-admin or previously inactive accounts) executing such commands should be closely scrutinized for malicious intent.
 
-  - **Inspect for Malicious Tools**: Check for the presence of tools commonly used in credential dumping, such as Mimikatz, that may accompany the execution of PowerShell commands against LSASS.
+  - **Check for related logins or anomalies:** Look for unusual logon events (Security Event ID 4624) leading up to the detected command execution from the same user or host. This helps establish whether there was prior reconnaissance or a breach.
+
+  - **Validate typical administrative usage:** Compare against expected behaviors for system administrators. Such users may run "Get-Process" on LSASS for legitimate troubleshooting; however, the context (time, frequency) should align with administrative activity.
+
+  - **Assess system role and criticality:** Investigate if the command was run on sensitive servers (like Domain Controllers or databases). The impact of credential theft could be more severe in these environments.
+
+  - **Identify malicious indicators:** Note any abnormal command patterns or timing, like scripts executed in off-hours or repeated attempts to fetch LSASS data. Correlate with prior threat intelligence regarding attackers' techniques targeting LSASS.
 
   ### Prioritization
-  This alert is classified as high severity due to the critical nature of LSASS in maintaining the security of authentication credentials. The detection of process interactions with LSASS could indicate a higher likelihood of credential theft, a precursor to significant breaches or lateral movement within the network.
+
+  Given the context of the alert, it is classified as high severity. The LSASS process is critical for Windows security, and its compromise likely means the attacker is attempting to collect sensitive credential information. Moreover, the specific targeting of LSASS has been frequently weaponized in numerous credential theft and ransomware attacks.
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage may arise if process creation logging is not fully enabled or if PowerShell command logging is disabled. The detection logic assumes that the execution of PowerShell commands targeting LSASS is unusual within the operational context of the environment. Additionally, it presumes sufficient logging configurations are in place to capture process creation events accurately, which is crucial for this alert to function properly.
+
+  Detection may be limited by obfuscation tactics, with attackers potentially using different cmdlets or renamed utilities to evade detection. Reliable detection also requires complete logging configurations for process creation and adequate access to necessary log sources. Legitimate administrative users may occasionally need to run similar commands during troubleshooting, which could lead to false positives. Companion detections such as monitoring for unusual file access to LSASS memory or lateral movement attempts (T1075, Pass the Hash) could be beneficial to strengthen overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

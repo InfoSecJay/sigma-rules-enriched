@@ -1,8 +1,8 @@
 title: AWS IAM S3Browser Templated S3 Bucket Policy Creation
 id: db014773-7375-4f4e-b83b-133337c0ffee
 status: test
-description: Detects S3 browser utility creating Inline IAM policy containing default
-  S3 bucket name placeholder value of "<YOUR-BUCKET-NAME>".
+description: Detects S3 browser utility creating Inline IAM policy containing 
+  default S3 bucket name placeholder value of "<YOUR-BUCKET-NAME>".
 references:
 - https://permiso.io/blog/s/unmasking-guivil-new-cloud-threat-actor
 author: daniel.bohannon@permiso.io (@danielhbohannon)
@@ -29,27 +29,34 @@ detection:
     - '"Allow"'
   condition: selection
 falsepositives:
-- Valid usage of S3 browser with accidental creation of default Inline IAM policy
-  without changing default S3 bucket name placeholder value
+- Valid usage of S3 browser with accidental creation of default Inline IAM 
+  policy without changing default S3 bucket name placeholder value
 level: high
 note: |
   ### Technical Context
-  This rule detects the creation of inline IAM policies in AWS that utilize the default S3 bucket name placeholder `<YOUR-BUCKET-NAME>` by the S3 Browser utility. Such actions are indicative of possible misconfigurations or malicious attempts to exploit permissions for unauthorized access to S3 buckets. Attackers may leverage these policies to gain access to sensitive data stored in S3 or escalate their privileges by giving themselves or others undue access rights.
 
-  The relevant MITRE ATT&CK tactics include **Execution (T1059.009)**, which pertains to command and scripting interpreter usage, and **Persistence (T1078.004)**, which involves maintaining access to cloud environments through IAM roles or policies. The attack could also involve **Defense Evasion** techniques if the attacker modifies or creates policies that hide their intent, as well as **Initial Access** if they gain entry through IAM user credentials.
+  This rule detects the unauthorized creation of an IAM policy using the S3 Browser that includes a default placeholder value `<YOUR-BUCKET-NAME>`, which indicates a potentially careless action or a pre-configured attack. The likely attacker objective involves either privilege escalation or initial access by exploiting misconfigured permissions in AWS S3 buckets. This behavior aligns with MITRE ATT&CK Tactics: Execution (T1059.009 for scripting) and Persistence (T1078.004 for valid accounts).
 
-  The primary data source for this detection is **AWS CloudTrail**, which logs API calls made in the AWS environment, capturing the relevant details of IAM policies being created or modified.
+  The primary telemetry sources are AWS CloudTrail logs, specifically `PutUserPolicy` events under `iam.amazonaws.com`. If malicious, this could lead to unauthorized access or information leakage through improper S3 bucket access. However, this detection does NOT confirm malicious intent on its own, as it may also result from legitimate usage of the S3 Browser tool without modifying the bucket placeholder value.
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Inspect AWS CloudTrail logs for the `PutUserPolicy` events initiated by any user agent that contains 'S3 Browser'. Focus on timestamps correlating with the alerts to ascertain the context of the action.
-  - **Analyze IAM Policy Details**: Examine the details of the created inline policies, paying special attention to any indication of the use of default bucket naming conventions, particularly those with the placeholder `<YOUR-BUCKET-NAME>`.
-  - **Check User Activity**: Investigate the user accounts that executed this command. Analyze their access levels, recent activities, and relationships with other AWS resources to determine if they may have been compromised or are using tools wrongly.
-  - **Evaluate Bucket Permissions**: Validate the permissions associated with the newly created policy. Assess the implications of these permissions on existing S3 buckets and whether they inadvertently allow unauthorized access.
+
+  - **Validate User Context**: Check the IAM user associated with the alert. Review user activity and permissions for signs of compromise or unusual access patterns. Look for high-risk role assignments, EventName `PutUserPolicy`, and check CloudTrail logs for UserIdentity fields.
+
+  - **Examine Policy Details**: Analyze the specific policy created. Use CloudTrail logs to find the `requestParameters` field containing the policy with the placeholder value, specifically `arn:aws:s3:::<YOUR-BUCKET-NAME>/*`, to determine if this was a legitimate configuration.
+
+  - **Identify Legitimate Activity**: Investigate other recent `PutUserPolicy` changes made by the same user or application via CloudTrail logs to establish a normal baseline of activity. Confirm if the user regularly uses the S3 Browser for benign tasks.
+
+  - **Look for Malicious Indicators**: Search for multiple instances of policy changes involving the same placeholder from different users. Effective query parameters should include `userAgent: "S3 Browser"` and `eventSource: iam.amazonaws.com` for correlating suspicious activity.
+
+  - **Assess S3 Bucket Configuration**: Verify the S3 bucket's policy linked to the alert. Review settings, permissions, and any access logs to ensure there is no inappropriate access configured.
 
   ### Prioritization
-  Given the high severity of this alert, it highlights a potential security vulnerability within the AWS environment that could allow unauthorized access to sensitive data. The likelihood of legitimate users accidentally creating these policies also indicates a need for vigilance, as it may be a precursor to exploitation by malicious actors.
+
+  The alert severity is high due to the potential impact of unauthorized IAM policy changes which can lead to elevated privilege access. The likelihood of malicious abuse exists, especially when default settings are used, and this tactic is increasingly weaponized to exploit misconfigured permissions in AWS environments.
 
   ### Blind Spots and Assumptions
-  This detection may have gaps in coverage where logs are not captured for all configurations of S3 Browser or if users are using alternative methods to set IAM policies. The detection logic assumes that the presence of `<YOUR-BUCKET-NAME>` is a clear indicator of misuse without accounting for cases where an organization might use this placeholder in legitimate scenarios. Required logs include detailed CloudTrail configurations ensuring that all IAM and S3-related events are logged for comprehensive monitoring.
+
+  This detection may not identify legitimate use cases where users accidentally create policies with default placeholders while using the S3 Browser. Reliable detection requires consistent logging of AWS CloudTrail event metadata. Legitimate activities might include non-malicious administrative tasks by cloud users unaware of default configurations. Strengthening coverage could include companion detections for cross-referencing IAM policy changes with unusual user activity or failed access attempts in S3, providing a broader context for any observed behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,9 @@
 title: Add Debugger Entry To AeDebug For Persistence
 id: 092af964-4233-4373-b4ba-d86ea2890288
 status: test
-description: Detects when an attacker adds a new "Debugger" value to the "AeDebug"
-  key in order to achieve persistence which will get invoked when an application crashes
+description: Detects when an attacker adds a new "Debugger" value to the 
+  "AeDebug" key in order to achieve persistence which will get invoked when an 
+  application crashes
 references:
 - https://persistence-info.github.io/Data/aedebug.html
 - https://learn.microsoft.com/en-us/windows/win32/debug/configuring-automatic-debugging
@@ -22,27 +23,34 @@ detection:
     Details: '"C:\WINDOWS\system32\vsjitdebugger.exe" -p %ld -e %ld -j 0x%p'
   condition: selection and not filter
 falsepositives:
-- Legitimate use of the key to setup a debugger. Which is often the case on developers
-  machines
+- Legitimate use of the key to setup a debugger. Which is often the case on 
+  developers machines
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies attempts by an attacker to modify the "AeDebug" registry key on Windows systems. The "AeDebug" key is associated with automatic debugging of applications, and attackers often manipulate this key to establish persistence. By adding a debugger value that points to a malicious executable, an attacker can ensure that if the targeted application crashes, their code is executed, achieving a stealthy foothold in the environment.
 
-  In this context, the likely attacker objective is to maintain long-term access to compromised systems or to execute malicious payloads under the guise of legitimate application behavior. This aligns with MITRE ATT&CK’s persistence tactics, specifically the technique **Registry Run Keys / Startup Folder (T1547.001)**.
+  This Sigma rule detects the addition of a new "Debugger" value to the "AeDebug" registry key, which is commonly used by attackers to achieve persistence through automatic debugging of applications upon their unexpected termination. The likely objective is to maintain control over the target environment by executing a malicious payload every time a target application crashes, enabling the adversary to further exploit the system.
 
-  The primary data sources to examine for this detection include Windows registry change logs which monitor modifications to registry keys. Monitoring registry changes is critical as it captures unauthorized changes made by both malware and authenticated users.
+  This behavior aligns with the MITRE ATT&CK tactic of Persistence, specifically technique T1546.002 (Event Triggered Execution: User Event). The primary telemetry source is the Windows Registry, specifically monitoring `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug`. If malicious, this behavior can allow stealthy, re-execution of a payload in response to legitimate application failures. However, this detection does NOT confirm active compromise on its own, as benign configurations or legitimate debugging setups can also trigger the rule.
 
   ### Investigation Steps
-  - **Review Registry Change Logs:** Examine logs related to modifications in the `\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug\Debugger` registry path for any recent changes. Look for unexpected or non-standard entries.
-  - **Analyze Process Creation Events:** Investigate any new process creations tied to the presence of `vsjitdebugger.exe` in the command line arguments, which could indicate the execution of a malicious debugger.
-  - **Identify User Accounts Involved:** Cross-reference changes with user activities and account permissions to determine whether the modification was made by a legitimate user or if an adversary has gained unauthorized access.
-  - **Correlate with Known Threat Actors:** Utilize threat intelligence sources to correlate the identified registry changes with known behaviors of threat actors who leverage persistence mechanisms similar to this technique.
+
+  - **Review registry changes**: Examine the registry key `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug` for any new or unexpected `Debugger` values using Event ID 4657 (Registry Value Changed). Check for `.dll` entries, especially those pointing to suspicious executables.
+
+  - **Identify malicious indicators**: Look for the specific value `vsjitdebugger.exe -p %ld -e %ld -j 0x%p` in the `Details` field. This is indicative of a malicious payload being invoked; legitimate uses typically involve `C:\WINDOWS\system32\vsjitdebugger.exe` with parameters related to debugging user applications instead.
+
+  - **Establish context on legitimate use**: Verify if the system belongs to a developer or QA environment where legitimate debugging setups are expected. Look for accompanying logs (Event ID 4688) to correlate the creation of a Debugger entry with known, valid software development workflows.
+
+  - **Check for related activities**: Investigate if other persistence mechanisms are set concurrently (e.g., scheduled tasks or services) by reviewing Event ID 4697 (Service Installed) or Task Scheduler logs. This helps determine if there's a broader malicious strategy at play.
+
+  - **Correlate with process execution logs**: Use Sysmon Event ID 1 (Process Creation) to see if there are unusual executions of the added Debugger DLL post-change. Pay special attention to the parent process and command-line arguments for evidence of exploitation.
 
   ### Prioritization
-  The alert is of medium severity due to the potential for long-term persistence in an enterprise environment. Attackers utilizing this method can remain undetected for extended periods, making it a valuable foothold for further exploitation.
+
+  This alert should be treated with medium severity due to its potential to establish persistence on critical systems and the medium likelihood of abuse by an adversary. While not as common as simpler persistence techniques, the use of the AeDebug key for this purpose is known among sophisticated threat actors.
 
   ### Blind Spots and Assumptions
-  The detection rule may not capture legitimate use cases where developers modify the AeDebug key to test applications. Additionally, the reliance on registry logging means that if log retention policies are not configured correctly, older changes may not be available for investigation. The effectiveness of this detection is also contingent on the timely and accurate logging of registry modifications.
+
+  There's a limitation in detecting this behavior due to potential benign uses by software developers configuring their debugging environments. Comprehensive logging of registry changes is necessary to ensure reliable detection. Legitimate programs designed for debugging might alter the AeDebug key, so context is critical. Companion detections to consider include monitoring for suspicious new services (T1543) or scheduled tasks (T1053) established following registry changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

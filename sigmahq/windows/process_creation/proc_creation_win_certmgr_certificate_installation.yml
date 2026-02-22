@@ -31,30 +31,34 @@ detection:
     - 'root'
   condition: all of selection_*
 falsepositives:
-- Help Desk or IT may need to manually add a corporate Root CA on occasion. Need to
-  test if GPO push doesn't trigger FP
+- Help Desk or IT may need to manually add a corporate Root CA on occasion. Need
+  to test if GPO push doesn't trigger FP
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the execution of `CertMgr.exe` with the `/add` flag, which is used to install a new root certificate on Windows systems. Attackers may leverage this capability to add rogue root certificates, allowing them to intercept encrypted communications or perform man-in-the-middle attacks by effectively establishing trust with malicious web servers. By installing their own root certificate, adversaries can bypass security warnings that browsers or operating systems typically issue when visiting suspicious domains.
 
-  The primary MITRE ATT&CK tactics involved in this scenario are **Defense Evasion** (TA0005) and the technique **Install Root Certificate** (T1553.004). This technique is commonly employed to facilitate other malicious activities, enabling threat actors to maintain persistence and operational capabilities in compromised environments. Understanding such activities is crucial for enhancing the security posture of an enterprise environment.
+  This rule detects the execution of CertMgr.exe with the "/add" flag, specifically targeting the installation of a new root certificate. Adversaries aim to install malicious root certificates to facilitate man-in-the-middle attacks and enable stealthy communication with compromised servers by avoiding security warnings. This behavior is relevant to the MITRE ATT&CK technique **T1553.004 - Code Signing Certificates**.
 
-  The best evidence sources for detecting this behavior include **process creation logs**, which capture command-line activities and executable invocations. Monitoring these logs helps security analysts identify potentially malicious configurations that could compromise system integrity.
+  The primary telemetry source for analysis is process creation logs, specifically Windows Event ID 4688, which captures process instantiation details including the command line arguments used. If malicious, the installation of a rogue root certificate could allow an attacker to intercept and decrypt secure communications. Importantly, this detection does not confirm malicious intent on its own, as legitimate administrative tasks may also invoke CertMgr.exe to install trusted corporate certificates.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Check for instances of `CertMgr.exe` executing with the `/add` flag in the command line. Pay attention to the context by examining the user account under which this occurred to determine if it's a legitimate request or potentially malicious behavior.
 
-  - **Analyze Certificate Store Changes**: Inspect the Windows certificate stores to identify any newly added root certificates. Compare these against known trusted certificates within your organization to highlight any unauthorized or unrecognized entries.
+  - **Verify process details: ** Check the process creation events for CertMgr.exe: Review Windows Event ID 4688 for executions where CommandLine contains "/add" and "root". Note the time, user, and execution context.
 
-  - **Monitor Network Connections**: Investigate outbound network connections that may be initiated by the system after a new certificate installation. Look for connections to unusual or untrusted domains that might suggest a compromised environment.
+  - **Analyze command line arguments: ** Confirm the full command line executed with CertMgr.exe for presence of unusual parameters. The command should typically be in the format "CertMgr.exe /add [filename] /s /r localMachine root". Anything atypical may warrant further scrutiny.
 
-  - **Assess User Behavior**: Examine the account that triggered the root certificate installation. Validate the user's role to determine if this action aligns with typical behavior. Engagement with Help Desk or IT staff may be necessary if the installation appears legitimate.
+  - **Check for recently added certificates: ** Review Event Viewer under Applications and Services > Microsoft > Windows > CertificateServicesClient > Operational for Event ID 1001 or 1004, which log new certificate installations. Ensure that these certificates correspond to expected corporate CAs.
+
+  - **Assess system role: ** Determine if the affected host is critical (e.g., domain controllers, web servers). Unusual certificate installations on these machines are more concerning and warrant heightened investigation.
+
+  - **Look for related processes: ** Identify if other suspicious processes were launched around the same time as CertMgr.exe. Cross-reference with Event ID 4688 to spot any patterns or potential lateral movements.
 
   ### Prioritization
-  The alert is classified as medium severity due to the significant implications of unauthorized root certificate installations, which can lead to extensive network exploitation. Given the right conditions, the likelihood of this action being used by attackers to establish trust with malicious sites warrants prompt investigation.
+
+  This alert is medium priority due to the potential high impact of a root certificate being installed on critical systems, particularly in roles that handle sensitive information or perform secure communications. The likelihood of malicious abuse is significant, as attackers commonly use this technique to enhance their operational security.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage exists if attackers utilize alternative methods to install root certificates that do not involve `CertMgr.exe`, such as using PowerShell commands. The detection logic assumes that the command-line parameters will be formatted predictably, and it does not account for variations that may arise in obfuscated or scripted environments. Additionally, the alert relies on having complete and unaltered process creation logs; any log retention issues or misconfigurations may impact detection efficacy. Lastly, the presence of false positives from IT help desk activities must be monitored and differentiated through contextual analysis.
+
+  This rule may not detect evasion techniques where attackers use alternate methods to install certificates or where a legitimate administrator performs necessary updates. Accurate detection relies on correctly configured logging for process creation and certificate operations; absence of relevant logs may lead to missed events. Legitimate corporate activities, such as routine certificate updates by IT staff, can trigger this alert. Companion detections that strengthen monitoring include alerts for changes to system certificate stores or additional use of PowerShell commands for certificate management operations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -31,44 +31,34 @@ falsepositives:
 - Legitimate assembly compilation using a build provider
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This detection rule identifies the creation of dynamic link library (DLL) assembly files by "aspnet_compiler.exe." This behavior may indicate exploitation or abuse of the ASP.NET compilation process, potentially allowing an attacker to proxy execution through a build provider. The primary attacker objective could involve executing arbitrary code or maintaining persistence on a compromised server.
+  This Sigma rule detects the creation of new DLL files by "aspnet_compiler.exe" within the Temporary ASP.NET Files directory. This behavior may indicate that an attacker is abusing the ASP.NET compilation process to create and execute malicious assemblies without raising immediate flags, which can be part of an attempt to maintain persistence or execute payloads in a .NET environment.
 
-  The relevant MITRE ATT&CK technique is **Execution: Exploitation of Vulnerabilities in Build Providers (T1216)**. The primary telemetry sources include Windows file event logs that capture the actions of processes creating files, with specific attention to the targeted directories that are common for ASP.NET temporary files. A malicious DLL creation suggests a high risk of code execution, potentially leading to system compromise.
+  The likely attacker objective is to leverage legitimate tools to obfuscate malicious activity, fitting into the MITRE ATT&CK tactic of Execution (TA0002), specifically under the technique of Command-Line Interface (T1059.001) and potentially using Build Provider exploits (custom execution paths). The primary telemetry source for this rule is Windows file event logs, specifically focusing on events that indicate file creation (Event ID 4663 in combination with Event ID 5145 for file access).
 
-  This detection does NOT confirm that the activity is malicious on its own; legitimate assembly compilation using a build provider may also trigger this alert.
-
-  ---
+  If the detected behavior is malicious, it could lead to unauthorized code execution, data exfiltration, or further compromise of other system components. However, it is crucial to understand that this detection alone does not confirm malicious intent, as legitimate assembly compilation activities may also trigger the alert.
 
   ### Investigation Steps
 
-  - **Verify Event Logs:** Check Windows Security Event ID 4663 for file creation events by `aspnet_compiler.exe`. Look for entries where the recorded file path includes `\Temporary ASP.NET Files\` or `\assembly\tmp\` for DLL files.
+  - **Review recent file creations in the Temp ASP.NET directory:** Check Windows Security Event ID 4663 for entries where TargetFilename contains '\Temporary ASP.NET Files\' and '\assembly\tmp\', noting the process ID context and user account responsible.
 
-  - **Assess File Properties:** Validate newly created DLL files in the directories mentioned. Confirm the creation timestamp, size, and file hashes against known benign assemblies. Legitimate assemblies generally connect to indexed .NET libraries and maintain consistent size and properties.
+  - **Identify the context of the aspnet_compiler.exe execution:** Use Sysmon Event ID 1 to track command line usage of aspnet_compiler.exe to see if it was initiated from a legitimate user context versus an unusual or system account context.
 
-  - **Analyze Process Tree:** Review Sysmon Event ID 1 for process creation paths. Look for parent processes that spawn `aspnet_compiler.exe`, especially if invoked by unusual parent processes, indicating potential scripted automation or exploitation frameworks.
+  - **Examine file attributes for created DLLs:** Look at the creation timestamps and file metadata of newly created DLLs to identify whether they appear suspicious or atypical compared to normal operation patterns.
 
-  - **Investigate Anomalous Web Requests:** Search IIS logs or other web logs for requests to ASP.NET endpoints that may coincide with the DLL creation timestamps. High access frequency or unusual endpoints may indicate exploitation attempts.
+  - **Review legitimate usage patterns:** Verify historical behavior of aspnet_compiler.exe in the environment to establish a baseline of normal activation and outputs, focusing on timing and associated user accounts during regular development or update cycles.
 
-  - **Confirm Temporary File Deletion:** After the DLL creation, check for any corresponding cleanup in the `\Temporary ASP.NET Files\` directory. Legitimate processes generally leave behind trace files, while attackers may attempt to delete them to cover tracks.
+  - **Correlate with network activity:** Check for any outbound connections from the hosting system corresponding with the creation of the DLL files using Event ID 5156 (Windows Filtering Platform), which may indicate exfiltration attempts or command and control communications.
 
-  - **Identify High-Confidence Malicious Indicators:** Look for newly created DLL files with unusual names or those that do not correlate with established application structures. Files not affiliated with known applications are a strong indicator of malicious activity.
-
-  ---
+  - **Cross-reference with companion detections:** Investigate any alerts related to similar executable behavior (such as SuspChild or Susp Paths rules) to determine the broader context of suspicious activity, looking for correlation patterns across the environment.
 
   ### Prioritization
 
-  This alert has medium severity, as it involves potentially malicious DLL creation in a critical application environment. The likelihood of abuse is significant, especially if corresponding web application activity suggests exploitation. Similar patterns are frequently leveraged in attacks targeting web applications.
-
-  ---
+  This alert has medium severity due to the potential risks involved with the creation of executable code in a web server context. The likelihood of malicious abuse is moderate, particularly in environments with active web applications where adversaries might exploit legitimate user privileges to deliver payloads. While this behavior is not the most common weaponized technique, the use of compilation tools for obfuscation is a noted tactic among sophisticated threat actors.
 
   ### Blind Spots and Assumptions
 
-  This rule may miss DLL creations from non-ASP.NET processes or evasion techniques such as file renaming post-creation. Ensure that file system logging is enabled on all relevant hosts, as this detection relies on timely log data. Legitimate assembly compilations by developers can trigger this alert, leading to potential false positives. Consider companion detections related to unusual process trees or HTTP request patterns that may enhance overall incident response efforts.
-
-  ---
+  One limitation of this detection is that legitimate administrative activities, such as application updates and deployments, can trigger this alert, potentially leading to false positives. It requires comprehensive logging settings to capture the full context of file manipulations and executions accurately. Additionally, understanding expected development practices in the environment is crucial to separate benign activities from possible exploitation. A related detection that supports this alert is using detailed monitoring around file execution patterns and authority elevation, which can provide further insights into potential compromise scenarios.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

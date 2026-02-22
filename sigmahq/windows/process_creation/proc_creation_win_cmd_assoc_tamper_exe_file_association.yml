@@ -35,26 +35,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects the modification of file associations in Windows when a program changes the default file handler to an executable. The change occurs through a command-line interface, typically using the `assoc` command, which can be leveraged by attackers to ensure malicious executables are run whenever a specific file type is opened. This behavior can be indicative of persistence techniques used by threat actors aiming to maintain access or escalate privileges within the compromised system.
 
-  The likely attacker objective with this behavior is to disguise malicious executables as harmless file types, which can lead to an increase in the attack vector's chances of execution. Attackers commonly employ this tactic during post-exploitation phases to ensure their malware remains persistent, while also evading detection by users or security tools.
+  This Sigma rule detects attempts to change the default file association for any file extension to an executable, specifically targeting changes made using the `assoc` command. The likely attacker objective is to modify file associations in order to execute malicious payloads when a user opens files of a certain type, which may lead to privilege escalation and persistence on the system. This behavior maps to the MITRE ATT&CK technique for persistence and privilege escalation: **T1546.001 - Event Triggered Execution: User Execution**.
 
-  Relevant MITRE ATT&CK tactics/techniques include:
-  - **Persistence (T1546.001)**: Changing file associations allows malware to persist on a system.
-  - **Privilege Escalation (T1068)**: Certain file associations may enable escalated access to sensitive resources if improperly configured.
-
-  The primary data sources to monitor for this detection include process creation logs that will capture when executables are run with command-line parameters indicating the modification of file associations.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, which provide information about the command line invoked. If successful, this behavior can facilitate malicious actions such as executing malware disguised as legitimate files. It is important to note that this detection alone does not confirm malicious intent as legitimate applications can change file associations as part of their functionality.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Analyze process creation logs for instances where `cmd.exe` is executed with the `assoc` command and modifiers indicating file association changes.
-  - **Inspect Command-Line Parameters**: Pay close attention to the command-line parameters passed to `cmd.exe`, looking specifically for the presence of `assoc` and file extensions leading to executables (`.exe=exefile`).
-  - **Correlate with Registry Access Logs**: If available, correlate findings with Windows Registry access logs to identify any written changes to file associations, which should ideally be monitored for unusual activities.
-  - **Assess Other Persistence Mechanisms**: Look for other associated signs of persistence, such as startup folder configurations and scheduled tasks that might indicate an attacker is attempting to maintain long-term access.
+
+  - **Check Process Creation Logs:** Review Security Event ID 4688 and Sysmon Event ID 1 for process creation entries involving `cmd.exe` where the `CommandLine` contains `assoc` and `.exe=exefile`. Look for timestamps aligning with the alert generation.
+
+  - **Identify Malicious Command Patterns:** Focus on finding `CommandLine` entries that explicitly include `assoc` with parameters that change associations to `.exe`, indicating potential malicious intent. For instance, a command line such as `assoc .txt=exefile` warrants further scrutiny.
+
+  - **Validate User Context:** Determine the user account under which the command was executed. If executed by non-privileged or suspicious user accounts at unusual hours, this may indicate illegitimate activity.
+
+  - **Assess Legitimate Activity:** Record typical applications in the environment that legitimately alter file associations and compare their command lines to those in the logs. Example: Antivirus or system maintenance applications which might use similar commands for valid reasons.
+
+  - **Check for Related Artifacts:** Search for attempted or successful changes to the Windows Registry related to file associations, particularly under `HKEY_CLASSES_ROOT`. Generate logs for any modifications (e.g., values modified in `.ext` registry keys).
+
+  - **Investigate Further Correlation:** Look for other related alerts or processes triggered around the same time as this rule detection. Events tied to lateral movement or execution of known malware should be explored in tandem, utilizing companion detections like file creation and execution logs.
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of a malicious actor gaining persistence on a compromised host, leveraging modified file associations to execute arbitrary code at user interaction points.
+
+  This alert should be treated with high severity as it targets a crucial change in the Windows environment that could lead to an executable hijacking user files. Given that changing file associations can be a tactic employed by many malware families, the likelihood of this behavior being weaponized is significant, especially if combined with other suspicious activity.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if logging for certain user actions or PowerShell executions is not adequately configured. Additionally, the detection logic assumes that all instances where `assoc` is used with altered file associations are malicious; however, legitimate administrative tasks could also trigger this. Proper logging of both process creation and registry modifications is essential for this detection to function effectively.
+
+  Limitations of this detection include potential evasion tactics where attackers might use different commands or obfuscate execution methods to alter file associations. Ensure complete logging configurations are in place for process creation events; missing event logs may lead to undetected malicious behavior. Additionally, legitimate administrators performing maintenance or updates might trigger this alert; hence careful review against known workflows is essential. Companion detections focused on process injection or unusual script execution can enhance the overall detection capabilities in such scenarios.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

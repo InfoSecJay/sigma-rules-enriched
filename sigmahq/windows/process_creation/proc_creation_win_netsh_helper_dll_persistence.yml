@@ -36,42 +36,30 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of the Windows command `netsh` with the `add helper` flag, which is used to add a custom DLL for netsh to load. Attackers exploit this capability to establish persistence on compromised hosts by introducing malicious helper DLLs that execute when netsh is run. This behavior aligns with the MITRE ATT&CK technique **T1546.007 (Event Triggered Execution: Dynamic Link Library [DLL] Side-Loading)**. The primary telemetry source for this detection is process creation logs, specifically those that indicate the execution of `netsh.exe` with a command line containing both the `add` and `helper` parameters.
+  This rule detects the execution of `netsh.exe` with the "add helper" flag, which is used to add a custom helper DLL. This behavior is associated with malware persistence mechanisms, allowing adversaries to load malicious DLLs each time `netsh.exe` is invoked, effectively ensuring continued access to the system. The likely attacker objective is to establish persistence on the host and potentially escalate privileges by leveraging the helper DLL functionality.
 
-  If the activity is confirmed as malicious, it poses a substantial risk to the integrity and security of the host system by allowing an attacker to maintain operational control. This detection does NOT, by itself, confirm malicious intent, as the legitimate use of netsh to configure networking settings can include adding helper DLLs.
-
-  ---
+  Relevant MITRE ATT&CK tactics and techniques include **Persistence (T1546.007)** and **Privilege Escalation (S0108)**. Primary telemetry sources include process creation logs from Windows, specifically looking at Event ID 4688 (Security) and Windows Sysmon Event ID 1. If malicious, this activity can lead to ongoing unauthorized access and manipulation of network configurations. Importantly, this detection does NOT confirm malicious intent on its own; legitimate administrative tasks might warrant similar command usage.
 
   ### Investigation Steps
 
-  - **Check Process Creation Logs:** Review Security Event ID 4688 for the execution of `netsh.exe`. Ensure the command line contains both `add` and `helper` parameters to confirm potential malicious activity.
+  - **Check command execution context**: Review Event ID 4688 logs for `netsh.exe` execution details. Check the `SubjectUserName` and ensure it corresponds to an expected or authorized admin account. Legitimate usage will typically involve expected commands executing in a valid administrative context rather than unusual or undocumented patterns.
 
-  - **Identify Malicious DLLs:** Search the file system for DLLs registered as helpers in the registry under `HKLM\SYSTEM\CurrentControlSet\Services\Netcfg\Parameters` and cross-check any unrecognized or unusual DLLs with known malware hashes.
+  - **Analyze command-line arguments**: Verify the command-line parameters by examining the `CommandLine` field in Event ID 4688 or Sysmon Event ID 1 logs. Look for the presence of `add helper` which indicates a possible malicious intent as this is not typical for standard `netsh.exe` usage.
 
-  - **Inspect for Previous Executions:** Analyze Sysmon Event ID 1 for detailed process trees leading to the execution of `netsh.exe`. Look for suspicious parent processes or services that executed `netsh`.
+  - **Investigate loaded DLLs**: Use Sysmon Event ID 7 logs to check for DLL loads matching the helper DLL's name that was introduced via `netsh.exe`. Observe suspicious or unrecognized DLLs that could indicate malware. Validate that the DLL is signed and from a trusted source.
 
-  - **Review Legitimate Use Cases:** Validate instances of `netsh` usage within your environment. Legitimate configurations should log typical network changes, not unusual DLL insertions. Document expected command line patterns.
+  - **Review parent process relationships**: Assess the parent process of the `netsh.exe` execution by querying the `ParentProcessId` field in the logs. Legitimate executions will typically be spawned by known administrative tools (e.g., Powershell, CMD). Suspicious parent processes may indicate malicious workflows.
 
-  - **Monitor for Follow-On Activities:** Investigate subsequent executions of `netsh.exe` and other processes that utilize the added helper DLL. Look for unusual outbound connections via tools like firewall logs or network analysis.
-
-  - **Assess Host Roles:** Evaluate the criticality of the affected system (e.g., domain controllers, endpoints handling sensitive data) and the potential impact of a compromise in that context.
-
-  ---
+  - **Monitor for subsequent execution**: Ensure no further invocations of `netsh.exe` occur that include references to the added helper DLL, as this may suggest established persistence. Check the system for scheduled tasks or other execution patterns related to the helper DLL across the environment.
 
   ### Prioritization
 
-  The alert is of medium severity due to the elevated privilege required to execute this command. While the likelihood of exploitation is moderate, the use of `netsh` for establishing persistence is a known technique among adversaries and warrants prompt investigation. The potential impact of a successful attack on critical assets can be significant.
-
-  ---
+  This alert should be considered medium priority due to the potential impact on the system's security posture through unauthorized persistence. The likelihood of malicious abuse is moderate, as this technique is weaponized by adversaries in sophisticated intrusions. While less common than direct exploitation methods, the execution of `netsh` in this manner can indicate a significant risk to network integrity and confidentiality.
 
   ### Blind Spots and Assumptions
 
-  This rule may miss detections if the logs for process creation are not configured properly or if the execution of `netsh` is obscured by valid administrative tasks. Legitimate activities, such as network configuration updates by system administrators, may trigger this alert. Related detection rules, such as those detecting unusual DLL registrations or file modifications on system directories, can provide additional context to strengthen coverage.
-
-  ---
+  Detection may miss certain evasion techniques, such as the use of benign-sounding command-line arguments or privileged user activity performed by legitimate admins installing network configurations. Reliable detection requires proper configurations of process creation logging at the Windows security audit level, as well as Sysmon for advanced visibility. Legitimate software installations or administrative changes may trigger this alert. A related detection is monitoring for unusual PowerShell commands (MITRE ID T1059.001), which may indicate an initial compromise that led to this persistence technique.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -27,46 +27,42 @@ detection:
   condition: selection_event and 1 of selection_status_*
 falsepositives:
 - There are legitimate uses of SSM to send commands to EC2 instances
-- Legitimate users may have to use SSM to perform actions against machines in the
-  Cloud to update or maintain them
+- Legitimate users may have to use SSM to perform actions against machines in 
+  the Cloud to update or maintain them
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects when the AWS System Manager (SSM) successfully executes commands against an EC2 instance, indicated by the `SendCommand` event with a success status. The likely attacker objective is to gain initial access or escalate privileges on targeted EC2 instances remotely, potentially leading to further compromise within the cloud environment. The relevant MITRE ATT&CK tactics include Initial Access (TA0001) and Privilege Escalation (TA0004), with the associated techniques being T1566 (Phishing) and T1566.002 (Phishing via Service).
+  This Sigma rule detects successful command execution via AWS Systems Manager (SSM) against EC2 instances. An attacker could leverage this feature to obtain unauthorized access or manipulate cloud resources remotely, possibly aiming for privilege escalation or lateral movement. The relevant MITRE ATT&CK tactics include Initial Access (TA0001) and Privilege Escalation (TA0004) with the techniques being Exponential Growth (T1566) and Exponential Growth via API interaction (T1566.002).
 
-  The primary telemetries are AWS CloudTrail logs capturing `SendCommand` events from the SSM service. If this activity is malicious, the impact could include unauthorized access, data exfiltration, and disruption of services. This detection does NOT confirm malicious intent by itself, as legitimate users may perform these actions for system maintenance and updates.
+  The primary telemetry source is AWS CloudTrail, specifically logs recording the event names and error codes related to SSM command executions. If this behavior is malicious, it could lead to unauthorized operations on critical instances, potentially compromising sensitive data or operational integrity. Importantly, this detection does NOT prove malicious intent on its own; legitimate users may perform similar actions under approved operational circumstances.
 
   ---
 
   ### Investigation Steps
 
-  - **Verify event context:** Review AWS CloudTrail logs for Event Name `SendCommand` and confirm Source Event as `ssm.amazonaws.com`. Check for unusual patterns such as commands run outside business hours or from untrusted IAM roles.
+  - **Check CloudTrail for event details**: Review CloudTrail logs for `eventName`: `SendCommand` from `ssm.amazonaws.com` (Event ID not explicitly numbered but available in CloudTrail logs). Look for unusual or new EC2 instance targets not typically managed by legitimate administrators.
 
-  - **Identify command execution:** Examine the `command` field in the CloudTrail logs associated with the event to determine if the executed command is a standard maintenance command (e.g., `Update-SSMAgent`) or suspicious (e.g., `wget` or `curl` commands).
+  - **Identify incident time and context**: Cross-reference the timestamp of the command execution in CloudTrail with other logs (e.g., VPC flow logs, instance log files) for concurrent activities. Suspicious activity patterns may indicate a compromise.
 
-  - **Correlate with IAM roles:** Check the IAM role and the identity of the user or service executing the command. Legitimate users typically have defined roles tied to operational tasks. Unexpected roles or new principals may suggest compromised accounts.
+  - **Examine command parameters**: Analyze the parameters within the `SendCommand` payload, focusing on the `DocumentName` and `Parameter` fields (e.g., command scripts or deployment actions). Compare against normal operational scripts; any unusual or unauthorized commands should be flagged.
 
-  - **Examine network activity:** Look for associated IP addresses in VPC Flow Logs related to the command execution time to identify unusual outbound connections or data transfer events indicating potential data exfiltration.
+  - **Review user identity and permissions**: Inspect the `userIdentity` field in CloudTrail logs. Check for any unexpected IAM user or role engagements triggering the command. Ensure the users have proper permissions that align with their roles.
 
-  - **Review documentation:** If available, cross-reference the executed command with the organization’s Change Management records to determine if there was legitimate authorization for such actions.
+  - **Correlate with legitimate SSM usage**: Identify normal patterns of SSM usage within your organization, such as maintenance tasks or software updates processed by known administrators. Legitimacy can be established by cross-referencing scheduled maintenance windows or specific administrative work orders.
 
-  - **Check additional resources:** Investigate other companion detections related to privilege escalation or lateral movement, such as AWS CloudTrail logs for `CreateUser`, `AttachUserPolicy`, or other suspicious API calls immediately following the `SendCommand`.
+  - **Trace responses to the command**: If possible, validate the status of executed commands via the SSM Command Status API. Check if output indicates unauthorized changes or installations on the affected instances, contrasting with expected outcome logs.
 
   ---
 
   ### Prioritization
 
-  The severity of this alert is high due to the potential impact of an adversary gaining control over EC2 instances, which can lead to further compromise or data leakage. Given that SSM is a legitimate administration tool, the likelihood of its abuse in attacks is significant, and this behavior is commonly weaponized in cloud environments.
+  This alert carries a high severity level due to the potential for significant operational impact if malicious activity is confirmed, particularly in environments where critical applications run on affected instances. The functionality of Systems Manager is essential, and the likelihood of abuse in this context is elevated given the rise of cloud-targeted attacks.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Detection may have limitations if AWS CloudTrail logging is not properly configured or if logs are not retained adequately. Normal administrative tasks using SSM by trusted users may trigger this alert, creating false positives. A related detection to enhance coverage could involve monitoring for any API calls to IAM roles (`CreateRole`, `AttachRolePolicy`) shortly after the SSM commands, as this may indicate an attempted privilege escalation.
-
-  ---
+  Detection may be hindered by legitimate administrative actions that can trigger the alert, such as routine system updates or configurations by valid users. Reliance on CloudTrail logs means proper logging must be configured to capture SSM commands effectively. Additionally, additional related detections, such as unauthorized API calls or changes to IAM roles, can enhance overall security posture and event correlation efforts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

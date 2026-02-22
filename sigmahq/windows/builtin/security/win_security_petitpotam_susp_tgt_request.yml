@@ -33,27 +33,37 @@ detection:
     CertThumbprint: ''
   condition: selection and not 1 of filter_*
 falsepositives:
-- False positives are possible if the environment is using certificates for authentication.
-  We recommend filtering Account_Name to the Domain Controller computer accounts.
+- False positives are possible if the environment is using certificates for 
+  authentication. We recommend filtering Account_Name to the Domain Controller 
+  computer accounts.
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious requests for Kerberos Ticket Granting Tickets (TGT) that may be related to the PetitPotam attack vector. When an attacker successfully exploits Active Directory Certificate Services (ADCS) to obtain a computer certificate, they can leverage this certificate to manipulate Kerberos ticket requests, specifically using tools like Rubeus. Such requests can indicate an attempt to escalate privileges or gain unauthorized access to sensitive resources within an enterprise environment.
 
-  The attacker’s objective is likely to compromise domain accounts, particularly those with elevated privileges, which allows them to move laterally within the network. This poses a significant risk, as it can lead to unauthorized access, data exfiltration, and the potential for further attacks within the organization. Relevant MITRE ATT&CK tactics for this behavior include "Credential Access" (TA-0006) and specifically the technique for "Use of Kerberos Tickets" (T1187).
+  This Sigma rule detects suspicious Kerberos Ticket Granting Ticket (TGT) requests that may indicate abuse of Active Directory Certificate Services (ADCS) using the PetitPotam attack method. An attacker likely seeks to elevate privileges or gain lateral movement capabilities after exploiting vulnerabilities in ADCS, which allows them to obtain a rogue certificate and subsequently request a TGT using tools like Rubeus. The relevant MITRE ATT&CK tactic is Credential Access and technique is T1187.
 
-  Key telemetry sources that will provide evidence for this rule include Windows Security Event logs, specifically Event ID 4768, which captures Kerberos authentication service requests. Additional context can be gathered from related logs around certificate issuance and management.
+  The primary telemetry source for this detection is Windows Security Event logs, specifically Event ID 4768, which records the Kerberos authentication requests. If this behavior is malicious, it could compromise sensitive resources or escalate privileges. However, this detection does NOT confirm that malicious activity is occurring on its own, as legitimate services may also request Kerberos tickets.
 
   ### Investigation Steps
-  - **Review Event Logs:** Check Windows Security logs for Event ID 4768 related to TGT requests, filtering for Kerberos requests initiated from Domain Controller accounts. Focus on the `TargetUserName` and `CertThumbprint` fields.
-  - **Analyze Certificates:** Investigate any newly issued certificates or changes to certificate templates in the Certificate Authority to identify potential unauthorized certificate issuance linked to the PetitPotam attack vector.
-  - **Inspect Network Traffic:** Use network monitoring tools to analyze traffic for unusual requests to domain controllers that might indicate lateral movement or privilege escalation attempts.
-  - **Correlate with User Behavior:** Review recent logins and administrative activities from accounts associated with the suspicious TGT requests to identify potential misuse or compromise.
+
+  - **Verify Event 4768 Details**: Review Windows Security Event ID 4768 logs for suspicious TGT requests. Ensure that the `TargetUserName` ends with a '$' sign, indicating a computer account. Look for unusual `CertThumbprint` values in the logs.
+
+  - **Correlate with recent Certificate Issuance**: Check for recent certificates issued by Active Directory Certificate Services, focusing on the `CertThumbprint` values associated with the suspicious TGT requests. Validate with Certificate Services logs and query for Certificate Requests in Event IDs 4871 or 4872.
+
+  - **Assess Host Context**: Identify the affected Domain Controller and its role. Ensure it has a valid and expected operation. Refer to its assigned role in Active Directory, and assess if this machine typically processes TGT requests.
+
+  - **Investigate Source IP**: Confirm the source IP address of the TGT request against expected ranges for controlled environments. Requests originating from unexpected sources (e.g., localhost IP '::1') may warrant deeper investigation for unauthorized internal actions.
+
+  - **Establish Baseline Legitimate Behaviors**: Review typical patterns of TGT requests for the targeted Domain Controller. Base timing, frequency, and account usage patterns on legitimate administrator activities to identify deviations.
+
+  - **Extract Lateral Movement Indicators**: Check for other potentially suspicious activity across systems, such as Event ID 4624 for logins or Event ID 4776 for credential validation attempts that could follow a TGT request. Confirm if they are tied to the same or other accounts.
 
   ### Prioritization
-  The alert severity is high due to the critical nature of Kerberos TGT requests in maintaining the security of an Active Directory environment. Unauthorized access to TGTs can facilitate privilege escalation and lateral movement, significantly increasing the threat impact in an enterprise.
+
+  This alert has a high severity due to the potential impact on the security posture of the Enterprise. The likelihood of malicious abuse is significant as PetitPotam is a well-known exploitation technique targeting Kerberos. This behavior is commonly weaponized for privilege escalation and lateral movement attacks, necessitating prompt investigative action.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if the organization has legitimate certificate-based authentication in use, potentially leading to false positives if not properly filtered. The detection logic assumes that certificates will include thumbprints and will specifically target domain controllers, which may not encompass all scenarios. Furthermore, the auditing policies for Kerberos Authentication Services must be correctly configured to capture relevant Event ID 4768 logs for accurate detection.
+
+  Legitimate certificate requests could falsely trigger alerts, particularly in environments utilizing certificates extensively for authentication. Detection may rely on correct configuration of the advanced audit policy; without proper logging in place, TGT requests may go undetected. Companion detections for lateral movement or elevation-of-privilege activities, such as monitoring Event ID 4672 (Special privileges assigned) could strengthen overall security visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

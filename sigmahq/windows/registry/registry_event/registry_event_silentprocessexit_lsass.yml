@@ -4,8 +4,8 @@ related:
 - id: 36803969-5421-41ec-b92f-8500f79c23b0
   type: similar
 status: test
-description: Detects changes to the Registry in which a monitor program gets registered
-  to dump the memory of the lsass.exe process
+description: Detects changes to the Registry in which a monitor program gets 
+  registered to dump the memory of the lsass.exe process
 references:
 - https://www.deepinstinct.com/2021/02/16/lsass-memory-dumps-are-stealthier-than-ever-before-part-2/
 - https://oddvar.moe/2018/04/10/persistence-using-globalflags-in-image-file-execution-options-hidden-from-autoruns-exe/
@@ -27,23 +27,34 @@ falsepositives:
 level: critical
 note: |
   ### Technical Context
-  This detection rule identifies attempts to create a stealthy mechanism for credential dumping from the LSASS process by monitoring registry changes associated with the `SilentProcessExit` technique. Attackers leverage this technique to register applications that can execute memory dumps on the LSASS process without drawing attention, allowing them to extract credentials and maintain persistence within the environment. The threat scenario typically involves a skilled adversary gaining initial access to a network, followed by escalating privileges and exfiltrating sensitive credentials from compromised systems.
 
-  This behavior is categorized under the MITRE ATT&CK framework as Credential Access (TA0006) and specifically relates to technique T1003.001 - Credential Dumping: LSASS Memory. The main sources of telemetry that will provide evidence for this detection include registry event logs, which can capture changes made to the `SilentProcessExit` registry key, as well as process creation events that might indicate suspicious activity linked to the execution of tools that dump LSASS memory.
+  This Sigma rule detects modifications in the Windows Registry aimed at configuring a monitor program to dump the memory of the `lsass.exe` process using the SilentProcessExit technique. An attacker may leverage this behavior to extract sensitive information such as credentials stored in the LSASS process to escalate privileges or move laterally within the network. This activity aligns with the MITRE ATT&CK framework technique T1003.001 (Credential Dumping: LSASS Memory).
+
+  The primary telemetry source for this detection is Windows Registry event logs, specifically targeting changes within the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\` key that references `lsass.exe`. If successful, this attack could lead to significant credential theft, compromising the security of user accounts and increasing the risk of further unauthorized actions. Importantly, this detection does NOT confirm that credential theft has occurred, as it only indicates an intention or setup for potential dumping activities.
 
   ### Investigation Steps
-  - **Review Registry Changes:** Examine the registry event logs for any recent modifications to the `Microsoft\Windows NT\CurrentVersion\SilentProcessExit\lsass.exe` key. Look for unexpected entries or changes that could indicate an unauthorized registration of a monitor program.
 
-  - **Analyze Process Execution:** Check the process creation logs around the time of the registry modification. Investigate any processes that appear to be involved in LSASS memory dumping, focusing on anomalies and processes with no valid operational reason to exist on the system.
+  - **Check Registry Key Modification:**
+    - Investigate Registry Event IDs 4657 and 4661 for any recent changes to the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SilentProcessExit\` key, noting the timestamps and the user context that made these changes.
 
-  - **Correlate with User Activity:** Identify the users or accounts associated with the time of the suspicious registry modifications and process creations. Look for any unusual or unauthorized account activities, especially on administrator or elevated privilege accounts.
+  - **Evaluate Process Activity:**
+    - Analyze Sysmon Event ID 1 for `lsass.exe` around the time of the Registry modification. Look for unusual parent processes, command line arguments, or non-standard execution paths indicating potential malicious behavior.
 
-  - **Monitor for Lateral Movement:** Use network telemetry to observe for lateral movement attempts. Analyze any outbound connections from the host post-modification to see if credentials are being offloaded to external hosts or suspicious IP addresses.
+  - **Identify High-Confidence Indicators:**
+    - Cross-reference Account Logon Event IDs 4624 for successful logins prior to the Registry change to confirm whether an administrative user initiated the modification or if it aligns with a recognized attacker pattern.
+
+  - **Review for Expected Behavior:**
+    - Identify legitimate applications that may modify this Registry key, such as security tools, ensuring they are approved and properly documented. Document any expected behavior that is contextually normal for the assets involved.
+
+  - **Confirm Monitoring on Critical Systems:**
+    - Validate that all critical assets, particularly domain controllers and servers hosting sensitive applications, are monitored for Registry changes, focusing on the status of anti-virus or Endpoint Detection and Response solutions in place.
 
   ### Prioritization
-  This alert holds critical severity due to the high impact of potential credential theft, which could enable attackers to escalate privileges or move laterally within the network. The likelihood of this activity occurring is also significant as the `SilentProcessExit` technique is increasingly used by advanced threat actors.
+
+  This alert is of critical severity as it indicates potential credential dumping activity, which poses a direct threat to account security and could lead to extensive network compromises. The likelihood of abuse is high, especially if the behavior is correlated with other known attack patterns that leverage LSASS memory dumping. This technique is commonly exploited in targeted attacks and automated scripts.
 
   ### Blind Spots and Assumptions
-  Detection may be limited if certain logging configurations are not enabled, particularly for registry events and process monitoring. The detection logic assumes that any modification to the specified registry key is malicious, which may not account for legitimate administrative changes or tool updates. A lack of comprehensive logging for registry changes or insufficient monitoring of process activities could result in gaps in detection coverage. Adequate configurations and logging policies must be in place across all endpoints to ensure the effectiveness of this rule.
+
+  Limitations of this detection include potential evasion techniques whereby attackers use alternative methods to access LSASS memory without modifying the Registry. Reliable detection requires proper logging configurations to capture all relevant events in the Windows Registry, and legitimate application updates or configurations may also modify the SilentProcessExit key. A companion detection worth considering is monitoring for abrupt LSASS process terminations or suspicious loading of memory-dumping tools to enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

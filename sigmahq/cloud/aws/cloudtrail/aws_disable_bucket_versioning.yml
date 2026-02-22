@@ -1,8 +1,8 @@
 title: AWS S3 Bucket Versioning Disable
 id: a136ac98-b2bc-4189-a14d-f0d0388e57a7
 status: test
-description: Detects when S3 bucket versioning is disabled. Threat actors use this
-  technique during AWS ransomware incidents prior to deleting S3 objects.
+description: Detects when S3 bucket versioning is disabled. Threat actors use 
+  this technique during AWS ransomware incidents prior to deleting S3 objects.
 references:
 - https://invictus-ir.medium.com/ransomware-in-the-cloud-7f14805bbe82
 author: Sean Johnstone | Unit 42
@@ -24,22 +24,35 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule monitors for the disabling of versioning on Amazon S3 buckets, a critical step often taken by threat actors during AWS ransomware incidents. When attackers disable versioning, they can easily delete S3 objects without the ability to recover previous versions, aiding their objectives of data destruction and extortion. By detecting these changes, security teams can intervene early in a potential attack chain.
 
-  The rule aligns with the MITRE ATT&CK framework, specifically with the tactic of **Impact** (TA0040) and the technique **Data Destruction** (T1490). When versioning is removed, the likelihood of permanent data loss increases significantly, underscoring the urgency of investigating these alerts.
+  This rule detects the disabling of versioning on S3 buckets, denoted by the action `PutBucketVersioning` with the `Suspended` state. Attackers may execute this behavior as part of a ransomware strategy to prevent recovery of data by eliminating versioned backups. This action aligns with the MITRE ATT&CK tactic of Impact (TA0040) and the technique T1490, which focuses on data destruction or unauthorized encryption.
 
-  The primary data sources for this detection are AWS CloudTrail logs, which record API calls made to the AWS environment. These logs will capture events related to the configuration changes of S3 buckets, specifically looking for the `PutBucketVersioning` event to determine if versioning has been disabled.
+  The primary telemetry source is AWS CloudTrail logs, specifically monitoring the `PutBucketVersioning` API call within the S3 service. The security impact of this action is significant as it can hinder recovery efforts during an active ransomware attack, leading to permanent data loss. This detection alone does not confirm malicious intent; legitimate AWS administrators might disable versioning for operational reasons.
+
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs:** Collect and analyze AWS CloudTrail logs for any `PutBucketVersioning` events, especially those flagged with `Suspended`. Determine the source and timing of these changes.
-  - **Identify Associated Activity:** Investigate if there were any other related changes made around the same time, such as deletions of S3 objects or modifications to the bucket policy that could indicate malicious intent.
-  - **Check User Activity:** Verify which IAM roles or users have executed the action to disable versioning. Determine if these identities are operating as expected or if they are potentially compromised.
-  - **Assess Impact on Data:** Evaluate the contents of the S3 bucket before and after the versioning change to identify any critical data loss or deletions that occurred.
+
+  - **Verify the timing of the change:** Check the timestamp of the `PutBucketVersioning` event in CloudTrail logs for suspicious timeframes, especially outside of normal business hours (Event Source: `aws.cloudtrail`, Event Name: `PutBucketVersioning`, `eventTime` field).
+
+  - **Identify who performed the action:** Review the `userIdentity` field in the CloudTrail log entry to determine which IAM user or role performed the versioning disable operation. Look for accounts with excessive permissions or unfamiliar sources.
+
+  - **Assess legitimate usage patterns:** Compare the action against the organization's change management policies. If S3 bucket versioning was disabled as part of a planned update and documented by a responsible team, mark the event as benign.
+
+  - **Cross-reference other event activity:** Look for additional related CloudTrail events within a short timeframe surrounding the version disable action, such as object deletions (e.g., `DeleteObject`, `DeleteObjects`) which might indicate a potential ransomware activity.
+
+  - **Check for alerts from companion detections:** Correlate findings with any alerts from related Sigma rules that might indicate suspicious activity or data exfiltration attempts from the same AWS account.
+
+  ---
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of data loss from unauthorized changes to S3 bucket versioning, which could enable attackers to destroy vital enterprise data. Early detection can mitigate the likelihood of broader ransomware impacts.
+
+  The alert carries a medium severity due to the potential critical impact on data recovery capabilities across production environments. The likelihood of this behavior being used maliciously is moderate, especially in the context of ransomware targeting AWS infrastructures. Disabling versioning is a common prelude to data destruction attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One key gap in detection coverage is the possibility of legitimate AWS administrators disabling versioning for valid reasons, which may lead to false positives. The detection logic assumes there are no planned changes or legitimate business processes conducted at the time of the alert. To ensure proper functionality, it is essential that CloudTrail logging is configured to capture all relevant S3 events, specifically the `PutBucketVersioning` changes.
+
+  Detection may be circumvented by legitimate administrative actions, such as changes made by AWS managers or automated processes that adjust bucket configurations. Compliance with AWS logging best practices is crucial, especially ensuring that CloudTrail is enabled and properly configured to capture all API calls. Legitimate instances of disabling versioning can arise from maintenance or intentional security measures. A related detection to consider is monitoring for suspicious or excessive S3 object deletion events, as they often accompany threats to data integrity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

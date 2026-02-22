@@ -26,22 +26,31 @@ falsepositives:
 level: low
 note: |
   ### Technical Context
-  This detection rule identifies attempts to retrieve information about SMB shares on Windows systems, specifically targeting commands that utilize PowerShell's `Get-SmbShare` cmdlet. The presence of such commands in the environment may indicate adversarial reconnaissance behaviors as attackers seek to enumerate available shared resources for potential data collection or lateral movement. Understanding the shared drives and folders within a network can give attackers insights into where sensitive data resides or which systems could be leveraged for further exploitation.
 
-  The relevant MITRE ATT&CK tactics include **Discovery** (TA0007) and the technique **Network Share Discovery** (T1069.001). By executing commands to list SMB shares, adversaries can map the network infrastructure and identify valuable resources to target, potentially culminating in a collection of sensitive information or facilitating lateral movement across the network.
+  This detection identifies the use of the `Get-SmbShare` PowerShell command, which is often employed by adversaries to enumerate shared folders and drives on a Windows system. The likely attacker objective is to gather information about network resources that could be targeted for data exfiltration or lateral movement. This behavior aligns with the MITRE ATT&CK technique for Discovery: "Network Share Discovery" (T1069.001).
 
-  Primary telemetry for detecting this behavior includes PowerShell script block logging, as the rule is specifically triggered by detected PowerShell command activity related to SMB share enumeration.
+  The primary telemetry sources are PowerShell script block logs, requiring that Script Block Logging is enabled on Windows systems. If malicious, this activity can lead to unauthorized data access or further compromises in the network. Importantly, this detection alone does not confirm malicious intent; it simply indicates that the `Get-SmbShare` command was executed and further context is needed to establish intent.
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Investigate PowerShell script block logs for instances of `Get-SmbShare` commands. Pay attention to the context of execution, including the user and time of access.
-  - **Assess User Activity:** Check the account activity logs for the user executing the command. Look for unusual patterns or behaviors, such as access outside of normal working hours or from unusual locations.
-  - **Monitor SMB Traffic:** Analyze Network traffic logs for SMB-related activities and assess any anomalous connections to shared drives that may indicate unauthorized scanning or enumeration attempts.
-  - **Correlate with Other Logs:** Cross-reference the PowerShell activity with other security logs (such as EDR or SIEM logs) to determine if other related suspicious activities have been noted, which may suggest coordinated discovery efforts.
+
+  - **Review PowerShell logs:** Check for PowerShell script block logs (Event ID 4104) containing the string `Get-SmbShare`. Look for unusual usage patterns, such as execution from non-standard processes or user accounts that typically do not interact with SMB shares.
+
+  - **Identify user context:** Investigate the user account that executed the command. If the account is typically a low-privileged user or if the command was run by a service account outside of its normal operational context, this may indicate malicious behavior.
+
+  - **Correlate with network activity:** Examine network logs for related SMB traffic, specifically looking for `SMB Share` access logs that show connections to the system from IP addresses that are not typical for user activity. Refer to Windows Security Event ID 5140 for share access attempts.
+
+  - **Expected behavior validation:** Determine if the user account is expected to use `Get-SmbShare` by mapping out regular tasks or job roles. If the command aligns with expected administrative tasks (e.g., a sysadmin checking shares), this could be benign.
+
+  - **Look for file access events:** Check for logs related to file access on the shares enumerated. Review Windows Security Event IDs 4663 and 5145 for evidence of high-volume read operations that may indicate data collection after the share discovery.
+
+  - **Cross-reference with lateral movement:** Look for subsequent events that indicate lateral movement, such as Remote Desktop logins or other file share access activities initiated from the same user or machine within a short time frame after the command execution.
 
   ### Prioritization
-  This alert is considered of low severity in an enterprise environment as it indicates reconnaissance activity, which is often a precursor to more significant attacks. However, consistent monitoring and correlation are vital, as it could escalate based on the context of the environment or any subsequent malicious actions taken by the attacker.
+
+  This alert is of low severity in most enterprise contexts, as it may involve legitimate administrative activities. However, it has the potential for malicious abuse, especially if used to enumerate sensitive shares before more exploitative actions, which makes it noteworthy for further investigation.
 
   ### Blind Spots and Assumptions
-  One primary blind spot in this detection coverage is the possibility of obfuscation or alterations to standard PowerShell commands, which might evade detection. The detection logic assumes that script block logging is enabled and operational; if disabled or misconfigured, the rule will not trigger. Moreover, reliance on specific PowerShell commands as indicators may miss other enumeration methods or tools used by sophisticated adversaries to discover SMB shares. Ensuring that all relevant audit logging and monitoring configurations are in place is essential for maintaining the effectiveness of this alert.
+
+  Detection may be limited by the configuration of PowerShell logging; if Script Block Logging is disabled, this activity will go unrecorded. Legitimate administrative users may invoke `Get-SmbShare`, thus potentially triggering false positives. A related detection could be monitoring for `Set-SmbShare`, which may indicate an attempt to modify configurations and elevate the risk if combined with `Get-SmbShare` activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

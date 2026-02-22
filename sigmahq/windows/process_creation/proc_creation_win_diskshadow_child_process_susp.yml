@@ -10,9 +10,9 @@ related:
 - id: 0c2f8629-7129-4a8a-9897-7e0768f13ff2     # Diskshadow Script Mode Execution
   type: similar
 status: test
-description: Detects potentially suspicious child processes of "Diskshadow.exe". This
-  could be an attempt to bypass parent/child relationship detection or application
-  whitelisting rules.
+description: Detects potentially suspicious child processes of "Diskshadow.exe".
+  This could be an attempt to bypass parent/child relationship detection or 
+  application whitelisting rules.
 references:
 - https://bohops.com/2018/03/26/diskshadow-the-return-of-vss-evasion-persistence-and-active-directory-database-extraction/
 - https://www.ired.team/offensive-security/credential-access-and-credential-dumping/ntds.dit-enumeration
@@ -44,30 +44,34 @@ detection:
     - '\wscript.exe'
   condition: selection
 falsepositives:
-- False postitve can occur in cases where admin scripts levreage the "exec" flag to
-  execute applications
+- False postitve can occur in cases where admin scripts levreage the "exec" flag
+  to execute applications
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies suspicious child processes spawned from `Diskshadow.exe`, a legitimate Windows utility for managing shadow copies. Attackers may exploit this tool as part of their strategy to evade detection mechanisms in place for monitoring executable behavior. For instance, an adversary could use `Diskshadow.exe` to execute malicious scripts or tools like PowerShell or CertUtil, enabling them to extract credentials or manipulate file systems without raising alarms. The goal is often to bypass application whitelisting and other preventative measures by leveraging trusted system processes.
 
-  The applicable MITRE ATT&CK techniques include:
-  - **T1218: Signed Binary Proxy Execution**: This technique involves using signed binaries to execute malicious payloads, effectively allowing adversaries to sidestep security controls.
-  - **Defense Evasion**: The overall tactic of moving stealthily to avoid detection, particularly pertinent in the context of application whitelisting and monitoring.
+  This detection identifies potentially suspicious child processes spawned by `Diskshadow.exe`, which may indicate an attempt by an attacker to evade detection mechanisms such as parent/child relationship tracking or application whitelisting. The likely attacker objective is to use legitimate Windows tools to manipulate Volume Shadow Copies for credential dumping or data exfiltration, which often precedes further exploitation or lateral movement. Relevant MITRE ATT&CK tactics include Defense Evasion (T1203) due to the misuse of system tools and Credential Access (T1003) for potential access to sensitive data stored in shadow copies.
 
-  The primary data sources for this detection mechanism are:
-  - **Process creation events**: Logs that capture the creation of processes and their parent-child hierarchies in Windows environments.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which record process generation. If successful, the attacker may gain escalated privileges and access critical data. Importantly, this detection does NOT confirm malicious intent on its own; legitimate administrative scripts may also trigger this alert.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine the process creation events for instances where `Diskshadow.exe` is a parent process, particularly looking for unusual child processes that may indicate malicious activity.
-  - **Analyze Child Process Behavior**: Investigate the command-line arguments and execution contexts of child processes like `powershell.exe` or `certutil.exe` initiated by `Diskshadow.exe` to identify potential misuse patterns.
-  - **Correlate with Other Events**: Look for related events in the timeline, such as failed logins or changes to Active Directory objects, that may suggest an attempted credential dump or lateral movement.
-  - **Conduct a Threat Intelligence Lookup**: Utilize threat intelligence resources to identify if any of the child processes are known indicators of compromise (IoCs) related to recent attacks or exploits leveraging `Diskshadow.exe`.
+
+  - **Analyze process execution paths**: Investigate the command line arguments and the execution paths in Security Event ID 4688 logs for any suspicious parameter use with `Diskshadow.exe`. Look for unusual or unexpected child processes like `powershell.exe` or `mshta.exe`.
+
+  - **Identify legitimate administrative usage**: Review recent administrative activities where `Diskshadow.exe` was legitimately used. Confirm the absence of suspicious process spawning, especially from scripts run by known administration accounts.
+
+  - **Check process parent-child relationships**: Validate the parent-child relationships of the processes involved. If `Diskshadow.exe` is spawning uncommon processes in a non-standard manner (e.g., unexpected paths like `%TEMP%`), this could indicate malicious activity.
+
+  - **Look for patterns in command line usage**: Capture Sysmon Event ID 1 for child processes and analyze the command lines for known malicious patterns. Check for encoded or obfuscated commands in child process arguments, indicating potential obfuscation attempts.
+
+  - **Assess asset criticality**: Confirm whether the alert pertains to critical systems, such as domain controllers or servers containing sensitive data. Higher criticality may necessitate a more thorough investigation.
 
   ### Prioritization
-  This alert is assigned medium severity due to the potential impact of malicious actions resulting from the execution of child processes, which can facilitate data theft or unauthorized access. Considering the likelihood that attackers may use trusted binaries for their operations, such detections should be prioritized for quicker investigation.
+
+  This alert should be treated with medium severity due to the potential impact on critical systems and the likelihood of malicious abuse through common native Windows tools. The behavior is not universally indicative of an attack, but when coupled with other anomalous activities, it raises concerns for weaponization.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if certain scripts or legitimate tools are falsely identified as suspicious, leading to potential false positives during administrative actions. The detection logic assumes that `Diskshadow.exe` is not frequently used in legitimate workflows, meaning legitimate administrative practices involving this tool may lead to benign alerts. Additionally, the efficacy of this detection depends on ensuring comprehensive process creation logging is enabled and properly configured across all Windows systems within the organization.
+
+  Evasion techniques may include using legitimate administrative scripts and executing from a benign location to minimize detection. Reliable detection requires consistent logging of process creation events (Security Event ID 4688) and appropriate Sysmon configuration. Legitimate user activities, such as admin script execution, may also trigger this alert. For enhanced coverage, consider companion detections for unusual `diskshadow` usage transformations or uncommon script execution patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -4,9 +4,9 @@ related:
 - id: 0ba1da6d-b6ce-4366-828c-18826c9de23e
   type: derived
 status: test
-description: Detects when 'DllRegisterServer' is called in the commandline and the
-  image is not rundll32. This could mean that the 'rundll32' utility has been renamed
-  in order to avoid detection
+description: Detects when 'DllRegisterServer' is called in the commandline and 
+  the image is not rundll32. This could mean that the 'rundll32' utility has 
+  been renamed in order to avoid detection
 references:
 - https://twitter.com/swisscom_csirt/status/1331634525722521602?s=20
 - https://app.any.run/tasks/f74c5157-8508-4ac6-9805-d63fe7b0d399/
@@ -29,22 +29,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential misuse of the `rundll32` utility in Windows systems, specifically when the command line includes the 'DllRegisterServer' call but the executing image is not the legitimate `rundll32.exe`. Attackers may employ this tactic by renaming the utility to evade detection mechanisms, which could facilitate malicious DLL execution or hijack legitimate system processes. A successful exploit could enable escalation of privileges, lateral movement, or persistence in the environment.
 
-  The rule primarily targets potential execution scenarios that fall under the **Execution** tactic in the MITRE ATT&CK framework, specifically relevant techniques such as **Process Injection** (T1055) and **User Execution** (T1203). Detecting this activity effectively mitigates risks associated with malware leveraging legitimate tools for nefarious purposes.
+  This Sigma rule detects instances where the command `DllRegisterServer` is invoked without the accompanying execution of the legitimate `rundll32.exe`. This behavior often indicates an attempt by an attacker to exploit a renamed version of the `rundll32` utility to evade detection while executing malicious code. The likely objective of such an activity is to register a malicious DLL, allowing for the injection or execution of nefarious payloads. This falls under the MITRE ATT&CK Execution tactic, specifically technique **T1122: Component Object Model (COM) Hijacking**.
 
-  Primary data sources for this detection include **process creation event logs** from endpoints, which can provide command line arguments and the image name being executed, helping analysts identify potentially unauthorized executions of `rundll32`.
+  The primary telemetry source for this detection is Windows process creation logs, particularly Security Event ID **4688** and Sysmon Event ID **1**. If this activity is malicious, it could lead to unauthorized execution of malware or persistence mechanisms within the system. Importantly, this detection does NOT confirm that a system is compromised on its own; further investigation is required to ascertain intent and outcome.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine the process creation logs around the detection time for command lines that include 'DllRegisterServer'. Verify the associated image names to identify any renaming strategies employed by attackers.
-  - **Correlate with Other Security Alerts**: Cross-reference findings with alerts from EDR or other endpoint protection solutions within the same timeframe to identify any related anomalous behaviors that may suggest broader compromise.
-  - **Inspect DLLs and Authorizations**: Analyze the DLLs being registered through any identified suspicious rundll32 executions. Ensure that they originate from trusted sources and review permissions associated with these files.
-  - **Check for Persistence Mechanisms**: Investigate if the detected executions are part of a larger malicious campaign, such as looking for scheduled tasks, services, or startup items that may have been created for persistence.
+
+  - **Investigate process creation events:** Review Security Event ID **4688** and Sysmon Event ID **1** for the detected process. Look for unusual parent-child process relationships, particularly involving named executables associated with DLL registration.
+
+  - **Check command line arguments:** Examine the command line of the suspicious process to confirm the presence of `DllRegisterServer`. Verify whether the image executing this command is indeed a renamed version of `rundll32.exe`.
+
+  - **Identify legitimate rundll32 usage:** Review recent activity for valid instances of `rundll32.exe` invoking `DllRegisterServer`, typically associated with legitimate operations, such as application setup or system updates. Look for timestamps correlating with these activities.
+
+  - **Correlate with other security telemetry:** Check for any related logs, such as Windows Event Logs or Sysmon logs, to identify any abnormal patterns or additional indicators of compromise. Focus on abnormal outbound connections or unexpected file system changes around the same time.
+
+  - **Verify DLL modifications:** Inspect for new or modified DLLs in system directories, especially those registered by the malicious process. Monitor file creation events related to DLLs in paths like `C:\Windows\System32\`.
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of attackers executing unauthorized code within a trusted environment, which poses significant risks to data integrity and confidentiality.
+
+  This alert carries a **high severity** due to its potential impact on critical systems where execution of unauthorized code can lead to data breaches or system compromise. The likelihood of malicious abuse is significant because the method of renaming `rundll32` is commonly employed by threat actors to bypass detection mechanisms.
 
   ### Blind Spots and Assumptions
-  The detection logic may not cover scenarios where legitimate applications also invoke the 'DllRegisterServer' command in legitimate contexts. Additionally, if the logs from endpoint process creation are not retained adequately or if logging is not configured correctly, it could result in missed detections. This rule assumes that all instances of `rundll32` are monitored, making adequate logging configurations critical for effective detection.
+
+  This detection may be limited by evasion techniques that involve further obfuscation of the exec-path or modifications to common utilities. Reliable detection requires that process creation logs are captured consistently and that Sysmon is appropriately configured to monitor command-line arguments. Legitimate activities, such as software installation routines that register DLLs, may unintentionally trigger this alert. A related detection to consider for strengthened coverage is monitoring for suspicious DLL modifications using Sysmon Event ID **5** (File creation time change).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

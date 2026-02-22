@@ -1,8 +1,8 @@
 title: Suspicious WSMAN Provider Image Loads
 id: ad1f4bb9-8dfb-4765-adb6-2a7cfb6c0f94
 status: test
-description: Detects signs of potential use of the WSMAN provider from uncommon processes
-  locally and remote execution.
+description: Detects signs of potential use of the WSMAN provider from uncommon 
+  processes locally and remote execution.
 references:
 - https://twitter.com/chadtilbury/status/1275851297770610688
 - https://bohops.com/2020/05/12/ws-management-com-another-approach-for-winrm-lateral-movement/
@@ -71,32 +71,36 @@ detection:
     Image|endswith: '\svchost.exe'
   commandline_null:
     CommandLine:
-  condition: ( request_client or respond_server ) and not 1 of filter* and not ( svchost
-    and commandline_null )
+  condition: ( request_client or respond_server ) and not 1 of filter* and not (
+    svchost and commandline_null )
 falsepositives:
 - Unknown
 level: medium
 note: |
   ### Technical Context
-  This rule detects suspicious loading of Windows Remote Management (WSMAN) provider-related images, particularly through uncommon processes that may indicate lateral movement or remote execution attempts by an attacker. The primary objective of such activities is often to pivot inside a target network or execute commands remotely without detection, which is a common tactic employed by threat actors to maintain access to compromised systems.
 
-  The rule is associated with several MITRE ATT&CK techniques, notably **Execution (T1059.001)**, which pertains to command-line scripting, and **Lateral Movement (T1021.003)**, focused on remote services such as WMI and WinRM. The detection logic focuses on specific images and their origins, filtering out common processes to reduce false positives and highlight more anomalous behaviors.
+  This Sigma rule detects the loading of specific Windows Management Instrumentation (WMI) provider images, primarily focused on WSMAN-related binaries. This behavior is indicative of potential lateral movement or remote command execution, often associated with adversarial tactics seeking to execute unauthorized commands on target systems. The relevant MITRE ATT&CK tactic is **Execution** (ID: T1072) and the technique is **Command-Line Interface** (ID: T1059.001) as well as **Lateral Movement** (ID: T1021.003).
 
-  The primary data sources for the alert include image load events from Windows, particularly those related to WSMAN components (e.g., `WsmSvc.dll`, `WsmAuto.dll`). Analysis of process creation events will provide critical context surrounding the execution of suspicious images, and logs from event monitoring tools can uncover potential misuse of legitimate services.
+  The primary telemetry sources include image load events primarily in Windows event logs related to executable file interactions, specifically `Image Loaded` logs for unusual processes. If malicious, this activity could allow an attacker to execute commands or scripts remotely, leading to greater system compromise or exfiltration of sensitive data. Notably, this detection does NOT confirm malicious activity on its own, as legitimate administrative tasks may also trigger similar alerts.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Check logs for instances of `WsmSvc.dll`, `WsmAuto.dll`, and other listed images being loaded by processes that are not typical for such components. This can help identify unusual execution contexts.
 
-  - **Analyze Process Creation Logs**: Inspect detailed process creation logs around the same timestamps. Pay special attention to any command-line arguments used with processes loading WSMAN components to look for malicious intent.
+  - **Review event logs for WSMAN binaries: ** Check for Windows Event ID 13 in the Security log or the Sysmon Event ID 10 to identify instances of `WsmSvc.dll`, `WsmAuto.dll`, or `Microsoft.WSMan.Management.ni.dll` being loaded from unexpected parent processes. Benign sources could include expected system management tools but unusual parent processes may imply malicious intent.
 
-  - **Check for Remote Access Patterns**: Review any recent remote access logs or scheduled tasks that interact with WinRM or WMI, including any commands that may be leveraging these services unexpectedly.
+  - **Identify the parent process: ** Investigate the `Image` and `OriginalFileName` fields in the Event ID 13 logs to verify the parent process of the WSMAN provider loads. Legitimate loads often come from trusted system services; watch for abuse through common executables such as `powershell.exe`.
 
-  - **Correlate with User Activities**: Investigate user accounts associated with the suspicious actions. Look for patterns consistent with unauthorized access or lateral movement, such as the use of administrative accounts performing actions outside normal business hours.
+  - **Check command-line arguments of svchost.exe: ** Search for any command-line executions of `svchost.exe` tailored for unusual services using Sysmon Event ID 7, especially those with flags like `-k netsvcs` or non-standard service names that might indicate a pivot point for lateral movement.
+
+  - **Correlate with specific host roles: ** Validate if the system in question is a critical asset such as a domain controller or a server with administrative rights; improper usage of WSMAN on these systems raises the risk of account compromise and high data exposure.
+
+  - **Assess WMI event subscriptions: ** Use PowerShell to query for WMI event subscriptions that might interact with WSMAN processes (e.g., `Get-WmiObject -Query "SELECT * FROM __InstanceCreationEvent WHERE TargetInstance ISA 'Win32_Process'"`). Unexpected subscriptions can indicate persistence mechanisms being employed by attackers.
 
   ### Prioritization
-  This alert is rated as **medium severity** because the detection of WSMAN-related images loaded by uncommon processes could indicate an attempt at lateral movement within an enterprise environment. While not definitive proof of an attack, it suggests possible malicious activity that warrants further investigation.
+
+  The alert is of medium severity, as the potential for lateral movement or command execution can lead to significant security incidents if exploited. The likelihood of malicious abuse is present given the irregular usage of WSMAN providers; however, this behavior is occasionally used in legitimate administrative tasks.
 
   ### Blind Spots and Assumptions
-  Current detection logic may miss sophisticated evasion techniques such as custom image loading or the use of non-standard processes. The assumption is also made that relevant logging is enabled and that comprehensive process creation and image load logs are maintained, which may not be the case in all environments. Additionally, accurate detection relies on the presence of telemetry data from endpoints and sufficient monitoring configurations, particularly around Windows services and remote management activities.
+
+  The detection may have limitations against evasion techniques such as process hollowing or run-time modifications of legitimate binaries. Reliable detection relies on the configuration of Windows event logging and Sysmon setup to capture detailed process data. Legitimate administrative operations, such as management scripts or system updates, may trigger similar alerts. A companion detection that enhances coverage could include monitoring for successful or failed authentication events related to WinRM access (Security Event ID 4625/4624).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

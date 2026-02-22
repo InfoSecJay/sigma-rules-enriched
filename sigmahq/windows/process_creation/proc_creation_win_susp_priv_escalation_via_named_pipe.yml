@@ -4,8 +4,8 @@ related:
 - id: f35c5d71-b489-4e22-a115-f003df287317
   type: derived
 status: test
-description: Detects a remote file copy attempt to a hidden network share. This may
-  indicate lateral movement or data staging activity.
+description: Detects a remote file copy attempt to a hidden network share. This 
+  may indicate lateral movement or data staging activity.
 references:
 - https://www.elastic.co/guide/en/security/current/privilege-escalation-via-named-pipe-impersonation.html
 author: Tim Rauch, Elastic (idea)
@@ -36,25 +36,26 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects potential privilege escalation attempts through the use of named pipe impersonation in Windows environments. Named pipes can allow processes to communicate with one another, and malicious actors may exploit this functionality to escalate privileges, conduct lateral movement, or stage data for exfiltration. The detection logic identifies the use of command-line utilities such as `cmd.exe` or `powershell.exe` in conjunction with named pipes, specifically looking for command submissions that utilize redirection to the pipe.
 
-  The threat scenario typically involves an attacker who has already gained some level of unauthorized access to a system and seeks to elevate privileges or move laterally to other systems on the network. The objective may be to install malware, harvest credentials, or gain control of sensitive systems. This behavior relates to the ATT&CK framework, specifically the "Lateral Movement" tactic (TA0008) and the technique "Use of Valid Accounts" (T1078), as the attacker may utilize compromised accounts to facilitate their activities.
+  This Sigma rule detects attempts to execute `cmd.exe` or `powershell.exe` with commands that involve writing to named pipes, specifically targeting the `.\\pipe\\` namespace. This behavior is often associated with lateral movement techniques that adversaries may use to escalate privileges or execute commands on remote systems without being detected. The likely attacker objective is to create a foothold on another machine or stage data for exfiltration using named pipe impersonation.
 
-  Relevant data sources for detecting this behavior include process creation logs from Windows environments, particularly those that capture command-line arguments utilized by `cmd.exe` and `powershell.exe`. These logs can provide insight into the commands being executed and the parameters associated with them.
+  This rule aligns with the MITRE ATT&CK technique "Lateral Movement" (T1021). The primary telemetry sources required are Windows Process Creation logs, specifically Security Event ID 4688 and possibly Sysmon Event ID 1. If malicious, this behavior can indicate serious security threats such as unauthorized access to resources or execution of remote payloads. Importantly, this detection does NOT confirm unauthorized access or malicious intent on its own; benign processes may generate similar command lines.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Collect and analyze logs from the Windows process creation event to identify instances of `cmd.exe` or `powershell.exe` with specific command-line arguments that may indicate named pipe impersonation.
 
-  - **Examine Command-Line Arguments:** Focus on command-line arguments that include `echo`, redirection symbols `>`, and specifically mention `\\\\.\\pipe\\`. This will help identify attempts to send commands to a named pipe.
-
-  - **Evaluate User Context:** Investigate the user accounts associated with the detected commands to determine if they are legitimate users or indicative of credential misuse. Look for any anomalies such as unexpected user profiles or privilege escalations.
-
-  - **Cross-Reference with Network Activity:** Review network logs to see if there were any connections to unusual internal share points that coincide with the timing of the detected process creations, which could indicate lateral movement or data staging.
+  - **Examine process creation events**: Review Security Event ID 4688 for instances where `cmd.exe` or `powershell.exe` was spawned. Focus on the `CommandLine` field to confirm the presence of `echo` and `> \\.\pipe\`.
+  - **Identify command invocation patterns**: Search for similar commands involving named pipes across affected hosts to determine if this pattern is consistent with known benign applications or users, which can help discern legitimate activity.
+  - **Evaluate user context for process execution**: Inspect the `Account Name` and `User SID` fields in the Security Event to establish the legitimacy of the user executing these commands. A non-administrative user executing such commands could indicate potential malicious activity.
+  - **Correlate with network traffic**: Cross-reference detected activity with relevant network logs (e.g., Windows Filtering Platform logs) for unexpected outbound connections or unusual SMB traffic to identify lateral movement, especially to hidden shares.
+  - **Inspect for file creation or modification**: Check for recent file activity on the target machine using Security Event IDs 4663 or Sysmon Event IDs 11/20 to see if files were created or modified after the named pipe attempt, indicative of data staging or exfiltration attempts.
+  - **Monitor for related alerts**: Look for additional alerts or anomalies flagged around the same time frame, particularly any that reference lateral movement or privilege escalation techniques, to assess the broader context of the alert and possible campaign linkage.
 
   ### Prioritization
-  The severity of this alert is high due to its potential to signify successful privilege escalation and unauthorized access to critical systems in an enterprise environment. The likelihood of exploitation is notable, especially if the attacker has already established a presence on the network.
+
+  The alert is considered high severity in an enterprise context as it indicates potential lateral movement within the network, which could lead to further compromise. The likelihood of malicious exploitation is moderate to high, given that named pipe impersonation is a commonly weaponized technique for privilege escalation.
 
   ### Blind Spots and Assumptions
-  While this detection rule focuses on specific command usage, there may be blind spots in detecting other methods of privilege escalation or lateral movement that do not utilize named pipes or the specified command utilities. The detection logic assumes that appropriate process creation logs are available and that the command line is being captured in full. Additionally, there may be legitimate applications or services using similar command patterns, leading to potential false positives, so context must be considered in each case. Required configurations include ensuring detailed logging on Windows systems, including command-line details for the process creation events.
+
+  Detection may be limited by evasion techniques such as the use of obfuscation in the command line or the execution of benign processes that could create similar command patterns. Reliable detection requires properly configured logging sources, particularly for process creation and network activity. Legitimate command scripts or applications may trigger alerts, particularly in systems designed for system administration. A related detection to consider is the monitoring of unauthorized access attempts to shared resources, which can strengthen the coverage of lateral movement detection strategies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

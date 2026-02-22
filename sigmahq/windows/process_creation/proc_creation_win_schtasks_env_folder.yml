@@ -1,12 +1,12 @@
-title: Schedule Task Creation From Env Variable Or Potentially Suspicious Path Via
-  Schtasks.EXE
+title: Schedule Task Creation From Env Variable Or Potentially Suspicious Path 
+  Via Schtasks.EXE
 id: 81325ce1-be01-4250-944f-b4789644556f
 related:
 - id: 43f487f0-755f-4c2a-bce7-d6d2eec2fcf8     # TODO: Recreate after baseline
   type: derived
 status: test
-description: Detects Schtask creations that point to a suspicious folder or an environment
-  variable often used by malware
+description: Detects Schtask creations that point to a suspicious folder or an 
+  environment variable often used by malware
 references:
 - https://www.welivesecurity.com/2022/01/18/donot-go-do-not-respawn/
 - https://www.joesandbox.com/analysis/514608/0/html#324415FF7D8324231381BAD48A052F85DF04
@@ -73,48 +73,47 @@ detection:
     - '\Temp\'
     - '/Create /TN "klcp_update" /XML '
     - '\klcp_update_task.xml'
-  condition: ( all of selection_1_* or all of selection_2_* ) and not 1 of filter_optional_*
+  condition: ( all of selection_1_* or all of selection_2_* ) and not 1 of 
+    filter_optional_*
 falsepositives:
-- Benign scheduled tasks creations or executions that happen often during software
-  installations
-- Software that uses the AppData folder and scheduled tasks to update the software
-  in the AppData folders
+- Benign scheduled tasks creations or executions that happen often during 
+  software installations
+- Software that uses the AppData folder and scheduled tasks to update the 
+  software in the AppData folders
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the creation of scheduled tasks using `schtasks.exe` that reference potentially suspicious directories or environment variables often abused by malware. The likely attacker objective is to establish persistence on a compromised system by creating these tasks in locations that may not be monitored closely. Relevant MITRE ATT&CK tactics include **Persistence** (TA0003) and **Execution** (TA0002), particularly technique **Scheduled Task/Job** (T1053.005). The primary telemetry sources are Windows process creation logs, specifically focusing on `Event ID 4688` for new process creation and `Sysmon Event ID 1` for detailed command line data. If malicious, this behavior can indicate an attempt to maintain control over a system. However, this detection does NOT confirm that the actions are malicious on their own, as legitimate application updates or software installations may trigger similar behaviors.
+  This rule detects the creation of scheduled tasks through `schtasks.exe` in suspicious directories or by using environment variables commonly exploited by malware. The likely attacker objective is to establish persistent access or execute malicious payloads at scheduled intervals, which could enable further exploitation of the system. This behavior aligns with the MITRE ATT&CK tactic: Persistence (T1543.003) and Execution (T1053.005).
+
+  The primary telemetry source is Windows process creation logs, particularly focusing on Security Event ID 4688, and Sysmon Event ID 1 for detailed command line arguments. If successful, this behavior could lead to unauthorized system changes, data exfiltration, or lateral movement within the network. Importantly, this detection does NOT confirm the presence of malware on its own; it highlights potential misuse that requires further investigation.
 
   ---
 
   ### Investigation Steps
 
-  - **Review process creation details**: Check `Event ID 4688` for the process `schtasks.exe`. Look at the `CommandLine` field for specific arguments that create the scheduled task, focusing on paths that are listed in the rule (`:\Users\Public`, `:\Windows\Temp`, etc.).
+  - **Review process creation events:** Look for Security Event ID 4688 or Sysmon Event ID 1 logs concerning `schtasks.exe`. Validate if the CommandLine attributes reference suspicious directories such as `\Temp`, `\AppData`, or environment variables like `%AppData%`. Filter out benign activities typical of legitimate software installations.
 
-  - **Check parent process context**: Inspect `ParentCommandLine` for `svchost.exe -k netsvcs -p -s Schedule`. Evidence of this parent process can indicate a potentially malicious attempt to obfuscate the real task creator.
+  - **Analyze parent process context:** Investigate the ParentCommandLine to identify if the task was initiated by a trusted process. For example, `(ParentCommandLine|endswith: '\svchost.exe -k netsvcs -p -s Schedule')` could indicate a legitimate system context versus a potential adversary tactic.
 
-  - **Identify benign scheduled tasks**: Cross-reference any discovered scheduled tasks with documentation for your organization. Legitimate scheduled tasks are often created by known software installers like antivirus programs or update services that typically use paths like `C:\Program Files`, rather than `C:\Users\Public`.
+  - **Identify high-confidence malicious indicators:** Check for known malicious commands in the CommandLine such as '/Create /TN TVInstallRestore /TR' which are flags often used in the context of malware or unauthorized software deployments.
 
-  - **Look for high-confidence indicators**: Seek command lines that include suspicious environment variables (e.g., `%AppData%`) alongside keywords like `/Create` or `/TN`. These indicate that the task is being set up in an unexpected or unsafe manner.
+  - **Correlate with additional telemetry:** Alongside the process creation logs, review any recent changes in system behavior or installed applications, focusing on the application installation logs or configuration files that may correlate with the timing of the detected task creation.
 
-  - **Examine log artifact creation**: Confirm that the files created for the scheduled task, such as XML configurations, are present in typically unauthorized locations (e.g., `C:\Users\Public\Temp\`). Validate unusual file creation patterns around the time of the alert.
+  - **Review system role and asset criticality:** For critical servers or endpoints, consider the implications of the detected activity. For instance, task creation in an administrative server environment should be scrutinized more closely compared to user workstations.
 
-  - **Assess process behavior post-alert**: Monitor the behavior of the created task over time to check if it attempts to execute malicious payloads or perform unauthorized actions, especially if it relates to known malware families or indicators of compromise.
+  - **Document expected legitimate activities:** Take note of legitimate software that regularly creates scheduled tasks, such as system updates. Confirm scheduled tasks matching expected operational patterns to distinguish benign tasks from potentially malicious ones.
 
   ---
 
   ### Prioritization
 
-  This alert should be considered medium severity primarily due to the potential impact of a compromised system capable of executing arbitrary code through scheduled tasks. The likelihood of malicious abuse is moderate, as adversaries often leverage similar methods to ensure persistence or to orchestrate further attacks. Nevertheless, this behavior can also originate from legitimate software processes, necessitating a careful review of the context.
+  This alert carries a medium severity due to the potential impact on critical systems. While not every instance of this behavior indicates malicious intent, the likelihood of abuse is significant given that the observed activity aligns with common tactics used by adversaries for persistence. The behavior is also commonly weaponized in various attack scenarios.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the potential for legitimate scheduled task creation by benign software, leading to false positives. Additionally, if the necessary logging is not configured to capture detailed command lines or parent processes, critical context may be absent. Legitimate software behaviors, such as automatic updates running from the `AppData` path, can trigger these alerts. A companion detection to consider is monitoring for unusual task execution patterns or failures in tasks, which could provide insight into follow-up actions taken by the detected tasks.
-
-  ---
+  Detection may be limited by legitimate software creating scheduled tasks, potentially generating false positives. It assumes log sources such as Process Creation logs are configured correctly and that monitoring is comprehensive. Activities such as software updates or system maintenance that use common directories might trigger the alert. Companion detections focusing on unusual task execution patterns could enhance coverage, such as monitoring execution timelines or cross-referencing against known software inventories.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

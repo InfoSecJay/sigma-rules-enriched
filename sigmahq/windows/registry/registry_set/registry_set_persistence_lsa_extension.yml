@@ -24,20 +24,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects modifications to the Windows registry, specifically targeting the "Extensions" value under the LSA (Local Security Authority) configuration. An attacker may manipulate this value to include a custom Dynamic Link Library (DLL) that allows them to execute payloads within the context of the LSASS (Local Security Authority Subsystem Service) process. The primary threat scenario involves persistence mechanisms, where adversaries seek to maintain access to a compromised system by ensuring their malicious code is executed each time LSASS starts.
 
-  Attackers leveraging this technique often aim to extract sensitive credentials or maintain presence on systems even after reboots or administrative actions. This behavior is associated with the MITRE ATT&CK framework's Persistence tactic, particularly with the technique for LSA Secrets (T1091). Effective data sources for detecting this behavior include Windows registry access logs, which can reveal unauthorized changes to LSA configurations.
+  This rule detects modifications to the registry key `\SYSTEM\CurrentControlSet\Control\LsaExtensionConfig\LsaSrv\Extensions`, where attackers can insert custom DLLs to persist within the Local Security Authority Subsystem Service (LSASS). The likely objective is to maintain long-term access to a system while hiding their presence, facilitating ongoing data theft or other malicious activities. This behavior aligns with the MITRE ATT&CK tactic "Persistence" and the technique "Lateral Movement: LSA Extensions" (T1218.010).
+
+  The primary telemetry sources are Windows registry modification logs, specifically events related to changes in the registry. If modified entries are malicious, they pose a significant security risk, enabling an adversary to run malicious code with system privileges whenever LSASS initializes. This detection does NOT confirm whether the inserted DLL is malicious; further investigation is needed to analyze the DLL's behavior and source.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Examine registry modification logs focusing on the "Extensions" value within the `\SYSTEM\CurrentControlSet\Control\LsaExtensionConfig\LsaSrv` path for any unusual additions or changes.
-  - **Correlate Process Activity:** Analyze process creation events around the time of the registry modification to identify any suspicious processes starting or interacting with `lsass.exe`.
-  - **Check for Known Malicious DLLs:** Cross-reference the DLLs found in the "Extensions" value against threat intelligence feeds or lists of known malicious extensions to identify potential threats.
-  - **Assess Privilege Changes:** Investigate any recent privilege escalation attempts within the system that may correlate with an operator's attempt to establish persistence through LSA modifications.
+
+  - **Inspect registry modifications**: Review System Event Log (Event ID 4663) for access to the registry key `\SYSTEM\CurrentControlSet\Control\LsaExtensionConfig\LsaSrv\Extensions`. Pay attention to the user account making the change. Unusual accounts (non-admin) making changes may indicate malicious activity.
+
+  - **Identify modified extensions**: Check the new values for the "Extensions" key using the Registry Editor or `reg query` command. Legitimate values should be known system DLLs; any unfamiliar DLLs should be investigated further.
+
+  - **Analyze DLLs**: For any newly added DLLs, verify their file paths and signatures. Use a tool like Sigcheck to confirm legitimacy. Be wary of files in unusual directories (e.g., `%temp%` or custom directories).
+
+  - **Correlate with LSA service**: Monitor Service Control Manager logs (Event ID 7045) for any suspicious service entries related to LSASS. Ensure that no unauthorized services are interacting with LSASS post-modification.
+
+  - **Review user activities**: Examine Security Event Log (Event ID 4624) for successful logins near the time of the registry modification, identifying the caller and the timing. Normal administrative tasks may justify the change if corroborated by other legitimate activities.
+
+  - **Check endpoint behavior**: Inspect the running processes with Sysmon (Event ID 1) for any instances of the modified DLL being loaded. If observed, analyze the process details and behavior to determine if it's part of a known malware pattern.
 
   ### Prioritization
-  Given the high severity designation, this alert indicates potential malicious activity aligned with persistence techniques. The ability to maintain access through LSASS significantly elevates the risk of credential theft and further compromise in the environment.
+
+  This alert is considered high severity given the critical role of LSASS in the Windows security model. The likelihood of malicious abuse is significant, as modifications to this registry key are commonly leveraged to achieve persistence. Such behavior is typically weaponized in advanced attacks, making it a priority for investigation.
 
   ### Blind Spots and Assumptions
-  The primary gap in detection may arise from the reliance on registry logging; if such logs are not being captured or are disabled, this detection would be ineffective. It assumes that the modifications are made directly and that no legitimate administrative activities cause similar registry changes. Sufficient logging capabilities must be enabled to capture all relevant registry activities to ensure accurate detection of this persistence method.
+
+  Detection may be limited by the absence of specific registry auditing configurations, which need to be enabled for reliable detection. Attackers can use evasion techniques such as modifying permissions or using known legitimate DLLs to mask activities. Legitimate applications altering LSA extensions can occur, but these should be rare and tied to administrative or support activities. Related detections for potentially increased coverage include monitoring changes to other critical registry keys associated with persistence (e.g., startup keys).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

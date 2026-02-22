@@ -77,24 +77,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies instances where Windows utilities are loading unsigned or untrusted DLLs. Attackers frequently exploit trusted system utilities, such as `rundll32.exe` and `regsvr32.exe`, to execute malicious code while bypassing standard security measures. The rule specifically highlights potential use of these utilities to load components that have not been properly signed or validated, dramatically increasing risk of code injection and exploitation.
 
-  Adversaries may use this technique as part of a larger strategy to maintain persistence, escalate privileges, or evade detection mechanisms. The associated MITRE ATT&CK techniques include:
-  - **T1218.010**: Signed Binary Proxy Execution (e.g., `regsvr32`)
-  - **T1218.011**: Signing Binary Proxy Execution (e.g., `rundll32`)
+  This rule detects the loading of unsigned or untrusted dynamic link libraries (DLLs) by legitimate Windows utility processes such as `rundll32.exe`, `regsvr32.exe`, and `InstallUtil.exe`. Attackers often exploit these utilities to execute malicious code in the context of a trusted system process, aiming to bypass security controls and establish persistence on the target system. This behavior aligns with the MITRE ATT&CK technique for "Executable Application Layer Protocol" (T1218.010) and "Trusted Relationship" (T1218.011).
 
-  For effective detection, the primary data sources for analysis should include process creation events, system logs, and image load events to identify any unauthorized or suspicious loading of DLLs.
+  The primary telemetry source is Windows image load logs (which include Event ID 4688 or Sysmon Event ID 10) that capture process creation and DLL loads. If malicious, this behavior could result in unauthorized access, data exfiltration, or lateral movement within the network. Importantly, this detection does not inherently prove the intent behind the DLL loading; further investigation may be necessary to determine whether it is part of legitimate software functionality or malicious activity.
 
   ### Investigation Steps
-  - **Analyze Image Load Events**: Review logs that capture image load events to identify any instances of Windows utilities loading DLLs that are unsigned or originate from untrusted locations.
-  - **Examine Process Creation Logs**: Investigate recent process creation events to correlate potentially malicious utilities being invoked alongside the loaded unsigned DLLs.
-  - **Deploy File Integrity Checks**: Use file integrity monitoring to check for changes to known critical system directories, particularly where unsigned DLLs may reside.
-  - **Assess DLL Signing Status**: Evaluate the signing status of the DLLs being loaded alongside these utilities, specifically looking for errors or null values indicating improper signatures.
+
+  - **Verify the DLL being loaded:** Check the `ImageLoaded` field for DLL names associated with common vulnerabilities. Malicious DLLs may show unusual naming conventions or originate from non-standard directories, unlike legitimate components typically loaded from system folders.
+
+  - **Examine the process origin:** Use Event ID 4688 to inspect the parent process of the utility (e.g., `rundll32.exe`), looking for unusual parent-child relationships. A legitimate process, such as a system update, is less concerning than one initiated by unexpected or suspicious user-generated activity.
+
+  - **Analyze signed status:** Review the `Signed` field in the image load logs. Malicious DLLs are often unsigned or exhibit signature errors. If the `SignatureStatus` shows values like 'errorChaining' or 'errorExpired', this may indicate malicious intents.
+
+  - **Identify legitimate usage patterns:** Understand expected business processes that require these utilities. For example, installations or system maintenance performed by IT departments may use `InstallUtil.exe` to register components. Compare this to the timing and usual usage context of the alert.
+
+  - **Check for known malicious signatures:** Use threat intelligence sources to cross-reference the loaded DLLs against known malicious signatures or hashes. High-confidence indicators may include DLLs known to be involved in recent exploits or malware families.
+
+  - **Inspect system integrity and persistence mechanisms:** Look for changes in system configurations, auto-start services, or scheduled tasks that may coincide with the alert. The detection of unsigned DLLs could correlate with attempts to establish persistence, indicating a higher level of potential compromise.
 
   ### Prioritization
-  This alert has medium severity due to the potential impact of unauthenticated code execution within enterprise environments. The likelihood of threat actors abusing trusted system utilities to load malicious code necessitates prompt attention and investigation.
+
+  This alert should be treated with medium priority, as it highlights a potentially serious security risk involving unsigned DLLs being loaded by trusted Windows processes. The impacted systems could be critical to operations, and although such behavior can be legitimate, it is often weaponized by sophisticated adversaries. Continuous vigilance is warranted to discern between legitimate administration and malicious exploitation.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss instances of malware using fully compliant signed DLLs or exploit methods that do not involve these specific utilities. It assumes that the logging configurations are appropriately set to capture all image load events and that the system's integrity checks are enabled. A lack of visibility into certain directories or executables may create blind spots that could allow adversaries to evade detection mechanisms. Proper configuration and comprehensive logging of process images are crucial for the accuracy of this alert.
+
+  Detection may be limited if logging configurations do not capture image loads comprehensively, or if filtering mechanisms prevent logging of all relevant events. Adversaries might employ code signing techniques or manipulate legitimate software to evade detection. Additionally, legitimate software updates or administrative scripts might trigger this alert under specific circumstances, requiring contextual awareness. Companion detections, such as monitoring for unusual parent-child process relationships or cross-referencing event logs for behavioral patterns, can enhance the robustness of the detection strategy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -27,28 +27,34 @@ detection:
     - 'C:\Windows\WinSxS\'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Legitimate applications loading their own versions of the DLL mentioned in this
-  rule.
+- Legitimate applications loading their own versions of the DLL mentioned in 
+  this rule.
 level: medium
 note: |
   ### Technical Context
-  This rule detects potential DLL sideloading of "mscorsvc.dll," a legitimate Microsoft .NET framework service that can be misused by attackers to execute malicious code. DLL sideloading involves placing a malicious DLL in a location where a legitimate application is likely to load it, misleading the system into executing the attacker's code instead of the genuine library. The attacker's objective could be to gain persistence on a system, escalate privileges, or evade detection mechanisms by utilizing the trusted name of a system file.
 
-  The relevant MITRE ATT&CK tactics include **Privilege Escalation (TA0004)**, where the attacker attempts to gain elevated permissions, and **Defense Evasion (TA0005)**, which involves techniques used to circumvent security measures. Specific techniques referenced are **T1574.001: DLL Sideloading**, highlighting that attackers often exploit the loading of DLLs to run malicious code undetected. Primary data sources for this detection rule will be **Windows image load event logs**, which provide insights into the libraries loaded by various processes.
+  This Sigma rule detects the potential sideloading of the `mscorsvc.dll`, a .NET Framework service, which could indicate an unauthorized process loading the DLL from non-standard directories. Attackers may aim to exploit this behavior to gain elevated privileges or maintain persistence on the system. The relevant MITRE ATT&CK techniques include Privilege Escalation (T1068), Persistence (T1547.001), and Defense Evasion (T1574.001). Primary telemetry sources include Windows Image Load event logs, specifically looking for paths that deviate from the expected locations of legitimate `mscorsvc.dll` files. If malicious, this behavior could lead to undetected execution of harmful payloads that compromise system integrity or data security. This detection does NOT confirm compromise by itself; further investigation is necessary to ascertain malicious intent.
 
   ### Investigation Steps
-  - **Review Image Load Events:** Analyze logs for occurrences of `mscorsvc.dll` being loaded, noting the process and user context in which the loading occurs. Look for anomalies in process execution patterns.
 
-  - **Correlate with Process Creation Logs:** Cross-reference with process creation logs to identify the parent processes responsible for loading the DLL. Verify if these processes have legitimate use cases or are exhibiting unusual behavior.
+  - **Check event logs for DLL loading behavior:** Review Windows Security Event ID 4688 to identify processes loading DLLs. Focus on any events for `mscorsvc.dll` that originate from untrusted or unexpected parent processes.
 
-  - **Inspect File Location and Attributes:** Check the file path of `mscorsvc.dll` to ensure it originates from trusted directories. Pay special attention to any DLL versions located in non-standard paths which could indicate an attempted sideloading.
+  - **Verify DLL source paths:** Evaluate the `ImageLoaded` field in the image load logs (Event ID 13) to see if the `mscorsvc.dll` is loading from legitimate directories (`C:\Windows\Microsoft.NET\Framework\`, etc.) versus atypical or user-created directories.
 
-  - **Monitor Network Activity:** Review network activity associated with the processes that loaded `mscorsvc.dll` to detect any suspicious outbound connections that could signify command and control communication or data exfiltration.
+  - **Look for recent process creation:** Inspect Security Event ID 4688 for processes that may have initiated the DLL load. Identify if any of these processes had unusual command-line arguments or originate from uncommon system directories.
+
+  - **Identify benign software usage:** Cross-reference identified processes with an inventory of approved applications that might legitimately load `mscorsvc.dll`. This can help establish whether the behavior arises from standard software operations.
+
+  - **Flag high-confidence malicious indicators:** Take note of any unusual parent/child process relationships that do not align with normal operational behavior; for example, if the DLL is loaded by a process typically not associated with .NET development.
+
+  - **Monitor for persistent access attempts:** If `mscorsvc.dll` is loaded outside of its usual path, look for associated indicators of persistence, such as registry modifications (Event ID 4657) or scheduled tasks that might be created post-loading.
 
   ### Prioritization
-  The alert's medium severity reflects the potential impact of DLL sideloading, which can lead to significant security breaches, including unauthorized access and data loss. Given the common occurrence of legitimate applications loading this DLL, the likelihood of false positives must be considered but does not diminish the necessity for thorough investigation.
+
+  This alert has medium severity as it indicates a potential attempt at privilege escalation or persistence using a system DLL. The impact could be significant if successful, especially on critical servers. While DLL sideloading can often be exploited, it also occurs during legitimate application updates and maintenance, warranting careful evaluation.
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover all methods of DLL sideloading; for example, if attackers use unrelated or non-standard DLL names, these would go undetected. Additionally, the detection logic assumes that loading of `mscorsvc.dll` in non-standard paths is always malicious, which may not be the case for some legitimate software setups. For effective alerting, logs from Windows image loading events must be reliably captured and analyzed, which requires proper logging configurations in place.
+
+  Evasion techniques could include modifying the DLL while maintaining its expected name, or malware may use legitimate system accounts to sideload the DLL. Reliable detection requires comprehensive logging of Windows Event ID 13 (Image Load) and Event ID 4688 (Process Creation). Legitimate development processes or software auto-updates may unintentionally trigger this alert, so understanding organizational context is vital. Companion detections for unusual parent-child process associations (e.g., through other unusual metrics in Event ID 4688) could strengthen detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

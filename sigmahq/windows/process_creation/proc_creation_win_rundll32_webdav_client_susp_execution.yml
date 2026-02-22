@@ -9,7 +9,8 @@ references:
 - https://www.pwndefend.com/2023/03/15/the-long-game-persistent-hash-theft/
 - https://www.microsoft.com/en-us/security/blog/wp-content/uploads/2023/03/Figure-7-sample-webdav-process-create-event.png
 - https://www.microsoft.com/en-us/security/blog/2023/03/24/guidance-for-investigating-attacks-using-cve-2023-23397/
-author: Nasreddine Bencherchali (Nextron Systems), Florian Roth (Nextron Systems)
+author: Nasreddine Bencherchali (Nextron Systems), Florian Roth (Nextron 
+  Systems)
 date: 2023-03-16
 modified: 2023-09-18
 tags:
@@ -54,25 +55,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious execution patterns involving the `rundll32.exe` process, specifically when spawned by `svchost.exe` with command arguments targeting the `davclnt.dll` library. This behavior may indicate attempts at data exfiltration or exploitation of Microsoft Outlook’s CVE-2023-23397 vulnerability, which allows attackers to interact with WebDAV to execute unauthorized commands. Such tactics could be employed for malicious purposes, such as remote command execution or persistent access to compromised systems.
 
-  In this scenario, attackers aim to exploit the WebDAV functionality in Windows to run arbitrary code, potentially exfiltrating sensitive information or maintaining persistence on the target system. The relevant MITRE ATT&CK tactics include **Exfiltration (TA0010)** and **Remote File Copy (T1048.003)**, which describe behavior associated with bypassing normal security controls to transfer data out of the environment.
+  This Sigma rule detects the execution of `rundll32.exe` spawned by `svchost.exe`, specifically when it is invoked with arguments targeting `davclnt.dll` to set a WebDAV cookie (`DavSetCookie`). This behavior is indicative of potential exfiltration actions or exploitation attempts targeting vulnerability CVE-2023-23397 in Microsoft Outlook, where an attacker may leverage WebDAV for remote code execution. The relevant MITRE ATT&CK tactic is "Exfiltration" (TA0010) and the technique associated is "Exfiltration Over WebDAV" (T1048.003).
 
-  Key telemetry sources that will provide valuable insights include **process creation logs** that capture the details of process spawning activities, as well as **network traffic logs** that may reveal unusual outbound connections to WebDAV servers.
+  The primary telemetry sources required for this detection include Windows process creation logs (Event ID 4688) and possibly Sysmon data (Event ID 1). If this behavior is confirmed as malicious, the impact could include unauthorized access to sensitive data and remote execution capabilities. This detection does NOT confirm malicious activity on its own, as `rundll32.exe` can also be a legitimate system utility utilized in normal application processes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine the process creation logs for events where `svchost.exe` spawns `rundll32.exe` with the associated command line arguments. Pay particular attention to any anomalies in typical operation patterns.
 
-  - **Inspect Network Connections:** Analyze outbound network traffic logs for connections initiated by the `rundll32.exe` process to external IP addresses, especially those that do not fall under private IP ranges. Look for any attempts to reach WebDAV servers.
+  - **Review the invocation context of rundll32.exe:** Check the parent process details using Security Event ID 4688 to confirm the spawning process as `svchost.exe` with the command line containing `-s WebClient`.
 
-  - **Correlate with Known Indicators:** Check for other indicators associated with CVE-2023-23397, including any corresponding IP addresses or domain names frequently used by threat actors in WebDAV-related exploits.
+  - **Analyze command line arguments for indicators:** Inspect the specific command line executed for `rundll32.exe`. Look for the exact string `C:\windows\system32\davclnt.dll,DavSetCookie` and any IP addresses present; this may indicate an attempt to communicate with an external server.
 
-  - **Evaluate System and Application Logs:** Investigate logs from relevant security tools (such as EDR) that may provide context on any malicious payloads delivered via WebDAV or further details on process behavior after execution.
+  - **Inspect for external IP connections:** Validate if the spawned process attempted to reach an external IP address by examining network logs (Windows Firewall Event ID 5156) for connections initiated by `rundll32.exe` matching public IP patterns outside of the private ranges (10.x.x.x, 192.168.x.x, 172.16.x.x range).
+
+  - **Identify benign usage of WebDAV:** Determine if the executed command reflects legitimate use of WebDAV in the environment, such as connections made by known applications or services that utilize `davclnt.dll` for file access or synchronization tasks.
+
+  - **Confirm user and asset context:** Investigate the user account context. Evaluate if it corresponds to a standard user performing expected activities on less critical assets, or if it reflects higher-risk actions originating from critical servers or admin accounts.
+
+  - **Cross-reference with related alerts:** Check for companion detections that could strengthen your findings, such as any alerts concerning abnormal network activity related to WebDAV usage or prior USB device connections that could relate to the compromised credential scenario.
+
+  ---
 
   ### Prioritization
-  Given the potential severity of data exfiltration and unauthorized remote execution capabilities via compromised systems, this alert should be treated with high priority in an enterprise environment. The likelihood of such attacks is increasing, particularly given recent vulnerabilities that can be exploited by attackers.
+
+  This alert has a high severity level due to the potential compromise of sensitive information and the capacity for unauthorized remote code execution. Given that the specific behaviors outlined in this detection are frequently observed in sophisticated attacks, the likelihood of malicious intent is significant.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic may miss legitimate instances of `rundll32.exe` invoking `davclnt.dll` in contexts unrelated to malicious activity, particularly in environments where WebDAV is used for standard operations. It assumes that appropriate logging levels are configured for process creation and network traffic. There may also be insufficient visibility into encrypted or obfuscated network traffic, which could mask unusual activities. Additionally, not all environments will leverage WebDAV in the same way, which may affect the consistency of these detections.
+
+  Detection may be limited by the availability of complete process creation logs or if the relevant services and logging mechanisms are not enabled in the environment. Legitimate activities involving application updates or file synchronization via WebDAV could trigger this alert, creating potential false positives. Companion detections for external network connections (such as failed login attempts) could enhance overall security posture against this threat.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

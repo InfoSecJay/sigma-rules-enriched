@@ -1,8 +1,8 @@
 title: AWS Snapshot Backup Exfiltration
 id: abae8fec-57bd-4f87-aff6-6e3db989843d
 status: test
-description: Detects the modification of an EC2 snapshot's permissions to enable access
-  from another account
+description: Detects the modification of an EC2 snapshot's permissions to enable
+  access from another account
 references:
 - https://www.justice.gov/file/1080281/download
 author: Darin Smith
@@ -24,25 +24,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies instances where an AWS EC2 snapshot's permissions are modified to allow access from a different AWS account. This behavior could indicate potential exfiltration of sensitive data, as an attacker may attempt to gain unauthorized access to these snapshots containing critical information.
 
-  In a threat scenario, a malicious actor could exploit misconfigurations or compromise credentials to manipulate snapshot permissions, thereby exfiltrating sensitive data from an organization's AWS environment. The objective typically revolves around data theft, which aligns with the MITRE ATT&CK techniques for exfiltration, specifically T1537: “Exploitation of Cloud Services.”
+  This Sigma rule detects the modification of an AWS EC2 snapshot's permissions through the `ModifySnapshotAttribute` API call, which allows an attacker to share a snapshot with another AWS account. The likely attacker objective is to exfiltrate sensitive data stored in the snapshot, potentially for malicious purposes such as data theft or setting up unauthorized backups. This behavior aligns with the MITRE ATT&CK tactic of Exfiltration (TA0010) and technique T1537 (Exfiltration Over Cloud Storage).
 
-  The relevant data sources for this detection include AWS CloudTrail logs, which record activity related to AWS services, including modifications to resource properties like EC2 snapshots.
+  The primary telemetry source is AWS CloudTrail logs, specifically tracking the `ModifySnapshotAttribute` event. If malicious, this activity could lead to unauthorized access to sensitive data backups. Importantly, this detection does NOT confirm malicious intent on its own; legitimate changes by authorized users can trigger the same alert.
 
   ### Investigation Steps
-  - **Review CloudTrail Logs:** Examine the CloudTrail logs for the `ModifySnapshotAttribute` event. Note the `sourceAccount` and `destinationAccount` parameters to understand which accounts are involved.
 
-  - **Correlate with IAM Permissions:** Investigate the IAM policies associated with the user or service that performed the modification. Look for unusual permissions or roles that grant elevated access to modify snapshot attributes.
+  - **Check recent CloudTrail events:** Review AWS CloudTrail logs for `EventName: ModifySnapshotAttribute` (Event ID for AWS CloudTrail logs) and correlate the source IP (field: `sourceIPAddress`) to determine if it is a known internal address or an external source.
 
-  - **Analyze Snapshot Usage:** Identify the snapshots that had their permissions modified and assess their content and sensitivity. Determine if these snapshots contain proprietary or sensitive data that could be targeted by an attacker.
+  - **Validate user permissions:** Verify the IAM role or user who executed the `ModifySnapshotAttribute` call. Review their permissions for snapshot modification (fields: `userIdentity`, `eventSource`, `eventTime`). Legitimate requests will likely come from users with specific roles assigned for backup management.
 
-  - **Monitor for Subsequent Access:** Track any subsequent access logs to the modified snapshots. The presence of access from unrecognized accounts could indicate a potential data breach or an exfiltration attempt.
+  - **Examine snapshot sharing details:** Look for `requestParameters` in the event log to check if the snapshot was shared with another AWS account. An unusual account ID or a pattern of multiple simultaneous modifications can indicate malicious intent.
+
+  - **Identify high-risk snapshots:** Determine the snapshot identifiers involved (field: `requestParameters.snapshotId`). Assess the snapshot content and its criticality; any modifications to snapshots containing sensitive data should be prioritized for further investigation.
+
+  - **Assess recent permissions history:** Consult AWS CloudTrail for previous `ModifySnapshotAttribute` events (field: `eventTime`) applied to the same snapshot to identify any unusual patterns or changes in permissions within a short timeframe.
 
   ### Prioritization
-  The severity of this alert is medium due to the potential risk of unauthorized data exposure and exfiltration, particularly if sensitive or critical data is stored in the snapshots. Given the widespread use of cloud services, the likelihood of encountering this type of attack is moderately high, especially if permissions are not properly managed.
+
+  This alert is medium severity due to the potential impact of exposing sensitive data stored in snapshots. The likelihood of malicious abuse is moderate, particularly in environments with multiple users interacting with AWS resources. While the alert can originate from legitimate activity, it is crucial to investigate any modifications that deviate from established operational norms.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage for legitimate administrative activities that involve modifying snapshot permissions, which could lead to false positives. Additionally, the detection logic assumes that CloudTrail logging is enabled and properly configured for all regions and accounts in the AWS environment. If logs are not being recorded or retained, the ability to detect these modifications will be compromised. Analysts must ensure that CloudTrail is set up to log all necessary events related to EC2 snapshots.
+
+  Detection may be limited by incomplete CloudTrail logging; ensure all region and service data is being captured appropriately. Evasion techniques might involve using compromised legitimate accounts to modify snapshot permissions without raising suspicion. Additionally, legitimate maintenance activities by DevOps teams could inadvertently trigger this alert. Related detections include unauthorized AWS IAM policy modifications, providing a more comprehensive view of potential exfiltration risks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

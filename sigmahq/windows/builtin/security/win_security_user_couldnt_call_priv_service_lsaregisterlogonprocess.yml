@@ -1,9 +1,10 @@
 title: User Couldn't Call a Privileged Service 'LsaRegisterLogonProcess'
 id: 6daac7fc-77d1-449a-a71a-e6b4d59a0e54
 status: test
-description: The 'LsaRegisterLogonProcess' function verifies that the application
-  making the function call is a logon process by checking that it has the SeTcbPrivilege
-  privilege set. Possible Rubeus tries to get a handle to LSA.
+description: The 'LsaRegisterLogonProcess' function verifies that the 
+  application making the function call is a logon process by checking that it 
+  has the SeTcbPrivilege privilege set. Possible Rubeus tries to get a handle to
+  LSA.
 references:
 - https://posts.specterops.io/hunting-in-active-directory-unconstrained-delegation-forests-trusts-71f2b33688e1
 author: Roberto Rodriguez (source), Ilyas Ochkov (rule), oscd.community
@@ -28,22 +29,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts by unauthorized applications to call the `LsaRegisterLogonProcess` function, which is a key component in the Windows Local Security Authority (LSA) responsible for verifying logon processes. When legitimate applications invoke this function, they should have the appropriate `SeTcbPrivilege`. However, the detection of failure in this context can indicate malicious behavior, particularly by tools like Rubeus, which is known for manipulating LSA to achieve credential dumping and lateral movement objectives.
 
-  In this threat scenario, an attacker may seek to bypass security controls by impersonating a legitimate logon process. This behavior is critical for stealth operations since success could allow the attacker to capture credentials or escalate privileges without detection. The relevant MITRE ATT&CK techniques associated with this activity include **Abuse Elevation Control Mechanism** (T1548.003), **Credential Access** (TA0006), and **Lateral Movement** (TA0008).
+  This rule detects failures in registering a logon process via the `LsaRegisterLogonProcess` function, typically invoked by unauthorized applications attempting to gain access to LSA (Local Security Authority) services. The likely objective of an attacker may involve privilege escalation or credential theft by hijacking or mimicking legitimate logon processes. This behavior aligns with the MITRE ATT&CK framework under Tactic: Credential Access, Technique: Forced Authentication (T1558.003).
 
-  The primary data sources for this detection are Windows security logs, specifically Event ID 4673, which logs sensitive service-related events, and indicates if a process invoked an unauthorized service call.
+  The primary telemetry source for this detection is Windows Security Event log, specifically Event ID 4673, which indicates attempts to manipulate logon processes. If malicious, this behavior could lead to unauthorized access and significant breach of security integrity. However, it is critical to note that this detection does NOT confirm an actual compromise on its own, as legitimate applications may also generate such failures under certain conditions.
 
   ### Investigation Steps
-  - **Review Security Logs**: Examine Windows Security event logs for Event ID 4673 entries that correspond with the `LsaRegisterLogonProcess()` failures. Look for anomalies or patterns in the processes attempting to register.
-  - **Correlate with Process Creation Events**: Analyze process creation logs around the same timeframe as the detected failures to identify which processes are attempting to interact with LSA and whether they are legitimate.
-  - **Identify Unusual User Activity**: Investigate any user accounts that triggered the detected events to assess if they are known or authorized to execute processes that require `SeTcbPrivilege`.
-  - **Assess Network Behavior**: If NDR (Network Detection and Response) tools are available, check for unusual outbound connections from affected machines, particularly targeting authentication servers or lateral movement indications.
+
+  - **Verify the Event Context:**
+    Review Windows Security logs (EventID 4673) to identify the exact context of the failure, focusing on the `Service` field which should show `LsaRegisterLogonProcess()` and `Keywords` indicating failure (0x8010000000000000).
+
+  - **Assess Application Authenticity:**
+    Check the process associated with the `LsaRegisterLogonProcess` attempts. In Task Manager or Sysinternals tools, identify whether the calling application is known and trusted (e.g., legitimate Windows processes) or appears malicious or unusual.
+
+  - **Check for Privilege Escalation Attempts:**
+    Look for related Event ID 4672 (Special Privileges Assigned to New Logon) records around the same timestamps. If you see a process requesting elevated privileges without a legitimate user or application context, it may indicate malicious activity.
+
+  - **Identify Potential Legitimate Use Cases:**
+    Cross-reference with your change management or application deployment log to understand if any authorized service was recently modified or deployed that could be related to this behavior.
+
+  - **Investigate Process Relationships:**
+    Use Sysmon (Event ID 1) to examine command line arguments and parent-child process relationships. Correlate processes attempting `LsaRegisterLogonProcess` with potentially malicious behavior.
+
+  - **Review LSA Access Patterns:**
+    Analyze logs specifically for frequent or anomalous access patterns to LSA services. Frequent failures could indicate a brute-force or automated attack vector as opposed to a one-off legitimate failure.
 
   ### Prioritization
-  The severity of this alert is high due to the potential for attackers to leverage failed LSA calls for credential theft and privilege escalation, which can lead to significant security incidents in an enterprise environment.
+
+  This alert is of **high severity** given that the affected system is typically critical to maintaining security boundaries within enterprise environments. The likelihood of malicious abuse is elevated due to the nature of interacting with LSA, an area frequently targeted for credential theft. Such behavior is weaponized by adversaries to facilitate lateral movement or further attacks on privileged accounts.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if the appropriate logging settings are not enabled within Windows Security logs. The logic for this detection assumes that any failure with `LsaRegisterLogonProcess()` indicated by the `0x8010000000000000` keyword is indicative of malicious activity; however, legitimate applications could also trigger this event under certain configurations or operational scenarios. Maintaining comprehensive logging and ensuring that critical Windows Security Auditing is enabled is essential for accurate detection of this behavior.
+
+  Detection may be limited by the absence of specific logging configurations or if the Event ID 4673 is not enabled in security logging. Legitimate applications could trigger the alert in cases of software updates or misconfigurations. A related detection that strengthens coverage might involve other LSA interactions (event IDs like 4672) which provide further context on privilege usage. An additional point to consider is the risk of custom applications or scripts configured to access LSA without proper permissions, leading to potential false positives.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

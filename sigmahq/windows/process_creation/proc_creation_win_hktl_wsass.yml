@@ -33,23 +33,31 @@ regression_tests_path:
   regression_data/rules/windows/process_creation/proc_creation_win_hktl_wsass/info.yml
 note: |
   ### Technical Context
-  This detection rule identifies the execution of WSASS, a tool designed to dump memory from the LSASS (Local Security Authority Subsystem Service) process on Windows systems. By exploiting Windows Error Reporting (WER) through `WerFaultSecure.EXE`, attackers can bypass Protected Process Light (PPL) protections, making this a stealthy technique for credential theft. The successful execution of WSASS typically indicates an attempt by attackers to extract sensitive credentials from memory, which can subsequently be used for lateral movement or privilege escalation within the targeted environment.
 
-  The primary MITRE ATT&CK tactic this rule addresses is **Credential Access**, specifically under the technique **T1003.001: LSASS Memory**. This technique shows how attackers can exploit Windows mechanisms to acquire sensitive information, and WSASS leverages legitimate Windows processes to accomplish its goals covertly. The most relevant data sources for this detection include process creation logs from Windows, which will capture the invocation of `wsass.exe` and the details of any command-line arguments used.
+  This Sigma rule detects the execution of WSASS, a tool that retrieves LSASS memory by exploiting the Windows Error Reporting process (WerFaultSecure.EXE) to circumvent Protected Process Light (PPL) protections. The likely attacker objective is to extract sensitive credentials from LSASS memory, potentially allowing them to gain unauthorized access to systems or accounts. This behavior aligns with the MITRE ATT&CK technique for credential access known as "Credential Dumping" (T1003.001).
+
+  The primary telemetry source for this alert is process creation events from Windows, specifically using Security Event ID 4688 or Sysmon Event ID 1. If malicious, the successful execution can lead to a severe security impact due to the compromise of sensitive credentials. It is crucial to note that this detection does NOT confirm that credential theft has occurred on its own; further investigation is required to validate the context of the behavior.
 
   ### Investigation Steps
-  - **Collect Process Creation Logs**: Gather process creation events from your endpoint detection solution. Look specifically for entries related to `wsass.exe` execution, including the command line arguments utilized.
 
-  - **Review Command-Line Arguments**: Analyze the command-line parameters associated with any detected instances of `wsass.exe`. Pay attention to any processes referencing `werfaultsecure` and the LSASS process IDs, as these will indicate possible credential dumping activities.
+  - **Verify process creation event:** Review Security Event ID 4688 or Sysmon Event ID 1 for wsass.exe execution. Check the `CommandLine` field for patterns matching `werfaultsecure` and unusual parameters indicating an LSASS dump.
 
-  - **Correlate with Other Logs**: Cross-reference the findings with Windows Security Event Logs or Sysmon logs if available. Check for unusual parent-child process relationships that might suggest privilege escalation or abuse of process hierarchies.
+  - **Examine parent process:** Identify the parent process of wsass.exe in the process creation events. Legitimate processes may include common user applications, whereas unexpected parent processes may indicate malicious activity.
 
-  - **Investigate User Context**: Determine the user account under which `wsass.exe` was executed. Consider whether this account has authorized access or if it is indicative of a compromised user identity.
+  - **Investigate file hashes:** Cross-reference the hash associated with wsass.exe against known-good signatures. Look for occurrences of 'IMPHASH=32F5095C9BBDCACF28FD4060EB4DFC42' as a strong indicator of malicious execution.
+
+  - **Evaluate command-line arguments:** Analyze the `CommandLine` field for anomalous command-line arguments that match the regex pattern provided in the rule. Look for unusual characters or lengths (e.g., 12 to 64 characters after ".exe").
+
+  - **Monitor for related artifacts:** Check for artifacts related to credential dumping, such as unusual memory access patterns from other processes post-execution. Investigate for potential exfiltration of dumped LSASS memory.
+
+  - **Assess host criticality:** Consider the criticality of the host executing wsass.exe. If it is a domain controller or a workstation with administrative privileges, prioritize this alert higher given the potential impact.
 
   ### Prioritization
-  This alert is classified as high severity due to the critical nature of the credentials potentially exposed during the execution of WSASS. Unauthorized credential dumping can lead to increased risk of lateral movement, data breaches, and significant operational impacts for the organization.
+
+  This alert should be treated with high severity due to the potential compromise of sensitive credentials from LSASS memory. Given that tools like WSASS are commonly weaponized in credential-stealing incidents, the likelihood of malicious abuse is significantly elevated, especially in high-value target environments.
 
   ### Blind Spots and Assumptions
-  The detection logic may not cover scenarios where WSASS is executed through non-standard means or where the tool is disguised under a different name, which might evade detection. Assumptions include the need for accurate logging of process creation events and command-line arguments; therefore, proper configurations must be ensured in the endpoint security solutions. Additionally, environments lacking comprehensive logging or those with minimal monitoring could miss instances of WSASS use altogether, potentially resulting in a gap in detection coverage.
+
+  This detection may be evaded by legitimate process manipulation or custom tools that behave similarly but are not identified specifically as wsass.exe. Reliable detection requires complete visibility into process creation logs (Event ID 4688 or Sysmon) and correct filtering to isolate events relevant to credential dumping activities. Legitimate activities that may trigger this alert include developers or security analysts debugging software that interfaces with the LSASS process. Related detections, such as those monitoring for suspicious process spawning chains, can reinforce coverage against this threat vector.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

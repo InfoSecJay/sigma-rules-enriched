@@ -1,7 +1,8 @@
 title: HackTool - Default PowerSploit/Empire Scheduled Task Creation
 id: 56c217c3-2de2-479b-990f-5c109ba8458f
 status: test
-description: Detects the creation of a schtask via PowerSploit or Empire Default Configuration.
+description: Detects the creation of a schtask via PowerSploit or Empire Default
+  Configuration.
 references:
 - https://github.com/0xdeadbeefJERKY/PowerSploit/blob/8690399ef70d2cad10213575ac67e8fa90ddf7c3/Persistence/Persistence.psm1
 - https://github.com/EmpireProject/Empire/blob/08cbd274bef78243d7a8ed6443b8364acd1fc48b/lib/modules/powershell/persistence/userland/schtasks.py
@@ -42,29 +43,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the creation of a scheduled task via PowerSploit or Empire, two tools frequently used by attackers to maintain persistence on target systems. The presence of these scheduled tasks can indicate that an attacker has successfully exploited a system and is leveraging it for future access or malicious activities. The creation of scheduled tasks using such tools often serves the attacker’s objective of ensuring continued access to compromised environments, facilitating further exploitation or data exfiltration.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Execution** (TA0002) - using the scheduled task to execute malicious payloads.
-  - **Persistence** (TA0003) - maintaining access to the system via scheduled tasks.
-  - **Privilege Escalation** (TA0004) - possibly escalating privileges by executing further malicious actions as a scheduled task.
-  - Techniques such as **Scheduled Task/Job** (T1053.005) and **Command and Scripting Interpreter** (T1059.001) are applicable here.
+  This Sigma rule detects the execution of the `schtasks.exe` command via PowerShell, specifically when it is used to create scheduled tasks that are indicative of persistence mechanisms commonly utilized by adversaries. The likely objective of an attacker in this scenario is to establish a method of re-establishing access to a compromised system, ensuring their code runs under the specified conditions without user intervention. This behavior aligns with the MITRE ATT&CK technique T1053.005 (Scheduled Task/Job: Windows Task Scheduler) and T1059.001 (Command and Scripting Interpreter: Windows Command Shell).
 
-  The primary data sources for this detection include process creation events from Windows, which capture the execution of commands and scripts, as well as logs related to task scheduler activities that may document task creations or modifications.
+  The primary telemetry source for this detection is Windows process creation logs, specifically capturing Event ID 4688 (Process Creation) and Sysmon Event ID 1. If this behavior is malicious, the security impact includes unauthorized persistence on the host, potentially allowing for further exploitation and lateral movement within the environment. However, the detection of this behavior does NOT confirm that malicious activity is occurring without additional context; it can also be indicative of legitimate administrative actions.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Investigate the process creation logs to identify instances of `schtasks.exe` being executed along with its parent process (`powershell.exe` or `pwsh.exe`), and analyze the associated command line arguments for indications of malicious intent.
 
-  - **Examine Scheduled Tasks**: Look for newly created scheduled tasks on the system, particularly those created with names like “Updater” or using arguments indicative of malicious behavior (e.g., `/SC ONLOGON`, `/SC DAILY /ST`).
+  - **Review process creation logs**: Examine Windows Event ID 4688 and Sysmon Event ID 1 for any instances where `schtasks.exe` is invoked by `powershell.exe` with the specified flags. Note the user account initiating the action; administrative accounts performing legitimate task scheduling may indicate benign activity.
 
-  - **Correlate with Other Logs**: Cross-reference findings with additional telemetry sources such as Windows Event Logs to correlate with user logon events, which may reveal patterns in legitimate versus suspicious behavior.
+  - **Analyze command-line arguments**: Focus on the `CommandLine` field for patterns indicating persistence. Malicious activity typically includes `/SC ONLOGON`, `/SC DAILY /ST`, `/SC ONIDLE`, or `/SC HOURLY`, which could signify automated execution that is unlikely in benign cases.
 
-  - **Analyze User Context**: Determine the user context under which the tasks were created. Check if the task creation occurred under an administrative context or by non-administrative users unexpectedly.
+  - **Identify task registration**: Use PowerShell’s `Get-ScheduledTask` cmdlet to list scheduled tasks on the affected system. Check for tasks created under user profiles or system tasks that exhibit atypical behavior or naming conventions.
+
+  - **Correlate with known threats**: Cross-reference the task name or executable specified in the creation command (e.g., `/TN Updater`) with threat intelligence databases or internal logs for known malicious indicators. If the task name is associated with any documented malicious tools, escalate for further investigation.
+
+  - **Look for concurrent suspicious activities**: Investigate any additional PowerShell activities around the same timestamp that may indicate a coordinated attack, such as unrecognized scripts or other process creations following this event.
+
+  - **Assess user behavior context**: Consider the asset's criticality and the role of the user account involved. If the account has low privilege but attempts to create scheduled tasks, this could strongly indicate malicious intent.
 
   ### Prioritization
-  The severity of this alert is high, as the creation of scheduled tasks using malicious tools like PowerSploit and Empire indicates an active attempt at maintaining persistence on the network, which poses significant risks for elevated access and further exploitation by attackers.
+
+  This alert is high severity due to the potential impact on the system if malicious; successful persistence can lead to long-term compromise. The likelihood of abuse is high, as this technique is commonly weaponized in adversarial tactics for maintaining access post-compromise. Scheduled task manipulation through PowerShell is a frequent indicator of advanced persistent threats (APTs).
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if the logs for scheduled task creation are not adequately configured or monitored in certain environments. This detection logic assumes that the execution of `schtasks.exe` solely under the specified conditions is malicious; however, legitimate administrative operations could also trigger this alert. To ensure effective detection, it is required that proper logging of process creation and scheduled tasks is enabled and retained for forensic analysis.
+
+  Evasion techniques could include the use of legitimate administrative tools to create tasks or obfuscating the command line arguments. Reliable detection also requires proper logging configurations, including enabling auditing for scheduled tasks. Legitimate administrative actions, such as system maintenance or updates by IT staff, might trigger this alert. A related detection that could strengthen coverage is monitoring for unusual PowerShell command usage (MITRE ATT&CK T1059.001), capturing broader malicious behaviors associated with PowerShell execution.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

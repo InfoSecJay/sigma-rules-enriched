@@ -1,8 +1,8 @@
 title: Suspicious Process Parents
 id: cbec226f-63d9-4eca-9f52-dfb6652f24df
 status: test
-description: Detects suspicious parent processes that should not have any children
-  or should only have a single possible child program
+description: Detects suspicious parent processes that should not have any 
+  children or should only have a single possible child program
 references:
 - https://twitter.com/x86matthew/status/1505476263464607744?s=12
 - https://svch0st.medium.com/stats-from-hunting-cobalt-strike-beacons-c17e56255f9b
@@ -45,22 +45,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  The "Suspicious Process Parents" rule is designed to detect instances where certain legitimate but potentially malicious parent processes are observed spawning child processes in an unusual manner. Specifically, this rule focuses on parent processes that typically should not have children or are limited to a single type of child process. The detection logic targets familiar Windows system processes such as `minesweeper.exe`, `winver.exe`, `bitsadmin.exe`, and others that are often exploited in various attack scenarios, including those involving Cobalt Strike.
 
-  Attackers leveraging Cobalt Strike, a popular post-exploitation toolkit, may use common Windows executables as parents for malicious child processes to evade detection. By exploiting legitimate tools, attackers can maintain stealth while conducting reconnaissance or lateral movement within a network. This behavior aligns with the MITRE ATT&CK tactics of **Defense Evasion** (T1027) and **Process Injection** (T1055), as well as technique **T1036: Masquerading**, where attackers disguise their tools to blend in with normal operations.
+  This Sigma rule detects suspicious parent processes in the Windows process creation logs, specifically those that typically do not spawn child processes or should only have specific, expected child processes. The likely attacker objective is to conceal malicious activity by leveraging benign-looking processes like `minesweeper.exe` or `certutil.exe` to initiate secondary malicious tasks. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0005) and specifically with the technique T1036 (Masquerading).
 
-  The primary data sources for this detection include process creation events, which provide insight into the lifecycle of processes as they are spawned on Windows systems. These logs can help analysts identify when suspicious parent-child relationships occur that deviate from established norms.
+  The primary telemetry sources for this detection are Windows Security Event logs (Event ID 4688) and Sysmon logs (Event ID 1), which capture process creation events. If malicious, this behavior could indicate a compromised system potentially being used to conduct further attacks or lateral movement. Importantly, this detection does NOT confirm malicious behavior on its own, as legitimate applications may occasionally exhibit similar parent-child relationships.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Collect logs related to process creation on affected endpoints to identify the parent and child relationships. Pay close attention to processes invoked by the listed suspicious parent executables.
-  - **Correlate with Additional Logs**: Examine security logs from systems like EDR or SIEM for alerts related to the activity of the identified processes, looking for other suspicious behaviors or indicators of compromise associated with Cobalt Strike.
-  - **Analyze Process Anomalies**: Investigate any child processes spawned from the suspicious parents. Look for unusual command line arguments, execution paths, and file hashes that deviate from normal activity patterns.
-  - **Identify Contextual Information**: Collect contextual information regarding the host, such as user activity, recent user logins, and other session-related data, to determine if there is a legitimate reason for the process behaviors detected.
+
+  - **Identify the parent process:**
+    Examine Security Event ID 4688 or Sysmon Event ID 1 to identify the parent process. Look for entries where ParentImage matches `minesweeper.exe`, `winver.exe`, or other specified processes.
+
+  - **Evaluate child processes spawned:**
+    Check the same logs to see if any child processes were created from the identified parent process. Confirm that they are not any of the specified benign filters like `WerFault.exe`, `wermgr.exe`, or `conhost.exe`.
+
+  - **Review legitimate process behavior:**
+    Validate common usage of `certutil.exe` or `notepad.exe` on the system. These processes should primarily function with predictable child processes or none at all in non-malicious contexts.
+
+  - **Correlate with known bad behavior:**
+    Cross-reference the identified parent-child relationship against threat intelligence feeds or internal detections for known malicious behavior associated with these parent processes.
+
+  - **Assess system criticality:**
+    Determine the role of the affected system (e.g., server, workstation) and its criticality to understand the potential impact of the alert on overall operations.
+
+  - **Investigate file creations or data exfiltration:**
+    Look for any recent file creations or unauthorized access patterns using process monitoring tools. For instance, track any unusual files created by the processes in question that may indicate data extraction or payload retrieval activities.
 
   ### Prioritization
-  This alert is considered high severity due to the potential for significant impact on enterprise security. Given the likelihood that such behaviors indicate an active compromise, timely investigation and response are crucial to prevent data exfiltration or lateral movement across the network.
+
+  This alert is high severity due to the implications of compromise and the potential impact on sensitive systems. The likelihood of malicious abuse is significant, particularly as threat actors commonly weaponize benign-like processes to carry out their attacks. Immediate investigation is warranted to confirm whether the alert is indicative of an active threat or an innocent anomaly.
 
   ### Blind Spots and Assumptions
-  This detection may not cover all potential attack vectors, especially if attackers use processes that are not captured by the specified parent or filter criteria. The detection logic assumes legitimate processes won’t deviate from their expected behavior; however, advanced attackers may craft custom executables or alter process behaviors. Additionally, the monitoring environment must be properly configured to capture process creation events for this rule to function effectively, which may not be the case in all enterprise setups.
+
+  This detection may have limitations around legitimate administrative tasks or software updates triggering similar parent-child relationships, leading to false positives. It requires correct configuration of Windows Event logging or Sysmon to capture relevant details reliably. Additionally, common processes like `calc.exe` might appear benign but can also be abused in an attack scenario. To enhance detection efficacy, monitoring for the use of other parent processes known to relate to post-exploitation activities (like `powershell.exe` or `cmd.exe`) should be considered.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

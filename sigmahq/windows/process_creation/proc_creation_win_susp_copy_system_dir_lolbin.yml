@@ -62,28 +62,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  This detection rule is designed to identify suspicious copy operations involving known living-off-the-land binaries (LOLBins) from critical system directories such as System32, SysWOW64, and WinSxS. Attackers often attempt to relocate these binaries to evade detection, leveraging their commonality and trust to execute malicious tasks without raising alarms. The threat scenario typically involves cyber adversaries who aim to maintain stealth within a compromised environment, moving LOLBins to avoid security tools focusing on traditional paths.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Defense Evasion (T1562)** - Techniques designed to evade detection by security solutions.
-  - **Masquerading (T1036.003)** - Using LOLBins to imitate legitimate processes, thereby reducing the likelihood of detection.
+  This Sigma rule detects suspicious copy operations involving known living-off-the-land binaries (LOLBINs) transferred from critical system directories (such as System32, SysWOW64, and WinSxS) to other locations on the disk. The likely attacker objective is to exploit these commonly present binaries to evade detection mechanisms that are less vigilant regarding their behavior in conducted operations from system directories. This behavior aligns with the MITRE ATT&CK tactic "Defense Evasion" (Tactic ID: TA0005) and specifically targets the technique "Masquerading" (T1036.003).
 
-  The primary data sources for this detection include process creation logs from the Windows operating system, which can provide insights into command-line activities executed by various tools like cmd.exe, PowerShell, and other file-copy utilities.
+  The primary telemetry sources are Windows Process Creation logs, specifically focused on Security Event ID 4688, which records process creation events, and Sysmon Event ID 1 capturing detailed process creation and related parameters. The security impact is significant, as this may indicate an attempt to leverage legitimate system tools to execute malicious functionality, thus blending into normal operations. It is essential to note that this detection alone does not confirm any malicious intent without further corroborative evidence from different telemetry sources.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine the process creation logs to identify instances of `cmd.exe`, `powershell.exe`, `robocopy.exe`, and `xcopy.exe` performing copy operations, especially those echoed with suspicious command lines containing 'copy'.
 
-  - **Analyze Command-Line Arguments:** Focus on instances where the command-line arguments indicate copying from known system directories (e.g., \System32, \SysWOW64) to other folders, which often signifies an attempt to manipulate LOLBins.
+  - **Analyze Process Creation Events:** Review Security Event ID 4688 for entries involving process creation commands ending with `cmd.exe`, `powershell.exe`, or any other tools listed in this rule, especially focusing on the command line parameters. Look for specific copy commands referencing system directories.
 
-  - **Correlate with Known LOLBins:** Investigate cases where these tools are used to copy known LOLBins (e.g., `bitsadmin.exe`, `certutil.exe`) by validating the command lines against a list of high-risk binaries associated with prior enterprise incidents.
+  - **Identify High-Confidence Malicious Indicators:** Check for copy operations targeting known LOLBINs (e.g., `bitsadmin.exe`, `mshta.exe`) using Sysmon Event ID 1. An entry with one of these binaries being copied from `\System32` or similar directories is a strong indicator of potentially malicious activity.
 
-  - **Check for Time-and-Context Patterns:** Look for unusual timings or frequency of these operations, particularly in relation to user behavior profiles, as anomalies could indicate malicious intent.
+  - **Document Benign Use Cases:** Identify legitimate uses of the same LOLBINs and their expected behaviors, such as common administrative tasks in environments where these binaries are typically utilized without invoking unusual copy operations. Look for timestamps and correlating user accounts to assess the legitimacy.
+
+  - **Check for Evasion Techniques:** Query the command line usage patterns for any encoded, obfuscated, or non-standard variations indicating attempts to bypass detection (e.g., unusual spacing, additional parameters, or argument misconfigurations).
+
+  - **Inspect User Behavior:** Utilize user activity logs to determine normal usage patterns for the account executing the copy command. Deviations from established usage patterns, especially elevated administrative actions during the alert timeframe, warrant further scrutiny.
+
+  - **Validate File Integrity and Exfiltration:** For systems involved, check file integrity logs or Windows Event ID 4663 for any unexpected file access patterns or unauthorized file creations after the copy operation, indicating potential exfiltration or misuse of system directories.
+
+  ---
 
   ### Prioritization
-  The severity of this alert is high due to the potential for an attacker to manipulate trusted system binaries for malicious purposes, which could lead to significant breaches or persistence mechanisms within the enterprise environment.
+
+  This alert is of high severity as it involves potential exploitation of critical system directories and tools in a way that could facilitate further reconnaissance or execution of malicious payloads. Given that the behavior targets known LOLBINs and attempts to circumvent detection by operating within trusted locations, it is highly relevant for threat assessment in the enterprise context.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding other obfuscated or custom-named copies of LOLBins, depending on the organization’s environment and policies. This detection logic assumes that the appropriate logging for process creation events is enabled and that relevant command-line parameters are not stripped or modified before logging. Without these logs, the detection will fail to capture the malicious activity effectively.
+
+  Detection limitations include the potential for legitimate tools to be misused in ways similar to the detected behavior, such as scripting or automation in administrative tasks. Required log sources include comprehensive monitoring that must capture detailed command lines and original filenames for accurate detections. This alert could be triggered by benign activity, particularly in environments where administrative scripts routinely copy files for legitimate purposes. A related detection to strengthen coverage could include monitoring for unusual process tree activity originating from these LOLBINs, capturing higher-order malicious behaviors.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

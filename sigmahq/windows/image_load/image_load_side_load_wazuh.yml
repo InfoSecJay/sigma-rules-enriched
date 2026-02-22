@@ -1,8 +1,8 @@
 title: Potential Wazuh Security Platform DLL Sideloading
 id: db77ce78-7e28-4188-9337-cf30e2b3ba9f
 status: test
-description: Detects potential DLL side loading of DLLs that are part of the Wazuh
-  security platform
+description: Detects potential DLL side loading of DLLs that are part of the 
+  Wazuh security platform
 references:
 - https://www.trendmicro.com/en_us/research/23/c/iron-tiger-sysupdate-adds-linux-targeting.html
 author: X__Junior (Nextron Systems)
@@ -34,46 +34,42 @@ detection:
     ImageLoaded|endswith: '\mingw64\bin\libwinpthread-1.dll'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Many legitimate applications leverage this DLL. (Visual Studio, JetBrains, Ruby,
-  Anaconda, GithubDesktop, etc.)
+- Many legitimate applications leverage this DLL. (Visual Studio, JetBrains, 
+  Ruby, Anaconda, GithubDesktop, etc.)
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the potential DLL sideloading associated with the Wazuh security platform, specifically targeting the loading of `libwazuhshared.dll` and `libwinpthread-1.dll` from locations that are unusual for these files. DLL sideloading is a method where a legitimate DLL is loaded by an executable, but the DLL itself is not located in a trusted directory, often indicating an attempt to execute malicious code disguised as legitimate behavior. The likely attacker objective includes maintaining persistence and privilege escalation within the system, employing techniques identified in MITRE ATT&CK under Tactic: Defense Evasion, Technique: DLL Side-Loading (T1574.001).
+  This Sigma rule detects potential DLL sideloading of the Wazuh security platform DLLs (`libwazuhshared.dll` and `libwinpthread-1.dll`). The likely objective of an attacker using DLL sideloading is to execute a malicious payload while posing as a legitimate process, enabling them to bypass security mechanisms. This behavior fits within the MITRE ATT&CK framework's "Defense Evasion" tactic (TA0060) and "DLL Search Order Hijacking" technique (T1574.001).
 
-  Primary telemetry sources include Windows Image Load events, specifically the `ImageLoaded` event, which details when a DLL is loaded. The potential security impact of a successful DLL sideloading attack is severe, as it could allow an attacker to run arbitrary code with the privileges of the legitimate process. It is essential to highlight that detection of this activity does NOT by itself confirm malicious intent or compromise; it merely identifies an anomaly in the loading path of targeted DLLs.
+  The primary telemetry source is Windows image load events that indicate when a DLL is loaded by a process. The security impact of a successful DLL sideload can be severe, potentially leading to unauthorized access, data exfiltration, or system compromise. It’s crucial to note that detections of these DLLs do not confirm malicious activity on their own due to the prevalence of legitimate applications that use these libraries.
 
   ---
 
   ### Investigation Steps
 
-  - **Review the source of the DLLs:** Check logs for loading of `libwazuhshared.dll` and `libwinpthread-1.dll` under expected paths. Legitimate applications typically load these DLLs from `C:\Program Files\` or `C:\Program Files (x86)\`. If they have loaded from `AppData` or `ProgramData`, further scrutiny is needed.
+  - **Review the loading process: ** Check the process initiating the DLL load using Security Event ID 4688 or Sysmon Event ID 1 for details such as process name and command line arguments. Identify if the parent process is a known legitimate application or service.
 
-  - **Validate process origins:** Utilize Event ID 4688 (Process Creation) to identify the originating process of the DLL loading event. Look for executables that are not recognized or are known to be associated with packing or obfuscation.
+  - **Analyze the DLL path: ** Confirm if the `libwazuhshared.dll` and `libwinpthread-1.dll` are sourced from unusual locations. Legitimate instances should typically reside in `C:\Program Files\` or `C:\Program Files (x86)\`.
 
-  - **Examine parent-child relationships:** Use Sysmon Event ID process creation logs to see the parent PID of the process that attempted to load `libwazuhshared.dll`. An uncommon parent process, particularly if it's a known system process, could indicate malicious activity.
+  - **Identify high-risk indicators:** Cross-reference the loaded DLL paths against a list of known malicious samples that target the Wazuh platform. Any loading from `C:\Users\<User>\AppData\Local\` or `C:\ProgramData\` should be scrutinized for abnormal behavior.
 
-  - **Identify known benign applications:** Cross-reference the applications triggering this rule against a whitelist of commonly used legitimate applications (e.g. Visual Studio, JetBrains) that utilize `libwinpthread-1.dll`. If the application is atypical for your environment, flag for further analysis.
+  - **Compare with expected behavior:** Investigate the use of `libwinpthread-1.dll` in context with legitimate applications like Visual Studio or GitHub Desktop. Document the applications installed on the host to benchmark typical usage patterns and usages of these DLLs.
 
-  - **Assess file creation or modification artifacts:** Verify any recent changes to the filesystem where the libraries reside. Check Event ID 4663 (File Access) and use file integrity monitoring to determine if the files were recently modified or created in non-standard locations.
+  - **Check for persistence mechanisms:** Look for any registry modifications (using Event ID 4657) that may indicate attempts to maintain persistence through the DLL loading mechanism.
 
-  - **Perform threat intelligence checks:** Investigate the behavior using threat intelligence resources to understand if there have been previous reports of similar DLL sideloading instances related to recent vulnerabilities or exploits within the Wazuh platform.
+  - **Conduct a file integrity check:** Validate the integrity of the loaded DLL files to detect any unauthorized modifications or replacements potentially indicative of compromise.
 
   ---
 
   ### Prioritization
 
-  The alert warrants medium severity due to the potential for privilege escalation and code execution through DLL sideloading, which is a commonly weaponized technique. The likelihood of malicious usage is moderate, particularly if discrepancies are found in the loading path or parent process of the detected DLLs. The impact on a compromised system could be considerable, making timely investigation imperative.
+  This alert should be treated with medium urgency. While it involves the loading of potentially malicious DLLs, their presence does not always indicate exploitation, particularly on systems with extensive development tools. However, given the growing sophistication of DLL sideloading techniques, the alert warrants thorough investigation to preempt malicious use.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Detection effectiveness may be limited by legitimate applications that commonly utilize `libwinpthread-1.dll`, leading to possible false positives. Reliable detection also requires consistent logging from Windows Image Load events alongside proper configurations for Sysmon. Certain legitimate applications located in user directories can trigger this alert, complicating the investigation. A companion detection method, such as monitoring unusual process launch patterns or script execution behaviors, can enhance coverage and help reduce false positives.
-
-  ---
+  Detection may be limited by the use of whitelisted applications that legitimately load these DLLs, which could mask malicious activity. A requirement for reliable detection includes accurate logging from image load events (such as Sysmon). Legitimate activities, such as development environments utilizing these libraries, can trigger the alert. Companion detections like unauthorized process executions leveraging `CreateRemoteThread` (T1055) can provide additional context to bolster the investigation and analysis, helping confirm or dispel suspicions of malicious intent.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

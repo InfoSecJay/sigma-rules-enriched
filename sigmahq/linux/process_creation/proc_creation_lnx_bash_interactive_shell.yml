@@ -23,24 +23,31 @@ falsepositives:
 level: low
 note: |
   ### Technical Context
-  This detection rule monitors for the execution of the `bash` shell using the interactive flag `-i`, which allows attackers to gain a command line interface that can be exploited for various malicious activities. The primary threat scenario for this alert involves an attacker using a reverse or bind shell to maintain interactive access to a compromised system, often aimed at exfiltrating data or moving laterally within the network. Detecting such behavior can indicate potential compromise and the need for urgent investigation.
 
-  Relevant MITRE ATT&CK tactics that apply to this detection include:
-  - **Execution** (TA0002): This is the primary tactic as it involves executing code on a system.
-  - **Command and Control** (TA0011): If the command shell is established for remote access, it may facilitate external communications controlled by an attacker.
+  This Sigma rule detects the execution of the Bash shell with the interactive flag `-i`, which indicates a potential attempt to establish an interactive shell session. An attacker may leverage this behavior to execute arbitrary commands on a compromised system, gaining control for further exploitation. This activity aligns with the MITRE ATT&CK tactic of Execution, specifically Technique T1203 (Exploitation for Client Execution).
 
-  Primary data sources that will yield the best evidence for this detection include process creation events logged by the operating system, which record timestamps, executed commands, and associated user information that can illuminate any anomalous behavior related to shell execution.
+  The primary telemetry sources for this detection are Linux process creation logs that capture command execution details. Security impact is significant if the shell is initiated by an unauthorized user or malicious actor since it allows remote command execution, potentially facilitating lateral movement or data exfiltration. However, this detection alone does not confirm malicious intent, as legitimate processes may also use `bash -i` for valid administrative tasks.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for process creation events that show instances of `bash` executed with the `-i` flag, noting the source user and execution context.
-  - **Analyze Network Connections:** Inspect outbound network traffic to identify any unusual connections that could indicate command and control communication, such as connections to external IPs shortly after the execution of `bash`.
-  - **Check for Suspicious Command History:** Look into shell history files (e.g., `.bash_history`) to see if any unusual or unauthorized commands were executed immediately after launching the interactive shell.
-  - **Correlate with Authentication Logs:** Evaluate authentication logs to detect any unusual login patterns or access times that coincide with the detected bash shell execution, which may suggest lateral movement or compromise.
+
+  - **Review recent Bash execution logs:** Check for Bash executions with `-i` in the command line using process creation logs (e.g., `/var/log/auth.log` or `/var/log/syslog`). Compare timestamps against user activity to identify anomalies.
+
+  - **Identify user context:** Note which user account executed the command. Legitimate usage typically involves system or administrator accounts during maintenance or scripting tasks, while unusual or unknown user accounts may indicate a security risk.
+
+  - **Correlate with other logs:** Cross-reference with other telemetry such as SSH authentication logs (Event ID 14 in `/var/log/auth.log`) to determine if the user had recently established a session, indicating whether this is part of an authorized workflow.
+
+  - **Check for subsequent commands:** Investigate logs for subsequent command execution following the interactive shell launch. Look for evidence of unusual command activity such as `curl`, `wget`, or changes to system files for signs of malicious behavior.
+
+  - **Review process parentage:** Analyze the parent process of the Bash shell to identify how it was invoked. Common benign parent processes include typical user or administrative tools, while suspiciously invoked background jobs or system daemons may indicate compromise.
+
+  - **Validate file creation events:** Check for unusual file creations or modifications post-execution, using tools like `find` to identify recent changes in home directories or temporary locations (`/tmp`). This can reveal if a malicious script or backdoor was established during the interactive session.
 
   ### Prioritization
-  This alert is considered low severity primarily due to the possibility of legitimate use cases for interactive bash sessions in development or administrative contexts; however, it warrants investigation due to the potential risk involved. Given the potential for establishing command and control, any identified instance should be analyzed to prevent exploitation.
+
+  Given the potential to facilitate unauthorized command execution and lateral movement within the network, alerts for this behavior should be treated as high priority. Attackers often utilize such methods to maintain persistence and exploit systems, making it a notable risk in enterprise environments.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding legitimate administrative operations that also utilize interactive shells, which could lead to false positives. The detection logic assumes that the interactive flag `-i` is indicative of malicious use, but there could be benign or necessary instances in the operational environment. Additionally, the rule relies on effective logging of process creation events, which must be configured correctly to ensure all relevant executions are captured.
+
+  Detection may be limited by the use of scripts or commands that do not explicitly invoke the `-i` flag. Additionally, if logging is misconfigured or incomplete, this alert may fail to trigger. Legitimate administrative activities like system administration or troubleshooting can also trigger this alert. A related detection to consider is monitoring for the execution of reverse shells, which often follow this pattern, enhancing detection capabilities for remote command executions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

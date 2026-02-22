@@ -38,25 +38,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential Kerberos coercion attacks by monitoring for specific command-line patterns associated with the manipulation of Service Principal Names (SPNs) in DNS records. The suspicious base64-encoded string "UWhRCAAAAA..BAAAA" indicates the presence of a CREDENTIAL_TARGET_INFORMATION structure, which attackers may use to redirect authentication requests from compromised systems to their own controlled servers. The primary objective of an attacker leveraging this technique is to extract credentials by tricking clients into believing they are communicating with legitimate services, thereby gaining unauthorized access to sensitive resources.
 
-  The relevant MITRE ATT&CK tactics include **Credential Access (T1003)** and **Persistence (T1547)**, with associated techniques such as **Kerberos Ticket Granting Ticket (TGT) Manipulation (T1557.001)** and **Domain Fronting (T1187)**. The suspected threat variant poses significant risks as it can facilitate further intrusion methods such as lateral movement, privilege escalation, and data exfiltration.
+  This Sigma rule detects attempts to perform Kerberos coercion attacks by identifying specific patterns in command line arguments. The behavior observed typically involves adversaries spoofing Service Principal Names (SPNs) using manipulated DNS entries to redirect Kerberos authentication requests to an attacker-controlled host. The likely objective is to gain unauthorized access or escalate privileges by coercing legitimate users’ authentication towards malicious endpoints.
 
-  To effectively detect and respond to these incidents, analysts should focus on forensic data sources, particularly **process creation logs** from Windows systems, as they will hold command-line inputs and can signal the initiation of coercion attempts.
+  The detection aligns with the MITRE ATT&CK tactic for Credential Access (T1557) and the technique for Kerberos Coercion (T1187). Primary telemetry sources include Windows process creation logs that capture command line arguments, specifically monitoring for command lines containing "UWhRCA" and "BAAAA." A successful exploitation could lead to unauthorized access to sensitive systems and resources. This detection does NOT confirm that a compromise has occurred; it only signals the presence of potentially malicious activities.
 
   ### Investigation Steps
-  - **Collect Process Creation Logs:** Gather logs of process creation events from the affected systems to find instances of the command line containing the "UWhRCA" and "BAAAA" patterns, which could indicate malicious activities.
 
-  - **Review DNS Logs:** Analyze DNS query logs for unusual queries directed at internal resources or for the existence of suspicious SPN records that might point to an attacker trying to manipulate DNS.
+  - **Check process creation logs:** Review Security Event ID 4688 logs for command line arguments containing "UWhRCA" and "BAAAA" to identify the origin of the activity. Note timestamps and user context for further investigation.
 
-  - **Inspect Network Traffic:** Examine network traffic for connections made to unusual hosts, particularly if those hosts correlate with the command-line patterns observed, or if any unusual reverse shell behaviors are noted.
+  - **Validate the legitimacy of the process:** Look for the parent process and user executing the command. If the parent process is `nslookup` or a similarly relevant tool and the user has legitimate administrative access, it may be a benign legitimate behavior.
 
-  - **Validate Known SPNs:** Cross-reference legitimate SPNs in your Active Directory environment to identify any unauthorized records that may have been added or altered as part of the attack.
+  - **Analyze DNS queries made around the timing:** Use relevant DNS logs to check for requests to the spoofed SPNs. Cross-reference queried SPNs against expected domain service accounts to identify anomalies.
+
+  - **Correlate with authentication logs:** Examine Security Event ID 4768 and 4769 for unusual Kerberos Ticket Granting Ticket (TGT) requests and service ticket requests correlating with the timeframe of the process creation event.
+
+  - **Identify high-confidence malicious indicators:** If the detected command execution was followed by a series of TGT requests from non-standard or unexpected service accounts or hosts, consider this as high confidence of malicious intent.
+
+  - **Review for related AT&T activity:** Check for related alerts or logs that match with credential acquisition mechanisms such as NTLM relay. Monitoring Event ID 4624 for logon events following the suspicious process creation can further validate compromised credentials.
 
   ### Prioritization
-  The severity of this alert is high due to the potential for significant unauthorized access and data exfiltration stemming from successful Kerberos coercion attacks. Successful exploitation can lead to widespread compromise within the domain environment, affecting critical assets.
+
+  This alert should be triaged with high priority due to the inherent risk associated with Kerberos coercion attacks. The criticality of the affected systems, potential for unauthorized access, and the increasing trend of attackers leveraging such techniques warrant immediate attention. This behavior is often weaponized in targeted attacks against enterprise environments.
 
   ### Blind Spots and Assumptions
-  One potential blind spot in this detection is the reliance on specific command-line patterns that may not capture all instances of DNS SPN spoofing if attackers use obfuscated techniques or different encoding methods. Additionally, the detection logic assumes that command-line logging is appropriately configured and enabled on all relevant endpoints, which may not always be the case. Without comprehensive logging of process creation events, detection efficacy could be hampered, allowing coercion activities to go unnoticed.
+
+  One detectable limitation is the reliance on the presence of command line arguments; if a technique is executed without these specific patterns, it may bypass detection. Proper DNS logging must be enabled, and thorough monitoring of command line arguments should be implemented for accurate detection. Legitimate administrative tasks performed for DNS configuration or maintenance could unintentionally trigger this alert. Companion detections include monitoring external DNS resolution patterns (e.g., malicious domain access) to enhance detection coverage related to Kerberos attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

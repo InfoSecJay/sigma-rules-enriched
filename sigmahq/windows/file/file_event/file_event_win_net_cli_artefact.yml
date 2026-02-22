@@ -6,9 +6,9 @@ related:
 - id: e4b63079-6198-405c-abd7-3fe8b0ce3263
   type: obsolete
 status: test
-description: Detects the creation of Usage Log files by the CLR (clr.dll). These files
-  are named after the executing process once the assembly is finished executing for
-  the first time in the (user) session context.
+description: Detects the creation of Usage Log files by the CLR (clr.dll). These
+  files are named after the executing process once the assembly is finished 
+  executing for the first time in the (user) session context.
 references:
 - https://bohops.com/2021/03/16/investigating-net-clr-usage-log-tampering-techniques-for-edr-evasion/
 - https://github.com/olafhartong/sysmon-modular/blob/fa1ae53132403d262be2bbd7f17ceea7e15e8c78/11_file_create/include_dotnet.xml
@@ -46,30 +46,37 @@ detection:
     - 'zzzzInvokeManagedCustomActionOutOfProc'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Rundll32.exe with zzzzInvokeManagedCustomActionOutOfProc in command line and msiexec.exe
-  as parent process - https://twitter.com/SBousseaden/status/1388064061087260675
+- Rundll32.exe with zzzzInvokeManagedCustomActionOutOfProc in command line and 
+  msiexec.exe as parent process - 
+  https://twitter.com/SBousseaden/status/1388064061087260675
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential abuse of the .NET Common Language Runtime (CLR) usage logs, specifically focusing on the creation of log files at the end of the first execution of certain processes in a user session context. Attackers may manipulate these logs as part of an evasion technique to obscure their activities, especially when leveraging benign-looking tools such as `rundll32.exe`, `mshta.exe`, or script hosts. The primary objective is typically to execute arbitrary code under the guise of legitimate processes while evading detection mechanisms.
 
-  This activity aligns with the MITRE ATT&CK technique "T1218 - Signed Binary Proxy Execution" and may fall under the tactics of "Defense Evasion." It indicates an attempt to obfuscate true malicious intentions while maintaining a non-intrusive appearance using standard Windows components—often a hallmark of advanced persistent threat (APT) actors or sophisticated malware campaigns.
+  This Sigma rule detects the creation of suspicious .NET CLR usage log files, specifically files named after the executing process (e.g., cmstp.exe.log, cscript.exe.log). This behavior is often associated with adversaries using .NET components to execute malicious payloads or evade detection through legitimate processes. The likely objective is to run arbitrary code without raising alarms or leveraging trusted system components for lateral movement or persistence.
 
-  Key telemetry sources that provide the necessary evidence for this detection include file event logs from Sysmon configured to monitor the UsageLogs directory. Additional context—like parent process and command line executions—are critical for accurate detection and analysis of potential evasion tactics.
+  Relevant MITRE ATT&CK tactics include **Defense Evasion** (ID: T1218) due to the usage of trusted Windows executables (e.g., rundll32.exe). Primary telemetry sources include file event logs collected through Sysmon, specifically monitoring the `UsageLogs` directory. If malicious, it could indicate unauthorized execution and potential compromise of the system. This detection does NOT confirm that malicious activity is occurring on its own, as legitimate applications may generate similar logs under certain conditions.
 
   ### Investigation Steps
-  - **Review Sysmon Logs**: Check for Sysmon file creation events in the `UsageLogs` directory to identify any suspicious log file creations, focusing specifically on files named after known Windows processes like `cmstp.exe.log` or `wscript.exe.log`.
 
-  - **Analyze Process Hierarchy**: Investigate the parent processes associated with the detected log files to understand the context of their execution. Specifically, look for instances where `MsiExec.exe` is a parent to `rundll32.exe` with the command line containing `-Embedding`.
+  - **Check recent file creations in UsageLogs folder:** Review Windows Security Event ID 4663 for the creation of files in the `C:\ProgramData\Microsoft\Windows\UsageLogs` directory. Look for new log files with recent timestamps that match the suspicious patterns.
 
-  - **Correlate Command-Line Arguments**: Search for command line arguments associated with the execution of `rundll32.exe`. Pay careful attention to command lines that include keywords such as `Temp` and `zzzzInvokeManagedCustomActionOutOfProc`, indicating potential attempts to execute managed code or evade detection.
+  - **Analyze the command line of the parent process:** Review Sysmon Event ID 1 for the command lines executed by the parent process (e.g., MsiExec.exe). Look for command lines containing `-Embedding` that indicate potential abuse of Windows Installer.
 
-  - **Cross-reference with Threat Intelligence**: Utilize threat intelligence feeds or internal knowledge bases to correlate the detected behavior with known malicious tactics involving `.NET CLR` or specifically targeted utilities. This can help in validating the legitimacy of the detected activity.
+  - **Correlate process relationship:** Identify the associated child process (e.g., rundll32.exe) using Sysmon Event IDs 1 and 10. Examine the ParentImage and Image fields; a malicious instance will have `MsiExec.exe` as the parent and be invoking `rundll32.exe`.
+
+  - **Identify benign behavior:** Recognize legitimate instances of applications like msiexec.exe executing without the context of unknown or unauthorized scripts/tools running simultaneously, typically initiating standard installations or repairs.
+
+  - **Highlight malicious indicators:** Look for indicators such as the presence of `zzzzInvokeManagedCustomActionOutOfProc` in the command line of `rundll32.exe`. This is a strong indicator of malicious activity when combined with its execution context.
+
+  - **Verify file creation for persistence checks:** Look for unexpected file creation timestamps in Sysmon logs (Event ID 11). Check for signs of file tampering, such as modification times or creation by known, legitimate applications.
 
   ### Prioritization
-  Given the potential for serious implications if malicious activity remains undetected, this alert should be treated with a high severity level. The likelihood of these techniques being employed in enterprise environments is non-trivial, especially given their association with evasion tactics used by skilled attackers.
+
+  Given that this alert relates to the usage of well-known and trusted system utilities (like rundll32.exe and msiexec.exe), yet indicates possible malicious tampering, it warrants a high priority in an enterprise context. The likelihood of exploitation through these methods is significant, as many attackers weaponize .NET components to bypass traditional security measures.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if Sysmon is not properly configured to monitor the UsageLogs directory or if logs are not retained for sufficient duration to allow for context-rich analysis. The detection logic assumes that attackers will use common tooling and tactics demonstrated in known attack patterns; however, deviations or unique methodologies may not be captured. Effective detection relies on continuity in logging, correct configurations, and the presence of supporting logs to provide context around parent processes and command lines tied to the observed events.
+
+  Detection limits may arise from benign software installations that could trigger these alerts, such as legitimate software updates or installations that generate logs. The reliability of this detection depends on monitoring the `UsageLogs` directory accurately; if Sysmon isn’t deployed or configured to capture these events, important logs may be missed. A related detection to consider is monitoring for suspicious command lines with common executables tied to the Windows installer, which can provide complementary coverage of similar evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,8 @@
 title: Process Access via TrolleyExpress Exclusion
 id: 4c0aaedc-154c-4427-ada0-d80ef9c9deb6
 status: test
-description: Detects a possible process memory dump that uses the white-listed Citrix
-  TrolleyExpress.exe filename as a way to dump the lsass process memory
+description: Detects a possible process memory dump that uses the white-listed 
+  Citrix TrolleyExpress.exe filename as a way to dump the lsass process memory
 references:
 - https://twitter.com/_xpn_/status/1491557187168178176
 - https://www.youtube.com/watch?v=Ie831jF0bb0
@@ -41,22 +41,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential instances of process memory dumping targeting the Local Security Authority Subsystem Service (LSASS) process using a whitelisted executable, `TrolleyExpress.exe`. Attackers may employ this technique to extract sensitive information, such as credentials from memory, particularly focusing on LSASS, which handles authentication credentials for users and services. By leveraging a legitimate, whitelisted filename, attackers evade traditional security measures, allowing them to perform credential theft stealthily.
 
-  The rule is rooted in two primary MITRE ATT&CK techniques: **T1218.011 - Signed Binary Proxy Execution** and **T1003.001 - Credential Dumping: LSASS Memory**. The attacker’s objective is typically to gain elevated privileges by harvesting credentials that may then be used for further lateral movement or to escalate access within the network. The detection relies on process creation logs, which provide insights into the command-line arguments that triggered the execution of `TrolleyExpress.exe`.
+  This Sigma rule detects attempts to access the memory of the Windows Local Security Authority Subsystem Service (LSASS) process using the legitimate filename "TrolleyExpress.exe". This method is often leveraged by attackers to extract credentials, thereby compromising user accounts and systems. The behavior aligns with the MITRE ATT&CK technique for process memory manipulation (Credential Dumping) under T1218.011.
 
-  Primary data sources for investigation include process creation event logs from Windows systems, which will reveal command line arguments and the originating processes, providing evidence of potentially malicious behavior attempting to blend in with legitimate activity.
+  The primary telemetry sources are Windows Process Creation logs (Event ID 4688) and potentially Sysmon logs if Sysmon is deployed. If this activity is confirmed malicious, it poses a significant risk as it suggests unauthorized access to sensitive credentials which can facilitate further compromise within the organization. However, this detection does NOT confirm malicious intent on its own, as legitimate and authorized uses of similar techniques could account for these events.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for instances where `TrolleyExpress.exe` is executed, focusing on the command-line arguments used. Look specifically for patterns associated with LSASS memory dumping.
-  - **Analyze Command-Line Arguments:** Identify any command-line arguments that contain indications of targeting the LSASS process (e.g., PID values between 700 and 999). Cross-reference these PIDs with known LSASS process instances.
-  - **Monitor Related Process Activity:** Check for any child processes spawned by `TrolleyExpress.exe` to assess if they reflect typical behavior or if they are indicative of suspicious activity.
-  - **Correlate with User Behavior:** Determine if the execution of `TrolleyExpress.exe` aligns with user actions. Investigate whether the user had legitimate reasons to invoke this process or if it seems anomalous.
+
+  - **Review recent process creation events:** Analyze Windows Security Event ID 4688 for instances where "TrolleyExpress.exe" was launched. Check the command line arguments for suspicious parameters such as "7", "8", or "9" which suggest an attempt to dump lsass memory.
+
+  - **Query for Sysmon event logs:** If Sysmon is implemented, review Event ID 1 (Process Creation) for similar process creation entries. Look specifically for "TrolleyExpress.exe" with any argument containing "-ma" indicative of memory dumping.
+
+  - **Validate parent process relationships:** Check parent process IDs (PPID) associated with the TrolleyExpress execution to identify if the launch originated from a suspicious process (e.g., powershell.exe, cmd.exe) which could indicate malicious activity.
+
+  - **Correlate with known benign behavior:** Identify any known legitimate corporate usage of "TrolleyExpress.exe". If found, corroborate against change management documentation to ensure it is authorized and not misused.
+
+  - **Assess system impact and criticality:** Determine the role of affected systems. Systems hosting sensitive applications or critical infrastructure should be prioritized for deeper investigation.
+
+  - **Identify high-confidence malicious indicators:** Note any unusual behaviors associated with the TrolleyExpress execution such as unusual IP connections, or subsequent processes created that indicate lateral movement or further exploitation.
 
   ### Prioritization
-  The alert's severity is high due to the implications of successful credential dumping from LSASS, which can lead to unauthorized access to critical systems and sensitive data. Given the escalating sophistication of attackers leveraging trusted processes, timely investigation is crucial.
+
+  This alert is high severity due to the potential impact of credential theft from the LSASS process on critical systems. The likelihood of malicious abuse is high, as attackers commonly leverage process memory manipulation techniques to escalate privileges and compromise additional accounts. Moreover, this technique is frequently weaponized in attack scenarios, warranting swift investigation.
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover all methods of credential dumping or process manipulation, particularly if attackers employ other non-whitelisted methods or tools. The detection logic assumes that `TrolleyExpress.exe` is only being used for legitimate purposes or that its appearance in process creation logs could indicate malicious intention, which may not always be the case. Logs must be configured to capture detailed process creation events, and without the necessary logging level, the detection may miss critical evidence.
+
+  This detection may be limited by the use of process name obfuscation or renaming by the adversary to evade detection. It relies heavily on the accurate logging and configuration of both Windows Security and Sysmon logs, which must be properly implemented for reliable detection. Additionally, legitimate remote access or debugging actions may inadvertently trigger this alert. Companion detections that reinforce this coverage include monitoring for known credential dumping tools and processes, such as Mimikatz or Procdump usage aimed at LSASS.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

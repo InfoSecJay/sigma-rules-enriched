@@ -1,8 +1,8 @@
 title: RDP over Reverse SSH Tunnel WFP
 id: 5bed80b6-b3e8-428e-a3ae-d3c757589e41
 status: test
-description: Detects svchost hosting RDP termsvcs communicating with the loopback
-  address
+description: Detects svchost hosting RDP termsvcs communicating with the 
+  loopback address
 references:
 - https://twitter.com/SBousseaden/status/1096148422984384514
 - https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES/blob/44fbe85f72ee91582876b49678f9a26292a155fb/Command%20and%20Control/DE_RDP_Tunnel_5156.evtx
@@ -44,42 +44,30 @@ falsepositives:
 - Programs that connect locally to the RDP port
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects attempts to establish Remote Desktop Protocol (RDP) connections using the svchost process running under a loopback address (127.0.0.1). Such activity may indicate a lateral movement technique or a command-and-control (C2) method used by adversaries in an enterprise environment. The likely objective of the attacker is to access systems internally while evading detection using the local host's network interface.
+  This rule detects the use of Remote Desktop Protocol (RDP) over a reverse SSH tunnel, which can indicate an attempt by an adversary to establish a covert connection to a target system while operating within a local network. The likely objective is to facilitate unauthorized access to the system or conduct lateral movement, maintaining persistence through command-and-control (C2) channels. The relevant MITRE ATT&CK tactics and techniques are **Command and Control** (TA0011) and **Exfiltration over Alternative Protocol** (T1041).
 
-  The relevant MITRE ATT&CK tactic is “Command and Control” under technique ID T1090.001 (Multi-hop Proxy) and T1090.002 (Reverse Proxy), as well as “Lateral Movement” under technique ID T1021.001 (Remote Services). The primary telemetry sources are Windows security logs, specifically Event ID 5156, which logs firewall events related to connections. If this behavior is malicious, it may lead to unauthorized access or manipulation of sensitive systems within the network. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate local applications may also use RDP connections.
-
-  ---
+  Primary telemetry sources include Windows Security event logs, specifically looking for **Event ID 5156**, which logs Windows Filtering Platform (WFP) events related to network traffic. The security impact of successful malicious activity could result in unauthorized access to sensitive information or compromise multiple systems within the network. Importantly, this detection does NOT confirm that malicious activity is occurring on its own; legitimate applications may also connect locally using RDP.
 
   ### Investigation Steps
 
-  - **Review Event ID 5156 logs for RDP connections:** Look for entries indicating a connection initiated on SourcePort 3389 and either SourceAddress or DestAddress as 127.*. Note the process initiating the connection (e.g., svchost) for further contextual analysis.
+  - **Check Event ID 5156 occurrences:** Review Windows Security logs for Event ID 5156. Look for entries where `SourcePort` is 3389 (RDP) and `DestAddress` is 127.0.0.1 or ::1, indicating local RDP connections. Flag any unusual patterns, especially if multiple attempts are logged in rapid succession.
 
-  - **Validate network behavior:** Confirm whether this RDP connection attempt is expected behavior. Check for any legitimate applications on the host that typically connect to the RDP port, such as local administrative tools or virtualization management software.
+  - **Correlate with process creation logs:** Retrieve Sysmon Event ID 1 logs to identify any `svchost.exe` processes that are handling RDP connections. Validate if this process is legitimate by cross-referencing its parent process. Malicious indicators include unexpected parent processes or uncommon executable paths.
 
-  - **Identify high-confidence malicious indicators:** Investigate connections where the destination address is the loopback interface (127.0.0.1) alongside process names ending in 'thor.exe' or 'thor64.exe', which are associated with the exploitation of vulnerabilities like BlueKeep.
+  - **Assess for legitimate RDP use:** Compare against expected behavior for hosts running known server roles (e.g., Remote Desktop Services). Legitimate activity typically involves established RDP sessions from trusted remote management tools at standard times.
 
-  - **Cross-reference with other logs:** Check security logs for anomalous usage of RDP by non-administrative accounts. Look for related authentication events (Security Event ID 4624) to identify unusual logon behaviors.
+  - **Investigate associated file activity:** Check for any file operations, such as creation or modification, associated with telemetries that correspond to RDP usage. Utilize Sysmon logs to track suspicious file activity linked to `thor.exe` or `thor64.exe`, as these are indicative of potential exploitation attempts.
 
-  - **Assess system criticality and host role:** Determine if the affected system is a critical server or workstation that handles sensitive information. Elevated risks are present if the system has administrative functionalities.
-
-  - **Verify application behavior post-connection:** If a suspicious RDP connection is confirmed, look for artifacts of malicious actions or subsequent connections, such as file creation or modification logs in Windows (Event ID 4663) to identify any unauthorized access or data exfiltration.
-
-  ---
+  - **Review firewall/logging configurations:** Ensure that logging for WFP is properly configured to capture necessary telemetry. Misconfigurations could lead to undetected malicious behaviors or legitimate activities being erroneously flagged.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential for compromised systems used to establish unauthorized remote access. The configuration suggests that connections through RDP using local loopback addresses are atypical and indicate a method commonly used in lateral movement tactics by attackers. The likelihood of malicious abuse is elevated given the nature of the process and looping connections.
-
-  ---
+  This alert is of high severity due to the potential impact if malicious activity is confirmed, especially on critical systems that could be compromised. The behavior outlined is not commonly used for benign purposes and is often weaponized by adversaries to exploit weaknesses in remote access configurations.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the presence of legitimate applications accessing RDP services locally, leading to potential false positives. Reliable detection requires proper log source configuration for capturing Event ID 5156. Activities like legitimate administrative troubleshooting or user access through local RDP can trigger this alert, confusing its interpretation. A related detection to consider is monitoring for unusual inbound/outbound connections identified via Windows Firewall configuration changes (Event ID 4907) to strengthen overall coverage against this technique.
-
-  ---
+  There are limitations with detection if logs are not configured to capture all WFP events or if local connections go undetected. Legitimate administrative activities, such as IT personnel using RDP for maintenance, may trigger the alert. Related detections could include monitoring for unusual outbound connections or instances of privilege escalation, which help provide a fuller picture of the activity landscape.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

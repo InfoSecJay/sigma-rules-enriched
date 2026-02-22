@@ -4,9 +4,9 @@ related:
 - id: 9e716b33-63b2-46da-86a4-bd3c3b9b5dfb
   type: similar
 status: test
-description: Detects calls to cmdlets inside of PowerShell scripts that are used to
-  export certificates from the local certificate store. Threat actors were seen abusing
-  this to steal private keys from compromised machines.
+description: Detects calls to cmdlets inside of PowerShell scripts that are used
+  to export certificates from the local certificate store. Threat actors were 
+  seen abusing this to steal private keys from compromised machines.
 references:
 - https://us-cert.cisa.gov/ncas/analysis-reports/ar21-112a
 - https://learn.microsoft.com/en-us/powershell/module/pki/export-pfxcertificate?view=windowsserver2022-ps
@@ -30,29 +30,36 @@ detection:
     ScriptBlockText|contains: 'CmdletsToExport = @('
   condition: selection and not 1 of filter_optional_*
 falsepositives:
-- Legitimate certificate exports by administrators. Additional filters might be required.
+- Legitimate certificate exports by administrators. Additional filters might be 
+  required.
 level: medium
 note: |
   ### Technical Context
-  This rule detects the execution of PowerShell cmdlets specifically designed for exporting certificates from the local certificate store, such as `Export-PfxCertificate` and `Export-Certificate`. The detection is crucial as threat actors may exploit these commands to obtain private keys for certificates, ultimately facilitating lateral movement, data exfiltration, or impersonation attacks after compromising a machine. Compromised private keys can severely undermine security posture, enabling further attacks against the organization.
 
-  Relevant MITRE ATT&CK tactics/techniques include:
-  - **Credential Access** (TA0006)
-    - **Application Layer Protocol** (T1552)
-    - **Export of Certificates** (T1552.004)
+  This Sigma rule detects the use of specific PowerShell cmdlets, `Export-PfxCertificate` and `Export-Certificate`, which are typically used to export certificates from the local certificate store. The attacker objective behind this behavior may be to obtain private keys to gain unauthorized access to other systems or encrypt sensitive data for ransom. This activity aligns with the MITRE ATT&CK tactics of Credential Access (TA credential-access) and specifically the technique for Application Layer Protocol: T1552.004.
 
-  Primary data sources for this detection include PowerShell script block logs, which require Script Block Logging to be enabled to ensure comprehensive capture of PowerShell activity.
+  The primary telemetry source for this detection is Windows PowerShell script block logs, necessitating that Script Block Logging is enabled on the target machine. If malicious, this may lead to significant security incidents as it can expose sensitive data such as private keys. However, this detection rule does NOT confirm malicious intent solely on its own, as it may also capture legitimate administrative actions performed by IT staff.
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Analyze PowerShell script block logs to identify instances of `Export-PfxCertificate` or `Export-Certificate` being executed, especially from unexpected user accounts or during unusual times.
-  - **Check User Context:** Investigate the user context in which the commands were executed, looking for signs of unauthorized access, such as accounts with elevated privileges or suspicious login patterns.
-  - **Investigate Recent Certificate Changes:** Look for recent changes in the local certificate store that coincide with the detected activity, particularly focusing on the export of sensitive private keys.
-  - **Correlate with Other Alerts:** Cross-reference this alert with other security detections, such as lateral movement indicators, to assess whether the exporting of certificates is part of a larger attack strategy.
+
+  - **Review PowerShell Script Block logs:** Examine logs for Event ID 4104. Look for instances containing `Export-PfxCertificate` or `Export-Certificate`. Malicious indicators may include unexpected exports performed by non-administrative users during hours outside of standard operations.
+
+  - **Check User Context:** Identify which user executed the command. If the user is non-administrative or from a department with no expected need for certification management, this raises the likelihood of malicious intent.
+
+  - **Identify Target Certificates:** Investigate which certificates were targeted in the export process. Look for Event ID 4103 for additional context on the certificate's usage and any associated private keys.
+
+  - **Verify Legitimate Usage:** Cross-reference any exports against known administrative operations. Legitimate activity should generally involve documented changes made from specific administrator accounts. Look for established patterns based on Sudo or Role-Based Access Control (RBAC) configurations.
+
+  - **Review Script Authentication:** Check for signatures on the PowerShell script used. Unsigned scripts or those executed from unusual paths indicate a higher risk.
+
+  - **Audit for Additional Threat Indicators:** Correlate this alert with other related detections such as abnormal authentication patterns or network traffic to known malicious sites, which can be crucial in confirming a broader attack.
 
   ### Prioritization
-  This alert has a **medium** severity due to the potential impact on the organization's security if private keys are compromised. The likelihood of exploitation can be significant, especially in environments where attackers may gain footholds through credential theft or privilege escalation.
+
+  This alert carries medium severity due to the potential impact of compromising certificate private keys, which could provide attackers with malicious access to sensitive systems. The likelihood of abuse is elevated as these command use cases may be exploit vectors commonly abused in real-world threats.
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection coverage if Script Block Logging is not enabled or configured correctly, which may lead to missed instances of certificate exports. The detection logic assumes attackers will use the specified cmdlets and that these activities will be logged effectively. Organizations must ensure that logging is configured for all relevant PowerShell activities to make this detection operationally viable.
+
+  Detection limitations include the potential for evasion by an attacker using obfuscated commands or non-standard PowerShell execution methods. The need for Script Block Logging to be enabled is critical for reliable detection; without it, detection capabilities are significantly hampered. Legitimate activities that may trigger this alert include authorized certificate exports by administrators for system maintenance. A related detection strategy includes monitoring for unusual PowerShell activity in conjunction with this rule, such as script usage patterns that deviate from the norm.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

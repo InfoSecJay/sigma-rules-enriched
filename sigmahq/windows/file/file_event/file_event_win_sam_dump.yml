@@ -1,8 +1,8 @@
 title: Potential SAM Database Dump
 id: 4e87b8e2-2ee9-4b2a-a715-4727d297ece0
 status: test
-description: Detects the creation of files that look like exports of the local SAM
-  (Security Account Manager)
+description: Detects the creation of files that look like exports of the local 
+  SAM (Security Account Manager)
 references:
 - https://github.com/search?q=CVE-2021-36934
 - https://web.archive.org/web/20210725081645/https://github.com/cube0x0/CVE-2021-36934
@@ -47,22 +47,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the creation of files that may indicate unauthorized exports of the Security Account Manager (SAM) database on Windows systems. The SAM database contains sensitive information about user accounts and security policies, making it a prime target for attackers aiming to escalate privileges or conduct lateral movement within a network. The presence of files specifically named or formatted as exports from the SAM could suggest that an adversary is utilizing known exploits, such as those described in CVE-2021-36934, or employing tools like ShadowSteal or Hivenightmare.
 
-  The likely attacker objectives are to extract user credentials, perform privilege escalation, or maintain persistence in a compromised system. Detecting such activities is crucial, as unauthorized access to SAM data can lead to substantial breaches of sensitive information and control over accounts. The relevant MITRE ATT&CK tactics include Credential Access (TA0006) and more specifically, techniques like Credentials from Password Stores (T1003.002).
+  This Sigma rule detects the creation of files commonly associated with attempts to export or dump the local Security Account Manager (SAM) database. Such activities are indicative of credential theft, with attackers aiming to gain access to hashed passwords of local accounts, facilitating lateral movement within the environment. This behavior aligns with the MITRE ATT&CK framework under the tactic of Credential Access, specifically the technique T1003.002 (OS Credential Dumping: Security Account Manager).
 
-  Primary data sources for effective detection include file event logs that track the creation, modification, or deletion of files within critical directories, particularly those associated with system configuration and user accounts.
+  Key telemetry sources include Windows file system events related to the creation of specific file names associated with SAM dumps. If malicious, this activity poses a significant security risk as it may enable unauthorized access to user credentials. Importantly, this detection does NOT confirm that a credential dump was successfully extracted; it solely indicates an attempt to create files associated with such actions.
 
   ### Investigation Steps
-  - **Review File Event Logs:** Examine logs for unusual file creations or modifications in paths associated with SAM exports, particularly those listed in the detection logic.
-  - **Correlate with Process Activity:** Investigate related process creation events to determine if any administrative tools or commands (e.g., `reg.exe save`) were executed in conjunction with the file creations.
-  - **Analyze User Activity:** Assess user accounts that performed the exports, focusing on anomalous access patterns that may indicate compromised or administrative accounts.
-  - **Check Vulnerability Status:** Validate if any systems are vulnerable to CVE-2021-36934 or similar exploits, which may indicate the potential attack vector used.
+
+  - **Check for suspicious file creation:** Review file creation events (Security Event ID 4663) for any of the following target filenames: `sam`, `sam.sav`, `SAM.export`, or variations indicating unauthorized SAM dumps. Note the timestamp and the user account responsible.
+
+  - **Identify process origin:** Analyze process creation events (Security Event ID 4688 or Sysmon Event ID 1) linked to the file creation. Investigate if any process like `reg.exe` or scripts invoking SAM dumping commands were used, especially from non-administrative accounts.
+
+  - **Correlate with administrative activity:** Compare timestamps with legitimate administrative tasks, such as user management or security audits. If the file creation coincides with verified administrative activities, this may indicate benign activity rather than a credential harvesting attempt.
+
+  - **Assess network activity:** Review event logs for outbound connections (Security Event ID 5156) or unusual process network activity (Sysmon Event ID 3) that could indicate data exfiltration of credentials, particularly post file creation.
+
+  - **Review for associated artifacts:** Confirm whether any files like `sam.hive`, `sam.backup`, or `_ShadowSteal.zip` were created in the environment, as their presence is a strong indicator of credential dumping efforts.
+
+  - **Examine user account behavior:** Analyze the activity of the account associated with the file creation, looking for abnormal login patterns or access to sensitive areas, which can further classify the activation as benign or malicious.
 
   ### Prioritization
-  The alert is rated as high severity due to the critical nature of the SAM database containing sensitive account credentials. Unauthorized access to this information poses a significant risk to the integrity and security of the entire organization, making early detection essential.
+
+  This alert should be treated with high priority due to the sensitive nature of the SAM database. The impact of the affected system is critical, as compromised credentials can lead to greater access levels across the network. Additionally, credential extraction techniques are frequently weaponized by threat actors and considered a key step in many attack scenarios.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage may arise from file creations by legitimate administrative tasks where rare cases of expected activity might generate false positives. The detection logic assumes that any file creation resembling a SAM export is unauthorized, which may not always be accurate in large environments. Required logs include detailed file event logs, which must be configured to capture all file creations in the sensitive directory structures related to the SAM database.
+
+  Detection may be limited if file creation logs are not configured to capture all events, especially on systems with restrictive file logging policies. Legitimate administrative tasks might trigger this alert if administrators use similar file names during maintenance activities. Related detections, such as monitoring for suspicious registry access events (e.g., Event ID 4656), may enhance coverage against credential harvesting techniques, providing additional context for potential malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -8,8 +8,8 @@ related:
 - id: fad91067-08c5-4d1a-8d8c-d96a21b37814     # Registry
   type: similar
 status: test
-description: Detects changing the PowerShell script execution policy to a potentially
-  insecure level using the "-ExecutionPolicy" flag.
+description: Detects changing the PowerShell script execution policy to a 
+  potentially insecure level using the "-ExecutionPolicy" flag.
 references:
 - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.security/set-executionpolicy?view=powershell-7.4
 - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4
@@ -58,29 +58,38 @@ detection:
     CommandLine|contains:
     - '-ExecutionPolicy ByPass -File "C:\Program Files\Avast Software\Avast'
     - '-ExecutionPolicy ByPass -File "C:\Program Files (x86)\Avast Software\Avast\'
-  condition: all of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
 - Administrator scripts
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies attempts to change the PowerShell script execution policy to less secure settings using the `-ExecutionPolicy` flag. Attackers might leverage this capability to execute unauthorized scripts or perform malicious activities without being impeded by the default security policies. Common reasons for changing execution policies include facilitating the execution of payloads during exploits, lateral movement, or harvesting credentials from compromised systems.
 
-  The relevant MITRE ATT&CK tactics include **Execution (T1203)** and associated techniques like **Command and Scripting Interpreter - Windows PowerShell (T1059.001)**. These techniques highlight how attackers use scripting languages like PowerShell to gain execution control over victim machines. The primary sources of telemetry that will best provide evidence for this detection include process creation events, which will capture command-line parameters used to invoke PowerShell and any changes made to the execution policy.
+  This rule detects attempts to change the PowerShell script execution policy to insecure settings, such as "Bypass" or "Unrestricted", which allows scripts to run without restrictions. This behavior can be indicative of an attacker seeking to execute malicious scripts or payloads without being blocked by security mechanisms. It relates to the MITRE ATT&CK technique "Command and Scripting Interpreter: PowerShell" (T1059.001).
+
+  The primary telemetry source for this detection is Windows process creation events, specifically Event ID 4688, capturing command line arguments associated with PowerShell processes. If malicious, this behavior can significantly compromise system integrity, allowing execution of arbitrary malicious code. It is crucial to note that the detection of insecure execution policy changes does NOT confirm malicious activity on its own, as legitimate administrative scripts may also perform similar actions.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Check for entries related to PowerShell (`powershell.exe`, `pwsh.exe`, and `powershell_ise.exe`) that contain `-ExecutionPolicy` in the command line arguments. Take note of any entries that specify `Bypass` or `Unrestricted` settings.
 
-  - **Analyze Parent Processes:** Investigate the parent processes for PowerShell executions, particularly those initiated by `msiexec.exe` or any unknown installers, to assess if they may relate to malicious or unauthorized activity.
+  - **Check PowerShell CommandLine Arguments:** Review Security Event ID 4688 for PowerShell processes where the `CommandLine` contains `-ExecutionPolicy Bypass` or `-ExecutionPolicy Unrestricted`. Malicious indications include command lines that perform unusual tasks, especially if combined with other suspicious indicators.
 
-  - **Identify Anomalous Execution Contexts:** Correlate alerts with user accounts executing PowerShell with modified policies. Look for any deviations from normal operating behavior, particularly accounts that should not have been running scripts at that time.
+  - **Identify Legitimate Use Cases:** Determine if any authorized administrative actions were recently performed by correlating related events, such as legitimate administrator usage of PowerShell scripts with expected command lines. Look for patterns in business operations that typically use higher execution policies.
 
-  - **Correlate with Other Security Alerts:** Cross-reference with alerts from other solutions like EDR or SIEM to find any corresponding indicators of compromise or lateral movement, which may suggest the execution policy change is part of a larger malicious activity.
+  - **Review Parent Process:** For any detected PowerShell execution, check the `ParentImage` field in Event ID 4688. If the parent process is not an expected administrative tool (e.g., `msiexec.exe`, or other benign processes), flag the activity for deeper analysis.
+
+  - **Cross-Reference with Known Save Locations:** Validate if the script files being executed (indicated in command line with `-File`) reside in unexpected directories or show atypical names. Legitimate scripts often reside in standard folders (e.g., `C:\Scripts\`) rather than in user directories.
+
+  - **Evaluate Process Completion Status:** Monitor the exit code of detected PowerShell executions in the logs. A non-zero exit code may indicate failure in legitimate operations, warranting further investigation into the executed commands.
+
+  - **Consider Host Role:** If the alert originates from a critical server (e.g., Domain Controller, Database Server), prioritize this investigation due to the potential impact and risk of lateral movement.
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of allowing unauthorized script execution, which can lead to broader compromise and data exfiltration. The likelihood is heightened in environments where PowerShell is frequently utilized for legitimate administrative tasks.
+
+  This alert holds medium severity as it could indicate an evolving attack vector to exploit the environment. The presence of insecure execution policies significantly enhances the likelihood of malicious abuse, particularly on sensitive systems. However, this activity could also be legitimate in certain administrative contexts.
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection coverage regarding tools that may alter PowerShell execution policies without invoking standard command patterns, or scripts running in contexts that lack process creation logging due to policy configurations. The detection assumes that inter-process communications and the execution of scripts will follow the expected PowerShell execution patterns, which may not always be the case. Required logs include detailed process creation logs and sufficient logging settings that capture command line arguments accurately.
+
+  Detection can be circumvented by well-crafted scripts that use legitimate execution policies or tools that operate outside standard PowerShell practices. Adequate logging configurations are crucial; ensure that process creation events convey detailed command lines. Additionally, legitimate administrative tasks, particularly during system deployments or updates, may frequently trigger this alert. Related detections, such as tracking changes to Group Policy Objects (GPO) affecting script execution policy, can strengthen coverage against overall malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

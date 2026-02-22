@@ -40,22 +40,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies obfuscated PowerShell commands executed via a process controlled by the Service Control Manager (SCM) on Windows systems. Specifically, it looks for instances of `EventID 7045`, which logs the creation of service processes, where the `ImagePath` contains suspicious patterns indicative of command execution through PowerShell. Attackers often use such obfuscation techniques to bypass security controls and hide their malicious activities. The obfuscation can be a precursor to executing payloads, downloading additional malware, or even establishing persistence on the targeted system.
 
-  In the threat landscape, this behavior is notably associated with adversaries employing **Defense Evasion tactics**, as categorized by MITRE ATT&CK techniques such as **T1027 - Obfuscated Files or Information**, and **T1059.001 - Command and Scripting Interpreter: Windows PowerShell**. The objective might be to execute malware or scripts while evading detection mechanisms such as antivirus solutions or intrusion detection systems.
-
-  Primary data sources for gathering relevant evidence include Windows Event Logs (specifically, the System logs containing service creation events) and process creation events captured by endpoint detection and response (EDR) solutions. These logs can offer insights into what commands were executed and may assist in unraveling the obfuscation used by attackers.
+  This rule detects attempts to execute obfuscated PowerShell commands through CMD, utilizing multiple layers of encoding and the `Invoke-Expression` cmdlet. The likely objective of the attacker is to execute malicious scripts while bypassing security controls aimed at detecting obvious PowerShell usage. This behavior is relevant to the MITRE ATT&CK tactics of Defense Evasion (T1562) and Execution (T1059.001). The primary telemetry source for detection involves Windows system event logs, specifically Event ID 7045 from the Service Control Manager, which logs service installations, including potentially harmful ones. The security impact is high if malicious, as such commands can lead to unauthorized execution of arbitrary code. It is important to note that this detection does NOT confirm malicious intent or successful execution on its own—it merely highlights suspicious command invocation.
 
   ### Investigation Steps
-  - **Review Windows Event Logs:** Collect and analyze the Windows System event logs for EventID 7045. Look for unusual services starting with obfuscated scripts or commands.
-  - **Examine Process Creation Logs:** Investigate process creation events that correspond to the detected obfuscation patterns. Focus on parent-child relationships to identify potential launch points for malicious activity.
-  - **Check Command-Line Arguments:** Extract and scrutinize command-line arguments from the identified processes. Look for common signs of obfuscation such as unusual character patterns or concatenated strings.
-  - **Analyze Network Activity:** Monitor for any network connections or downloads initiated by the suspicious services. This can help determine whether payloads are being fetched and executed.
+
+  - **Check the Event ID:** Review Windows Event ID 7045 for services that were installed around the time of the alert. Look for unusually named services or paths indicating command execution through PowerShell.
+
+  - **Analyze ImagePath details:** Examine the `ImagePath` field of the Event 7045 for the presence of the strings `&&set`, `cmd`, and `-f`. Pay close attention to additional obfuscation patterns that may indicate malicious usage.
+
+  - **Validate legitimate activities:** Identify any known administrative or maintenance scripts running on the system. For example, administrators may run PowerShell commands with `-NoProfile` that follow common patterns like `Invoke-Expression` for double-checking configurations.
+
+  - **Identify known malicious patterns:** Look for highly obfuscated command components like `{0}`, `{1}`, `{2}`, etc., in `ImagePath`. Any occurrences of these with calls to `cmd` and `PowerShell` are high confidence indicators of malicious intent.
+
+  - **Correlate with recent user activity:** Review user access logs (Security Event ID 4624) around the time of the detection to see if the account executing the command was engaging in suspicious behavior, such as logins from unusual locations or times.
+
+  - **Assess system role implications:** If the affected host is a critical server (e.g., domain controller, database server), prioritize the investigation. Higher criticality systems that execute obfuscated PowerShell commands could signify an escalated risk.
 
   ### Prioritization
-  Given the high likelihood of obfuscated commands indicating an attempt to execute malicious payloads, this alert should be treated with high severity. The potential impact could include data breaches, unauthorized access, or further lateral movement within the enterprise environment.
+
+  The alert is of high severity due to the potential for significant impact on critical systems if a successful obfuscated command execution occurs. Given that obfuscation techniques are commonly associated with malicious activities, there is a substantial likelihood of abuse. This behavior can regularly surface in sophisticated ransomware and other attack campaigns.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by the inability to capture all PowerShell execution contexts or logs from poorly configured systems. The detection logic assumes that service creation events through SCM, which include obfuscation patterns, will indicate malicious intent and thus may generate false positives in certain administrative scenarios. For the rule to function correctly, it requires access to comprehensive Windows Event Logs, particularly for Service Control Manager activities, ensuring proper logging configurations are enabled in the Windows environment.
+
+  Detection may be limited by proper whitelisting or prior legitimate use of obfuscated commands within the organization. There may also be instances where security products do not capture all variations of event logs related to service installations. Valid administrative actions, such as legitimate software deployments, may trigger this alert if they involve similar command constructs. Companion detections, like monitoring for unusual PowerShell command execution (via Event ID 4104), can help validate whether the initial alert indicates a broader attack framework.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

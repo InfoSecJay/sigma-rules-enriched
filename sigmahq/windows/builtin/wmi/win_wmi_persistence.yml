@@ -1,12 +1,13 @@
 title: WMI Persistence
 id: 0b7889b4-5577-4521-a60a-3376ee7f9f7b
 status: test
-description: Detects suspicious WMI event filter and command line event consumer based
-  on WMI and Security Logs.
+description: Detects suspicious WMI event filter and command line event consumer
+  based on WMI and Security Logs.
 references:
 - https://twitter.com/mattifestation/status/899646620148539397
 - https://www.eideon.com/2018-03-02-THL03-WMIBackdoors/
-author: Florian Roth (Nextron Systems), Gleb Sukhodolskiy, Timur Zinniatullin oscd.community
+author: Florian Roth (Nextron Systems), Gleb Sukhodolskiy, Timur Zinniatullin 
+  oscd.community
 date: 2017-08-22
 modified: 2022-02-10
 tags:
@@ -33,36 +34,38 @@ detection:
     Query: 'select * from MSFT_SCMEventLogEvent'
     User: 'S-1-5-32-544'
     PossibleCause: 'Permanent'
-  condition: ( (wmi_filter_to_consumer_binding and consumer_keywords) or (wmi_filter_registration)
-    ) and not filter_scmevent
+  condition: ( (wmi_filter_to_consumer_binding and consumer_keywords) or 
+    (wmi_filter_registration) ) and not filter_scmevent
 falsepositives:
 - Unknown (data set is too small; further testing needed)
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious use of Windows Management Instrumentation (WMI) for persistence mechanisms by monitoring the creation of suspicious WMI event filters and command-line event consumers. The use of WMI for persistence can enable attackers to maintain control over compromised systems even after a reboot or user logoff, which poses a significant risk to the security posture of an enterprise. Attackers leveraging this technique might aim to exfiltrate data, elevate privileges, or execute arbitrary code surreptitiously.
 
-  The relevant MITRE ATT&CK tactics include:
-  - **Persistence (T1546.003)**: WMI is commonly used to create persistent backdoors within systems.
-  - **Privilege Escalation (T1050)**: WMI can be a conduit for privilege escalation by initiating actions as an administrative user.
+  This Sigma rule detects the creation and binding of suspicious WMI filters and consumers, specifically monitoring for `ActiveScriptEventConsumer` and `CommandLineEventConsumer`, which are commonly used for persistence mechanisms in malicious activities. Attackers leverage these to establish persistence on victim systems, allowing them to execute scripts or command line instructions without user interaction, and can manipulate system behavior based on specific events. This behavior aligns with the MITRE ATT&CK technique for Persistence: **WMI Event Subscription** (T1546.003).
 
-  The primary data sources for this detection rule are:
-  - **WMI Event Logs**: These logs contain events related to WMI execution, including the creation of event filters and consumers.
-  - **Security Logs**: Events 5861 (WMI filter to consumer binding) and 5859 (WMI filter registration) are crucial to establish whether suspicious WMI activities are occurring.
+  The primary telemetry sources include Windows Event Logs, specifically Event ID 5861 (WMI Filter to Consumer Binding) and Event ID 5859 (WMI Filter Registration) from the WMI service logs, as well as relevant Security Logs. The potential security impact is significant if these WMI subscriptions are used maliciously, as they enable stealthy re-execution of arbitrary commands. It is important to note that detection of these events does NOT confirm malicious intent without additional context, as legitimate software may also use similar mechanisms.
 
   ### Investigation Steps
-  - **Review WMI Event Logs**: Examine the events with EventID 5861 and 5859. Look for keywords associated with suspicious command line consumers such as 'ActiveScriptEventConsumer' or 'CommandLineEventConsumer'.
 
-  - **Correlate with Command Line Activity**: Identify and analyze command line parameters for any unusual commands that may indicate malicious intent, particularly those executed via WMI.
+  - **Identify suspicious WMI filters and consumers:** Review Security Event Logs for Event ID 5861 and WMI logs for Event ID 5859. Look for the presence of `ActiveScriptEventConsumer` or `CommandLineEventConsumer`. Legitimate consumer registrations often stem from trusted applications and should be documented; those not matching known software should be flagged for further analysis.
 
-  - **Check User Accounts**: Investigate the accounts involved in the creation of WMI components. Focus on operations triggered by accounts with administrative privileges, especially those listed as 'S-1-5-32-544', which indicates a local administrator.
+  - **Check for unusual command lines:** If a `CommandLineEventConsumer` is detected, assess the associated command line executions. Extract command line parameters and check for obfuscation or malicious scripts. Command line parameters that invoke `powershell.exe` or similar tools could indicate malicious intent (use Event ID 4688 for process creation).
 
-  - **Assess System and Network Behavior**: Monitor for unusual outbound connections or processes initiated as a result of suspicious WMI operations. This could indicate further exploitation stemming from the WMI persistence.
+  - **Correlate with system changes:** Investigate other system changes that may correlate with the logged WMI activities. Analyze WMI logs, particularly looking for Event ID 787 (WMI query), that may link to user pattern changes or unauthorized access attempts, which could strengthen the case for malicious activity.
+
+  - **Review recent administrative actions:** Examine access logs as administrators (look for SID S-1-5-32-544) that correspond to the timestamp of the events. Compare legitimate admin actions against the alert time-frame; any unauthorized changes should be reported.
+
+  - **Assess host role and criticality:** Consider the asset’s role; if the alerts come from critical systems (e.g., Domain Controllers), escalate and investigate immediately. For non-critical hosts, determine the user and application context before escalating further.
+
+  - **Collect and analyze exfiltration artifacts:** If necessary, analyze logs for file creation or transfers that indicate potential exfiltration of sensitive data (using Event IDs related to file access). Identify if rogue scripts reference outbound connections or create suspicious files in system directories.
 
   ### Prioritization
-  This alert should be prioritized as medium severity due to the potential high impact of persistence mechanisms on system integrity and the likelihood that attackers will utilize these techniques to maintain access, making detection critical for effective incident response.
+
+  This alert has medium severity due to the potential for significant impact on compromised systems, allowing attackers to maintain persistence undetected. The likelihood of malicious abuse is heightened since WMI event subscriptions are commonly weaponized by threat actors, especially for long-term access.
 
   ### Blind Spots and Assumptions
-  This detection rule may miss other forms of WMI abuse that do not utilize the specific event IDs or keywords defined in the detection logic. It assumes that the WMI Namespaces Auditing and SACL are configured properly, which is typically not the default on many systems. If logging for WMI events isn't enabled or configured correctly, this alert would be ineffective, highlighting an essential requirement for log management and auditing configurations in the environment.
+
+  Evasion techniques might include legitimate admin actions that unintentionally trigger this alert, as not all instances of event consumer bindings are malicious. Proper logging configurations need to be enabled for WMI and security logs to ensure reliable detection; missing or incomplete logs can lead to false negatives. Legitimate applications that utilize WMI for updates or monitoring may also generate similar alerts, which can obscure true threats. A related detection for enhanced monitoring includes tracking unusual process creation patterns (Event ID 4688) that pair with WMI events for dual confirmation of suspicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

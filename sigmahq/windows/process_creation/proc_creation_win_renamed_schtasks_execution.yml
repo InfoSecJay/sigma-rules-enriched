@@ -43,48 +43,36 @@ detection:
     CommandLine|contains: 'schtasks'
   filter_main_img:
     Image|endswith: '\schtasks.exe'
-  condition: (all of selection_cmd_* and not filter_main_cmd) or (selection_pe and
-    not filter_main_img)
+  condition: (all of selection_cmd_* and not filter_main_cmd) or (selection_pe 
+    and not filter_main_img)
 falsepositives:
 - Unlikely
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of a renamed `schtasks.exe` binary, a legitimate Windows executable for scheduling tasks. Attackers may rename this utility to disguise malicious activity, leveraging it for persistence, privilege escalation, or execution of additional payloads. This behavior is related to the MITRE ATT&CK technique for "Masquerading: Rename System Utilities" (T1036.003) and "Scheduled Task/Job: Schedule a Task" (T1053.005).
+  This Sigma rule detects the execution of the renamed `schtasks.exe` binary, a legitimate Windows utility for task scheduling, which has been manipulated by threat actors to maintain persistence and execute malicious tasks. Attackers aim to leverage this utility to create, modify, or delete scheduled tasks that can serve as a foothold in a target environment, potentially leading to further compromise. This behavior falls under the MITRE ATT&CK tactic of **Defense Evasion** (TA0005) and the technique **Masquerading: Renaming** (T1036.003) as well as **Scheduled Task/Job** (T1053.005).
 
-  The primary telemetry source consists of Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1 that provide detailed command-line invocation data. If the execution is malicious, it could enable sustained access to the system or execution of unwanted tasks. This detection does not confirm that a malicious action was taken unless paired with additional context indicating unauthorized activity.
-
-  ---
+  The primary telemetry sources include Windows process creation logs, specifically Windows Event ID 4688 (for process creation) and Sysmon Event ID 1. If a malicious instance of `schtasks.exe` is executed, it will have significant security implications, including unauthorized task execution and potential data exfiltration or manipulation. However, it’s important to note that this detection does NOT definitively confirm malicious activity on its own; further investigation is necessary to contextualize the behavior.
 
   ### Investigation Steps
 
-  - **Verify the command line execution:** Check Security Event ID 4688 or Sysmon Event ID 1 for instances where the `CommandLine` contains `schtasks` but does not include the legitimate `schtasks.exe`. Look for command-line parameters such as `/create`, `/delete`, or `/run`, which are suspicious when associated with a renamed executable.
+  - **Review command line arguments used:** Examine CommandLine field in Event ID 4688 for `schtasks.exe` related operations such as `/create`, `/delete`, `/query`, or `/run`. Malicious indicators would involve unusual task names or commands targeting sensitive systems or data.
 
-  - **Assess subprocess creation:** Determine if `schtasks.exe` is being spawned by a parent process that could suggest malicious intent, such as a PowerShell script or an executable known for evasion tactics (e.g., using `cmd.exe`). Focus on the `ParentImage` field in the event logs to identify context.
+  - **Check the image path for discrepancies:** Look at Image field for `schtasks.exe` in the same Event ID; if it does not end with `\schtasks.exe`, this indicates possible tampering.
 
-  - **Identify unusual task scheduling:** Review the scheduled tasks in Task Scheduler (`taskschd.msc`) that match the name targeted by the command line (using `/tn`). Legitimate tasks should follow organizational naming conventions and schedules, indicating they were created or modified by expected administrators.
+  - **Verify unusual task configurations:** Utilize PowerShell or task scheduler management tools to query existing scheduled tasks using the command `Get-ScheduledTask` and cross-reference with the log. Legitimate installations should be recognized and frequently monitored.
 
-  - **Check file details:** Validate the characteristics of the file running the commands. Look for deviations in the `OriginalFileName` field from expected `schtasks.exe` values. Any unusual hash values or file signatures should be flagged.
+  - **Identify newly created tasks:** Check the Windows Task Scheduler (using `Get-ScheduledTask`) for newly established tasks that coincide with the alert; timestamps of tasks created during the alert timeframe should be correlated with the log for context.
 
-  - **Evaluate asset criticality:** Prioritize systems where the alert occurs, especially if they are critical infrastructure or contain sensitive data. Analyze the impact of a potential compromise on these systems.
-
-  - **Monitor for related activity:** Keep an eye on other alerts suggesting lateral movement or system changes following the `schtasks` execution. Abnormal behaviors such as unexpected remote access or privilege escalation attempts can provide context for confirming malicious activity.
-
-  ---
+  - **Correlate against known behavior patterns:** Compare findings against a baseline of normal scheduled tasks, focusing on any unexpected task triggers set to run on startup or during user login, which can point to potential adversarial activity.
 
   ### Prioritization
 
-  Given the potential for abuse of the `schtasks` utility to maintain unauthorized access or execute harmful operations, this alert should be treated with high priority. The likelihood of attacks utilizing this method is significant, as it is a commonly weaponized technique among adversaries.
-
-  ---
+  This alert carries a **high severity** rating due to the potential for system compromise and task execution without user consent. The likelihood of adversarial abuse is significant, as renaming legitimate binaries for task scheduling is a common evasion technique. Given the prevalence of this tactic in past incidents, immediate investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded if the attacker uses alternative methods for task creation or if the renaming is not correctly identified. Required log sources include detailed process creation logs, which must be enabled and correctly configured. Legitimate administrative tasks and scheduled jobs may trigger this alert, particularly during system maintenance activities. A related detection could include monitoring for the use of PowerShell scripts attempting to execute similar malicious scheduling commands.
-
-  ---
+  Detection may have limitations, such as the use of alternate methods to invoke `schtasks` or masquerade through other legitimate binaries. Ensure Windows Event Log retention settings are configured to capture process creation events for an adequate investigation timeline. Legitimate activities, such as system maintenance or updates, may also utilize these commands, potentially triggering the alert. It's recommended to complement this detection with behavioral analytics that capture abnormal task creation patterns or excessive use of administrative commands to strengthen overall security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -32,25 +32,37 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This rule detects instances where a Windows service is installed in suspicious folders, specifically within the AppData directory. This behavior is often leveraged by attackers to persist malicious payloads or maintain access to compromised systems. By installing services in less scrutinized directories, such as AppData, attackers can evade detection and ensure the persistence of their malware even after restarts or user logouts.
 
-  The possible threat scenario here involves an attacker using malware to create or install a service that can run on system startup, potentially facilitating further malicious activities like privilege escalation or lateral movement within the network. The relevant MITRE ATT&CK tactics for this detection include **Persistence (T1543.003)** and **Privilege Escalation (T1068)**, indicating a focus on maintaining access and escalating permissions.
+  This Sigma rule detects the installation of a Windows service into a suspicious folder, specifically targeting paths that include the AppData directory. This behavior is often associated with malware attempting to persist on a system by creating services in non-standard directories, thereby evading detection mechanisms focused on conventional service locations. The attacker’s objective is to ensure that malicious code is executed on system startup by leveraging the Windows service infrastructure.
 
-  Primary data sources that provide the best evidence for this detection include **Windows Event logs**, specifically **Service Control Manager events (Event ID 7045)**, which log attempts to install new services. Analyzing these logs can reveal unauthorized service installations that may indicate malicious activity.
+  This detection aligns with the MITRE ATT&CK framework under the Persistence tactic (TA0002) and involves the technique of Windows Service Installer (T1543.003). The primary telemetry source is the Windows System Event Log, specifically Event ID 7045, which logs service installations. If malicious, this behavior could lead to full control of the system, potential data exfiltration, or lateral movement within the network. Importantly, the detection does NOT confirm malicious intent or activity on its own, as legitimate applications may also install services in these locations.
 
   ### Investigation Steps
-  - **Review Event Logs**: Collect and analyze Windows Event Logs, specifically focusing on Event ID 7045. Look for unusual service installations, particularly those pointing to the AppData directory.
 
-  - **Examine Image Paths**: Investigate the paths associated with newly installed services, paying close attention to any that include `\AppData\`, `\\127.0.0.1`, or `\\localhost`. Services running from these locations may be suspect.
+  - **Review Service Installation Logs:**
+    Examine Windows System Event Log for Event ID 7045. Focus on logs where the `Provider_Name` is 'Service Control Manager' and `ImagePath` contains '\AppData\'.
 
-  - **Identify Unusual Services**: Cross-reference newly created services against known legitimate services. Investigate any services with suspicious names or those originating from uncommon directories.
+  - **Identify Malicious Indicators:**
+    Look for `ImagePath` values containing suspicious executables or known malware signatures. For example, any paths that reference executables like `CptService.exe` in non-standard locations may signal malicious intent.
 
-  - **Check Service Dependencies**: Analyze the dependencies of the installed services to determine if they are linked to legitimate processes or other suspicious activities that could indicate a deeper compromise.
+  - **Assess Normal Application Behavior:**
+    Cross-reference the service installation against known legitimate applications. Services installed in `C:\Program Files\` or `C:\Program Files (x86)\` are typically benign, while installations in user-specific paths like `AppData` may warrant further scrutiny.
+
+  - **Check Service Configuration and Permissions:**
+    Investigate the service's configurations by querying `sc qc <ServiceName>`. Note any irregularities like high privileges (e.g., Local System) that deviate from standard operational protocols.
+
+  - **Validate Network Connections:**
+    If applicable, monitor for outbound connections from the newly created service using tools like Sysmon (Event ID 3). Determine if the service is connecting to external IP addresses, especially those flagged as malicious.
+
+  - **Consider Host Role:**
+    Identify the role of the affected host. For instance, on domain controllers or critical application servers, unauthorized services could have a more significant impact and should be escalated for immediate action.
 
   ### Prioritization
-  This alert is considered medium severity due to the potential for malware persistence and system manipulation. The likelihood of encountering this behavior in an enterprise environment is increased, especially in sectors susceptible to cyber threats, making it crucial to monitor for such indicators.
+
+  This alert is of medium severity due to the potential impact on the system, especially if the service is part of a broader lateral movement or persistence strategy employed by attackers. The likelihood of malicious abuse is moderate given the common practice of employing such techniques in attacks, but it may also represent benign activity from newly deployed legitimate software.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if logs for Event ID 7045 are not properly collected or if the Security Event Logging policies are not configured to capture all necessary details. The detection logic assumes that any service installed in the AppData folder is suspicious, potentially leading to false positives from legitimate applications that may follow similar installation patterns. Adequate logging configurations and monitoring of service installations are necessary for the alert to function effectively.
+
+  One limitation is the potential for evasion techniques, such as rootkits hiding service installations. Furthermore, without comprehensive logging configurations, some Event IDs may not be captured, resulting in incomplete visibility. Legitimate software installations, such as auto-updaters or background services, may trigger this alert. A related detection could involve monitoring for unusual file modifications within the AppData directory (e.g., tracking changes to `CreateFile` operations for suspicious executables).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

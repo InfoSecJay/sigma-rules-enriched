@@ -1,8 +1,8 @@
 title: Suspicious Command Patterns In Scheduled Task Creation
 id: f2c64357-b1d2-41b7-849f-34d2682c0fad
 status: test
-description: Detects scheduled task creation using "schtasks" that contain potentially
-  suspicious or uncommon commands
+description: Detects scheduled task creation using "schtasks" that contain 
+  potentially suspicious or uncommon commands
 references:
 - https://app.any.run/tasks/512c1352-6380-4436-b27d-bb62f0c020d6/
 - https://twitter.com/RedDrip7/status/1506480588827467785
@@ -64,33 +64,39 @@ detection:
     - 'cscript'
     - 'curl'
     - 'wscript'
-  condition: selection_schtasks and ( all of selection_pattern_* or selection_uncommon
-    or all of selection_anomaly_* )
+  condition: selection_schtasks and ( all of selection_pattern_* or 
+    selection_uncommon or all of selection_anomaly_* )
 falsepositives:
-- Software installers that run from temporary folders and also install scheduled tasks
-  are expected to generate some false positives
+- Software installers that run from temporary folders and also install scheduled
+  tasks are expected to generate some false positives
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious command patterns associated with the creation of scheduled tasks using the Windows `schtasks.exe` utility. Specifically, it identifies the execution of potentially malicious or uncommon commands, which may indicate an attacker trying to maintain persistence or execute unauthorized actions on a system. Attackers can leverage scheduled tasks to run scripts or malware at specified intervals or under specific conditions, often to maintain access or execute further attacks.
 
-  The primary threat actors that might use these tactics include various malware families that aim to establish persistence and automate their execution, such as those referenced in the NCSC report on "Devil Bait." Within the MITRE ATT&CK framework, this detection aligns with tactics and techniques such as:
-  - **Execution** (T1053.005) - Scheduled Task/Job: Execution via scheduled tasks.
-  - **Persistence** (T1543.001) - Create or Modify System Process: Establishing persistence by creating scheduled tasks.
-  - **Privilege Escalation** (T1068) - Exploitation for elevated privileges through misconfigurations or malicious scripts.
+  This rule detects suspicious command patterns associated with the creation of scheduled tasks via `schtasks.exe`. The behavior being detected includes the use of certain flags or commands that may indicate an attempt by an adversary to establish persistence, automate malicious scripts, or execute hidden tasks. The likely attacker objective is to maintain control over the compromised system without raising suspicion.
 
-  Relevant telemetry for detecting these behaviors includes process creation events, specifically those capturing command line arguments for processes initiated by `schtasks.exe`.
+  The relevant MITRE ATT&CK tactics and techniques include Persistence (T1053.005) and Privilege Escalation. The primary telemetry source is Windows process creation logs, specifically from Security Event ID 4688, which captures command-line arguments. If malicious, this activity may lead to unauthorized access or control over the system. However, it is important to note that this detection does NOT confirm the execution of malicious code—further investigation is required to establish the intent and outcome of the scheduled task.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Examine Windows process creation logs to identify instances where `schtasks.exe` has been executed, focusing on the command line arguments used.
-  - **Analyze Command Line Patterns:** Look for command line patterns that match the suspicious command indicators specified in the detection rule, including uncommon flags and script executions.
-  - **Inspect Scheduled Task Configurations:** Check the system’s scheduled tasks for any new tasks or modifications, particularly those running commands from unconventional directories, to assess their legitimacy and origin.
-  - **Correlate with Other Logs:** Cross-reference findings with security logs from EDR and SIEM sources to identify any additional behaviors associated with the identified tasks that may indicate further compromise or malicious activity.
+
+  - **Identify event details:** Review Windows Security Event ID 4688 logs for `schtasks.exe` process creation. Look for any suspicious command-line parameters passed that align with known malicious patterns.
+
+  - **Filter for command anomalies:** Specifically examine command lines containing `cmd.exe` variations (e.g., `/c`, `/k`) or encoded strings (e.g., `-encoded`, `-w hidden`). These may indicate a misuse of command execution for potentially malicious purposes.
+
+  - **Assess file paths for legitimacy:** Check if the scheduled task references commonly abused directories, such as `C:\ProgramData\`, `C:\Temp\`, or `C:\Users\Public\`. Legitimate tasks often do not utilize these paths, and their presence may indicate malicious intent.
+
+  - **Cross-reference existing tasks:** Use `Get-ScheduledTask` in PowerShell to enumerate current scheduled tasks. Assess the frequency and user context (e.g., running as SYSTEM) to separate benign from suspicious activities—especially uncommon time intervals like minute scheduling.
+
+  - **Investigate for malicious indicators:** Look for common indicators of compromise such as `mshta.exe http`, or methods of remote code execution (e.g., `IEX`, `DownloadData`). A high-confidence indicator would be the use of `mshta` to initiate unauthorized downloads.
+
+  - **Verify legitimate software installations:** Confirm if the alert correlates with known software installs that may create temporary tasks. This context can help delineate expected behavior from potential compromise.
 
   ### Prioritization
-  The severity of this alert is high due to the potential implications of unauthorized scheduled task creations, which can lead to persistent access and automated execution of malicious payloads within the enterprise environment. The likelihood of exploitation in systems lacking adequate defenses is significant.
+
+  The alert severity is high due to the critical systems often affected by scheduled task manipulations. The likelihood of malicious abuse is elevated, as tools frequently exploit scheduled tasks for persistence. Additionally, the techniques employed are known to be commonly weaponized, increasing the urgency for analysis.
 
   ### Blind Spots and Assumptions
-  This detection rule may not cover all potential command injection methods used during scheduled task creation, particularly if attackers utilize obfuscation techniques or less common processes. It assumes that logs from process creation events are enabled and accessible; thus, any gaps in logging configurations may impede detection effectiveness. Additionally, legitimate software installers that create scheduled tasks and run from temporary folders may trigger false positives, necessitating a careful review of context around such events.
+
+  Detection may be limited by the use of obfuscation techniques or encoded commands that the rule does not account for. Required log sources include full process creation logs with command-line details to ensure comprehensive visibility. Legitimate activities, such as authorized software installations or updates, may trigger this alert. A companion detection to bolster coverage would be monitoring for abnormal network behavior from the scheduled tasks, which could indicate potential command-and-control activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

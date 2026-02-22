@@ -28,27 +28,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies suspicious Kerberos service ticket requests that utilize RC4 encryption. The use of RC4, especially noted in the context of Kerberoasting, raises red flags as attackers may exploit service accounts to request and subsequently crack these tickets offline to obtain sensitive account credentials. Attackers typically aim to gather secrets from service accounts, escalate privileges, or move laterally within a network. It is essential to monitor such activities, especially in environments that contain legacy systems or where older domain functional levels (DFL) are in use.
 
-  Relevant MITRE ATT&CK tactics and techniques for this rule include:
-  - Credential Access (TA1003)
-  - Kerberoasting (T1558.003)
+  This rule detects the use of RC4 encryption types (TicketEncryptionType: '0x17') in service ticket requests, which is indicative of Kerberoasting attempts. Attackers may exploit weak service account configurations to obtain service tickets for offline password cracking, aiming to retrieve plaintext passwords of these accounts. This activity aligns with the MITRE ATT&CK techniques of Credential Access (T1558.003) and is commonly initiated from networked systems with access to Active Directory services.
 
-  The primary data sources for detecting this activity are Windows security logs, particularly Event ID 4769, which records service ticket requests. These logs can provide insights into organizations' usage of service accounts and highlight potential misuse.
+  The primary telemetry source is the Windows Security log, specifically Event ID 4769, which captures service ticket requests. If successfully executed by an adversary, this behavior can lead to unauthorized access and lateral movement within the network. Importantly, while this detection indicates anomalous use of encryption type, it does not confirm that passwords have been successfully extracted or cracked.
 
   ### Investigation Steps
-  - **Review Security Event Logs**: Analyze Windows Security Event ID 4769 for service ticket requests utilizing the RC4 encryption type. Pay attention to patterns involving service accounts, especially those ending with a dollar sign.
 
-  - **Identify Suspect Accounts**: Cross-reference the accounts making the suspicious requests with your organization's service account list. Focus on accounts with elevated privileges or those that should not have Kerberos service tickets requested in their usage patterns.
+  - **Check event logs for suspicious ticket requests:** Review Windows Security Event ID 4769 for accounts issuing service ticket requests using RC4 encryption (TicketEncryptionType: '0x17'). Look for unusually high volumes of requests from specific accounts, particularly those associated with low privilege or service accounts.
 
-  - **Analyze Ticket Requests**: Investigate the timestamp and context surrounding the Kerberos service ticket requests. Look for timings and patterns that may suggest automated or scheduled tasks instead of legitimate user behavior.
+  - **Identify service accounts with legacy configurations:** Check for any accounts with ServiceName ending in '$' that have a history of advanced usage of Kerberos. These should generally use more secure encryption types. Use PowerShell cmdlets like `Get-ADServiceAccount` to enumerate such accounts.
 
-  - **Correlate with Other Logs**: Use additional logs, such as those from endpoint detection tools, to identify any further suspicious activity linked to the compromised service accounts, like unusual login times or failed authentication attempts.
+  - **Validate the environment's Domain Functional Level:** Ensure the domain functional level is not set to 2003 or below, as this may lead to more frequent legitimate occurrences of this behavior. Query with `Get-ADDomain` and confirm compliance with security best practices.
+
+  - **Look for signs of password cracking activity:** Search for unusual file creation or access patterns on systems that service accounts connect to, as indicators that the attacker might be exporting the requests to break them offline. Use Sysmon logs (Event ID 11) to examine command-line activity and File System Activity.
+
+  - **Assess historical access patterns:** Compare the behavior of flagged accounts with typical usage patterns over time. Look for anomalies such as ticket requests occurring outside of normal business hours or from unusual source IP addresses.
 
   ### Prioritization
-  This alert should be treated with medium severity due to the potential implications of Kerberoasting on organizational security. The risk level is heightened in environments with numerous service accounts or where privileged activities by these accounts can impact overall system integrity.
+
+  This alert should be considered medium priority due to its detection of potentially malicious activity targeting service accounts, which are crucial for system functionality. However, the actual impact may vary depending on the sensitivity of the service accounts involved and the specific context of their usage.
 
   ### Blind Spots and Assumptions
-  Detection capabilities may be limited by legacy systems that do not properly log or generate the expected Event ID 4769 entries. Additionally, the rules may not account for false positives, particularly if service accounts are used legitimately on older systems (such as certain NetApp configurations). The detection logic assumes that all legitimate service accounts follow modern security practices and may not adequately monitor some edge cases or legacy implementations. Required logs for this alert's efficacy must include configured security auditing on all relevant Windows systems to capture the ticket requests effectively.
+
+  This detection is limited by the presence of legacy systems that may generate false positives, such as NetApp configurations. It relies on correct logging configurations to capture Event ID 4769; without these, detection is unreliable. Legitimate activities including the use of outdated encryption methods in legacy systems may trigger the alert. Companion detections such as monitoring for anomalous user behavior or excessive failed authentication attempts may enhance overall threat detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

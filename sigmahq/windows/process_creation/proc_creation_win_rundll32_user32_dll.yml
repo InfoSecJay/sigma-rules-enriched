@@ -1,8 +1,8 @@
 title: Suspicious Workstation Locking via Rundll32
 id: 3b5b0213-0460-4e3f-8937-3abf98ff7dcc
 status: test
-description: Detects a suspicious call to the user32.dll function that locks the user
-  workstation
+description: Detects a suspicious call to the user32.dll function that locks the
+  user workstation
 references:
 - https://app.any.run/tasks/2aef9c63-f944-4763-b3ef-81eee209d128/
 author: frack113
@@ -25,27 +25,42 @@ detection:
     CommandLine|contains: 'LockWorkStation'
   condition: all of selection_*
 falsepositives:
-- Scripts or links on the user desktop used to lock the workstation instead of Windows+L
-  or the menu option
+- Scripts or links on the user desktop used to lock the workstation instead of 
+  Windows+L or the menu option
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potentially malicious activity involving the `rundll32.exe` utility, which is often abused by attackers to execute DLL functions. Specifically, it focuses on when `rundll32.exe` is used to call the `LockWorkStation` function from the `user32.dll` library, potentially indicating an attempt to lock a user's workstation without their consent. This kind of activity could be part of a larger attack scenario where an adversary aims to gain unauthorized access to a session or distract the user while executing further malicious actions.
 
-  In terms of attacker objectives, this behavior may be utilized to facilitate lateral movement or maintain persistence within the environment. The technique aligns closely with the MITRE ATT&CK framework tactics of **Defense Evasion** and potentially **Execution** through the misuse of legitimate tools like `rundll32.exe`. Relevant techniques include **T1568.002: Execution via API** and **T1055: Process Injection,** which describe similar methods of executing code via valid system processes.
+  This Sigma rule detects suspicious invocations of the `rundll32.exe` process to call the `LockWorkStation` function from `user32.dll`. This activity is often indicative of an attacker attempting to obscure their actions or manipulate the user interface, potentially as part of a broader attack strategy to disrupt operations or facilitate further malicious behavior, such as credential theft or escalation. The relevant MITRE ATT&CK tactic and technique is **Defense Evasion (T1203)**.
 
-  Primary data sources that will provide insight into this activity include **process creation events** that log details such as the command line used, the image name, and the parent process associated with the execution of `rundll32.exe`. These logs are crucial for detecting the unauthorized invocation of functions that could be a precursor to further malicious actions.
+  The primary telemetry sources for this detection are Windows process creation events, specifically Security Event ID **4688** and Sysmon Event ID **1**, capturing process creation and command line arguments. If the activity is malicious, it can disrupt productivity, potentially allowing an attacker to access unattended workstations or perform further manipulation undiscovered. Notably, this detection does NOT confirm that the activity is malicious in isolation, as legitimate scripts may also invoke the `LockWorkStation` function.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze logs for `rundll32.exe` invocation, ensuring to examine the command line arguments and look for references to `user32.dll`.
-  - **Examine Parent Process Relationships:** Investigate other entries where `cmd.exe` is listed as the parent process, concentrating on the context surrounding the invocation to determine if it correlates with known legitimate activity.
-  - **Assess User Activity and Context:** Check user activity during the time of the event to confirm if it aligns with normal usage patterns or if there was unauthorized access to the workstation.
-  - **Cross-Reference with Security Logs:** Look for any additional security alerts related to unusual account activities that may accompany the detected behavior, such as failed login attempts or unusual access patterns.
+
+  - **Review process creation events:**
+    Check Security Event ID **4688** and Sysmon Event ID **1** for `rundll32.exe` initiating the lock workstation command, focusing on the Command Line for the string `user32.dll, LockWorkStation`. Benign cases typically show normal user patterns.
+
+  - **Identify the parent process:**
+    Confirm that the Parent Image is `cmd.exe` to validate if this was a direct malicious invocation; this is unusual and often associated with scripted attacks, whereas expected behavior may show the process called by legitimate user actions, such as using the Windows interface.
+
+  - **Correlate user activity:**
+    Cross-reference logins and workstation activity around the time of the event. Check for user account activity with Event ID **4624** (logon) and ensure no users were logged on or active, which may indicate malicious intentions if workstation locking occurred unexpectedly.
+
+  - **Check for script presence:**
+    Investigate any recent script executions (by searching for `.bat`, `.cmd`, or other script extensions) that tie to the locking behavior, especially if located on user desktops or in common script execution folders.
+
+  - **Monitor for associated artifacts:**
+    Validate if any additional command line or scheduled tasks are related to the workspace locking, as malware may utilize a chaining technique that could leave residual artifacts in logs.
+
+  - **Evaluate history of alerts:**
+    Review historical alerts related to this behavior across your organization. High-frequency detections tied to specific workstations may signal targeted attacks and warrant further investigation.
 
   ### Prioritization
-  The alert is deemed medium severity due to the potential for an attacker to manipulate legitimate tools to execute malicious actions while evading detection. If confirmed, it could indicate an ongoing effort to compromise user sessions and escalate privileges within the enterprise.
+
+  This alert is of medium severity. It operates on systems that can be critical for operations and could indicate persistent adversary behavior when weaponized. While workstation locking itself is not often malicious, the method of execution through script invocations raises the potential for misuse and requires thorough review to ensure it's not a cover for more nefarious activities.
 
   ### Blind Spots and Assumptions
-  There are gaps in detection coverage that could occur due to legitimate usages of scripts that invoke `rundll32.exe` to lock workstations, leading to false positives. Moreover, the detection logic assumes that all workstation locking attempts through `rundll32.exe` are malicious, not accounting for benign scenarios initiated by users. For the alert to function effectively, it is essential that comprehensive logging of process creation events and command line arguments is enabled across Windows endpoints.
+
+  Detection may not effectively identify legitimate usage of `rundll32.exe` for functions other than locking the workstation, leading to potential false positives, especially from user-initiated scripts or automated processes. This rule relies on comprehensive logging being enabled for effective monitoring; any gaps in logging may result in undetected exploit attempts. Companion detections for suspicious child process execution, such as **cmd.exe** or other command interpreters initiating unusual processes, can enhance the overall security posture and coverage against various attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

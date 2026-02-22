@@ -4,8 +4,8 @@ related:
 - id: 02b64f1b-3f33-4e67-aede-ef3b0a5a8fcf
   type: similar
 status: test
-description: Detects usage of COM objects that can be abused to download files in
-  PowerShell by CLSID
+description: Detects usage of COM objects that can be abused to download files 
+  in PowerShell by CLSID
 references:
 - https://learn.microsoft.com/en-us/dotnet/api/system.type.gettypefromclsid?view=net-7.0
 - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse?slide=57
@@ -42,41 +42,37 @@ note: |
 
   ### Technical Context
 
-  This Sigma rule detects the use of COM objects in PowerShell scripts that may be exploited for file downloads through specified CLSIDs. The attacker’s likely objective is to establish command and control (C2) channels by leveraging these COM objects to download malicious payloads. Relevant MITRE ATT&CK tactics and techniques include Command and Control (TA0011) and Application Layer Protocol (T1105). The primary telemetry sources are PowerShell script block logs, particularly looking for Event ID 4104, which capture potentially malicious script execution. If successful, this behavior can lead to unauthorized data exfiltration and further network compromise. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may utilize these COM objects.
+  This rule detects the invocation of specific COM objects in PowerShell scripts using the method `[Type]::GetTypeFromCLSID(…)`, which can be exploited by attackers to download files from the internet under potentially malicious intent. The likely attacker objective is to leverage these COM objects for command-and-control (C2) purposes, potentially downloading payloads or additional malware. This activity aligns with the MITRE ATT&CK technique T1105 - Remote File Copy.
+
+  The primary telemetry sources are Windows PowerShell logs, specifically those reflecting Script Block Logging (must be enabled). If malicious, this behavior could lead to unauthorized file downloads, compromising system integrity. However, this detection does NOT confirm that malicious activity is occurring; legitimate applications may also use these COM objects without any harmful intent.
 
   ---
 
   ### Investigation Steps
 
-  - **Review script block logs:**
-    Analyze PowerShell script block logs (Event ID 4104) for relevant entries including 'GetTypeFromCLSID'. Focus on logs from times of reported suspicious activity.
+  - **Review PowerShell Script Logs**: Check for ScriptBlockText containing `[Type]::GetTypeFromCLSID(`. Look for Event ID 4103 within the PowerShell logs to confirm the context of the script execution.
 
-  - **Identify high-confidence malicious indicators:**
-    Look for the execution of CLSIDs known for their file download capabilities, such as '0002DF01-0000-0000-C000-000000000046' or 'F5078F35-C551-11D3-89B9-0000F81FE221'.
+  - **Identify Known CLSIDs**: Cross-reference the log entries to check for use of the following CLSIDs: `0002DF01-0000-0000-C000-000000000046` or `F5078F35-C551-11D3-89B9-0000F81FE221`. Confirm presence in malicious context if found together with any suspicious networking behavior.
 
-  - **Check for context and intent:**
-    Evaluate the parameters used in the script blocks for any unusual behavior or anomalies in the command-line arguments. Compare to legitimate usage patterns, which would typically involve system updates, file manipulations, or admin tasks.
+  - **Establish Baseline Activity**: Document and verify any legitimate software or processes that use the detected COM objects routinely in your environment. This could include standard applications like Microsoft Office or Internet Explorer.
 
-  - **Assess recent PowerShell execution:**
-    Cross-reference with Event ID 4103 (PowerShell command logs) to verify what commands were run prior to using COM objects. Identify if other suspicious commands precede or follow the identified activity.
+  - **Check Network Activity**: Look for corresponding network connections or downloads using logs from your firewall or IDS. Specifically review connection attempts to known external IPs immediately following the script execution captured by Event ID 4104.
 
-  - **Correlate with network logs:**
-    Inspect firewall or network proxy logs for outbound HTTP/S requests initiated by the host around the same timeframe. Malicious activity could show unusual access patterns or communications with known bad IPs.
+  - **Inspect User Context**: Review the user context under which the PowerShell script was run. Investigate if the user was a non-privileged standard user during the execution as opposed to an admin or service account, indicating potential misuse.
 
-  - **Examine host system roles:**
-    Determine if the host executing the COM objects has an elevated role (e.g., server, admin) which could indicate higher risk and potential for impact if compromised versus typical user workstations.
+  - **Monitor File System Changes**: Validate any file creations or modifications in temp folders typically targeted by scripts, such as `C:\Users\<username>\AppData\Local\Temp`. Look for abnormal file types or unexpected filenames created by the involved PowerShell session.
 
   ---
 
   ### Prioritization
 
-  This alert has medium severity due to the potential for exploitation of trusted COM objects that could facilitate malicious downloads. The likelihood of abuse is moderate, especially in environments where users may have elevated privileges or where security is lax. This behavior is known to be weaponized in various reconnaissance and exfiltration attacks.
+  The severity of this alert is medium due to the potential risk of file downloads that could lead to malware infections. However, such behaviors are sometimes part of legitimate system processes or applications, making further investigation necessary to establish the context and intent behind the detection.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for false negatives in environments without PowerShell script block logging enabled, which is crucial for capturing these events. Legitimate activities such as updates or system maintenance could generate similar logs, complicating the investigation. A related detection that enhances coverage includes monitoring for unusual outbound connections initiated from PowerShell scripts, which can indicate broader malicious activity.
+  This detection could miss encoded or obfuscated PowerShell commands that do not directly invoke the specified CLSIDs. Additionally, some legitimate administrative scripts may trigger this alert without malicious intent. Ensure proper PowerShell logging configurations are in place to capture all relevant activities. A related detection to consider is the monitoring of outbound HTTP/S traffic, which could further indicate file download attempts following the script execution.
 
   ---
 

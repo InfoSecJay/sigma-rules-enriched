@@ -1,8 +1,8 @@
 title: Certificate Request Export to Exchange Webserver
 id: b7bc7038-638b-4ffd-880c-292c692209ef
 status: test
-description: Detects a write of an Exchange CSR to an untypical directory or with
-  aspx name suffix which can be used to place a webshell
+description: Detects a write of an Exchange CSR to an untypical directory or 
+  with aspx name suffix which can be used to place a webshell
 references:
 - https://twitter.com/GossiTheDog/status/1429175908905127938
 author: Max Altgelt (Nextron Systems)
@@ -32,22 +32,29 @@ falsepositives:
 level: critical
 note: |
   ### Technical Context
-  This detection rule identifies the export of a Certificate Signing Request (CSR) to an atypical directory or with an .aspx suffix on a Microsoft Exchange server. Such behavior can indicate an attacker’s attempt to generate a CSR with the intent of deploying a malicious web shell, thereby gaining unauthorized access and control over the web server environment. Attackers may leverage this technique to persist within the network, exfiltrate data, or facilitate further exploitation of other systems.
 
-  The rule is linked to the MITRE ATT&CK framework, particularly under the tactics of **Persistence** (TA0003) and the technique **Web Shells** (T1505.003). The misuse of Exchange servers for certificate exports is critical, as it can directly lead to unauthorized web access, posing significant security risks.
-
-  Primary data sources for this detection include logs from the Microsoft Exchange management service, specifically those related to Exchange command execution. This could encompass logs of PowerShell command executions that align with the activity of creating and exporting CSRs.
+  This rule detects the export of a Certificate Signing Request (CSR) to atypical directories or with file extensions commonly associated with web application vulnerabilities, such as `.aspx`. The likely attacker objective is to store a web shell or malicious file on an Exchange server, which can enable persistent access to the environment. This behavior corresponds to the MITRE ATT&CK tactic of Persistence and the technique T1505.003 (Web Shell). Primary telemetry sources include logs from the msexchange-management service, specifically monitoring for PowerShell commands and their output related to certificate generation. If malicious, this could allow an attacker to exploit the web server for further attacks or data exfiltration. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate administrative actions may result in similar log entries.
 
   ### Investigation Steps
-  - **Review Exchange Management Logs:** Examine logs from the Exchange management service for the `New-ExchangeCertificate` command usage, focusing on timestamps and user accounts involved in the command execution.
-  - **Inspect Exported Files:** Investigate the destination directories mentioned in the detection logic, notably those with .aspx file extensions or common web directories, looking for newly created certificates or files that may indicate malicious web shell placement.
-  - **Analyze User Privileges:** Check the permissions and roles of users executing the commands, especially if they are not typical administrators, to uncover potential misuse of credentials or compromised accounts.
-  - **Monitor for Remote Access:** Look for unusual network connections, particularly those leveraging SMB protocol or remote access to the Exchange server, to identify potential command and control (C2) or exfiltration attempts related to the CSR export.
+
+  - **Review PowerShell command logs:** Check logs from Event ID 4104 for `New-ExchangeCertificate` with parameters `-GenerateRequest -BinaryEncoded -RequestFile` being executed, focusing on the context of their execution.
+
+  - **Analyze file paths for anomalies:** Investigate any export locations, looking for exports to `C:\inetpub` or network shares like `\\localhost\C$` or `\\127.0.0.1\C$`. Legitimate activity should primarily involve default save locations within the Exchange server’s directory structure.
+
+  - **Identify unusual file extensions:** Search for `.aspx` files created in the exported path. File creation timestamps and paths can help distinguish between standard administrative workflows and potential malicious file placement.
+
+  - **Correlate with historical context:** Check for similar commands in recent logs to identify patterns or repeated attempts. Look for additional Event ID 4104 entries that cluster around the same time frame.
+
+  - **Inspect file access permissions:** Validate the security properties of any anomalous exports. Legitimate CSR exports should only be accessible by authorized admin accounts; any unauthorized access indicators could signify malicious activity.
+
+  - **Query related logs for concurrent suspicious activity:** Review IIS logs and any other related web server logs (e.g., Event ID 5145 for file creation) that may signal attempts to execute or access the maliciously created file.
 
   ### Prioritization
-  This alert is deemed critical due to the potential impact of an attacker successfully deploying a web shell on an Exchange server, which could allow for extensive compromise of organizational data and services. The likelihood is elevated given the increasing targeting of web-accessible services by threat actors.
+
+  Given the critical nature of Exchange servers to enterprise operations, this alert warrants immediate attention. The likelihood of malicious abuse is significant, especially if the activity coincides with known exploitation techniques for web shells. This behavior is known to be weaponized, making it a high-priority security concern.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by the configurations of the Exchange management logging settings, which must be enabled to gather comprehensive logs. There is an assumption that any user executing the `New-ExchangeCertificate` command is doing so legitimately, and deviations from normal operational behavior are not accounted for without adequate baselining. Additionally, the rule may miss manual attempts to export CSRs directly through the file system or via alternate command paths if those executions do not match the defined keywords in this detection logic.
+
+  Detection limitations include the potential for evasion via timestamp manipulations or obfuscated PowerShell scripts. Reliable detection requires proper logging configurations for PowerShell command auditing. Legitimate certificate exports for internal applications might trigger this alert, particularly if they utilize atypical export paths. A related detection to consider is abnormal usage of scheduled tasks (T1053.003) on the Exchange server, which may indicate an attacker attempting to execute payloads.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

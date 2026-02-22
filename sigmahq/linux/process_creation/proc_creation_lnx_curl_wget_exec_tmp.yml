@@ -36,25 +36,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule is designed to detect suspicious activities involving the command-line tools `curl` and `wget` on Linux environments. These tools are commonly employed by attackers to download malicious scripts or binaries from remote locations, particularly into temporary directories such as `/tmp` or `/dev/shm`. The immediate execution of the downloaded content, often using shell commands, suggests a potential exploitation scenario. Attackers leverage this pattern to facilitate fileless attacks, where malicious activities are conducted without writing files to disk in a traditional manner.
 
-  In a typical threat scenario, an adversary may utilize `curl` or `wget` to fetch a script that will execute commands to further compromise the environment, grab sensitive data, or create backdoors for persistent access. This behavior is characterized within the MITRE ATT&CK framework under the tactics of **Execution** (TA0002) and techniques such as **Command-Line Interface** (T1059.004) and **Exploitation of Remote Services** (T1203).
+  This rule detects suspicious activity involving command-line tools such as `curl` and `wget`, which are used to download content from the internet into temporary directories (e.g., `/tmp`, `/dev/shm`) followed by immediate script execution (e.g., `sh -c`). This behavior could indicate an adversary attempting to execute malicious scripts or commands in a stealthy manner, typical of fileless or multi-stage attacks. The relevant MITRE ATT&CK techniques include `Execution: Command-Line Interface (T1059.004)` and `Exploitation: Remote File Inclusion (T1203)`.
 
-  Primary data sources for detecting this behavior include process creation logs, particularly those capturing command-line arguments, as they provide insights into the execution context of downloaded scripts.
+  The primary telemetry sources required are `process creation logs`, specifically focusing on the command line used at the time of process initiation. If this activity is malicious, it could lead to unauthorized execution of harmful scripts potentially affecting system integrity or data security. However, this detection does NOT confirm that the activity is malicious without additional context, as legitimate system updates or provisioning scripts may trigger similar commands.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze logs to identify any instances of `curl` or `wget` commands accessing `/tmp` or `/dev/shm`, paying special attention to command-line arguments used in these executions.
 
-  - **Analyze Command History**: Investigate shell command history files (e.g., `.bash_history`) for any manual execution of `curl` or `wget` that may indicate user involvement in suspicious downloads.
+  - **Review command line arguments:** Check for processes utilizing `curl` or `wget` in combination with `/tmp` or `/dev/shm`. Use process creation logs (Linux audit logs or Syslog) filtering for entries with `CommandLine` fields containing `/curl` or `/wget`.
 
-  - **Correlate with Network Traffic**: Examine network logs to identify any outbound connections to external IP addresses or domains before the command execution, which may reveal the sources of the downloaded content.
+  - **Identify immediate execution patterns:** Look for command lines that include `sh -c` following the download. Validate using Syslog or process monitoring tools to find Event IDs related to executable scripts (`pid`, `uid`, `CommandLine`).
 
-  - **Verify Downloaded Files**: If applicable, inspect any temporary files created in `/tmp` or `/dev/shm` for malicious indicators, such as obfuscation, non-standard encodings, or connections to known malicious domains.
+  - **Analyze context of the download:** Cross-reference the download URL or command output against threat intelligence sources to determine if the content originates from known malicious domains or IPs. Use web request logs to retrieve the original download URL context.
+
+  - **Check for legitimate behavior:** Confirm if any identified use of `curl` or `wget` aligns with authorized system update scripts or provisioning tools. Reviewing the asset role and the allowed operational procedures can help distinguish benign from suspicious behavior.
+
+  - **Look for high-confidence indicators:** Flag any `curl` or `wget` downloads executed in quick succession followed directly by execution commands. High urgency in execution warrants additional scrutiny.
+
+  - **Validate integrity of executed commands:** Determine if the downloaded scripts contain obfuscated or base64 encoded content typical of malicious payloads. Use file integrity monitoring logs to capture the content of scripts run from the temporary directories.
 
   ### Prioritization
-  The alert signifies a high severity due to the potential for immediate malicious actions derived from executing downloaded scripts. The ability of attackers to exploit vulnerabilities through these means poses significant risks, warranting urgent investigation in an enterprise environment.
+
+  This alert is of high severity due to the potential for remote code execution and system compromise. The use of common command-line tools for downloading and executing scripts poses a significant risk, and this behavior is frequently weaponized in multi-stage attacks.
 
   ### Blind Spots and Assumptions
-  Detection may be limited in environments where logging is not enabled for process command-line parameters, as instances of legitimate usage of `curl` or `wget` could lead to false positives. Assumptions include that malicious downloads will always follow this specific pattern and that appropriate logging mechanisms are in place to capture command executions accurately. Environments employing automated scripts or system updates that use these tools may introduce further noise in the detection coverage, necessitating the need for refined detection logic or additional contextualization.
+
+  Detection is limited by the need to monitor comprehensive command line usage; if logging is incomplete, true malicious activity may go undetected. False positives can occur from legitimate activities like application installers or system maintenance scripts, which may also utilize similar patterns. Companion detections include monitoring for unusual outbound network requests or modifications to system files after the execution of the downloaded scripts, enhancing visibility into post-exploitation actions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

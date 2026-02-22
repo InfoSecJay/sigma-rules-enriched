@@ -27,25 +27,32 @@ detection:
     userIdentity.type: 'AssumedRole'
   condition: selection and not filter
 falsepositives:
-- Administrators listing buckets, it may be necessary to filter out users who commonly
-  conduct this activity.
+- Administrators listing buckets, it may be necessary to filter out users who 
+  commonly conduct this activity.
 level: low
 note: |
   ### Technical Context
-  This detection rule is designed to identify potential enumeration of Amazon Web Services (AWS) S3 buckets via the `ListBuckets` API call. When an attacker gains temporary access through an assumed role, they may attempt to list S3 buckets to gather information about available data, leading to further exploitation such as data exfiltration or privilege escalation. The threat scenario anticipates attackers analyzing bucket names, permissions, and metadata to prepare for more intrusive actions.
 
-  Relevant MITRE ATT&CK tactics for this detection include **Discovery** (TA0007), particularly technique **Account Discovery** (T1087) as the attacker seeks to discover AWS resources. The use of the `ListBuckets` event indicates a clear intent to enumerate assets, thus exposing potential targets within the cloud environment. The primary data source for detection is AWS CloudTrail logs, which capture API calls made to AWS services, enabling monitoring of all access and action attempts against AWS resources.
+  This rule detects enumeration attempts of AWS S3 buckets via the `ListBuckets` API call. Such enumeration is often performed by attackers to identify accessible resources for further exploitation, such as data theft or service disruption. The relevant MITRE ATT&CK tactic is Discovery, specifically the technique T1580 (Cloud Service Discovery) and T1619 (Application Layer Protocol). The primary telemetry source is AWS CloudTrail logs, specifically looking for `eventSource` as 's3.amazonaws.com' and `eventName` as 'ListBuckets'. If malicious, this behavior can lead to data exposure or breach. However, this detection does not confirm that the enumerated buckets contain sensitive data, nor does it indicate that unauthorized access has occurred.
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Examine the AWS CloudTrail logs for `ListBuckets` events and the associated user identity and IP addresses of those making the calls to understand the context of the access.
-  - **Correlate User Activity**: Cross-reference the calling user or role with typical user behavior and permissions to identify any anomalies or unauthorized access attempts.
-  - **Assess Bucket Permissions**: Investigate the configurations of any listed S3 buckets to ensure proper access controls are in place and no sensitive data is exposed inadvertently.
-  - **Monitor for Assumed Role Patterns**: Analyze any broader patterns around role assumptions to identify if the access is part of legitimate administrative activity or could indicate a compromised account.
+
+  - **Verify event logs for suspicious activity**: Check AWS CloudTrail logs for `eventSource` as `s3.amazonaws.com` and `eventName` as `ListBuckets` (look for Event IDs related to these actions). Cross-reference the userIdentity's `type` field to ensure it’s 'AssumedRole'.
+
+  - **Analyze userIdentity for known administrators**: Identify the `userIdentity` of the role assumed during the `ListBuckets` call. Compare it against known legitimate user roles to determine if administrators are performing routine checks, as they may need this access for legitimate operations.
+
+  - **Correlate with access patterns**: Review the `userIdentity.arn` field for common roles used for bucket listing activities. If anomalies exist (e.g., new or unusual roles making these requests), escalate for further investigation.
+
+  - **Assess IAM policies for abnormal permissions**: Examine the IAM role permissions associated with the `userIdentity`. If the assumed role has permissions equal to or greater than `s3:*`, this could indicate a potential security misconfiguration, increasing malicious exploitation risk.
+
+  - **Look for additional logging related to data access**: Check for subsequent API calls (ListObjects) in CloudTrail that might indicate an attempt to access or exfiltrate data after enumeration (e.g., `eventName` as `ListObjects`).
 
   ### Prioritization
-  This alert is classified as low severity, primarily due to the possibility of false positives from routine administrative activities. However, it warrants investigation whenever anomalous role-based access is detected, as it may indicate preliminary steps towards malicious activities.
+
+  This alert is rated low severity in an enterprise context due to the relatively low impact of bucket enumeration itself. However, there is an increased risk of malicious abuse if combined with further access attempts or a history of data-sensitive operations, indicating potential reconnaissance before a larger offensive strike.
 
   ### Blind Spots and Assumptions
-  The detection logic relies on the assumption that legitimate users do not frequently list buckets using assumed roles and that typical administrative activity can be distinguished from malicious behavior. There may be gaps in detection coverage if CloudTrail logging is not configured correctly or if API call logging is insufficient. Additionally, any filters applied to exclude known administrative users must be carefully validated to prevent overlooking genuine threats.
+
+  This detection may miss legitimate administrative activities that regularly involve enumerating bucket lists. To improve reliability, enable comprehensive logging configurations that capture all CloudTrail events, ensuring no gaps exist in oversight. Additionally, consider companion detections that monitor subsequent `ListObjects` API calls, which could indicate an escalation in malicious activity following enumeration attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

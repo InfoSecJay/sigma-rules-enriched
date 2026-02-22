@@ -1,8 +1,8 @@
 title: LSASS Access From Non System Account
 id: 962fe167-e48d-4fd6-9974-11e5b9a5d6d1
 status: test
-description: Detects potential mimikatz-like tools accessing LSASS from non system
-  account
+description: Detects potential mimikatz-like tools accessing LSASS from non 
+  system account
 references:
 - https://threathunterplaybook.com/hunts/windows/170105-LSASSMemoryReadAccess/notebook.html
 author: Roberto Rodriguez @Cyb3rWard0g
@@ -58,25 +58,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This rule detects unauthorized access attempts to the Local Security Authority Subsystem Service (LSASS) process from non-system accounts, which is often indicative of credential dumping activities associated with malicious tools like Mimikatz. The LSASS process stores sensitive information, including user credentials, and attackers commonly target this process to extract authentication tokens and passwords. By identifying these attempts, security teams can uncover potential attacks that aim to facilitate lateral movement within the network.
 
-  The likely attacker objective is to gain unauthorized access to sensitive systems and data, ultimately leading to further exploitation or data exfiltration. This behavior aligns with several tactics in the MITRE ATT&CK framework, specifically under **Credential Access** (TA0006) and the technique **Credential Dumping: LSASS Memory** (T1003.001). Both tactics highlight the need for effective monitoring of processes that interact with LSASS, particularly when engaged by non-privileged processes.
+  This rule detects unauthorized access to the Local Security Authority Subsystem Service (LSASS) process by non-system accounts, which is often indicative of attempts to extract credentials using tools like Mimikatz. The likely attacker objective is to harvest sensitive authentication data to facilitate lateral movement or privilege escalation. This behavior relates to the MITRE ATT&CK technique for Credential Dumping (T1003.001).
 
-  Primary data sources to collect include:
-  - Windows Security logs, capturing Event IDs 4663 and 4656.
-  - Process creation events, to record parent-child process relationships.
-  - Potentially relevant network logs if lateral movement occurs after credential dumping.
+  The primary telemetry source is Windows Security Event logs, specifically Event IDs 4663 (Object Access) and 4656 (Handle Attempt), capturing detailed access attempts to LSASS. If this behavior is malicious, it can lead to significant security compromises, such as unauthorized access to resources or sensitive data extraction. It’s important to note that this detection alone does not confirm an attack; further investigation is required to determine intent and context.
 
   ### Investigation Steps
-  - **Review Security Logs**: Analyze Windows Security event logs for Event IDs 4663 and 4656. Focus on instances where LSASS is accessed by processes not associated with system accounts (i.e., those not ending in '$').
-  - **Correlate Process Activity**: Investigate the process creation timeline to determine if any suspicious parent processes spawned legitimate-looking child processes that accessed LSASS, indicating potential misuse.
-  - **Examine Parent Process Relations**: Check the context of the access request to LSASS; identify the parent process and ensure it aligns with expected activities. Look for any anomalies that do not fit typical operational patterns.
-  - **Conduct a Threat Hunt**: Utilize EDR tools to hunt for any known malicious hashes or behaviors tied to credential dumping attacks. Ensure that logging configurations for process execution are correctly set to capture all relevant events.
+
+  - **Review Event ID 4663: Object Access Logs:** Check for Event ID 4663 logs corresponding to LSASS (ObjectName ends with `\lsass.exe`). Identify the SubjectUserName and look for non-system accounts (not ending with `$`), as this is a key indicator of suspicious behavior.
+
+  - **Correlate with Event ID 4656:** Analyze Event ID 4656 for the same access instance. Focus on AccessMask values like '0x100000' and '0x1f0fff', which represent read access requests, a common signature of credential dumping activities.
+
+  - **Identify known benign processes:** Cross-reference the ProcessName against known legitimate applications such as popular AV and EDR solutions (typically located in `C:\Program Files\` or `C:\Program Files (x86)\`). Legitimate access typically belongs to these processes, and their presence alongside access events should be documented.
+
+  - **Check for legitimate account behavior:** Research scheduled or automated tasks linked to the identified accounts to confirm whether legitimate administrative actions or service operations are taking place, ensuring that benign account usage is validated against alerting events.
+
+  - **Examine WMI activity:** Investigate any interaction with WmiPrvSE.exe (Event ID 4663 and AccessMask '0x1410') around the time of the alert. Unscheduled or unusual WMI queries may signal nefarious use of legitimate tools.
+
+  - **Determine overall system criticality:** Assess the criticality of the affected host. Systems involved in sensitive operations (e.g., domain controllers or servers hosting sensitive applications) elevate the severity of findings related to this rule.
 
   ### Prioritization
-  This alert should be treated as medium severity due to its potential to indicate a serious security breach involving credential theft. Given that credential dumping can provide attackers with elevated access, the likelihood of exploitation is high, especially if the compromised accounts belong to administrative users.
+
+  This alert is considered medium severity due to the potential impact of compromised credentials and the likelihood of such access being weaponized by adversaries. In a mature SOC environment, non-system accounts accessing LSASS is often indicative of malicious activity requiring timely investigation.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if logs from certain endpoints are not captured or are misconfigured, specifically regarding process access to LSASS. The detection logic assumes that any access to LSASS from non-system accounts is suspicious, which may yield false positives in environments with custom applications or legitimate usage patterns. Proper configuration of Windows Security Event Log settings is necessary to ensure the effective functioning of this alert; specifically, logging Event IDs 4663 and 4656 across all relevant systems is crucial for comprehensive monitoring.
+
+  This detection may be evaded if attackers utilize techniques such as process injection or service impersonation to bypass the monitoring of non-system accounts. Additionally, successful detection relies on adequately configured Windows auditing logs; missing log sources may lead to undetected malicious activities. Legitimate system management tasks, particularly by administrators, may inadvertently trigger the alert. Companion detections include monitoring for unusual network connections to LSASS from remote systems, enhancing overall coverage against credential dumping techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

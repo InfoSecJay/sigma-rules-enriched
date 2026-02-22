@@ -1,8 +1,9 @@
 title: Potential Discovery Activity Via Dnscmd.EXE
 id: b6457d63-d2a2-4e29-859d-4e7affc153d1
 status: test
-description: Detects an attempt to leverage dnscmd.exe to enumerate the DNS zones
-  of a domain. DNS zones used to host the DNS records for a particular domain.
+description: Detects an attempt to leverage dnscmd.exe to enumerate the DNS 
+  zones of a domain. DNS zones used to host the DNS records for a particular 
+  domain.
 references:
 - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/dnscmd
 - https://learn.microsoft.com/en-us/azure/dns/dns-zones-records
@@ -31,22 +32,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule is designed to identify potential discovery activities by monitoring the execution of the `dnscmd.exe` tool with specific command-line arguments. The command `dnscmd.exe` is a Windows tool used for managing DNS servers. Competent threat actors may leverage this tool to enumerate DNS zones and records, which can reveal valuable information about a target's internal infrastructure, such as hostnames, IP addresses, and potential attack vectors.
 
-  The likely scenario for this detection includes an attacker conducting reconnaissance on a network after gaining initial access. By enumerating DNS zones, the attacker aims to gather information for lateral movement, privilege escalation, or planning further attacks against specific resources within the organization. This behavior affiliates with the MITRE ATT&CK framework under the Discovery tactic, specifically with the techniques T1087.001 (Account Discovery: Local Account) and T1087.002 (Account Discovery: Domain Account).
+  This Sigma rule detects the invocation of `dnscmd.exe` with specific arguments commonly used for DNS zone enumeration, such as `/enumrecords`, `/enumzones`, `/ZonePrint`, and `/info`. Attackers typically seek to gather information about the DNS configuration of a target domain, which can assist in identifying potential targets for further exploitation, including lateral movement and phishing campaigns. This behavior falls under the MITRE ATT&CK framework as **Discovery** (TA0007), specifically the technique **Domain Services Inventory** (T1590).
 
-  The primary data source for this detection rule is process creation events on Windows systems, which reveal details about what applications are executing and the command-line arguments being used.
+  The primary telemetry source for this detection is Windows Process Creation events, specifically Security Event ID 4688, which captures process creates, including command line arguments associated with the `dnscmd.exe` process. If malicious, this activity can lead to significant exposure of a network's infrastructure and personnel. Notably, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions may also invoke `dnscmd.exe` for DNS management purposes.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Analyze the logs for any instances of `dnscmd.exe` execution with arguments like `/enumrecords`, `/enumzones`, `/ZonePrint`, or `/info` to confirm the execution of potentially malicious commands.
-  - **Correlate with User Activity:** Investigate the context of the process creation by examining the user accounts under which these commands were executed. Pay special attention to any accounts that should not have administrative access.
-  - **Check for Lateral Movement Patterns:** Look for signs of lateral movement following the execution of `dnscmd.exe`. This might include unauthorized access attempts to other systems or network resources using the information gathered.
-  - **Validate Administrative Use Cases:** Determine if the usage of `dnscmd.exe` corresponds to legitimate administrative tasks by cross-referencing with scheduled tasks or known administrator activities.
+
+  - **Identify the source process:** Examine Security Event ID 4688 for the process creation of `dnscmd.exe`. Review the `CommandLine` field for suspicious arguments, especially `/enumrecords`, `/enumzones`, `/ZonePrint`, or `/info`.
+
+  - **Verify if the action aligns with expected behavior:** Check whether the action was initiated from a known administrative user account or script versus an unfamiliar or unauthorized user. Legitimate usage typically involves administrative users managing DNS resources directly rather than anomalous accounts.
+
+  - **Cross-reference event timestamps:** Compare the timestamps of Security Event ID 4688 with other relevant logs (e.g., DNS logs) for unusual patterns or spikes indicating bulk enumeration activities. Confirm that the enumeration attempts do not correlate with scheduled administrative actions.
+
+  - **Check the context of the command:** Validate what actions were taken before and after the invocation of `dnscmd.exe`. Look for any related suspicious activities, such as lateral movement attempts (Event ID 4624 for logins) or privilege escalation.
+
+  - **Monitor for evidence of information retrieval:** Query DNS logs for abnormal queries that could suggest reconnaissance beyond typical administrative practices. Look for access to multiple DNS zones in a short time frame, which may indicate automated or scripted enumeration.
 
   ### Prioritization
-  This alert has a medium severity level because while the execution of `dnscmd.exe` can signify legitimate administrative behavior, it can also indicate an active reconnaissance effort by a malicious actor. The potential impact of exposing sensitive DNS records could lead to further attacks against the infrastructure.
+
+  This alert is of medium severity given the potential impact of disclosing sensitive DNS infrastructure information. The risk of malicious use is moderate, as DNS zone enumeration can facilitate further attacks. Although this behavior is not as commonly weaponized as other tactics, it serves as a precursor to more severe attacks when combined with additional reconnaissance.
 
   ### Blind Spots and Assumptions
-  There are inherent gaps in detection if the log collection for process creation events is not comprehensive or if logging levels are incorrectly set. The detection logic assumes that any execution of `dnscmd.exe` with specific arguments is suspicious unless otherwise indicated by context. Successful detection requires active monitoring of Windows process creation logs, along with the necessary permissions to gather and analyze them.
+
+  The detection may be limited by legitimate administrative activities that involve `dnscmd.exe`, as well as potential evasion techniques, such as attackers using native tools or modifying command-line arguments to bypass detection. Required log sources include event logging configurations that capture process creation, specifically for the Command Line field. Additionally, legitimate scripted maintenance tasks may trigger this alert inadvertently. Companion detections around abnormal authentication logs (e.g., Event ID 4625 for failed logins) could strengthen coverage and contextual analysis of potential breaches.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -5,8 +5,8 @@ description: |
   Detects potentially suspicious processes being spawned by a web server process which could be the result of a successfully placed web shell or exploitation
 references:
 - https://media.defense.gov/2020/Jun/09/2002313081/-1/-1/0/CSI-DETECT-AND-PREVENT-WEB-SHELL-MALWARE-20200422.PDF
-author: Thomas Patzke, Florian Roth (Nextron Systems), Zach Stanford @svch0st, Tim
-  Shelton, Nasreddine Bencherchali (Nextron Systems)
+author: Thomas Patzke, Florian Roth (Nextron Systems), Zach Stanford @svch0st, 
+  Tim Shelton, Nasreddine Bencherchali (Nextron Systems)
 date: 2019-01-16
 modified: 2024-11-26
 tags:
@@ -84,34 +84,38 @@ detection:
     CommandLine|contains|all:
     - 'sc query'
     - 'ADManager Plus'
-  condition: 1 of selection_webserver_* and selection_anomaly_children and not 1 of
-    filter_main_*
+  condition: 1 of selection_webserver_* and selection_anomaly_children and not 1
+    of filter_main_*
 falsepositives:
 - Particular web applications may spawn a shell process legitimately
 level: high
 note: |
   ### Technical Context
-  This rule is designed to detect potentially malicious processes being spawned by legitimate web server processes. Such activity may suggest the presence of a web shell or exploitation of vulnerabilities within the web application ecosystem. Attackers often leverage web-serving platforms to execute arbitrary commands or scripts, leading to unauthorized access and control over the affected system. The objective typically includes lateral movement within the network and exfiltration of sensitive data.
 
-  Relevant MITRE ATT&CK tactics and techniques include:
-  - **Initial Access (TA0001)**: This phase encompasses the methods attackers use to gain an initial foothold in a network, such as exploiting web applications.
-  - **Persistence (TA0003)**: Techniques like **T1505.003 (Web Shell)** illustrate how attackers maintain access through malicious web shells.
-  - **Execution (TA0002)**: Detecting processes initiated by web server software can point toward the execution of unauthorized commands.
+  This rule detects suspicious child processes spawned by known web server processes, such as `caddy.exe` and `httpd.exe`. The behavior indicates potential exploitation, possibly through web shells, with the attacker aiming to execute arbitrary commands on the web server, often for data exfiltration or lateral movement. This relates to the MITRE ATT&CK technique for "Web Shell" (T1505.003) and "Exploitation of Public-Facing Applications" (T1190).
 
-  Primary data sources for this detection include:
-  - **Process creation events**: These logs provide insight into the execution of programs, capturing the parent-child relationship and the command line arguments used.
-  - **Web server logs**: Access and error logs may offer context about incoming requests that correlate with suspicious process activity.
+  Primary telemetry sources for this detection include process creation logs from Windows, specifically Security Event ID 4688 or Sysmon Event ID 1. If malicious, it could compromise the integrity and availability of web applications, potentially leading to system-wide exploitation. Importantly, this rule does not confirm malicious activity on its own; further context, such as network activity or additional logs, is required.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Analyze logs for processes initiated by recognized web server binaries (e.g., `httpd.exe`, `nginx.exe`). Investigate any child processes that are unexpected or have anomalous names.
-  - **Correlate with Web Server Logs**: Look at the web server access logs to identify any incoming requests that precede suspicious process creation. Pay attention to unusual URL patterns or request methods that could indicate exploitation attempts.
-  - **Analyze Command Line Arguments**: Focus on command lines associated with newly spawned processes that signal potential malicious activity (e.g., execution of networking tools or Windows utilities like `powershell.exe`, `cmd.exe`).
-  - **Check for False Positives**: Review the context around any flagged alerts for known legitimate processes specific to your environment, as certain web applications may spawn expected subprocesses.
+
+  - **Check process creation logs:** Review Security Event ID 4688 for processes spawned by `caddy.exe`, `httpd.exe`, or other listed web server binaries. Focus on child processes that are unexpected for a web server context.
+
+  - **Analyze command lines of child processes:** Look for CommandLine values of child processes (e.g., containing `powershell.exe`, `cmd.exe`, or listed anomalous executables). Malicious command lines may involve downloading additional payloads or executing system commands.
+
+  - **Validate legitimate web application behavior:** Identify if the parent processes are part of legitimate web applications. For example, a process spawned from `w3wp.exe` (IIS Worker Process) should generally not execute `cmd.exe` or `powershell.exe`.
+
+  - **Correlate with additional security telemetry:** Use Sysmon logs to identify parent and child process relationships. Assess if unusual parent-child process combinations correlate with alerts from IDS/IPS or web application firewalls indicating potential exploitation.
+
+  - **Identify known false positives:** Evaluate recent changes or legitimate applications that may utilize the processes listed in the filter (like `ADManager`). Determine if their command lines suggest expected behavior versus malicious intent.
+
+  - **Investigate asset criticality:** Ascertain if affected servers are hosting critical applications or sensitive data, prioritizing response based on asset impact and importance within the enterprise environment.
 
   ### Prioritization
-  Alerts generated by this rule should be prioritized as high due to the potential risk of compromised server environments, which can lead to broader network intrusions and data breaches. The techniques involved in exploiting web applications are commonly employed by attackers, making detection critical for maintaining enterprise security.
+
+  This alert is of **high severity** due to the potential exploitation of web servers, which are often primary targets for adversaries aiming to establish footholds within enterprise environments. Such behaviors are increasingly weaponized, especially with prevalence in recent cyberattack patterns, where web shells facilitate further compromise.
 
   ### Blind Spots and Assumptions
-  There are possible blind spots in environments with custom web applications or configurations that may not align with typical server processes captured in the rule. The detection logic assumes that logs for process creation are being collected and are complete, which may not always be the case due to logging configuration settings. Additionally, legitimate web applications could spawn unusual processes that could lead to false positives, making it essential to investigate in context and validate normal operational behavior in your environment.
+
+  Detection may miss cases where an adversary utilizes obfuscation or renamed legitimate processes to evade this rule. Additionally, the lack of sufficient logging from less monitored servers could hinder detection. Legitimate activities triggering this alert might include maintenance tasks performed by web application frameworks. A related detection would be identifying unusual outbound network activity from web server processes, which would complement this rule by revealing potential command and control communications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

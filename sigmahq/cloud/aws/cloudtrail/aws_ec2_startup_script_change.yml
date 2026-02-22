@@ -1,8 +1,9 @@
 title: AWS EC2 Startup Shell Script Change
 id: 1ab3c5ed-5baf-417b-bb6b-78ca33f6c3df
 status: test
-description: Detects changes to the EC2 instance startup script. The shell script
-  will be executed as root/SYSTEM every time the specific instances are booted up.
+description: Detects changes to the EC2 instance startup script. The shell 
+  script will be executed as root/SYSTEM every time the specific instances are 
+  booted up.
 references:
 - https://github.com/RhinoSecurityLabs/pacu/blob/866376cd711666c775bbfcde0524c817f2c5b181/pacu/modules/ec2__startup_shell_script/main.py#L9
 author: faloker
@@ -27,25 +28,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects modifications to the AWS EC2 instance startup shell script, which is a critical component that runs as root or SYSTEM during the boot process of an instance. Attackers may exploit this capability to embed malicious scripts that could facilitate persistent access, data exfiltration, or other malicious activities within an organization’s cloud environment. The typical threat scenario involves a compromised IAM account or misconfigurations that allow unauthorized users to modify instance attributes and inject malicious scripts.
 
-  The presence of such modifications can indicate potential malicious activities tied to the MITRE ATT&CK techniques, particularly those under the Execution tactic, including:
-  - **T1059.001 - Command and Scripting Interpreter: Shell**
-  - **T1059.003 - Command and Scripting Interpreter: Windows Command Shell**
-  - **T1059.004 - Command and Scripting Interpreter: Unix Shell**
+  This rule detects modifications to the startup shell script executed as root on AWS EC2 instances. Such changes can be indicative of an attacker trying to establish persistence or execute malicious commands on system startup. The likely goal here is to execute scripts that may exfiltrate data, install backdoors, or perform other nefarious activities upon instance launch. The relevant MITRE ATT&CK tactic is "Execution" with techniques T1059.001 (Command and Scripting Interpreter: Bash), T1059.003 (Command and Scripting Interpreter: PowerShell), and T1059.004 (Command and Scripting Interpreter: Windows Command Shell).
 
-  The primary data source for this detection is AWS CloudTrail logs, which track API calls and modifications made to EC2 instances, thus providing a detailed account of any changes made to instance attributes, including startup scripts.
+  Primary telemetry sources include AWS CloudTrail logs, specifically monitoring `eventSource: ec2.amazonaws.com` and `eventName: ModifyInstanceAttribute`. If detected modifications are malicious, the attacker could gain persistent access to the compromised EC2 instance. This detection does NOT confirm malicious intent on its own as valid changes to startup scripts may occur during administration or provisioning activities.
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Examine the CloudTrail logs for events capturing `ModifyInstanceAttribute` actions, specifically filtering for changes to the `userData` attribute.
-  - **Identify Source IP Addresses**: Check the source IP addresses associated with the modification events to identify if the changes originated from legitimate users or unexpected locations.
-  - **Examine IAM Policies**: Investigate the IAM policies of user accounts and roles that have made changes to ensure they have appropriate permissions and are not overly permissive.
-  - **Analyze Instance Performance Logs**: Look for unusual behavior or performance degradation in the affected EC2 instances that might indicate the execution of unauthorized scripts.
+
+  - **Check CloudTrail logs for modifications:** Review AWS CloudTrail logs for `ModifyInstanceAttribute` events. Key fields to examine: `userIdentity`, `eventTime`, and `requestParameters`. Look for unfamiliar or anomalous user identities associated with the modification.
+
+  - **Validate expected behavior:** Assess whether the modification was part of approved change management processes. Valid changes are typically associated with specified personnel and documented in change logs.
+
+  - **Identify high-risk indicators:** Look for unusual scripts or commands in the `userData` field of `ModifyInstanceAttribute` events that include remote callouts or encoded data (e.g., base64-encoded strings).
+
+  - **Cross-reference with instance configuration:** Examine the EC2 instance's tags and metadata (using AWS CLI or Console) to ensure that the instances whose scripts were modified are correctly configured and assessed regarding their role and criticality to the enterprise.
+
+  - **Review IAM roles and user privileges:** Investigate if the IAM user or role responsible for the modification has excessive permissions. Ensure that the principle of least privilege is being applied.
 
   ### Prioritization
-  This alert is classified as high severity due to the significant risk that unauthorized changes to startup scripts can pose. Malicious scripts executed with root privileges significantly increase the likelihood of compromise within the cloud environment, making it essential to address such alerts with urgency.
+
+  Severity is high due to the potential for unrestricted execution of scripts with root privileges on EC2 instances, which can lead to significant data exfiltration or operational disruption. The likelihood of malicious exploitation is high, especially if unfamiliar patterns are observed in `userData` modifications, as these may frequently be weaponized by adversaries.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection if the logs from CloudTrail are not being retained long enough or if there are misconfigurations that prevent logging of relevant events. Additionally, the detection assumes that all changes to the startup script should be scrutinized, which may not account for valid operational requirements such as routine maintenance or updates by authorized personnel. This alert relies on the existence of robust CloudTrail logging configurations to capture changes effectively; without these, detection may be incomplete or ineffective.
+
+  Possible evasion techniques might include legitimate users falsely modifying startup scripts to blend in with regular activity. The detection relies on effective logging configurations for AWS CloudTrail; therefore, logs must be enabled and retained for comprehensive visibility. Legitimate CI/CD processes may also trigger the alert during automated deployments. A related detection to consider increasing overall coverage is monitoring `RunInstances` events to detect when new instances are provisioned with potentially malicious user data.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

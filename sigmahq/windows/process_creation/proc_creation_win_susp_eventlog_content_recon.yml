@@ -110,46 +110,40 @@ detection:
     - 'EventCode=?22?'
     - 'EventIdentifier=?22?'
     - 'System[EventID=22]'
-  condition: 1 of selection_logs_* and (selection_wmi or all of selection_wevtutil_*
-    or all of selection_wmic_* or selection_cmdlet)
+  condition: 1 of selection_logs_* and (selection_wmi or all of 
+    selection_wevtutil_* or all of selection_wmic_* or selection_cmdlet)
 falsepositives:
 - Legitimate usage of the utility by administrators to query the event log
 level: medium
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_susp_eventlog_content_recon/info.yml
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of log query utilities designed to extract data from Windows event logs, such as `wevtutil`, `wmic`, and PowerShell commands like `Get-WinEvent`. The likely attacker objective is to uncover sensitive information—like usernames or IP addresses—by querying specific event IDs that may provide insights into user activity or system configurations, fitting within the MITRE ATT&CK tactics of Credential Access (TA-0006) and Discovery (TA-0007). The primary telemetry sources are Windows process creation logs (Event ID 4688) that detail command-line arguments and associated process images. If malicious, this behavior can lead to account impersonation, further lateral movement, or privilege escalation. However, this detection does NOT confirm that the activity is malicious without considering the context and behavior surrounding the command execution.
+  This rule detects the execution of command-line utilities and PowerShell cmdlets used to query and extract information from Windows event logs. Attackers may use such techniques to gather sensitive data like usernames and session information to plan further actions or maintain persistence. The relevant MITRE ATT&CK techniques include *Credential Access (T1552)* and *Discovery (T1087)*. Primary telemetry sources for this detection are process creation logs from Windows (Event ID 4688), as well as command-line arguments within the logs related to 'wevtutil.exe' and other querying utilities.
 
-  ---
+  If malicious, the security impact could be significant, leading to unauthorized access to sensitive account information or logs, potentially facilitating further attacks or lateral movement. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative activities may also trigger the same events.
 
   ### Investigation Steps
 
-  - **Review the command context:** Analyze the command line associated with the detected process creation (Event ID 4688). Look for suspicious references to event logs, especially involving event IDs like 4624 (Logon) or 4778 (Session reconnect) that may indicate unauthorized reconnaissance attempts.
+  - **Check Event Creation**: Review Windows Security Event ID **4688** to identify process creation incidents for `wevtutil.exe`, `wmic.exe`, and relevant PowerShell commands. Confirm if the commands have the context of querying sensitive event logs.
 
-  - **Check the user permissions:** Correlate the account executing the queries against the organization's list of privileged users. Legitimate administrative users occasionally query logs using the detected utilities. Confirm if the user has the proper justification and need for such activities.
+  - **Analyze Command Line Arguments**: Analyze the command line arguments for suspicious patterns such as usage of `-InstanceId` or `EventCode` against sensitive logs like **Security** and **Windows PowerShell**. Malicious queries commonly reference event IDs including **4624** (Logon), or **4778** (Session reconnected).
 
-  - **Identify persistence in querying patterns:** Look for repeated or automated querying behavior (such as execution from scripts) within a short timeframe, especially for particularly sensitive log channels like 'Microsoft-Windows-Security-Auditing' or 'Windows PowerShell.' This can indicate a scripted tactic from an adversary.
+  - **Identify Misuse of Legitimate Tools**: Investigate instances where administrative tools are invoked outside of standard usage patterns. Expected benign behavior includes querying logs to verify health or troubleshoot issues, typically involving `wevtutil` or `Get-WinEvent` with logs specific to a user’s tasks.
 
-  - **Validate process origins:** Verify the origin of the executing utility. For instance, confirm that `wevtutil.exe` is located in the expected directory (`C:\Windows\System32`) and check that the hash matches known good values.
+  - **Correlate with Logon Events**: Cross-reference the suspicious event with Security Event IDs **4624** (successful logon) and **4768** (Kerberos TGT requested) to ascertain whether the querying corresponds with unusual user activity, such as logins at odd hours or from unfamiliar locations.
 
-  - **Check for related log events:** Investigate any correlating events during the same timeframe, especially failed logon attempts (Event ID 4625) or unusual user session behavior, that might enhance the context surrounding the detected activity.
+  - **Verify Against Anomaly Thresholds**: Assess if the detected queries are part of a higher than normal volume for logs in your environment, thus indicating potential reconnaissance activity against Dominion Accounts or high-privilege users.
 
-  ---
+  - **Look for Exfiltration Attempts**: If applicable, check for file creation or modified timestamps that may suggest skills to capture logs (e.g., log timestamps, or exports via `wevtutil`), which can indicate the movement of data out of the environment.
 
   ### Prioritization
 
-  This alert should be considered medium priority due to its potential to indicate reconnaissance or preparation for further malicious activities. The affected systems are commonly critical components within the enterprise (e.g., domain controllers), and the behavior could easily be weaponized to facilitate account takeovers or lateral movement.
-
-  ---
+  The alert has a **medium severity** due to the potential impact on sensitive accounts and the likelihood of information gathering by adversaries. Given that attackers often utilize these techniques to facilitate further unauthorized access, the alert merits swift analyst review.
 
   ### Blind Spots and Assumptions
 
-  Detection may be circumvented by legitimate administrative tasks that utilize log querying commands, leading to false positives. Furthermore, it relies on the proper logging configuration and retention settings to capture necessary telemetry over time. Routine administrative activities, especially around event log maintenance, may trigger this alert. An effective companion detection would be monitoring for unusual access patterns to critical systems (e.g., unauthorized remote access alerts) which can validate or contest the legitimacy of log querying attempts.
-
-  ---
+  This detection is limited by the ability to execute legitimate processes, which may be misclassified due to benign administrative actions. Ensuring complete logging from Windows Event logs is essential for reliable detection. Legitimate use cases such as security audits or investigations by IT staff may also generate alerts. A related detection to consider is monitoring for suspicious account logins (Event ID **4624**) that may coincide with the event log queries, enhancing context for the flagged behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

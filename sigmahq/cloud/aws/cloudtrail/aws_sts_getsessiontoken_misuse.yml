@@ -1,8 +1,8 @@
 title: AWS STS GetSessionToken Misuse
 id: b45ab1d2-712f-4f01-a751-df3826969807
 status: test
-description: Identifies the suspicious use of GetSessionToken. Tokens could be created
-  and used by attackers to move laterally and escalate privileges.
+description: Identifies the suspicious use of GetSessionToken. Tokens could be 
+  created and used by attackers to move laterally and escalate privileges.
 references:
 - https://github.com/elastic/detection-rules/pull/1213
 - https://docs.aws.amazon.com/STS/latest/APIReference/API_GetSessionToken.html
@@ -26,32 +26,47 @@ detection:
     userIdentity.type: IAMUser
   condition: selection
 falsepositives:
-- GetSessionToken may be done by a system or network administrator. Verify whether
-  the user identity, user agent, and/or hostname should be making changes in your
-  environment. GetSessionToken from unfamiliar users or hosts should be investigated.
-  If known behavior is causing false positives, it can be exempted from the rule.
+- GetSessionToken may be done by a system or network administrator. Verify 
+  whether the user identity, user agent, and/or hostname should be making 
+  changes in your environment. GetSessionToken from unfamiliar users or hosts 
+  should be investigated. If known behavior is causing false positives, it can 
+  be exempted from the rule.
 level: low
 note: |
+  ---
+
   ### Technical Context
-  The rule identifies suspicious usage of the AWS Security Token Service (STS) `GetSessionToken` API call. This API call allows users to request temporary security credentials, which can be exploited by attackers to gain unauthorized access to resources or escalate privileges within an AWS environment. Attackers may use this tactic to create session tokens for lateral movement within a compromised account or to impersonate other users, thus evading detection.
 
-  The primary tactics involved here are "Lateral Movement" and "Privilege Escalation," specifically related to the MITRE ATT&CK techniques T1548 (Abuse Elevation Control Mechanism) and T1550 (Use Alternate Authentication Material). Unauthorized or unexpected calls to the `GetSessionToken` endpoint should be regarded as potential indicators of account compromise, especially if they originate from unusual user identities or geographic locations.
+  This Sigma rule detects the suspicious invocation of the `GetSessionToken` API call within AWS, which allows for the generation of temporary security credentials. Attackers may exploit this functionality to acquire session tokens that facilitate lateral movement within the environment or escalate privileges by assuming roles with broader access than their current IAM permissions. Relevant MITRE ATT&CK tactics include Lateral Movement (TA0008), Privilege Escalation (TA0004), and Defense Evasion (TA0005), specifically techniques T1548 (Abuse Elevation Control Mechanism) and T1550 (Use Alternate Authentication Material).
 
-  Relevant primary data sources for this detection include AWS CloudTrail logs, which record API calls made within an AWS account. Monitoring these logs will help identify any irregularities in the use of temporary security credentials.
+  The primary telemetry sources for this detection are CloudTrail logs. Specifically, the log type related to AWS API calls must capture details such as user identity, event source, and event name associated with the `GetSessionToken` call. If malicious, this behavior could lead to unauthorized access to sensitive resources. It's important to note that this detection does NOT confirm malicious behavior on its own, as the `GetSessionToken` API can also be legitimately invoked by authorized administrators or services.
+
+  ---
 
   ### Investigation Steps
-  - **Review CloudTrail Logs**: Examine the AWS CloudTrail logs for unusual entries regarding the `GetSessionToken` API call. Pay special attention to the user identity, user agent, and regions associated with the API requests.
 
-  - **Identify User Context**: Determine the legitimacy of the IAM user making the request. Cross-reference the user identity with operational roles and expected behavior patterns to identify any deviations from normal activity.
+  - **Analyze user identity and source:** Review the `userIdentity` field from CloudTrail logs (Event Name: `GetSessionToken`). Legitimate administrative users typically have elevated permissions and frequently engage in such activities. In contrast, unfamiliar IAM users or internal accounts should raise flags.
 
-  - **Analyze Access Patterns**: Look for subsequent API calls made using the temporary credentials obtained from `GetSessionToken`. Analyze these calls for any lateral movement or privilege escalation attempts, such as accessing sensitive resources or performing administrative actions.
+  - **Verify the context of token requests:** Check the `userAgent` and `sourceIpAddress` fields associated with the API call. Activity from non-standard IP ranges or unusual user agents compared to documented organizational behavior should prompt deeper analysis.
 
-  - **Conduct Behavioral Analysis**: Investigate the context of the requests by correlating them with behavioral baselines. Identify any anomalous behavior that could indicate malicious intent, such as accessing resources outside the user's standard operation scope.
+  - **Assess IAM Role permissions:** Cross-reference the role assumed via this token (if applicable) against established access policies. If the role grants access beyond standard verification levels for the user, this may indicate a potential compromise.
+
+  - **Identify session token usage:** Examine subsequent CloudTrail logs following the `GetSessionToken` call to detect if the token was used to perform additional actions (e.g., EC2 `RunInstances`, S3 `PutObject`) beyond the expected administrative behavior. Artifacts from unauthorized actions could indicate a compromised environment.
+
+  - **Document expected behaviors:** Compare the detected activity against expected patterns for authorized tasks within your environment. For instance, scheduled tasks executed by recognized automation tools should not invoke `GetSessionToken` unless explicitly required for AWS resource management.
+
+  ---
 
   ### Prioritization
-  The alert has been categorized as low severity; however, it warrants further investigation, especially in environments where `GetSessionToken` usage is infrequent. While the activity can sometimes be legitimate, unexplained or unexpected instances may indicate potential compromise, necessitating a cautious approach.
+
+  The alert severity is low due to its potential legitimate uses, primarily by system administrators. However, the likelihood of abuse exists, particularly if the request originates from unrecognized users or sources. This behavior can be exploited by attackers as part of a broader strategy for lateral movement and privilege escalation, making investigation essential.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule primarily assumes that `GetSessionToken` calls from unusual sources or identities signify compromise, which might not always hold true. There may be gaps in detection if logging for AWS CloudTrail is improperly configured or if there are extensions in place that obfuscate event details. It also assumes that analysts are familiar with typical usage patterns for accounts, which may not always align across varied organizational environments. Ensuring comprehensive CloudTrail logging is essential for the rule to function effectively.
+
+  Detection may be limited by legitimate broad usage of `GetSessionToken` in combination with IAM user permissions. Ensure that CloudTrail is enabled for all regions to capture relevant events reliably. Activities such as routine administrative token requests by legitimate staff can trigger this alert, necessitating careful context evaluation. Companion detections, such as monitoring AWS IAM role changes (Event Name: `UpdateAssumeRolePolicy`), can enhance security oversight and mitigate blind spots around privilege escalation risks.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

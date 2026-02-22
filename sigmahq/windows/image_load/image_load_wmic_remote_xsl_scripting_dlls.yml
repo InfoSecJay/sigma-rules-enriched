@@ -32,29 +32,39 @@ detection:
 falsepositives:
 - The command wmic os get lastbootuptime loads vbscript.dll
 - The command wmic os get locale loads vbscript.dll
-- Since the ImageLoad event doesn't have enough information in this case. It's better
-  to look at the recent process creation events that spawned the WMIC process and
-  investigate the command line and parent/child processes to get more insights
+- Since the ImageLoad event doesn't have enough information in this case. It's 
+  better to look at the recent process creation events that spawned the WMIC 
+  process and investigate the command line and parent/child processes to get 
+  more insights
 - The command `wmic ntevent` loads vbscript.dll
 level: medium
 note: |
   ### Technical Context
-  This detection rule is designed to identify the use of Windows Management Instrumentation Command-line (WMIC) for executing malicious scripts that could be disguised as legitimate commands or processes. Attackers often exploit WMIC with the `/FORMAT` argument to execute scripts stored in XSL files, such as JavaScript (JS) or VBScript (VBS), thereby bypassing traditional security controls. Such actions may indicate a possible SquiblyTwo attack, where adversaries remotely execute code on compromised systems without triggering standard defenses, making it crucial to detect and investigate these occurrences promptly.
 
-  The primary objectives of attackers utilizing this technique include delivering payloads, establishing persistence, or executing commands remotely while attempting to avoid detection by security solutions. Related MITRE ATT&CK tactics include **Defense Evasion** (TA0005) and techniques like **Command and Scripting Interpreter: PowerShell (T1059)** and **Windows Management Instrumentation (WMI) (T1047)**, which detail methods associated with executing code in a stealthy manner.
+  This Sigma rule detects the use of Windows Management Instrumentation Command-line (WMIC) to load scripting libraries such as JScript or VBScript in a potentially malicious context. Attackers may leverage this behavior to execute payloads in a stealthy manner, often aiming to bypass application whitelisting or other security controls while executing malicious scripts or commands. This activity is indicative of the MITRE ATT&CK technique for "Command and Scripting Interpreter: Windows Command Shell" (T1059.003) as it demonstrates a method of executing commands via WMIC.
 
-  The best sources of evidence for this detection are the image load events for WMIC and the associated libraries it invokes, specifically referencing **jscript.dll** and **vbscript.dll**. Additionally, process creation events may provide context regarding anomalous WMIC executions, revealing the command lines used and their parent processes for further investigation.
+  Logs from Windows Event ID 4657 (Registry value modified) along with Image Load event data are essential to support this detection. If malicious, this behavior could allow arbitrary code execution in the context of the WMIC process, potentially compromising the system or exfiltrating sensitive data. It’s important to note that this detection alone does not confirm that the activity is malicious; legitimate scripts or administrative actions may trigger similar log entries.
 
   ### Investigation Steps
-  - **Review Image Load Events:** Analyze recent image load events to identify instances where `wmic.exe` loaded libraries such as `jscript.dll` or `vbscript.dll`, noting any unusual activity or patterns.
-  - **Examine Process Creation Logs:** Collect and review process creation logs for instances where WMIC was invoked. Focus on the command lines used and the parent-child relationships of processes to uncover potentially malicious behavior.
-  - **Correlate with Other Logs:** Cross-reference findings with logs from your SIEM, EDR, or NGFW to identify any other indicators of compromise or suspicious outbound activity linked to the WMIC executions.
-  - **Investigate Network Activity:** Look for unusual outbound connections or data transfers that coincide with the timing of WMIC executions, particularly to untrusted domains or IPs that might indicate exfiltration or command-and-control (C2) communication.
+
+  - **Check recent WMIC process executions:** Verify the command line used in Event ID 4688. Look for unusual parameters or references to scripts (e.g., `.js` or `.vbs`) that indicate potentially malicious intent.
+
+  - **Identify parent processes:** Correlate the WMIC execution with its parent process. Investigate if a suspicious executable (like a downloader or previously flagged malware) initiated the WMIC command.
+
+  - **Analyze Image Load events:** Filter logs for Image Load events, specifically Event ID 169 (from Sysmon) to see if any libraries like `jscript.dll` or `vbscript.dll` were loaded alongside WMIC, and assess the context to determine if they align with expected behavior.
+
+  - **Review for benign activities:** Identify legitimate WMIC usage patterns, such as `wmic os get locale` or `wmic os get lastbootuptime`, where loading `vbscript.dll` is expected. Compare against abnormal script execution attempts or patterns.
+
+  - **Monitor command outputs for anomalies:** If available, check outputs from WMIC commands being executed. Unusual output (e.g., error messages) could signify an improper use case that warrants further investigation.
+
+  - **Cross-reference with existing threat intelligence:** Verify if the observed command line arguments or loaded DLLs have been cited in known attack scenarios, especially those attributed to SquiblyTwo or other actors utilizing WMIC for script execution.
 
   ### Prioritization
-  The alert is classified as medium severity due to the potential for adverse impacts on system integrity and confidentiality when WMIC is leveraged for malicious purposes. Given the ability to execute code remotely and circumvent security measures, timely investigation and response are essential.
+
+  This alert should be considered medium severity due to the potential security impact of arbitrary code execution via WMIC, particularly on critical systems. Given the stealthy nature of such commands and their capability for malicious exploitation, timely investigation is crucial. However, since benign administrative use of WMIC is common, appropriate contextual evaluation is necessary before escalating.
 
   ### Blind Spots and Assumptions
-  Detection may miss instances where WMIC is used in legitimate contexts or by trusted internal processes, leading to potential false positives. The detection logic assumes that sufficient logging is enabled to capture image loads and process creation events; without these logs, the detection may be ineffective. Additionally, certain attack techniques that utilize WMIC may not be represented in the log data, leading to gaps in awareness regarding ongoing exploitation attempts.
+
+  Detection can be limited when legitimate administrative tasks mimic abusive patterns, leading to false positives. Evasion techniques may include using legitimate WMIC commands blended with malicious payloads, obscuring intent. Ensure that logging for Image Load events and relevant Event IDs is properly configured for accurate detections. It's also beneficial to monitor for related indicators like command shell activities (T1059) or PowerShell executions (T1086) that may demonstrate overlapping malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,8 @@
 title: Nohup Execution
 id: e4ffe466-6ff8-48d4-94bd-e32d1a6061e2
 status: test
-description: Detects usage of nohup which could be leveraged by an attacker to keep
-  a process running or break out from restricted environments
+description: Detects usage of nohup which could be leveraged by an attacker to 
+  keep a process running or break out from restricted environments
 references:
 - https://gtfobins.github.io/gtfobins/nohup/
 - https://en.wikipedia.org/wiki/Nohup
@@ -23,48 +23,30 @@ falsepositives:
 - Administrators or installed processes that leverage nohup
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of the `nohup` command on Linux systems, which is often used to run processes immune to hangups, allowing them to continue running after a user logs out. Attackers may utilize `nohup` to maintain persistence or run malicious scripts in the background, especially in compromised environments. The behavior aligns with the MITRE ATT&CK technique **Execution via Scripting** (T1059.004).
+  This rule detects the execution of the `nohup` command, which is often used by adversaries to ensure that processes remain running even after a user logs out or to circumvent environment restrictions. The likely objective is to maintain persistence or run shell commands in a non-interactive session, which can facilitate further exploitation. This aligns with the MITRE ATT&CK technique "Command and Scripting Interpreter: Unix Shell" (T1059.004).
 
-  The primary telemetry source is process creation logs from Linux systems. This includes log entries that document command executions and arguments. If malicious, the presence of `nohup` can indicate that an attacker is trying to maintain an unauthorized process without being disrupted. However, it is important to note that simply executing `nohup` does not inherently confirm malicious intent; legitimate users may also leverage this command for valid purposes.
-
-  ---
+  Primary telemetry sources are Linux process creation logs, specifically looking for events that indicate the command execution. If malicious, this could indicate unauthorized persistence mechanisms or command execution that would allow an attacker to maintain control over a system. Notably, this detection does **NOT** confirm that the process is inherently malicious; legitimate system administrators may utilize `nohup` for valid purposes.
 
   ### Investigation Steps
 
-  - **Review process creation logs:**
-    Inspect `/var/log/auth.log` for entries related to `nohup`. Look for unusual execution paths or arguments that don't match standard usage patterns.
+  - **Identify the executing user:** Examine the process creation logs (Linux Syslog or similar) for the `nohup` command execution. Look for the user ID or username associated with the process. Legitimate users such as system administrators or automated scripts may run this, while unexpected or low-privilege accounts could be suspicious.
 
-  - **Identify usage context:**
-    Determine if the command originator has legitimate administrative privileges. Flags indicating administrative usage may suggest benign intent, while usage by non-administrative accounts could be suspicious.
+  - **Review command arguments:** Check the arguments passed to `nohup` by analyzing the `cmdline` field in the process logs. Any invocation with obfuscated or malicious scripts (e.g., scripts pulling from untrusted sources) should be flagged as high-risk indicators.
 
-  - **Correlate with scheduled jobs:**
-    Check for crontab entries associated with the user who executed `nohup` (e.g., `crontab -l -u [username]`). Legitimate entries should correspond with known scheduled tasks while unexpected entries may indicate malicious activity.
+  - **Monitor for parent-child process relationships:** Explore parent process IDs in the logs. If `nohup` is spawned from a well-known benign process (like a system service), it may be more acceptable. However, if it originates from a suspicious script or a command-line tool known for exploitation, it raises concerns.
 
-  - **Scan for additional process creations:**
-    Examine Sysmon equivalent entries or process information for related child processes spawned by the nohup command. Look at PID relationships in `/proc/[pid]/` and check if these processes perform suspicious activities, particularly network communications or file access.
+  - **Fetch process lifecycle history:** Use telemetry tools to review the process lifecycle, ensuring it aligns with expected behavior. For example, legitimate use cases might involve long-running background scripts, while a sudden `nohup` execution at odd times could indicate malicious activity.
 
-  - **Analyze network connections:**
-    Check for outbound connections from processes associated with `nohup`. Use commands like `netstat -tunap` to find connections that could indicate data exfiltration or command-and-control (C2) activity.
-
-  - **Look for common evasion patterns:**
-    Assess if the execution of `nohup` follows after an unusual command that could indicate prior compromise—particularly, check for any `bash` or `sh` shell, which might have been used to initially spawn `nohup`.
-
-  ---
+  - **Evaluate environment variables:** Investigate the environment variables associated with the running `nohup` command. Temporary variables that manipulate execution paths or access sensitive data may indicate malicious intent if they don't correlate with safe operations.
 
   ### Prioritization
 
-  The alert severity is medium, as while the `nohup` command can be weaponized to maintain process persistence, it is also commonly used for legitimate purposes, particularly by system administrators. Therefore, careful analysis is necessary to determine the nature of the execution in the context of the affected system.
-
-  ---
+  This alert has medium severity due to the potential for malicious use but is contextualized by the environment's risk profile. An affected system's criticality, particularly if it holds sensitive information or has direct access to the network, elevates the concern. Since `nohup` can be weaponized for persistence, any instance should prompt further analysis, especially in sensitive contexts.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of evasion techniques where attackers might obfuscate their commands or use alternate persistence methods. Reliable detection requires that process creation logs are properly configured and monitored, which can sometimes be overlooked. Additionally, administration-related automation scripts may trigger this alert, complicating threat assessment. A companion detection that may strengthen coverage is monitoring for unusual use of other execution commands like `screen` or `tmux`, which could indicate similar attack patterns.
-
-  ---
+  Detection may miss legitimate usage scenarios by system administrators running scripts that require persistence, thereby potentially leading to false positives. This detection relies on proper logging configurations for process creation; any gaps can result in undetected misuse. A related detection could include monitoring for other command execution patterns or suspicious command line activity to bolster context and coverage against malicious behaviors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -4,13 +4,14 @@ related:
 - id: 17f878b8-9968-4578-b814-c4217fc5768c
   type: obsolete
 status: test
-description: Detects modification of autostart extensibility point (ASEP) in registry.
+description: Detects modification of autostart extensibility point (ASEP) in 
+  registry.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
 - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
 - https://gist.github.com/GlebSukhodolskiy/0fc5fa5f482903064b448890db1eaf9d     # a list with registry keys
-author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur Zinniatullin,
-  oscd.community, Tim Shelton, frack113 (split)
+author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur 
+  Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
 date: 2019-10-25
 modified: 2023-08-17
 tags:
@@ -41,47 +42,35 @@ detection:
     Details: '(Empty)'
   condition: wow_classes_base and wow_classes and not filter
 falsepositives:
-- Legitimate software automatically (mostly, during installation) sets up autorun
-  keys for legitimate reason
+- Legitimate software automatically (mostly, during installation) sets up 
+  autorun keys for legitimate reason
 - Legitimate administrator sets up autorun keys for legitimate reason
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This detection identifies modifications to Windows registry keys associated with autostart extensibility points (ASEPs), specifically within the `Wow6432Node` path. Attackers often manipulate these keys to ensure persistence or establish malicious behavior during system startup or user login. Relevant MITRE ATT&CK tactics include "Persistence" (TA0003) and "Privilege Escalation" (TA0004), with the specific technique being "Windows Registry Run Keys / Startup Folder" (T1547.001). The primary telemetry sources are Windows Registry Set logs, which record changes made to registry entries, specifically under the `HKLM\SOFTWARE\Wow6432Node\Classes`.
-
-  A successful modification could enable an attacker to execute arbitrary code every time the system starts, compromising security. However, this detection does not confirm that the modification is inherently malicious, as legitimate applications or administrative actions can also trigger the same registry changes.
-
-  ---
+  This rule detects modifications to the Windows registry under the `Wow6432Node\Classes` path, which is commonly used for establishing Autorun settings for various applications. Attackers may exploit this to maintain persistence on compromised systems or escalate privileges by registering malicious shell extensions or handlers. The relevant MITRE ATT&CK techniques are Persistence (T1547.001) and Privilege Escalation (T1068). Primary telemetry sources include Windows Registry logs and Sysmon events capturing registry changes. If malicious, alterations to these keys can allow for unauthorized access and execution of malicious code. However, this detection does NOT confirm that the changes are malicious or provide context on how they were executed.
 
   ### Investigation Steps
 
-  - **Review the specific keys modified:** Check for changes in registry keys under `HKLM\SOFTWARE\Wow6432Node\Classes` using Security Event ID 4663 (Audit Registry) to verify the modification details and timestamps. Look for unusual entries or modifications related to non-standard applications.
+  - **Review the registry entries modified:** Examine Windows Registry logs for the exact keys changed. Look for Event ID 4657 in Security logs or Sysmon Event ID 10 for registry key modifications, focusing on the paths stated in the Sigma rule. Malicious modifications will typically involve shell extension handlers not associated with known, legitimate applications.
 
-  - **Compare against known legitimate software:** Research the modified keys to determine if they are associated with legitimate software installations or updates, particularly searching for recent software installations or updates that would explain these autorun changes.
+  - **Identify the source of modifications:** Check for the process or user account that made the registry change. Use Sysmon Event ID 10 to correlate changes with parent processes. Legitimate installations will often occur during standard application setups by known vendors.
 
-  - **Identify high-confidence malicious indicators:** Look for known malicious CLSIDs (e.g., `{7ED96837-96F0-4812-B211-F13C24117ED3}`) or modifications made by processes with suspicious parent processes, using Sysmon Event ID 1 (Process Creation) to cross-reference with the registry changes.
+  - **Search for unusual parent process origins:** Evaluate the parent process of any suspicious creation or modification. Use Sysmon Event ID 4656/10 combined with Event ID 4688 for process creation to verify if changes originated from unusual or non-administrative accounts.
 
-  - **Cross-check user and system impact:** Analyze user behavior and access logs such as Windows Event ID 4624 (Logon) to identify who made the changes and if the account should have made such modifications. Indications of unauthorized access (like new or unusual logins) should be flagged.
+  - **Validate installation context:** Determine whether these changes coincide with legitimate software installations or updates. Use installation logs or recent software deployments to cross-reference legitimate activity, which may include benign modifications of autorun keys by recognized applications.
 
-  - **Evaluate system role and criticality:** Consider the system’s role within the enterprise (e.g., server vs. client machine) to assess the impact of these registry changes. Changes on high-value assets may necessitate immediate incident response.
+  - **Check for multiple modifications:** Look for a series of modifications to related keys at similar timestamps, indicative of a potential attack. If modified keys (e.g., for context menu handlers) also reference unfamiliar CLSIDs (e.g., `{AC757296-3522-4E11-9862-C17BE5A1767E}`), this is a high-confidence indicator of malicious intent.
 
-  - **Validate file creation or execution artifacts:** Monitor for the execution of newly created programs linked to modified autorun keys, particularly within the specific paths linked to the changes, utilizing Windows Event ID 4688 (Process Creation) to spot any new or modified binaries.
-
-  ---
+  - **Assess recent system changes:** Examine the system for other indicators of compromise, including unusual startup programs or persistent processes suggested by automation tools like Autoruns. Refer to logs for any preload or startup entries that are not normally seen in standard configurations.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential for persistence and privilege escalation through unauthorized registry modifications. Given the common target nature of registry autorun keys, there is a reasonable likelihood of malicious exploitation, warranting timely investigation.
-
-  ---
+  This alert has medium severity as it may indicate an attempt to achieve persistence or escalate privileges, impacting critical systems. The likelihood of malicious abuse is moderate, given that modifications to such registry paths are common in malicious activities, though not limited to them. Variability in legitimate activities may obscure detection.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss obfuscation or legitimate administrative actions that also modify these registry settings, possibly leading to false positives. Rich logging at the system level must be enabled to ensure reliable detection, including auditing on registry access. Legitimate software installations, especially those executed via third-party installers, can trigger this alert. Companion detections, such as monitoring unusual process creations (Sysmon Event ID 1) that correlate with autorun key modifications, enhance the overall detection capability.
-
-  ---
+  Detection limitations exist as legitimate software installations can trigger this alert by modifying autorun keys. Logs from Windows Registry must be configured correctly to capture relevant modifications effectively. Also, benign administrative actions, such as software installations or updates, may lead to similar alerts. A related detection for credential dumping (T1003) could strengthen coverage on persistence mechanisms by providing additional context on user credential usage related to modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

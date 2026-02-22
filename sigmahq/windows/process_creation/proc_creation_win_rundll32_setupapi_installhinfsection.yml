@@ -1,12 +1,13 @@
 title: Suspicious Rundll32 Setupapi.dll Activity
 id: 285b85b1-a555-4095-8652-a8a4106af63f
 status: test
-description: setupapi.dll library provide InstallHinfSection function for processing
-  INF files. INF file may contain instructions allowing to create values in the registry,
-  modify files and install drivers. This technique could be used to obtain persistence
-  via modifying one of Run or RunOnce registry keys, run process or use other DLLs
-  chain calls (see references) InstallHinfSection function in setupapi.dll calls runonce.exe
-  executable regardless of actual content of INF file.
+description: setupapi.dll library provide InstallHinfSection function for 
+  processing INF files. INF file may contain instructions allowing to create 
+  values in the registry, modify files and install drivers. This technique could
+  be used to obtain persistence via modifying one of Run or RunOnce registry 
+  keys, run process or use other DLLs chain calls (see references) 
+  InstallHinfSection function in setupapi.dll calls runonce.exe executable 
+  regardless of actual content of INF file.
 references:
 - https://lolbas-project.github.io/lolbas/Libraries/Setupapi/
 - https://gist.githubusercontent.com/bohops/0cc6586f205f3691e04a1ebf1806aabd/raw/baf7b29891bb91e76198e30889fbf7d6642e8974/calc_exe.inf
@@ -30,46 +31,34 @@ detection:
     - 'InstallHinfSection'
   condition: selection
 falsepositives:
-- Scripts and administrative tools that use INF files for driver installation with
-  setupapi.dll
+- Scripts and administrative tools that use INF files for driver installation 
+  with setupapi.dll
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of `runonce.exe` invoked via `rundll32.exe` with the `setupapi.dll` library's `InstallHinfSection` function. This behavior is indicative of attempts to create persistence on a system by modifying registry keys like Run or RunOnce, or installing malicious drivers as part of a post-exploitation activity. The likely attacker objective is to maintain access and execute arbitrary code outside direct user interaction.
+  This rule detects suspicious behavior associated with the execution of `runonce.exe` from a parent process of `rundll32.exe` using the `setupapi.dll` library. Attackers may use this technique to manipulate the Windows registry for persistence purposes by running unwanted programs or modifying system settings via `.INF` files. Relevant MITRE ATT&CK techniques include: Defense Evasion (T1218.011) - using malicious `.INF` files to gain persistence. The primary telemetry source is Windows Process Creation logs, specifically focusing on Event ID 4688, which provides insights into new process creation and their command lines.
 
-  This detection maps to the MITRE ATT&CK technique of **Reg/Run Keys / Startup Folder** (T1218.011). The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior can lead to persistent compromise, enabling attackers to run their payloads automatically on system startup. Importantly, this detection does NOT confirm malicious intent on its own, as there may be legitimate administrative use of INF files for driver installations.
-
-  ---
+  If this behavior is confirmed as malicious, it could lead to unauthorized persistence, enabling further compromise of the target system. However, this detection does NOT confirm the malicious intent or successful exploitation on its own and should be assessed in conjunction with additional context.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID 4688 and Sysmon Event ID 1 for `runonce.exe` with the associated `ParentImage` of `rundll32.exe` and the `ParentCommandLine` containing `setupapi.dll InstallHinfSection`. Look for unusual command-line arguments indicative of a payload.
+  - **Verify process creation context:** Review Process Creation logs (Event ID 4688) for `runonce.exe` and ensure it's invoked under the parent process `rundll32.exe`. Check if the command line includes `setupapi.dll` and `InstallHinfSection`.
 
-  - **Verify registry changes:** Search the Windows Registry for any recent modifications to Run or RunOnce keys. Specifically, examine HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run and HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run for new entries correlating with the alert.
+  - **Identify benign usage of INF files:** Look for legitimate scripts or administrative tools that utilize INF files for necessary driver installations. Compare command lines against known safe processes to deduce normal operational behavior.
 
-  - **Identify benign scenarios:** Confirm any legitimate software installations or system updates that utilize `setupapi.dll` for known hardware or software updates. This may include reviewing ticketing systems or documentation for planned administrative actions that coincide with the alert timeframe.
+  - **Check for persistence registry modifications:** Query the registry (HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run) for any recent additions or modifications that align with the alert's process. Newly created entries containing suspicious command lines or abnormal file paths should be flagged.
 
-  - **Assess file creation activity:** Analyze file system changes within the same timeframe, focusing on newly created files or executables initiated by `runonce.exe`. Look for unusual file paths or file types that shouldn't be present, checking C:\Windows\System32 or user profile directories.
+  - **Analyze high-confidence malicious indicators:** Investigate for known malicious `.INF` files or templates, like `shady.inf`, which can be used to discern red flags. Check if the source of this file correlates with previous incident patterns.
 
-  - **Correlate with threat intelligence:** Cross-reference the executed command with known threat actor techniques or malware samples that leverage `setupapi.dll` for persistence. Use threat intelligence feeds or internal knowledge bases to identify commonly exploited behaviors.
-
-  - **Engage with asset management:** Review the asset's criticality and role within the infrastructure. Determine if the affected system holds sensitive data or controls significant organizational functions, heightening the response priority if malicious activity is confirmed.
-
-  ---
+  - **Review related security events:** Correlate with other security events logged around the same timestamp (Event IDs 4657 and 4663) that indicate permissions changes or file modifications which could indicate unauthorized activity.
 
   ### Prioritization
 
-  This alert is of medium severity due to potential persistence implications if the behavior is malicious. Systems with critical roles, like domain controllers or servers handling sensitive data, increase the likelihood of exploitation. Given that the misuse of `setupapi.dll` is known in the attack landscape, timely investigation is imperative.
-
-  ---
+  This alert is of medium severity. While it indicates possible ongoing malicious activity, the impact depends on the system's role within the enterprise. The likelihood of adversarial abuse exists due to the known use of `setupapi.dll` for persistence techniques. This behavior is recognized as a method frequently weaponized by attackers.
 
   ### Blind Spots and Assumptions
 
-  There may be detection limitations as legitimate administrative tools using INF scripts for driver installations can trigger the same alert. Reliable detection requires appropriate logging configurations for process creation and registry access. Additionally, integrations like EDR solutions may improve granularity. Related detections include those for `rundll32.exe` invocations without typical administrative context, strengthening overall monitoring coverage.
-
-  ---
+  Detection limitations may exist due to the potential for legitimate administrative scripts to trigger this alert, leading to false positives. Accurate monitoring requires ensuring comprehensive logging of process creation events and registry modifications. Additionally, benign processes utilizing `rundll32.exe` for legitimate operations could mistakenly trigger this detection. A companion detection that can enhance coverage would involve monitoring direct registry writes or changes related to persistence mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

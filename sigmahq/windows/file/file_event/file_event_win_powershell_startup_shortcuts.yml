@@ -28,27 +28,36 @@ detection:
     TargetFilename|endswith: '.lnk'
   condition: selection
 falsepositives:
-- Depending on your environment accepted applications may leverage this at times.
-  It is recommended to search for anomalies inidicative of malware.
+- Depending on your environment accepted applications may leverage this at 
+  times. It is recommended to search for anomalies inidicative of malware.
 level: high
 note: |
   ### Technical Context
-  This rule is designed to detect the creation of startup shortcuts via PowerShell, specifically looking for `.lnk` files being written to the startup directory. Adversaries often utilize this technique to establish persistence on compromised systems, ensuring that malicious scripts or payloads are executed each time a user logs in. In the case of the Yellow Cockatoo threat actor group, this behavior is part of a broader strategy where the execution of these shortcuts triggers a command-line script that subsequently installs a malicious DLL.
 
-  The relevant MITRE ATT&CK tactics for this detection include **Persistence (T1547)**, specifically the technique **T1547.001: Boot or Logon Autostart Execution: Shortcut**. This technique describes the act of creating shortcut files in locations that execute automatically when a user logs onto their system. Effective monitoring of these activities can leverage logs to help identify potential malicious behavior and thwart persistent threats.
+  This Sigma rule detects the creation of startup shortcuts (.lnk files) by PowerShell (powershell.exe or pwsh.exe) in the Windows startup directory. This behavior is commonly associated with adversarial activities aimed at establishing persistence on compromised systems, as the created shortcuts facilitate automatic execution of malicious commands upon user logon. The relevant MITRE ATT&CK techniques include Persistence (T1547.001) under the tactic of Privilege Escalation.
 
-  Primary data sources to inform this detection include file event logs from Windows systems, particularly those detailing changes to files in the startup directory, as they will provide clear evidence of when `.lnk` files are created via PowerShell.
+  The primary telemetry source for this detection is Windows file event logs, specifically focusing on events related to file creation in directories associated with user startup. If exploited, this behavior can lead to continuous code execution, potentially impacting the confidentiality, integrity, and availability of the affected system. Importantly, the detection of this activity does not alone confirm malicious intent; legitimate applications may also create startup shortcuts under certain conditions.
 
   ### Investigation Steps
-  - **Search Log Source for Indicators:** Review file event logs for any instances of PowerShell (`powershell.exe` or `pwsh.exe`) writing `.lnk` files to the startup folder. Look for timestamps correlated with user logins to identify unusual behavior.
-  - **Analyze PowerShell Command History:** Gather PowerShell command history from affected systems to determine the exact commands executed prior to the creation of the shortcut files. Focus on significant or suspicious commands that deviate from normal user activity.
-  - **Review New Startup Entries:** Inspect the contents of the startup folder and examine the properties of any newly created shortcuts, including target file paths and execution parameters, to identify any anomalous entries.
-  - **Identify User Context and Permissions:** Assess which user accounts have executed the PowerShell scripts, and verify whether they possess appropriate privileges. Look for any unauthorized accounts or elevation of privileges in relation to these activities.
+
+  - **Review file creation events:** Check Windows File Event logs (Event ID 4663) for entries related to the creation of .lnk files in the User Startup directory (C:\Users\<Username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup). Compare timestamps with known logon events.
+
+  - **Identify the invoking process:** Use Sysmon (Event ID 1) to track the parent-child process relationship. Validate whether the parent process is powershell.exe or pwsh.exe and verify that the command line arguments used align with typical PowerShell shortcuts.
+
+  - **Evaluate command line details:** In Sysmon logs, analyze the command line flags used by the detected PowerShell processes for obfuscation patterns or suspicious arguments (e.g., Base64 encoding) that deviate from normal PowerShell operations.
+
+  - **Determine legitimacy of the shortcut:** Validate the created .lnk files' properties by inspecting their target path for known malicious executables or scripts. Ensure that no legitimate applications are expected to have created a shortcut at the time.
+
+  - **Correlate with user behavior:** Investigate user login patterns and activity around the time the suspicious shortcut was created to determine if it coincides with anomalous user behavior indicative of compromise.
+
+  - **Examine the system for further artifacts:** Look for other persistence mechanisms, such as modified registry entries under HKCU\Software\Microsoft\Windows\CurrentVersion\Run, which may indicate further malicious persistence tactics employed alongside the .lnk file.
 
   ### Prioritization
-  This alert is classified as high severity due to the potential impact of an attacker establishing persistence within a network environment. Given the likelihood of such techniques being employed by various threat actors, prompt investigation is critical to prevent further compromise and potential data loss.
+
+  This alert is of high severity due to the potential impact on compromised systems, as shortcut persistence can enable continued unauthorized access. The likelihood of malicious abuse is significant, given the common exploitation of PowerShell to facilitate deceptive persistence mechanisms, making this a behavior often weaponized by adversaries.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if PowerShell logs are not configured properly or if file event logging does not encompass every action taken in critical directories. The detection logic assumes that all PowerShell instances writing to the startup folder are malicious unless demonstrated otherwise. Additionally, environments with legitimate applications creating shortcuts may lead to false positives if not adequately filtered, highlighting the need for contextual awareness regarding typical user behavior and application usage to ensure accurate detection.
+
+  This detection may be limited if legitimate software uses PowerShell to create shortcuts for business processes, leading to potential false positives. Dependable detection requires enabling detailed file event logging and Sysmon integration for effective monitoring. Legitimate activities such as the installation of software might also trigger this alert, so context is crucial. A companion detection for registry modifications (e.g., keys under Startup) would enhance visibility into related persistence tactics.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

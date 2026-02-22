@@ -1,8 +1,8 @@
 title: HackTool - CrackMapExec Process Patterns
 id: f26307d8-14cd-47e3-a26b-4b4769f24af6
 status: test
-description: Detects suspicious process patterns found in logs when CrackMapExec is
-  used
+description: Detects suspicious process patterns found in logs when CrackMapExec
+  is used
 references:
 - https://mpgn.gitbook.io/crackmapexec/smb-protocol/obtaining-credentials/dump-lsass
 author: Florian Roth (Nextron Systems)
@@ -45,29 +45,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious process patterns commonly associated with the usage of CrackMapExec, a popular post-exploitation tool used by attackers to automate lateral movement across networks. CrackMapExec can manipulate various elements of the Windows environment, including credential dumping from the Local Security Authority Subsystem Service (LSASS) process, to facilitate unauthorized access.
 
-  The attacker leveraging this tool typically aims to gain higher privileges or to compromise additional assets within the network following an initial breach. Using CrackMapExec enables attackers to exploit weak credentials and dwell within the network by moving laterally or escalating privileges efficiently.
+  This rule detects specific command-line patterns associated with the use of CrackMapExec, a tool frequently employed for credential dumping through the LSASS process. Attackers typically leverage this tool to gain unauthorized access to sensitive information, often targeting user credentials stored in memory. The relevant MITRE ATT&CK tactic is Credential Access, specifically Technique T1003.001 (Credential Dumping: LSASS Memory).
 
-  Relevant MITRE ATT&CK techniques include:
-  - **Credential Access** (T1003)
-  - **Credential Dumping** (T1003.001)
-
-  The primary data sources for this detection are Windows process creation logs, which can reveal command line arguments indicating suspicious behavior, as well as additional telemetry from endpoint detection and response solutions that may capture process interactions.
+  The primary telemetry source for this detection is Windows process creation logs, particularly focusing on specific command lines executed by `cmd.exe` and other related executables. If malicious, the security impact can be significant, as successful credential dumping can lead to further lateral movement and compromise of additional systems within the network. It is important to note that this detection does NOT confirm that an actual breach or credential theft has occurred; it merely highlights suspicious activity warranting further investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs that capture process creation events, focusing specifically on command lines associated with known CrackMapExec patterns, particularly those that reference `lsass.exe` and related dumping commands.
 
-  - **Analyze User Activity**: Investigate accounts that executed the identified commands. Pay special attention to any administrative or high-privileged accounts that may exhibit signs of compromise or unauthorized use of CrackMapExec.
+  - **Review command-line arguments**: Check for instances of `tasklist /fi 'Imagename eq lsass.exe'` or variations. Look for Event ID 4688 (Process Creation) and ensure the user running the command is an expected or legitimate administrator.
 
-  - **Correlate Network Activity**: Check for unusual network connections from machines that executed the detected processes, particularly targeting SMB protocols or using credential access attempts against multiple hosts.
+  - **Correlate with user and system context**: Verify if the user associated with the suspicious command belongs to administrative or security roles and if they had a valid business need for running the tool. Unexpected administrative logins or command execution should warrant higher scrutiny.
 
-  - **Assess Security Monitoring Alerts**: Look into other alerts that may have triggered concurrently, which could indicate a broader attack pattern suggesting lateral movement or privilege escalation tactics being employed.
+  - **Inspect for LSASS dumping attempts**: Look for `rundll32.exe C:\windows\System32\comsvcs.dll, MiniDump` in command lines from Event ID 4688 to identify potential LSASS memory dumps. This is an established technique often used in credential harvesting.
+
+  - **Identify other process patterns**: Analyze for `tasklist /v /fo csv` and `findstr /i "lsass"` in command lines. If found, ascertain if this was part of a legitimate administrative task or indicative of a method for gathering credential information.
+
+  - **Audit the system environment**: Verify host roles and assess if the system is performing expected functions that require administrative access (i.e., Domain Controller vs. regular workstation). Systems performing unnecessary credential dumps should be escalated.
+
+  - **Check for exfiltration artifacts**: Validate the presence of any temporary files created in `C:\Windows\Temp\` that may indicate unauthorized data access. Look for file creation times that coincide with the execution of the suspicious commands.
 
   ### Prioritization
-  This alert is considered high severity due to the critical nature of credential dumping and the potential for extensive network compromise. If attackers successfully utilize CrackMapExec to escalate privileges or spread laterally, the impact could be significant, affecting the entire organization.
+
+  This alert should be classified as high severity due to the potential for significant impact on the security posture of the enterprise. The likelihood of malicious abuse is notably high, as tools like CrackMapExec are commonly associated with advanced persistent threats and lateral movement. Credential dumping is a widely weaponized tactic that can lead to further system compromises.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by gaps in logging configurations, particularly if Windows process creation logs are not being captured comprehensively across all endpoints. The detection logic assumes that any execution of the specified command patterns hints at malicious activity, which could lead to false positives if legitimate administrative tasks exhibit similar patterns. Ensuring appropriate logging settings in both endpoint and server environments is essential for the effective functioning of this alert.
+
+  Detection may be limited by environmental configurations where verbose logging is disabled, potentially missing critical telemetry. Legitimate administrative activities, such as debugging or system administration tasks, may inadvertently trigger the alert. It is recommended to use this detection in conjunction with others, such as monitoring for abnormal logins (e.g., failed logon attempts or anomalous user behavior) to strengthen coverage against potential credential access attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

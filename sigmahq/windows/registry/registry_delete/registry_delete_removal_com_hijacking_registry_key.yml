@@ -93,25 +93,36 @@ detection:
     - '\TeamViewer'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Legitimate software (un)installations are known to cause false positives. Please
-  add them as a filter when encountered
+- Legitimate software (un)installations are known to cause false positives. 
+  Please add them as a filter when encountered
 level: medium
 note: |
   ### Technical Context
-  This detection rule targets potential attempts to cover up COM hijacking activities by identifying deletions of registry entries within the `.*\shell\open\command` path. COM (Component Object Model) hijacking can allow attackers to gain control of how applications are launched on Windows systems, which can lead to malicious code execution. By removing specific registry keys, an attacker may aim to erase their tracks after compromising a system, thereby hindering detection efforts.
 
-  The relevant MITRE ATT&CK tactics associated with this behavior include **Persistence (T1547)** and **Defense Evasion (T1112)**, which highlights the use of registry modifications for malicious purposes and the intent to evade detection. The primary data source for this rule is registry deletion logs, specifically those capturing modifications to the Windows registry that are significant for application control.
+  This Sigma rule detects the deletion of registry entries under the `\shell\open\command` path, which may be indicative of potential COM hijacking attempts. Adversaries frequently modify these registry keys to execute malicious payloads when legitimate applications are run. The likely attacker objective is to hide or eliminate tracks of their activity after establishing persistence on a target system.
+
+  This behavior aligns with the MITRE ATT&CK tactic of Persistence (TA0003) and the technique T1112: Modify Registry. The primary telemetry source is Windows Registry Delete logs, which capture events related to registry modifications. Successful exploitation in this scenario could enable an attacker to hide their presence or maintain control, significantly impacting system integrity. However, this detection does NOT confirm the presence of malware on its own; further investigation is essential to determine if the deletions are malicious.
 
   ### Investigation Steps
-  - **Review Registry Deletion Logs**: Collect logs specifically for deletions in the registry paths related to `.*\shell\open\command` to detect potential malicious activity.
-  - **Analyze Process Execution**: Cross-reference registry deletion events with process creation events to identify any suspicious applications executing around the same time that may be involved in the deletion.
-  - **Examine Related Applications**: Look for any known legitimate applications that might be falsely triggering the detection and adjust filters accordingly to reduce false positives.
-  - **Conduct Additional Threat Intelligence Checks**: Investigate threat intelligence sources for any reported incidents or known malware families utilizing COM hijacking techniques, correlating the findings with the detection events.
+
+  - **Check for registry deletions**: Review Windows Registry Event Logs for Event ID 4657 to find deleted entries under `HKEY_CLASSES_ROOT\*\shell\open\command`. Malicious activity may show notable deletions of key applications.
+
+  - **Identify recent application activity**: Cross-reference the timing of the detected deletions with Windows Security Event ID 4688 (process creation) to pinpoint any suspicious executables that were recently run that may have initiated the deletion.
+
+  - **Verify legitimacy**: Assess whether any legitimate software, especially uninstallers or installers, triggered the registry deletion. For example, note if the associated process is a known uninstaller like `msiexec.exe` or a legitimate software installer.
+
+  - **Examine process integrity**: Analyze the calling process's image path for known software as per the filter list (e.g., verify processes like `C:\Windows\explorer.exe` against the standard image locations). Processes not aligned with expected paths may indicate malicious activity.
+
+  - **Document benign activity examples**: Recognize that legitimate software, particularly installers for applications (e.g., uninstallers, updates), may modify these registry keys without malicious intent. Recording instances of standard software behavior helps clarify false positives.
+
+  - **Alert on high-confidence indicators**: If registry deletion correlates with process creation from non-whitelisted applications (e.g., `C:\Temp\malicious.exe`), prioritize these as high-confidence indicators of a potential breach.
 
   ### Prioritization
-  Due to the high potential impact of a successful COM hijacking attack on enterprise environments and the likelihood of attackers using such methods to maintain persistence and evade detection, this alert is assigned medium severity. Prompt investigation is essential to determine if malicious activity has occurred.
+
+  Given the potential impact of removal of COM registry keys, such an alert should be considered medium to high priority. This is especially relevant in sensitive environments where the compromise of software behavior could lead to escalated privileges. The likelihood of malicious use is notable, as evidence suggests adversaries often utilize registry manipulations as a post-exploitation tactic.
 
   ### Blind Spots and Assumptions
-  One significant gap in detection coverage is the possibility of legitimate software modifications yielding false positives, especially during application installations or updates. The detection logic assumes the presence of logs for all deletion activities in the targeted registry keys; if logging is improperly configured or missing, detection may fail. Additionally, sufficient context surrounding application behavior and system changes may be necessary to distinguish malicious intent from benign actions.
+
+  Detection limitations include possible benign deletions during legitimate software uninstallation or maintenance tasks, which could generate noise in alerting. The requirement for comprehensive Windows Registry logging configurations is essential; incomplete logging could lead to missed activities. Legitimate applications like installers or system updates might trigger similar registry changes, thus necessitating contextual understanding of the environment. Companion detections, such as monitoring anomalous executable runs in conjunction with registry modifications (e.g., T1036 - Masquerading), can enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

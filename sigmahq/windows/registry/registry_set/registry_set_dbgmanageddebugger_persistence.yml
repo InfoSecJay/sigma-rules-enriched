@@ -1,9 +1,9 @@
 title: Potential Registry Persistence Attempt Via DbgManagedDebugger
 id: 9827ae57-3802-418f-994b-d5ecf5cd974b
 status: test
-description: Detects the addition of the "Debugger" value to the "DbgManagedDebugger"
-  key in order to achieve persistence. Which will get invoked when an application
-  crashes
+description: Detects the addition of the "Debugger" value to the 
+  "DbgManagedDebugger" key in order to achieve persistence. Which will get 
+  invoked when an application crashes
 references:
 - https://www.hexacorn.com/blog/2013/09/19/beyond-good-ol-run-key-part-4/
 - https://github.com/last-byte/PersistenceSniper
@@ -26,25 +26,34 @@ detection:
       EVTHDL %d'
   condition: selection and not filter
 falsepositives:
-- Legitimate use of the key to setup a debugger. Which is often the case on developers
-  machines
+- Legitimate use of the key to setup a debugger. Which is often the case on 
+  developers machines
 level: medium
 note: |
   ### Technical Context
-  This detection rule aims to identify attempts to add a "Debugger" value to the "DbgManagedDebugger" registry key, which is commonly used for achieving persistence in malicious software. Attackers may manipulate this registry key to ensure their debugging process is invoked whenever an application crashes, allowing them to maintain control or extract information surreptitiously. This technique is part of a broader strategy to maintain access to compromised systems and evade detection.
 
-  The relevant MITRE ATT&CK tactics include **Persistence (T1574)**, as attackers are leveraging legitimate registry settings to ensure their payload operates even after system reboots. Additionally, it could overlap with **Privilege Escalation** and **Defense Evasion**, as manipulating debugging settings may allow attackers to circumvent security defenses and potentially escalate privileges within a system. The primary data sources for this detection are Registry Set logs on Windows systems, especially logs related to changes in critical registry paths.
+  This Sigma rule detects the unauthorized addition of a "Debugger" value to the "DbgManagedDebugger" registry key on Windows systems. This behavior typically indicates an attempt by an adversary to achieve persistence by ensuring that a debugger is invoked when a specific application crashes, providing the attacker with a means to execute malicious code or maintain control of the system. The primary relevant MITRE ATT&CK tactics include **Persistence (T1574)** and **Defense Evasion (T1203)**.
+
+  The primary telemetry sources for this detection are Windows Registry logs, specifically tracking changes to the key located at `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\.NETFramework\DbgManagedDebugger`. If this addition is malicious, it results in potentially severe security implications, allowing an adversary continued access even after application exits. However, this detection does NOT confirm malicious intent on its own, as legitimate developers may use this registry key for debugging purposes.
 
   ### Investigation Steps
-  - **Review Registry Changes**: Investigate any recent changes to the `DbgManagedDebugger` registry key to determine if unauthorized modifications were made. Check for the full path and value configuration.
-  - **Analyze Process Creation Events**: Look for events related to `vsjitdebugger.exe` within process creation logs. Unusual invocations of this process, especially from unauthorized user accounts, could indicate suspicious activity.
-  - **Correlate with Application Logs**: Check application and system logs for crash reports that might correlate with the timing of the registry changes. Look for anomalies in user activity leading up to crashes.
-  - **Assess User Accounts**: Investigate the user accounts that made changes to the registry. Look for any accounts that should not have access or typical users running processes they normally do not.
+
+  - **Check for Recent Registry Changes**: Review Registry logs (Event ID 4657 or Sysmon Event ID 13) for modifications to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\.NETFramework\DbgManagedDebugger`. Look for any entries that indicate addition of the "Debugger" value.
+
+  - **Validate Context of the Change**: Identify the process responsible for the registry modification by correlating Event ID 4657 with prior process creation logs (Event ID 4688 or Sysmon Event ID 1). Compare the command-line arguments for legitimacy.
+
+  - **Examine User Account Activity**: Investigate the user account associated with the registry change. High-risk accounts or unfamiliar users making modifications can indicate compromise. Look at user sign-in logs (Event ID 4624).
+
+  - **Review for Development Environment**: Determine if the change was made in a legitimate development context, such as by an IDE like Visual Studio. If so, cross-reference with the asset inventory to validate the machine's role.
+
+  - **Identify High-Confidence Malicious Indicators**: Correlate the presence of the debugger setting with known malware behaviors. Search for the execution of `vsjitdebugger.exe`, along with any suspicious child processes spawned immediately afterward.
 
   ### Prioritization
-  This alert is categorized as medium severity due to the potential for malicious persistence and the possibility of privilege escalation within the enterprise environment. While some changes may result from legitimate development activities, unauthorized modifications pose a significant risk.
+
+  This alert has medium severity due to its potential indication of persistence techniques being employed on systems deemed critical for operations. The likelihood of malicious abuse is moderate, as sophisticated attackers leverage similar techniques for resilience. However, there are valid use cases in development settings that must be considered.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss legitimate use cases, such as debugging practices by developers, leading to false positives. Additionally, this rule relies on timely logging of registry changes; if log retention policies do not capture sufficient history or if auditing is not configured correctly, detection may fail. The assumption here is that the environment follows consistent logging configurations for registry activities.
+
+  The detection may be limited if logging is not enabled for the specific registry paths or if the relevant Windows auditing features are misconfigured. Malicious code may also employ obfuscation techniques to disguise registry changes, complicating detection. Legitimate developers using the debugger registry key as part of development workflows may trigger this detection, underscoring the importance of context. Related detections, such as monitoring for unusual command-line executions (e.g., `Event ID 4688` with specific arguments), enhance coverage and help differentiate between benign and malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

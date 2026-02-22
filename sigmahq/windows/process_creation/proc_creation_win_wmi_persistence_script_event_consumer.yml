@@ -21,32 +21,37 @@ detection:
   condition: selection
 falsepositives:
 - Legitimate event consumers
-- Dell computers on some versions register an event consumer that is known to cause
-  false positives when brightness is changed by the corresponding keyboard button
+- Dell computers on some versions register an event consumer that is known to 
+  cause false positives when brightness is changed by the corresponding keyboard
+  button
 level: medium
 note: |
   ### Technical Context
-  This rule detects the creation and execution of WMI (Windows Management Instrumentation) Script Event Consumers, which are often used for persistence mechanisms in Windows environments. Attackers may exploit these events to execute code without user interaction, allowing them to maintain a foothold in the system even after reboots. The goal of utilizing WMI Script Event Consumers is generally related to executing payloads or commands whenever a specific event occurs, thus achieving stealthy persistence and potentially escalating privileges.
 
-  Relevant MITRE ATT&CK tactics and techniques for this detection include:
-  - **Persistence** (T1546.003): Utilizing WMI to create event consumers that trigger on certain events, enabling attackers to maintain delayed execution of malicious scripts.
-  - **Privilege Escalation** (T1548.002): Leveraging WMI to act as a means to gain higher privileges within the operating system context.
+  This Sigma rule detects the creation of a WMI Script Event Consumer, a potential persistence mechanism commonly used by attackers. The likely objective is to maintain long-term access to the system, often enabling the execution of malicious scripts in response to specific events, effectively allowing for covert operations without detection. The relevant MITRE ATT&CK tactic is **Persistence**, specifically technique **T1546.003** (Event Triggered Execution: WMI Event Subscription).
 
-  The primary data sources for this detection include process creation logs to identify the execution of `scrcons.exe` and its parent process `svchost.exe`. These logs are crucial as they show how WMI event consumers are initiated and can reveal malicious use.
+  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on event ID **4688** (Process Creation) and potentially related Sysmon logs if deployed (Event ID **1**). If this behavior is malicious, it can facilitate ongoing compromise of the affected host, allowing attackers to execute arbitrary code. However, it is crucial to note that the detection of a WMI Script Event Consumer does not inherently confirm malicious intent, as legitimate applications may also create similar event consumers.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Check for any instances of `C:\WINDOWS\system32\wbem\scrcons.exe` being executed. Pay particular attention to parent processes, especially if they are `C:\Windows\System32\svchost.exe`, which may indicate malicious usage.
 
-  - **Analyze WMI Event Consumer Configurations**: Query the WMI namespace for active event consumers, specifically looking for unusual or unauthorized entries that do not align with known business operations or system configurations.
+  - **Examine process creation logs**: Review Windows Security Event ID **4688** logs to identify instances of `scrcons.exe` being initiated by `svchost.exe`. A legitimate process creation would typically originate from `wscript.exe` or `cscript.exe` rather than directly from `svchost.exe`.
 
-  - **Identify Related Event Logs**: Examine the Windows Event Logs for corresponding entries (e.g., Event ID 27 for WMI) around the timeframe of the detected `scrcons.exe` execution, to identify any triggers or anomalies.
+  - **Verify event consumer properties**: Use WMI queries (`wmic`) to check the properties of the detected event consumer. Look for suspicious script paths or parameters; benign consumers typically reference legitimate scripts or applications known to your environment.
 
-  - **Correlate with Other Indicators**: Investigate other telemetry, such as EDR or NDR logs, for any related suspicious activity or indicators of compromise associated with the system hosting `scrcons.exe`.
+  - **Correlate with historical changes**: Investigate if any recent changes to WMI namespaces or classes have occurred that correlate with the detection. This can be done using Event ID **15** (WMI) logs to look for unauthorized modifications that may indicate an adversary attempting to establish persistence.
+
+  - **Analyze network connections**: Check for anomalous outbound connections from the affected host during the execution period of the `scrcons.exe` process, particularly from Event ID **5156** (Windows Filtering Platform), indicating potential exfiltration or command and control (C2) communications.
+
+  - **Identify legitimate usage**: Review any documented uses of WMI event consumers for legitimate business applications within your organization. If an internal team leverages `scrcons.exe` without malicious intent, this should be noted as a benign indicator.
+
+  - **Look for known malicious indicators**: If the path to the script executed by the WMI consumer is obfuscated or references unknown third-party applications, this could signal a malicious intent. Compare the script paths against threat intelligence databases for any known malicious signatures.
 
   ### Prioritization
-  This alert is considered medium priority due to the potential for stealthy persistence and privilege escalation in an enterprise environment, which poses a significant risk if left unaddressed. Attackers using this method could maintain access for a prolonged period, increasing the likelihood of data breaches or exploitation.
+
+  The severity of this alert is medium, as the system impacted may have critical functions, and WMI event consumers could be leveraged for persistent access by adversaries. The likelihood of malicious abuse is heightened due to the covert nature of WMI manipulation, which aligns with common exploitation tactics employed by threat actors.
 
   ### Blind Spots and Assumptions
-  Potential gaps in detection coverage may arise from legitimate WMI consumers that organizations use for automation, which could lead to false positives. Additionally, the detection logic assumes that all initiations of `scrcons.exe` from `svchost.exe` are suspicious, which may not account for legitimate business processes. Required logs include comprehensive process creation logs and access to WMI event logs to ensure that all relevant executions are captured and analyzed.
+
+  Detection may be limited if WMI logging is not fully enabled, as legitimate scripts may also trigger the rule. Additionally, adversaries might use legitimate system processes to bypass detection. False positives can occur with known software (e.g., Dell brightness controls) that create WMI event consumers. Companion detections relating to abnormal child processes or unexpected WMI script execution (e.g., via **Event ID 4688**, looking for scripts run without user interaction) could strengthen coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

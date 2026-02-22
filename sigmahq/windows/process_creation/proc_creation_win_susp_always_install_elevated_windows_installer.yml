@@ -1,8 +1,8 @@
 title: Always Install Elevated Windows Installer
 id: cd951fdc-4b2f-47f5-ba99-a33bf61e3770
 status: test
-description: Detects Windows Installer service (msiexec.exe) trying to install MSI
-  packages with SYSTEM privilege
+description: Detects Windows Installer service (msiexec.exe) trying to install 
+  MSI packages with SYSTEM privilege
 references:
 - https://image.slidesharecdn.com/kheirkhabarovoffzonefinal-181117201458/95/hunting-for-privilege-escalation-in-windows-environment-48-638.jpg
 author: Teymur Kheirkhabarov (idea), Mangatas Tondang (rule), oscd.community
@@ -55,25 +55,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies when the Windows Installer service (`msiexec.exe`) attempts to install MSI packages with SYSTEM privileges. Such behavior could indicate a potential privilege escalation attempt by malicious actors looking to gain elevated access within a Windows environment, which can lead to unauthorized actions and control over the system. Attackers may initiate these actions to install rootkits, ransomware, or other forms of malware while bypassing security controls.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Defense Evasion (TA0005)** - attempting to evade security mechanisms.
-  - **Privilege Escalation (TA0004)** - gaining higher-level permissions on a system.
-  - **Access Token Manipulation (T1548.002)** - abusing access tokens to escalate privileges.
+  This Sigma rule detects instances where the Windows Installer service (`msiexec.exe`) attempts to install MSI packages with elevated SYSTEM privileges. Such behavior may indicate a privilege escalation attack, as attackers can exploit this to execute malicious code with higher permissions on the system. This aligns with the MITRE ATT&CK technique T1548.002 (Abuse Elevation Control Mechanism: Elevation via Application Layer) under the ongoing privilege escalation tactics.
 
-  The primary data source for this detection is **process creation events**, which capture details about the execution of processes, including information about the user context and the command-line arguments used during the installation.
+  The primary telemetry sources include process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1, which record new process creation and relevant command-line arguments. If malicious, this behavior could lead to unauthorized software installations, data exfiltration, or control over critical systems. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions could trigger the alert.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine process creation logs for instances where `msiexec.exe` is executed with SYSTEM privileges and check the associated command-line arguments to identify potential malicious intent.
-  - **Analyze User Context**: Validate the user context under which the installation was attempted. Check for unusual or unauthorized users attempting to install software, especially those with elevated privileges.
-  - **Verify Parent Process**: Investigate the parent process of `msiexec.exe`, particularly looking for `services.exe`, to ensure that the installation isn't part of normal system updates or configurations.
-  - **Cross-reference Filters**: Ensure the invocation of `msiexec.exe` is not related to legitimate filtering criteria such as trusted applications (e.g., antivirus updates), and document any legitimate usage scenarios.
+
+  - **Identify the Process Creation Event:** Review Windows Event ID 4688 or Sysmon Event ID 1 for the `msiexec.exe` process. Check the `CommandLine` and `Image` fields for evidence of elevated installs from `C:\Windows\Installer\`, especially with `tmp` files.
+
+  - **Examine User Context:** Validate the user context of the alert. Legitimate administrative installations typically execute as known admin users without unusual names. Investigate if the user field contains entries like 'AUTHORI' or 'AUTORI' indicating atypical user accounts.
+
+  - **Check Parent Process:** Confirm the parent process for the `msiexec.exe` invocation is `C:\Windows\System32\services.exe` using the `ParentImage` field. If the parent process differs, it may suggest malicious activity.
+
+  - **Cross-reference Command-Line Arguments:** Analyze if the `CommandLine` ends with the `'/V'` argument, which indicates the repair installation option. If detected, it typically indicates benign behavior and should not raise concern.
+
+  - **Assess for Common Evasion Tactics:** Investigate if the process is initiated by known security applications such as Sophos, Avira, or Avast, with parent images starting with their respective paths. If so, this activity may be a benign security action rather than malicious intent.
+
+  - **Review File Creation and Modification:** For any suspicious activity, check for the presence of newly created or modified files in system directories (such as temporary installation files) that could suggest malware installation or persistence attempts.
 
   ### Prioritization
-  This alert is elevated to medium severity due to its potential to indicate privilege escalation, which can seriously impact the security posture of the organization. While the likelihood of a false positive exists, the consequences of a successful exploit warrant prompt investigation.
+
+  This alert should be treated with medium severity, especially in contexts where SYSTEM accounts are exploited. The likelihood of malicious abuse is somewhat moderate due to the potential for attackers to misuse ‘msiexec.exe’ especially in environments where usual monitoring might be less strict. While not a frequent weaponization method, it poses real risks in the incorrect hands, particularly for systems managing critical operations.
 
   ### Blind Spots and Assumptions
-  One key blind spot of this detection rule is the potential for false positives, particularly from legitimate system administrators performing necessary software installations or updates. The detection logic assumes that the environment will log process creation events consistently and effectively, which may not always be the case if logging policies aren't properly configured. The rule's efficacy relies on the availability of accurate parent process tracking and system integrity levels, which must be validated in the logging configurations prior to deployment.
+
+  Potential blind spots include the use of legitimate system administration accounts that may trigger this detection during routine software installations or updates. Without thorough monitoring, benign actions may mask malicious intents. Detection effectiveness also hinges on correct logging configurations for process creation events and may not capture all elevated install attempts. Related companion detections may include monitoring for unexpected command-line arguments with other installers or changes in security context permissions for continuous privilege escalation detection.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,7 +1,8 @@
 title: Taskmgr as LOCAL_SYSTEM
 id: 9fff585c-c33e-4a86-b3cd-39312079a65f
 status: test
-description: Detects the creation of taskmgr.exe process in context of LOCAL_SYSTEM
+description: Detects the creation of taskmgr.exe process in context of 
+  LOCAL_SYSTEM
 references:
 - Internal Research
 author: Florian Roth (Nextron Systems)
@@ -25,22 +26,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects instances where the `taskmgr.exe` process is spawned in the context of the `LOCAL_SYSTEM` user account. The creation of `taskmgr.exe` (Task Manager) under this context could indicate suspicious behavior since Task Manager is typically executed under a user context for monitoring system performance rather than running as `LOCAL_SYSTEM`, which is a highly privileged account. Attackers may leverage this behavior as part of a tactic to manipulate system processes or evade detection by simulating legitimate operations within the system.
 
-  The likely attacker objective could be to establish persistence, conceal malicious activity, or facilitate further privilege escalation by manipulating system processes. Such activities fall under the MITRE ATT&CK tactics of Defense Evasion (ID: T1562) and Indicator Removal on Host (ID: T1040), given the risk that this behavior may allow attackers to hide their presence on a compromised machine effectively.
+  This Sigma rule detects the execution of the `taskmgr.exe` process under the `LOCAL_SYSTEM` user context. This behavior is unusual because the Windows Task Manager (`taskmgr.exe`) is typically initiated by interactive users and runs under their user context. The likely objective of an attacker using this method is to manipulate the process for suspicious purposes, such as hiding malicious processes or facilitating post-exploitation activities without raising user awareness.
 
-  The primary data sources pertinent to detecting this rule include process creation logs from Windows Event Logs, specifically filtering for the creation of processes by the `LOCAL_SYSTEM` account, which can provide critical evidence of unexpected or malicious activities.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion** (ID: T1036), and the technique is **Masquerading** (ID: T1036). The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If this behavior is malicious, it poses a high security risk as it indicates the potential exploitation of local system privileges to bypass defenses. This detection does not, on its own, confirm that an intrusion has occurred; it only highlights unusual process behavior that warrants further investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Analyze Windows Event Logs (Event ID 4688) for `taskmgr.exe` launched by `LOCAL_SYSTEM`. Identify any other associated processes that were launched concurrently.
-  - **Correlate with User Activity:** Check for recent user logins or suspicious user activity in the Security logs to determine if there was an unusual context or pattern associated with the `LOCAL_SYSTEM` process creation.
-  - **Investigate Execution Context:** Look for additional context regarding the execution environment, including Group Policy settings or scheduled tasks that may indicate lateral movement or privilege escalation tactics.
-  - **Assess System Integrity:** Examine system integrity using tools that verify the legitimacy of the `taskmgr.exe` binary. Confirm it is not a masquerade by checking its file path and verifying the signature against known good sources.
+
+  - **Review process creation events**: Check Security Event ID 4688 and Sysmon Event ID 1 for the creation of `taskmgr.exe` by `LOCAL_SYSTEM`. Confirm that no legitimate interactive user initiated it.
+
+  - **Check parent process**: Examine the `ParentProcessId` field in the logs for the originating process. If the parent process is related to a known legitimate service or scheduled task, consider it benign; otherwise, flag it for further investigation.
+
+  - **Investigate user privileges**: Verify User SID context in the events. `LOCAL_SYSTEM` context execution without legitimate triggers indicates potential malicious behavior, especially if no prior manual intervention is logged.
+
+  - **Review scheduled tasks**: Search for any scheduled tasks (Task Scheduler logs, Event ID 106) that could have launched `taskmgr.exe` as part of an automation or legitimate maintenance operation. Unexpected tasks might suggest a compromised system.
+
+  - **Correlation with other alerts**: Identify other alerts or logs from endpoints indicating lateral movement or privilege escalation (e.g., unusual account activity). Any related suspicious activity could reinforce the severity of the current alert.
+
+  - **Monitor for file modifications**: Check for unusual file activity related to `taskmgr.exe`, such as file creation events or modifications in directories where it shouldn't be present (e.g., Event ID 4663). Ensure that it was not altered to execute malicious behavior.
 
   ### Prioritization
-  The severity of this alert is rated high due to the potential implications of underprivileged processes spawning in the `LOCAL_SYSTEM` context, which could signify an ongoing attack or a confirmed security breach that compromises critical system integrity.
+
+  This alert should be prioritized as high severity due to the potential for significant security implications if an attacker exploits `LOCAL_SYSTEM` privileges. The likelihood of abuse is considerable, as this tactic is known to be weaponized in various attack scenarios, particularly in post-exploitation efforts.
 
   ### Blind Spots and Assumptions
-  This detection rule operates under the assumption that log collection for process creation events is properly configured and that monitoring is in place for `LOCAL_SYSTEM` actions. Gaps in detection coverage may arise if the logs from certain endpoints are not collected due to network segmentation or if processes are executed in an uncommon or unmonitored manner. Additional configurations might be necessary to capture related events that provide insights into privileged account usage and system manipulations.
+
+  One limitation in detection is the potential for evasion techniques, such as an attacker using legitimate process creation methods to mask malicious intent or using different executables with similar behavior. Required log sources include both Security Event logs and Sysmon configurations to ensure comprehensive visibility. Legitimate activities, such as system maintenance tasks or automated scripts running with `LOCAL_SYSTEM`, could inadvertently trigger this alert. A related detection to strengthen coverage could be the monitoring of high-privilege account logins, which may indicate further malicious intent when correlated with `taskmgr.exe` execution events.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

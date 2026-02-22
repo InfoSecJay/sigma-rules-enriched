@@ -1,8 +1,9 @@
 title: Potential Tampering With RDP Related Registry Keys Via Reg.EXE
 id: 0d5675be-bc88-4172-86d3-1e96a4476536
 status: test
-description: Detects the execution of "reg.exe" for enabling/disabling the RDP service
-  on the host by tampering with the 'CurrentControlSet\Control\Terminal Server' values
+description: Detects the execution of "reg.exe" for enabling/disabling the RDP 
+  service on the host by tampering with the 'CurrentControlSet\Control\Terminal 
+  Server' values
 references:
 - https://thedfirreport.com/2022/02/21/qbot-and-zerologon-lead-to-full-domain-compromise/
 - http://etutorials.org/Microsoft+Products/microsoft+windows+server+2003+terminal+services/Chapter+6+Registry/Registry+Keys+for+Terminal+Services/     # Contain description for most of the keys mentioned here (check it out if you want more information
@@ -63,7 +64,8 @@ detection:
     CommandLine|contains|all:
     - 'SecurityLayer'
     - '02'          # TLS Enabled
-  condition: all of selection_main_* and 1 of selection_values_* and not 1 of filter_main_*
+  condition: all of selection_main_* and 1 of selection_values_* and not 1 of 
+    filter_main_*
 falsepositives:
 - Unknown
 level: high
@@ -72,35 +74,37 @@ note: |
 
   ### Technical Context
 
-  This rule detects the execution of `reg.exe` specifically targeting the Windows registry settings related to Remote Desktop Protocol (RDP) services. The likely attacker objective is to enable or modify settings in the `Terminal Server` configuration to establish remote control over a system, facilitating lateral movement or persistence. This behavior fits into the MITRE ATT&CK tactic of **Persistence** (T1559) and **Defense Evasion** (T1112). The primary telemetry sources include process creation events from Windows (Event ID 4688) and potentially Sysmon (Event ID 1), focusing on the execution command line arguments. If malicious, this behavior could lead to unauthorized remote access or manipulation of critical services. However, this detection alone does not confirm that an attacker is present or has successfully compromised the system; legitimate administrative actions could trigger similar events.
+  This Sigma rule detects the execution of **reg.exe** which is invoked to modify settings related to Remote Desktop Protocol (RDP) by altering registry entries under **CurrentControlSet\Control\Terminal Server**. The likely attacker objective is to enable or configure RDP settings to maintain access or facilitate lateral movement across the network, potentially bypassing security controls. This behavior is relevant to the MITRE ATT&CK techniques **T1021.001 (Remote Services: RDP)** and **T1112 (Modify Registry)**.
+
+  The primary telemetry source for this detection includes Windows process creation events, specifically those with Event ID **4688** or Sysmon Event ID **1**. If malicious, the security impact is significant, as unauthorized RDP modifications can lead to a foothold in the network, enabling further compromise or exfiltration. However, this detection does **not** confirm that the alerting behavior is malicious without context from other logs or user activity.
 
   ---
 
   ### Investigation Steps
 
-  - **Review the command line execution:** Check process creation logs (Security Event ID 4688) for `reg.exe` with command line arguments containing `add` and `\CurrentControlSet\Control\Terminal Server`. Look specifically for the presence of RDP-related modifiers like `fDenyTSConnections` or `EnableConcurrentSessions`.
+  - **Review command line arguments for reg.exe execution:** Verify the **CommandLine** field from Event ID **4688** or Sysmon Event ID **1**. Look for suspicious arguments like 'add' and the presence of keys such as `AllowTSConnections`, `fDenyTSConnections`, or `SecurityLayer`. Legitimate processes may not modify these keys unexpectedly.
 
-  - **Assess command line for recognized behaviors:** Identify additional command line artifacts that are typically associated with malicious RDP configuration changes, such as enabling connections (`AllowTSConnections`) or modifying security settings (e.g., `SecurityLayer` set to `02`).
+  - **Check for associated logs:** Correlate the event with **Windows Security event logs** to identify related logons (Event ID **4624**) or failed logon attempts (Event ID **4625**) that may indicate unauthorized access attempts.
 
-  - **Correlate with user activity:** Examine user actions preceding the alert using authentication logs (Event ID 4624). Legitimate administrative users may show a history of RDP-related changes, while anomalous timings or unauthorized user actions might indicate malicious intent.
+  - **Confirm the process parent's legitimacy:** Inspect the **ParentImage** field for the reg.exe process. Known legitimate usage typically stems from administrative tools or trusted scripts. Suspicious parents could point to malicious activity.
 
-  - **Identify high-confidence indicators of compromise:** Look for unusual values in settings like `fDenyTSConnections` being set to `0` or `AllowTSConnections` set to `1` in the registry that do not align with documented policies or practices of the organization, indicating potential unauthorized RDP access.
+  - **Analyze registry key modifications:** Use tools or scripts to programmatically check changes in the **HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Terminal Server** registry path post-event. Ensure changes align with administrative actions.
 
-  - **Verify host role and criticality:** Confirm if the affected host is a server that should have RDP enabled. Assess the criticality level of the asset to prioritize follow-up actions and potential containment strategies.
+  - **Identify recent remote access events:** Look for RDP connection attempts (Event IDs **4624**, **1149** for successful connections) around the time of the reg.exe invocation. Assess whether these are consistent with expected user behavior.
 
-  - **Check for additional persistence methods:** Review logs and configurations for other lateral movement techniques that may be employed in conjunction with RDP exploitation, such as credential dumping events (Event ID 4672) or use of tools like Mimikatz, which might be found in Sysmon logs (Event ID 22).
+  - **Monitor for lateral movement indicators:** Examine subsequent logins to adjacent systems using RDP from the affected machine, looking for behavior consistent with lateral movement tools, such as rapid logon attempts to multiple hosts.
 
   ---
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential impact of unauthorized access on critical infrastructure, especially if the affected host is a domain controller or a server hosting sensitive data. The likelihood of malicious abuse is significant, as tampering with RDP settings is a common technique used by attackers for lateral movement and persistence. Given its association with credential theft and exploitation methods, this behavior is regularly weaponized.
+  This alert carries a high severity due to the potential impact on critical systems provided they have active RDP services. The likelihood of malicious abuse is elevated, as modifications to RDP settings are a common tactic used by adversaries to establish unauthorized access pathways. The behavior is frequently observed in actual exploitation scenarios.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Potential evasion techniques include legitimate administrative users executing similar registry changes or attackers using alternative methods to manipulate registry settings without direct command invocation. Accurate detection relies on event log sources such as security logs for process creation (Event ID 4688) and possibly Sysmon for detailed monitoring of command line arguments. Legitimate remote management via RDP changes could also yield this alert. Complementary detections such as monitoring for abnormal user logins to RDP sessions (Event ID 4624) can strengthen coverage and provide context to the alert.
+  Detection limitations include the possibility of evasion through the use of alternate legitimate tools or scripts that modify the registry without using reg.exe. Reliable detection requires consistent logging configurations across endpoint security solutions. Legitimate administrative activities, such as configuring RDP settings during maintenance, may trigger this alert. Companion detections, such as monitoring for suspicious RDP connections or unauthorized process creations, can enhance overall threat visibility.
 
   ---
 

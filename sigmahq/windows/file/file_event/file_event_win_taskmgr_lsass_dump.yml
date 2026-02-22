@@ -1,8 +1,9 @@
 title: LSASS Process Memory Dump Creation Via Taskmgr.EXE
 id: 69ca12af-119d-44ed-b50f-a47af0ebc364
 status: test
-description: Detects the creation of an "lsass.dmp" file by the taskmgr process. This
-  indicates a manual dumping of the LSASS.exe process memory using Windows Task Manager.
+description: Detects the creation of an "lsass.dmp" file by the taskmgr process.
+  This indicates a manual dumping of the LSASS.exe process memory using Windows 
+  Task Manager.
 author: Swachchhanda Shrawan Poudel
 date: 2023-10-19
 references:
@@ -24,27 +25,38 @@ detection:
     - '.DMP'
   condition: selection
 falsepositives:
-- Rare case of troubleshooting by an administrator or support that has to be investigated
-  regardless
+- Rare case of troubleshooting by an administrator or support that has to be 
+  investigated regardless
 level: high
 regression_tests_path: 
   regression_data/rules/windows/file/file_event/file_event_win_taskmgr_lsass_dump/info.yml
 note: |
   ### Technical Context
-  This detection rule identifies the creation of a memory dump file named "lsass.dmp" by the Windows Task Manager process (taskmgr.exe). Such activity may signal an attacker attempting to exfiltrate sensitive information, particularly credentials, from the Local Security Authority Subsystem Service (LSASS), which manages authentication and security policies in Windows environments. The ability to access LSASS memory can enable a threat actor to capture plaintext credentials or Kerberos tickets, potentially leading to further unauthorized access within the network.
 
-  The relevant MITRE ATT&CK tactics include **Credential Access** (TA0006) and the specific technique **Memory Dumping** (T1003.001). These tactics are commonly employed by adversaries to gather sensitive information. Primary data sources that will contain useful evidence include file event logs detailing file creation activities, specifically around dumps created in sensitive directories such as the user’s AppData local directory.
+  This detection rule identifies the creation of a memory dump file for the LSASS (Local Security Authority Subsystem Service) process using the Windows Task Manager (taskmgr.exe). This behavior is indicative of a credential dumping attempt, where an attacker seeks to extract sensitive information such as user credentials stored in memory. The relevant MITRE ATT&CK techniques are Credential Dumping (T1003) and specific to LSASS memory dumping (T1003.001).
+
+  Primary telemetry sources include Windows file event logs that capture file creation activities, specifically looking for entries that indicate a file named "lsass.dmp" in the user's local Temp directory. If this activity is malicious, it could lead to significant security breaches, as attackers may obtain highly sensitive credentials enabling access to systems and networks. This detection does NOT confirm that the activity is necessarily malicious, as legitimate administrative troubleshooting may also invoke similar behavior under certain circumstances.
 
   ### Investigation Steps
-  - **Review File Creation Events:** Examine file event logs for the creation of `lsass.dmp` around the time of the detected activity and check for the process `taskmgr.exe` associated with this event to confirm the context of the dump creation.
-  - **Correlate with Process Execution Logs:** Look at process creation logs to determine if `taskmgr.exe` was executed by a known administrator or if it appears abnormal, linking the user or session to the suspicious activity.
-  - **Examine User Activities:** Investigate the account that executed the Task Manager for unusual behavior patterns, failed login attempts, or anomalous access to sensitive systems leading up to the dump creation.
-  - **Identify Other Recent Dumps:** Cross-reference with any recent memory dump creations in the environment to identify if this is part of a larger pattern indicative of potential attacks, noting timestamps and contexts.
+
+  - **Review file creation logs:** Check Windows file event logs for Event ID 4663 associated with the `lsass.dmp` file creation in `C:\Users\<username>\AppData\Local\Temp\`. Confirm the timestamp and user context to establish if the creation is suspicious.
+
+  - **Identify taskmgr execution context:** Examine the process creation logs for Event ID 4688 or Sysmon Event ID 1 to verify the invocation of taskmgr.exe. Look for unusual parent processes or execution paths that differ from standard user behavior.
+
+  - **Check user account activity:** Review the user’s account activity (Event IDs 4624 and 4625) to detect any recent logon attempts, especially around the time of the `lsass.dmp` creation. Legitimate administrative access patterns are expected to have a consistent history of logons.
+
+  - **Correlate with credential access attempts:** Utilize logon failure logs (Event ID 4625) and any alert activity from DLP or EDR tools that may indicate prior attempts to access LSASS or suspicious process behavior on the system.
+
+  - **Investigate system role and context:** Determine the role of the affected system (e.g., server, workstation) and its criticality. Higher-value systems (like domain controllers) require prioritized response due to the significance of the potential data breach.
+
+  - **Validate potential exfiltration:** Check for subsequent file transfer activities or absence of further logs post creation (indicating file deletion), which may suggest attempts to exfiltrate the dumped data. Monitor for unusual outbound network traffic from the affected endpoint.
 
   ### Prioritization
-  This alert is classified as high severity in an enterprise environment due to the critical nature of LSASS and its role in credential storage. The likelihood of attack associated with the dumping of LSASS memory is significant, as it can facilitate further lateral movement and privilege escalation for attackers.
+
+  This alert is of high severity due to the potential impact of credential theft from LSASS. The likelihood of malicious intent is significant, as this technique is commonly weaponized by attackers to gain administrative access in a compromised environment.
 
   ### Blind Spots and Assumptions
-  The detection coverage may have gaps in environments where legitimate administrative actions include memory dumps for troubleshooting. The detection logic assumes that `taskmgr.exe` execution is not a normal occurrence for the user or process context involved and relies on proper logging configurations for windows file event monitoring to be effective. Additionally, if filesystem auditing is not configured to capture file events, this rule may miss crucial indicators of compromise.
+
+  Detection may be limited by improper log configurations, specifically if file auditing is not enabled or if Task Manager is used legitimately by support staff during troubleshooting. Alternative legitimate scenarios, such as software troubleshooting and debugging, can also trigger this alert. Implementing companion detections for abnormal logon patterns or process injection attempts may strengthen overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

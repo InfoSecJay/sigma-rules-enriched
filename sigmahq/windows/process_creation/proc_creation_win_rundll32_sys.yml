@@ -1,8 +1,8 @@
 title: Suspicious Rundll32 Activity Invoking Sys File
 id: 731231b9-0b5d-4219-94dd-abb6959aa7ea
 status: test
-description: Detects suspicious process related to rundll32 based on command line
-  that includes a *.sys file as seen being used by UNC2452
+description: Detects suspicious process related to rundll32 based on command 
+  line that includes a *.sys file as seen being used by UNC2452
 references:
 - https://www.microsoft.com/security/blog/2021/03/04/goldmax-goldfinder-sibot-analyzing-nobelium-malware/
 author: Florian Roth (Nextron Systems)
@@ -27,22 +27,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious activity involving the `rundll32.exe` process that is executed with command line arguments referencing `.sys` files. Such behavior is indicative of potential exploitation techniques used by adversaries, such as the UNC2452 threat group who has leveraged similar tactics for nefarious objectives like data exfiltration and lateral movement within targeted environments.
 
-  The primary objective of attackers executing commands like this is to load malicious drivers or exploit vulnerabilities in legitimate drivers to gain higher privileges or manipulate system functions stealthily. Notably, this behavior ties to the MITRE ATT&CK framework under the tactic of **Defense Evasion** (TA0005) and the technique of **Run DLL hijacking** (T1218.011), highlighting its potential to bypass security controls and execute unauthorized actions in the system.
+  This rule detects the execution of `rundll32.exe` with a command line argument referencing a `.sys` file, a behavior notably leveraged by threat actors, including UNC2452, to execute malicious payloads. The likely objective of the attacker is to execute or load a malicious driver, potentially leading to unauthorized system control or data exfiltration. The relevant MITRE ATT&CK tactic is Defense Evasion, and the technique is T1218.011 (Signed Binary Proxy Execution: rundll32).
 
-  The most relevant data sources for identifying such activities include **process creation logs** from Windows Event Logs, which capture detailed command line arguments used during process execution. Observing these logs can help reveal patterns consistent with malicious behavior.
+  The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior can facilitate deeper system compromises or lateral movement within the network. Importantly, the detection does not confirm that the use of `rundll32.exe` in this manner is definitely malicious, as legitimate processes may also trigger the alert in specific contexts.
 
   ### Investigation Steps
-  - **Review Process Creation Events**: Examine logs for instances of `rundll32.exe` being executed, paying close attention to command lines containing `.sys` file references.
-  - **Analyze Command Line Arguments**: Identify unusual or unexpected `.sys` files referenced in the command line. Investigate any file paths or names that do not align with known good entries.
-  - **Correlate with File System Changes**: Look for recent changes in the file system, especially modifications or creations of `.sys` files in system directories, which may indicate the presence of malicious drivers.
-  - **Check for Unusual Parent Processes**: Investigate the parent processes that initiated `rundll32.exe`. Assess whether any legitimate applications were running concurrently, providing context to perhaps benign actions versus potential malicious behavior.
+
+  - **Review process execution timeline**: Check Windows Security Event ID 4688 to confirm the execution time, parent process, and user context. Look for suspicious parent processes such as `cmd.exe` or other tools typically used to launch `rundll32.exe`.
+
+  - **Analyze command line arguments**: Inspect the command line used in the alert for additional context. Look for specific flags or parameters that initiate suspicious behavior, particularly those referencing `.sys` files. Malicious indicators include file paths leading to unexpected directories like `%TEMP%` or `C:\Windows\System32`.
+
+  - **Correlate with Sysmon logs**: Examine Sysmon Event ID 1 for `rundll32.exe` execution details, focusing on the 'Image Loaded' field to see if it loads any unexpected or known malicious `.sys` files. Confirm if any loaded images match known threat signatures.
+
+  - **Identify known benign use cases**: Document legitimate processes that may use `rundll32.exe` with `.sys` files, such as specific system updates or third-party trusted applications. Compare command line arguments against known safe patterns.
+
+  - **Check for lateral movement artifacts**: Look for potential lateral movement by reviewing other affected Windows Security Event IDs from hosts within the same network segment, especially if the command line indicates usage of remote execution tools or command injection.
+
+  - **Validate file creation or modification**: Confirm file creation or modification events in the same timeframe, including Sysmon Event ID 11 (FileCreate), which may detail the creation of unusual or malicious `.sys` files in system directories.
 
   ### Prioritization
-  The severity of this alert is high due to the potential for significant impact from successful privilege escalation and malicious runtime manipulation. Given the capabilities of such tactics to compromise systems or expose sensitive data, timely investigation is critical.
+
+  This alert warrants high priority due to the potential for severe impact on critical systems if exploited. The likelihood of this behavior being malicious is elevated, particularly given it mimics tactics used by advanced persistent threats (APTs). The use of `rundll32.exe` for executing driver-level code represents a significant risk for exploitation.
 
   ### Blind Spots and Assumptions
-  This detection rule may not capture scenarios where attackers use alternate methods to invoke scripts or processes bypassing `rundll32.exe`, or if a legitimate application generates similar command line patterns. The detection logic assumes that appropriate logging settings are enabled on Windows systems to capture detailed process creation information. Additionally, the effectiveness of this alert relies on having complete and unaltered event logs; any misconfigurations could hinder detection capabilities.
+
+  Detection can be evaded by attackers using alternative methods to load the `.sys` files or utilizing lower-profile binaries. Additionally, all necessary Windows process creation logs must be enabled to ensure reliable detection. Legitimate administrative tasks or poorly configured software could unintentionally trigger this alert. Monitoring for related Sigma rules such as detecting suspicious driver loading activity will enhance coverage and improve response capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

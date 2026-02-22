@@ -1,7 +1,8 @@
 title: Suspicious Renamed Comsvcs DLL Loaded By Rundll32
 id: 8cde342c-ba48-4b74-b615-172c330f2e93
 status: test
-description: Detects rundll32 loading a renamed comsvcs.dll to dump process memory
+description: Detects rundll32 loading a renamed comsvcs.dll to dump process 
+  memory
 references:
 - https://twitter.com/sbousseaden/status/1555200155351228419
 author: Nasreddine Bencherchali (Nextron Systems)
@@ -32,24 +33,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies instances where the `rundll32.exe` process loads a renamed version of `comsvcs.dll`, a legitimate Windows system file typically used for handling Component Object Model (COM) services. Attackers may abuse this behavior to evade detection while performing malicious actions such as memory dumping or injecting malicious code into other processes. The primary objectives of the attacker could include credential harvesting, lateral movement, or persistence.
 
-  This rule is linked to several relevant tactics and techniques within the MITRE ATT&CK framework, specifically:
-  - **Credential Access (TA.credentials-access)**
-    - Technique: Credential Dumping (T1003.001)
+  This detection identifies instances where `rundll32.exe` has been invoked with a renamed version of the `comsvcs.dll` file, typically associated with non-standard behavior that indicates an attempt to dump process memory. Attackers use this method to gather sensitive information and execute code in a way that avoids detection by traditional security measures. The likely attacker objective is to carry out credential access or establish persistence.
 
-  To effectively detect this behavior, monitoring of the Windows event logs, particularly the image load logs, is crucial. These logs can provide visibility into unusual interactions with legitimate system binaries like `rundll32.exe` and `comsvcs.dll`, which may indicate malicious activity.
+  This behavior aligns with the MITRE ATT&CK technique for Credential Dumping, specifically T1003.001. The primary telemetry sources for this detection include Windows process creation logs (Security Event ID 4688 and Sysmon Event ID 1) and image load events that capture application activity. Should this behavior be malicious, it poses a significant security risk, potentially allowing attackers to extract sensitive data. Importantly, this detection does NOT confirm malicious intent on its own; further investigative steps are required to determine the context and legitimacy of the activity.
 
   ### Investigation Steps
-  - **Review Image Load Logs:** Analyze the image load logs for instances where `rundll32.exe` has imported a renamed version of `comsvcs.dll`. Pay particular attention to the context in which this action occurs.
-  - **Correlate with Process Creation Events:** Cross-reference with process creation logs to determine which process initiated the `rundll32.exe`. Investigate the parent process for any suspicious characteristics or patterns.
-  - **Check for Unusual Behavior Post-Execution:** Monitor for unusual or unauthorized activities following the execution of `rundll32.exe` loading `comsvcs.dll`, such as abnormal network connections or attempts to access sensitive data.
-  - **Validate Hashes Against Known Good:** Confirm the integrity of the DLL being loaded by verifying its hash against known legitimate hashes of `comsvcs.dll` for the specific Windows versions in use within the environment.
+
+  - **Check process creation logs**: Review Security Event ID 4688 (or Sysmon Event ID 1) to identify the command line arguments passed to `rundll32.exe`. Look for any abnormal or unusual parameters that may indicate malicious intent.
+
+  - **Verify DLL file integrity**: Cross-reference the `comsvcs.dll` file loaded with known good hashes. Look for any matches against the provided IMPHASH values. Legitimate versions of `comsvcs.dll` should match these hashes.
+
+  - **Analyze parent-child process relationships**: Use Sysmon Event ID 5 to investigate the parent process of `rundll32.exe`. Malicious execution unlikely originates from common legitimate apps (e.g., system processes or trusted software); look for suspicious parent processes like `powershell.exe`.
+
+  - **Investigate recent changes to system files**: Check for recent modifications or renaming of `comsvcs.dll` and other related system files using File System Monitoring logs (i.e., Windows file system events). A creation or modification timestamp preceding the `rundll32.exe` execution may indicate malicious activity.
+
+  - **Correlate event timing with user activity**: Review logs for user login events (Security Event ID 4624) to see if the suspicious activity occurred during known maintenance windows or anomalous times. Legitimate scheduled tasks could produce similar behaviors.
+
+  - **Consider asset criticality**: If the process activity was detected on critical servers (e.g., domain controllers, database servers), prioritize the investigation accordingly, as this setup heightens the risk of credential dumping and system compromise.
 
   ### Prioritization
-  This alert should be treated as high severity due to the potential for credential dumping and unauthorized access to sensitive information. The likelihood of exploitation via this method within an enterprise environment is significant, making timely response critical.
+
+  This alert should be considered high-severity due to the potential impact on sensitive data and the ability for attackers to gain elevated privileges. The behavior detected is infrequently observed in normal operations, increasing the likelihood of malicious abuse, particularly in credential dumping attempts.
 
   ### Blind Spots and Assumptions
-  There are several potential gaps in detection coverage, including the possibility that other legitimate system processes may be similarly abused without detection. The detection logic assumes that the renamed `comsvcs.dll` will be loaded via `rundll32.exe`, which may not cover all variations attackers might employ. Additionally, the effectiveness of this alert relies on having complete and uncorrupted image load logs and process creation event records configured correctly, which may not always be the case in every environment.
+
+  Limitations include that this detection may be evaded by renaming the executing file or using different process executables. Comprehensive logging must be enabled for reliable detection, including all necessary Windows event sources (Sysmon and Security logs). Legitimate updates or misconfigurations could unintentionally trigger this alert. A related detection to complement this coverage could include monitoring for unusual process executions initiated from `powershell.exe`, which often precedes credential dumping attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

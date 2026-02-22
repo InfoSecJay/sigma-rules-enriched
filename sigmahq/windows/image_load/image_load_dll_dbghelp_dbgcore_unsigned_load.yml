@@ -33,25 +33,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies when suspicious processes load the `dbghelp.dll` or `dbgcore.dll` files, which are typically associated with memory dump operations. Attackers may exploit these libraries to extract sensitive information from processes like `Lsass.exe`, which can lead to credential theft and further compromise of the target environment. The use of unsigned versions of these DLLs is particularly concerning, as it suggests malicious intent, given that legitimate applications would typically leverage signed versions.
 
-  The relevant MITRE ATT&CK tactics for this detection are **Credential Access** (TA0006) and the technique of **Credential Dumping** (T1003.001), which covers various methods, including the use of memory dump APIs to extract sensitive data. This behavior can facilitate attacker objectives such as gaining unauthorized access to systems, escalating privileges, or exfiltrating credentials.
+  This Sigma rule detects the loading of unsigned `dbghelp.dll` or `dbgcore.dll` libraries by processes, indicating potential misuse of these libraries commonly used for creating memory dumps. Attackers may leverage the `MiniDumpWriteDump` API functions from these DLLs to extract credentials or sensitive information from processes like `lsass.exe`. The relevant MITRE ATT&CK technique for this behavior is Credential Dumping (T1003.001).
 
-  The primary data source for this detection is **Windows image load logs**, which can capture details about the loading of DLLs, including their signed status and the parent process that initiated the load.
+  Primary telemetry sources include Windows Event ID 4697, which logs service creation or changes, and Sysmon Event ID 7, which captures the image load activity. If the behavior is malicious, it can lead to significant security impacts such as credential theft or privilege escalation. However, this detection does not confirm malicious intent on its own; further analysis is required to establish context and intent.
 
   ### Investigation Steps
-  - **Review Image Load Logs**: Collect and analyze logs related to image loading events, specifically looking for entries that indicate the loading of `dbghelp.dll` or `dbgcore.dll` by processes associated with suspicious activity or that appear unusual based on their context.
 
-  - **Examine Process Trees**: Utilize process monitoring tools to retrieve the full execution lineage of any suspicious processes observed loading these DLLs. Assess whether any parent processes have known associations with malicious behavior or have low reputations.
+  - **Check process parentage:** Review the process tree for any parent processes associated with the loading of `dbghelp.dll` or `dbgcore.dll`. Use Sysmon Event ID 1 to find the parent process ID (PPID) and verify if it is a known suspicious tool (e.g., ProcessHacker).
 
-  - **Investigate Memory Dumps**: If feasible, check if any memory dumps were created in the timeframe of the observed DLL load events. This can provide critical insights into whether the attacker's objectives were realized, such as sensitive credential extraction.
+  - **Identify high-confidence malicious indicators:** Search for Sysmon Event ID 7 logs containing the image load with the following criteria: "ImageLoaded" ends with `dbghelp.dll` or `dbgcore.dll` AND "Signed" is `false`. Flag these instances for potential malicious activity.
 
-  - **Cross-Reference Threat Intelligence**: Compare the identified processes and DLL loads against threat intelligence sources for known bad actors or campaigns that utilize similar techniques, such as SilentTrinity or other commonly used C2 frameworks associated with credential dumping.
+  - **Review legitimate usage context:** Look for typical Windows applications (e.g., built-in crash handlers) that may be using the same DLLs legitimately. The presence of `dbghelp.dll` during ordinary application crashes (e.g., application execution failures) could be considered benign.
+
+  - **Correlate with network activity:** If the process under investigation is associated with suspicious outbound connections (e.g., DNS queries to known malicious domains), this increases suspicion. Analyze relevant logs such as Windows Firewall or proxy logs for outbound communication.
+
+  - **Examine file artifact creation:** Verify if there are any MiniDump files generated in temp directories (`C:\Users\<username>\AppData\Local\Temp`) within a short interval post DLL loading. Look for files with extensions like `.dmp` associated with the identified process.
 
   ### Prioritization
-  The alert should be treated with high priority due to the significant potential impact of successful credential dumping on an enterprise environment. Given the nature of the activity, it indicates an active attempt to gather sensitive information, which could lead to further compromise and data breaches if not addressed promptly.
+
+  The alert severity is high due to the potential impact on credential theft or data exfiltration, particularly if it occurs on critical systems like domain controllers or servers with sensitive information. The techniques leveraged in this detection are actively weaponized in modern attacks, increasing the urgency for a thorough investigation.
 
   ### Blind Spots and Assumptions
-  This detection strategy relies on the availability of comprehensive logging for image loads. If these logs are not configured or retained appropriately, the detection will fail. Additionally, the detection may miss signed DLL uses that might be malicious but appear legitimate. Assumptions made include that unauthorized processes will be documented in the image load logs and that analysts will have the necessary context to assess suspicious activities based on the collected data.
+
+  Detection is limited by the possibility of legitimate applications using these DLLs, which can lead to false positives. Additionally, if logging for Sysmon or Security Event IDs is not properly configured, legitimate activity may go undetected. Other benign scenarios include application debugging sessions where these libraries are legitimately invoked. Related detection to consider is monitoring for unusual process execution patterns involving known memory analysis tools to strengthen coverage against credential dumping activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,8 @@
 title: NTFS Alternate Data Stream
 id: 8c521530-5169-495d-a199-0a3a881ad24e
 status: test
-description: Detects writing data into NTFS alternate data streams from powershell.
-  Needs Script Block Logging.
+description: Detects writing data into NTFS alternate data streams from 
+  powershell. Needs Script Block Logging.
 references:
 - https://web.archive.org/web/20220614030603/http://www.powertheshell.com/ntfsstreams/
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1564.004/T1564.004.md
@@ -31,22 +31,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies instances where data is being written into NTFS Alternate Data Streams (ADS) using PowerShell commands. When an attacker wants to hide data in a file, they often utilize NTFS ADS to conceal malicious payloads or information, thereby avoiding detection by traditional security measures. The rule specifically targets commands such as `set-content` and `add-content`, along with the `-stream` argument, indicating that the functionality to manipulate alternate data streams is in use.
 
-  The likely threat scenario involves an adversary employing techniques for data exfiltration or persistence, where hidden data maintains a low profile to evade detection mechanisms. Attackers may carry out these actions to store malware, scripts, or exfiltrated data in ADS as a method of obfuscation or to bypass security controls. Relevant MITRE ATT&CK tactics and techniques include **Defense Evasion (T1564.004)** and **Execution (T1059.001)**.
+  This Sigma rule detects data being written into NTFS Alternate Data Streams (ADS) via PowerShell, specifically focusing on commands involving `Set-Content` and `Add-Content` with the `-Stream` parameter. The primary objective for an attacker is typically to hide malicious payloads or data within ADS to evade detection, as these streams can remain unnoticed by traditional file-system scans. This behavior aligns with the MITRE ATT&CK technique T1564.004 (Hide Implants and Files), and also relates to T1059.001 (PowerShell).
 
-  Primary data sources for this detection include Windows PowerShell logs enabled with Script Block Logging, which capture the execution of PowerShell commands including their parameters.
+  The primary telemetry source for this detection is PowerShell script logs that must have Script Block Logging enabled. If an alert is triggered, it indicates possible malicious activity or evasion attempts; however, it does NOT confirm a compromise on its own, as legitimate applications and administrative tasks might also utilize ADS.
+
+  ---
 
   ### Investigation Steps
-  - **Review PowerShell Logs**: Investigate the PowerShell logs for entries containing `set-content`, `add-content`, or `-stream`. Look for anomalous executions, especially from non-administrative accounts or during non-standard hours.
-  - **Assess File System Integrity**: Check the corresponding files for the presence of alternate data streams using tools like `dir /r` or third-party utilities. Pay attention to any large or unexpected streams associated with benign files.
-  - **Correlate User Activity**: Validate the user activity around the time of the PowerShell executions. Look for any connections to known indicators of compromise or behaviours typically associated with account compromise.
-  - **Monitor for Related Techniques**: Beyond the immediate detection, it is prudent to monitor for other suspicious behaviors, such as unusual process creation (e.g., spawning PowerShell from untrusted applications) and network connections indicative of data exfiltration.
+
+  - **Verify PowerShell Script Block Logs**: Check for Security Event ID 400, which logs PowerShell script block execution. Look specifically for ScriptBlockText containing both `set-content` and `add-content`.
+
+  - **Analyze the Stream Name**: Validate the data written to NTFS ADS by investigating file attributes within PowerShell using `Get-Item -Path <file>::$DATA`. Indications of malicious use could include unusual stream names such as `stream.txt`, which are atypical for legitimate use.
+
+  - **Review for Legitimate Use Cases**: Identify any documented business processes that use NTFS streams for data storage. Legitimate entries may include application log files, whereas unexpected or unknown streams can indicate malicious activity.
+
+  - **Examine File Creation Timestamps**: Investigate the file creation and modification timestamps. Legitimate entries should fit expected patterns (e.g., software deployments or updates), while timestamps that overlap with anomalous user behavior may signal malicious uploads.
+
+  - **Correlate with Other Security Alerts**: Check the SIEM for correlated alerts within the same timeframe, such as unusual user account activity or execution of known malicious PowerShell commands (Event ID 4688, Process Creation logs). This can provide context to potential threat actor behavior.
+
+  - **Monitor Asset Criticality**: Assess the criticality of the host where this detection triggered. Sensitive systems processing PII or critical infrastructure should escalate for immediate investigation.
+
+  ---
 
   ### Prioritization
-  The alert is prioritized as high severity due to the potential for significant data exfiltration or malicious payload placement. The ability of adversaries to utilize hidden data streams increases the likelihood of continued access to systems while evading detection mechanisms, making it essential to respond quickly.
+
+  This alert is high-severity due to the potential for data concealment tactics commonly used by skilled adversaries. The risk of compromise is significant, especially if critical systems are involved, and this behavior is often weaponized in sophisticated attacks aimed at evading detection.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection logic assumes that Script Block Logging is enabled in the environment to capture the necessary PowerShell command executions. Not having this logging configured will lead to gaps in visibility for PowerShell activities. Additionally, the coverage may miss sophisticated evasion techniques where attackers utilize custom obfuscation methods or invoke the commands indirectly through scripts or other applications. Environments that do not extensively monitor filesystem changes might also miss the creation of alternate data streams, thus limiting overall visibility.
+
+  Detection may be limited if PowerShell Script Block Logging is disabled, which can lead to missed activity. Additionally, legitimate use cases, such as applications that utilize NTFS ADS for configuration or logs, may trigger this alert. Companion detections, like monitoring for file attribute changes using Sysmon (Event ID 10), can strengthen visibility into potential data manipulation activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

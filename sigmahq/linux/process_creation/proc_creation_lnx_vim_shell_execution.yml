@@ -42,22 +42,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule focuses on identifying the misuse of `vim` and its related commands (such as `rvim` and `vimdiff`) for executing unauthorized shell commands. Attackers may exploit these commands to achieve unauthorized command execution or privilege escalation, particularly when they are operating in a restricted shell environment. The command-line options and syntax employed can indicate attempts to invoke shell commands or scripts that can enable further compromise of the system.
 
-  The likely threat scenario involves attackers attempting to leverage the capabilities of `vim` as a covert means of executing shell commands, thereby breaking out of restricted environments where they may not have traditional shell access. This behavior may align with the **Execution** tactic (TA0002) in the MITRE ATT&CK framework, specifically the **Command and Scripting Interpreter** technique (T1059), where attackers attempt to execute commands in an operating system shell.
+  This Sigma rule detects the execution of the Vim text editor and its related commands (`rvim`, `vimdiff`) with specific command-line arguments that suggest an attempt to run shell commands or invoke other execution environments. The behavior indicates a potential privilege escalation or unauthorized command execution, as attackers may leverage Vim to escape restricted environments and execute commands. This activity aligns with the MITRE ATT&CK tactic: Discovery (ID: T1083) and the technique: Command-Line Interface (ID: T1059).
 
-  Primary telemetry sources for detecting these behaviors include process creation logs, which capture details about the commands being executed, as well as any command-line arguments provided during execution. Monitoring for occurrences of `vim` alongside known patterns for command execution will be crucial for identifying potential malicious activities.
+  The primary telemetry sources include process creation logs from Linux systems, specifically monitoring `/proc/*/cmdline` or other process event logs that capture command line parameters. If malicious, this activity could allow an adversary to gain control over the system, execute arbitrary commands, or maintain persistence. Notably, the detection does NOT confirm that the activity is malicious on its own; it may represent legitimate usage of Vim by authorized users.
 
   ### Investigation Steps
-  - **Review Process Logs**: Examine process creation logs for instances of `vim`, `rvim`, and `vimdiff` that include command-line arguments indicating potential command execution or shell spawning.
-  - **Analyze Command-Line Patterns**: Look for uncommon command-line flags or patterns such as `--cmd`, `-c`, and shell invocation attempts (e.g., `/bin/bash`, `/bin/sh`), which can indicate malicious behavior.
-  - **Check for Anomalous User Activity**: Investigate the context of the user initiating these commands. Specifically, consider whether they have proper permissions and whether their behavior deviates from the established baselines for normal operations.
-  - **Correlate with Other Events**: Cross-reference the detected commands with other logs (e.g., authentication logs, file access logs) for signs of lateral movement or other malicious activities occurring concurrently.
+
+  - **Check command execution context**: Review the process execution details of detected instances, specifically focusing on the user who executed the command (`ps -aux` or similar logs). Legitimate uses of Vim typically occur under known user accounts in user-home directories, while malicious usage may originate from unexpected accounts like system or service users.
+
+  - **Validate command line arguments**: Examine the exact command line arguments logged (e.g., through `/var/log/syslog` or other relevant logging mechanisms). Commands containing `--cmd`, `-c`, or invoking shells like `/bin/bash`, may indicate suspicious intent, especially if executing script commands not typical for the user.
+
+  - **Correlate with user activity logs**: Check for recent user activity logs on the host (using `auditd` or similar logging) to determine if the user executed any unusual commands or had elevated privileges around the same time. Frequent usage of Vim or its variants for command execution beyond common text editing could indicate abuse.
+
+  - **Analyze parent process relationships**: Use tools like `pstree` or `pgrep` to ascertain the parent processes related to the detected Vim executions. Malicious activity may often have unusual parent processes related to exploitation attempts or other suspicious behavior.
+
+  - **Examine file interactions**: Investigate any written files or scripts associated with these Vim executions; check for newly created files in directories sensitive to the user or system (e.g., `/tmp`, user home directories, or configuration directories).
+
+  - **Identify rogue processes**: Review security logs for processes running under unexpected contexts, such as suid scripts or system accounts executing Vim commands. Analyze if the executed commands correlate with known exploit techniques or lateral movement patterns.
 
   ### Prioritization
-  The alert is classified as high severity due to the potential implications of unauthorized command execution, which could lead to system compromise or escalated persistent access for attackers. Given the ease with which `vim` can be exploited in this manner, prompt investigation is critical.
+
+  This alert should be treated as high severity. The impact of successful exploitation could lead to significant compromise of host and network security, especially on critical systems. The likelihood of this technique being used by adversaries is high, as it provides an effective means of bypassing restrictions and executing commands without typical detection.
 
   ### Blind Spots and Assumptions
-  Potential blind spots in detection coverage may arise from environments where standard logging is not configured for command-line arguments, or where users engage in legitimate use of `vim` that may not be scrutinized closely. The detection logic assumes that `vim` and its siblings are not used in their intended fashion for legitimate administrative tasks. For the alert to function effectively, it is crucial that comprehensive process creation logging, including command-line arguments, is enabled across the Linux hosts in question.
+
+  Detection may be limited by improper log retention or lack of telemetry from affected systems, as some script-based executions could bypass logging. Legitimate activities, such as system administrators using Vim for configuration or scripting purposes, may trigger this alert. Companion detections, such as monitoring for other command-line based attacks or unauthorized privilege escalations, would enhance contextual analysis and reduce false positives.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

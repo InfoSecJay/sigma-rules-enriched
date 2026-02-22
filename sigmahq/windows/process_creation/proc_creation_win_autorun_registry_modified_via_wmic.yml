@@ -56,34 +56,38 @@ detection:
     - '\Pictures'
     - '\Documents'
     - '\Photos'
-  condition: all of selection_execution_* and (selection_suspicious_paths_1 or (all
-    of selection_suspicious_paths_user_*))
+  condition: all of selection_execution_* and (selection_suspicious_paths_1 or 
+    (all of selection_suspicious_paths_user_*))
 falsepositives:
 - Legitimate administrative activity or software installations
 level: high
 note: |
   ### Technical Context
-  This detection rule is designed to identify potentially malicious activities where the Windows Management Instrumentation Command-line (WMIC) tool is used to manipulate the registry, specifically creating autorun entries that could allow for persistence by malware. The use of `reg.exe` to add entries into the registry under paths such as `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` can significantly increase the risk of malware being able to automatically execute whenever a user logs on. The primary tactic this detection addresses is **Persistence**, specifically via the **Registry Run Keys / Startup Folder** technique (T1547.001).
 
-  The threat scenario typically involves an attacker or malware leveraging WMIC, a legitimate administrative tool, to establish persistence on a compromised system. Their objective is to maintain access even after system reboots or user logoffs, which is particularly concerning in an enterprise environment where user systems may be frequently rebooted or updated. The detection logic also includes consideration for potentially obfuscated or disguised file paths, suggesting that attackers may attempt to hide their activities among legitimate user paths to avoid detection.
+  This Sigma rule detects suspicious modifications to autorun registry entries using the Windows Management Instrumentation Command-line (WMIC) tool, specifically when `reg.exe` is employed to create such entries. Attackers often attempt to establish persistence mechanisms through these registry modifications to ensure their malware executes automatically upon user login. This behavior aligns with the MITRE ATT&CK techniques T1547.001 (Startup Items) and T1047 (Windows Management Instrumentation), indicating an adversary's intent to maintain control over the infected system.
 
-  Relevant MITRE ATT&CK tactics/techniques:
-  - **Persistence** (TA0003)
-  - **Registry Run Keys / Startup Folder** (T1547.001)
-  - **System Information Discovery** (T1047)
-
-  Primary data sources include process creation events, specifically the logs detailing the invocations of the `wmic.exe` process along with its command line arguments.
+  The primary telemetry sources include Windows process creation logs collected from Event ID 4688 and Sysmon Event ID 1, capturing detailed command-line arguments and parent-child relationships between processes. If this behavior is confirmed as malicious, it may lead to unauthorized access, data theft, or further system compromise. However, this detection does NOT definitively confirm that the registry modification is malicious without additional context or correlation to other indicators.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs for instances of `wmic.exe` being executed, particularly focusing on command line arguments that include `reg` and the paths specified in the alert. Note the parent process, which should be `wmiprvse.exe`, to confirm the execution context.
-  - **Analyze Registry Changes**: Investigate the registry for any recent modifications to the specified autorun paths (e.g., `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`). Look for suspicious entries, particularly those that reference executable files in non-standard directories.
-  - **Check User Activity**: Verify whether the user associated with the changes has a legitimate reason to modify the autorun settings. This includes ancillary analysis of the user's recent activities to identify any anomalies or signs of compromise.
-  - **Utilize EDR Solutions**: If available, leverage Endpoint Detection and Response (EDR) tools to gather additional context around the detected process execution, including file hashes and potential indicators of compromise (IOCs) that may be linked with malicious activity.
+
+  - **Check for WMIC process execution:** Examine Security Event ID 4688 and Sysmon Event ID 1 logs for instances where `wmic.exe` is executed. Look for command lines that include "reg add" targeting autorun locations, which is unusual for most legitimate processes.
+
+  - **Identify the parent process:** Validate that the `wmic.exe` process is spawned from `wmiprvse.exe`. The relationship between these processes might indicate legitimate administrative activities, but unusual contexts could suggest malicious intent.
+
+  - **Verify the registry modification command:** Analyze the specific command line used in the process to confirm that it attempts to create a key under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`. Legitimate commands typically do not modify autorun settings in this manner without clear administrative intent.
+
+  - **Look for abnormal registry paths:** Investigate command lines with suspicious paths such as `C:\Users\user\AppData\Roaming\Microsoft\tre\Desktops.exe` or `%temp%`, which may indicate malware persistence. Compare them against known legitimate applications for anomalies.
+
+  - **Assess the asset's role:** Determine the role of the affected host (e.g., server, workstation) and criticality. If it's a highly critical server with no expected user-level changes, the detection should be prioritized.
+
+  - **Review for legitimate administrative actions:** Understand and document any potential legitimate scenarios where admins might use WMIC for registry changes, such as software installation or system configuration, to rule out false positives.
 
   ### Prioritization
-  This alert is categorized with high severity due to the significant impact of establishing persistence on a compromised host. The likelihood of this activity indicates an ongoing threat, which could lead to further exploitation or data exfiltration within the enterprise environment.
+
+  The alert is of high severity given its potential impact on user systems and the likelihood that such behavior is exploited for persistence by malware. The misuse of WMIC for these modifications is relatively uncommon outside of administrative functions, which increases the risk of it being weaponized in a compromised environment.
 
   ### Blind Spots and Assumptions
-  Detection logic may not capture all persistence mechanisms as it specifically targets manipulations through WMIC with `reg.exe`. There may be gaps in monitoring for similar actions that use alternative methods or tools to achieve persistence (e.g., PowerShell or scripts). The alert assumes that logging is appropriately configured for process creation and that WMIC usage is being monitored, which may not be the case in all environments. Specifically, sufficient logging for WMI events and detailed process execution should be in place for this alert to function effectively.
+
+  The detection may be limited by environments where WMIC is commonly used for legitimate administrative tasks, increasing potential false positives. Reliable detection requires proper logging configurations for both process creation and registry modifications, particularly in environments with diverse operational practices. Additionally, legitimate software installations may also trigger this alert. A related detection rule monitoring unusual registry changes without WMIC involvement could provide supplemental coverage against evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

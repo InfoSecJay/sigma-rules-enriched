@@ -4,9 +4,9 @@ related:
 - id: a95b9b42-1308-4735-a1af-abb1c5e6f5ac
   type: similar
 status: test
-description: Detects usage of the "Set-Service" powershell cmdlet to configure a new
-  SecurityDescriptor that allows a service to be hidden from other utilities such
-  as "sc.exe", "Get-Service"...etc. (Works only in powershell 7)
+description: Detects usage of the "Set-Service" powershell cmdlet to configure a
+  new SecurityDescriptor that allows a service to be hidden from other utilities
+  such as "sc.exe", "Get-Service"...etc. (Works only in powershell 7)
 references:
 - https://twitter.com/Alh4zr3d/status/1580925761996828672
 - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/set-service?view=powershell-7.2
@@ -43,25 +43,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies suspicious modifications to the Discretionary Access Control List (DACL) of Windows services via the PowerShell `Set-Service` cmdlet. Specifically, it looks for instances where the Security Descriptor is altered to conceal a service from standard service management tools like `sc.exe` and `Get-Service`. Attackers commonly employ such techniques to achieve persistence or evade detection, often by masking malicious services that could be recognized by system administrators or forensic tools.
 
-  The likely threat scenario involves an attacker who has gained access to the system and seeks to establish a foothold by creating or modifying services that are not easily discernible. The objectives may include maintaining persistence, elevating privileges, or orchestrating further malicious actions without being detected. This behavior aligns with the MITRE ATT&CK techniques for persistence (T1574.011), defense evasion, and privilege escalation, showcasing the need for vigilance against this deceptive tactic.
+  This Sigma rule detects the usage of the "Set-Service" PowerShell cmdlet to modify the Security Descriptor of a Windows service, specifically allowing it to become hidden from standard service management utilities like "sc.exe" and "Get-Service." The likely attacker objective is to conceal malicious services that could be leveraged for persistence or initial access, evading detection by both security tools and system administrators. This behavior aligns with the MITRE ATT&CK technique for persistence through "Service Registry Permissions Weakness" (T1574.011).
 
-  The primary data source for this detection is PowerShell script block logging, which must be enabled to capture the specific commands executed by PowerShell. This allows for the identification of potentially harmful modifications made to service security descriptors.
+  The primary telemetry sources are Windows PowerShell logs, specifically the Script Block Logging feature that captures the textual content of PowerShell scripts executed. If malicious, such modifications can enable an attacker to maintain their presence on a system without easy detection. However, this detection does NOT confirm that malicious activity is occurring by itself; legitimate administrative actions could invoke similar behavior.
 
   ### Investigation Steps
-  - **Review PowerShell Script Block Logs:** Analyze the script block logging for instances of the `Set-Service` cmdlet along with the presence of `-SecurityDescriptorSddl` or `-sd` parameters indicating alterations to service DACLs.
 
-  - **Correlate with Service State:** Cross-reference modified services against known legitimate services to identify any unauthorized changes or hidden services, especially those that do not appear with standard service enumeration commands.
+  - **Review the PowerShell Script Block logs:** Check the Security log for Event ID 4104 related to Script Block Logging. Look for entries that include "Set-Service" and reference a Security Descriptor (e.g., "D;;"). Compare against known benign service modifications.
 
-  - **Inspect Privilege Assignments:** Investigate who has been granted access through the DACL changes, focusing on users with administrative or SYSTEM privileges, as they may indicate the actions of an attacker attempting to conceal their presence.
+  - **Identify High-Confidence Malicious Indicators:** Look for the presence of "D;;" combined with ";;;IU", ";;;SU", ";;;BA", ";;;SY", or ";;;WD" in the ScriptBlockText. If these elements are present, it is indicative of an attempt to hide services.
 
-  - **Evaluate Historical Changes:** Utilize logs to assess the historical state of services and any legitimate administrative changes, noting any discrepancies or sudden modifications in the service's DACL configuration.
+  - **Confirm Legitimate Activities:** Compare service modifications against recent administrative changes. For example, verify if a known service was updated for intended purposes (e.g., service updates or configuration changes).
+
+  - **Examine system state for hidden services:** Utilize PowerShell commands (Get-Service or sc query) to check if services are running obfuscated. Presence with standard tools but absent from normal queries could indicate evasion efforts.
+
+  - **Review Asset Context:** Focus on critical system roles, such as domain controllers or endpoint protection servers, where service manipulation would pose a higher risk due to their importance in the security infrastructure.
+
+  - **Investigate service creation or modification timing:** Cross-reference timestamps of the detected modification with other logs (such as Event ID 116) to determine orchestration with any suspicious login or process execution events.
 
   ### Prioritization
-  This alert has a high severity rating in an enterprise environment due to the potential for attackers to leverage hidden services for maintaining persistence and circumventing detection. Given the implications of privilege escalation and the ability to evade standard security measures, timely investigation is crucial.
+
+  This alert should be treated with high severity due to the potential impact on critical systems if an attacker conceals persistence mechanisms. The likelihood of abuse is significant as this technique is commonly weaponized in real-world attacks aimed at maintaining unauthorized access.
 
   ### Blind Spots and Assumptions
-  One gap in detection coverage is the possibility of legitimate administrative users making rare changes to service DACLs for valid purposes, which may generate false positives. Additionally, the effectiveness of this detection is contingent on having PowerShell script block logging enabled. The rule also assumes that attackers will use recognizable parameters during their manipulations, which may not always be the case. Investigators should be aware of these factors when analyzing alerts.
+
+  Evasion techniques may include using alternative PowerShell versions or direct API calls to change service descriptors without generating Script Block logs. Ensuring that Script Block Logging is enabled is critical for reliable detection, as lacking this configuration may lead to missed alerts. Legitimate activities such as system updates might trigger the alert, particularly in environments that leverage automation for service management. Related detections include monitoring for abnormal process behavior related to service execution (e.g., Service Control Manager events) to enhance alert coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

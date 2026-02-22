@@ -24,46 +24,34 @@ detection:
     objectRef.namespace: kube-system
   condition: selection
 falsepositives:
-- System components such as daemon-set-controller and kube-scheduler also create pods
-  in the kube-system namespace
+- System components such as daemon-set-controller and kube-scheduler also create
+  pods in the kube-system namespace
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the creation of pods within the kube-system namespace that may be masquerading as legitimate system pods. Attackers might deploy malicious containers named similarly to system components to blend in, aiming to avoid detection while gaining persistent access or executing malicious actions. This behavior is relevant to MITRE ATT&CK tactic "Defense Evasion" (T1036.005).
+  This rule detects the creation of pods in the `kube-system` namespace within a Kubernetes cluster. Malicious actors often deploy backdoor containers disguised with random, system-like suffixes to evade detection by imitating legitimate system pods created by controllers such as Deployments or DaemonSets. The likely attacker objective is to establish persistent access within a critical namespace, leveraging trusted resources to masquerade their presence and facilitate further compromise.
 
-  The primary telemetry source is the Kubernetes Audit logs, specifically focusing on create actions for pods within the kube-system namespace. If this behavior is malicious, it could lead to unauthorized persistent access to the cluster, compromising overall system and application integrity. Importantly, this detection alone does not verify the intent behind the pod creation or confirm malicious activity without further context.
-
-  ---
+  This detection relates to the MITRE ATT&CK technique for defense evasion (T1036.005: Masquerading). The primary telemetry source for this detection includes Kubernetes audit logs specifically looking for `create` verb actions on pod resources within the `kube-system` namespace. If this behavior is confirmed malicious, it can lead to serious security breaches, unauthorized access, and potential data exfiltration. However, the detection does NOT confirm that the created pods are indeed malicious on its own, as legitimate system components may also operate within this namespace.
 
   ### Investigation Steps
 
-  - **Review Kubernetes Audit Logs:** Check audit logs for create events on the kube-system namespace (Event Type: `create`, Resource: `pods`). Focus on entries where the `objectRef.namespace` is set to `kube-system`.
+  - **Check Kubernetes audit logs**: Review the Kubernetes audit logs for Event type `create` where `objectRef.namespace` equals `kube-system`. Look for any pod names that follow a random naming pattern, such as `kube-proxy-xxxxxx`, which could indicate a potential backdoor.
 
-  - **Identify Pod Naming Patterns:** Verify the names of newly created pods. Legitimate system pods have format-specific random suffixes (e.g., kube-proxy-<random-suffix>). Compare anomalous names (like kube-proxy-bv61v) against known naming conventions.
+  - **Verify pod owner references**: Examine the owner references of the suspicious pod(s) created in the `kube-system` namespace. Legitimate components should have clear links to recognized controllers (e.g., DaemonSets or Deployments). Use `kubectl get pods -n kube-system -o json` to find owner references.
 
-  - **Analyze the Creator of the Pod:** Look for the associated `user.username` fields in the audit logs. Identify if the user creating the pod has legitimate authorization; unexpected users are a red flag.
+  - **Correlate with known alert thresholds**: Check against any known baseline for your environment to ascertain normal activity within the `kube-system` namespace. Analyze the frequency of pod deployments and frequency rates against legitimate system behavior.
 
-  - **Check for Pod Labels and Annotations:** Review the labels and annotations of the suspect pods using `kubectl get pods -n kube-system --show-labels`. Malicious pods may lack expected labels or have unusual custom annotations.
+  - **Identify elevated permissions**: Investigate the user or service account that executed the pod creation. If the creating entity has unnecessary elevated permissions (like cluster-admin), it could indicate potential malicious activity. Use Kubernetes RBAC to determine roles associated with the account.
 
-  - **Assess Network Connections:** Monitor the network activity of the created pods. Evaluate for unexpected outbound connections or data exfiltration attempts that could indicate malicious behavior.
-
-  - **Cross-Reference with System Component Activities:** Look for concurrent actions from known system components (like daemon-set-controller or kube-scheduler) around the timestamps of suspicious pod creations to accurately distinguish between benign and malicious activities.
-
-  ---
+  - **Examine resource requests and limits**: Assess whether the newly created pods specify resource requests and limits. Legitimate system pods typically define these, while suspicious pods may lack such specifications, indicating a possible malicious intent to remain undetected.
 
   ### Prioritization
 
-  This alert is medium severity due to the potential impact of an attacker deploying a backdoor pod in a critical system namespace. The likelihood of malicious abuse is significant, as this method is a recognized evasion technique. Although not commonly weaponized in isolated incidents, its implications can lead to severe security compromises.
-
-  ---
+  This alert should be considered medium severity, given that the `kube-system` namespace is critical for Kubernetes operations. While the probability of malicious exploitation exists, the potential impact depends on the actions performed by the pods created. Instances of pod creation in this namespace that appear to mimic legitimate components are common tactics used by attackers.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the misconfiguration of Kubernetes Audit logs, as some interactions may not be logged if audit policies are insufficient. Legitimate activities such as routine updates by daemon sets could trigger this alert, necessitating contextual investigation. A companion detection would involve monitoring for unusual behavior in system pod configurations to enhance coverage against similar evasion attempts.
-
-  ---
+  Detection may be limited by the presence of legitimate Kubernetes components that frequently create pods in the `kube-system` namespace, such as `kube-scheduler` and `daemon-set-controller`. Reliable detection requires comprehensive auditing configurations in Kubernetes to ensure all actions are logged. Legitimate activities, such as authorized deployments by DevOps teams for system maintenance, may trigger this alert. A complementary detection would include monitoring container network activity within the `kube-system` namespace to identify unusual outbound connections or data exfiltration attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

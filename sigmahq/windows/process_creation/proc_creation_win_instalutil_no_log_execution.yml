@@ -1,8 +1,8 @@
 title: Suspicious Execution of InstallUtil Without Log
 id: d042284c-a296-4988-9be5-f424fadcc28c
 status: test
-description: Uses the .NET InstallUtil.exe application in order to execute image without
-  log
+description: Uses the .NET InstallUtil.exe application in order to execute image
+  without log
 references:
 - https://securelist.com/moonbounce-the-dark-side-of-uefi-firmware/105468/
 - https://learn.microsoft.com/en-us/dotnet/framework/tools/installutil-exe-installer-tool
@@ -27,25 +27,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This rule detects the suspicious execution of `InstallUtil.exe`, a .NET tool that is often used for installing and configuring .NET applications. This detection is particularly relevant in scenarios where `InstallUtil.exe` is executed without generating logs, which can indicate malicious use aimed at bypassing detection mechanisms. Attackers may exploit this method to establish persistence, deploy malware, or manipulate system configurations stealthily, often as part of a larger compromise or lateral movement phase.
 
-  The rule aligns with the MITRE ATT&CK framework, specifically targeting the tactics of **Defense Evasion** (Tactic ID: TA0005) and the technique of **Application Layer Protocol** (Technique ID: T1071). By observing the execution of `InstallUtil.exe`, this detection can aid in identifying when adversarial behaviors are attempted through legitimate application functionalities—thereby obscuring malicious actions.
+  This rule detects the execution of `InstallUtil.exe`, a .NET utility typically used to install and uninstall Windows services and components, executed without the creation of log files, which is unusual behavior for legitimate use. The likely attacker objective is to install malicious software or services stealthily, evading detection or analysis by omitting log creation. This behavior relates to the MITRE ATT&CK tactic of Defense Evasion (TA0005) and specifically targets the technique of Indicator Removal on Host (T1089).
 
-  Primary data sources for this detection include **process creation events**, which provide visibility into executed commands on Windows systems, including the paths and arguments of running processes. This information is critical in establishing whether the execution of `InstallUtil.exe` was legitimate or malicious.
+  The primary telemetry source for this detection is the Windows Process Creation logs, identified by Event ID 4688, and potentially Sysmon Event ID 1 if Sysmon is deployed. If malicious, the security impact could involve the introduction of unauthorized software or persistence mechanisms within the environment, allowing further malicious activity. It is crucial to note that this detection does NOT confirm that any malicious activity occurred on its own; it highlights suspicious usage that warrants further investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze logs for the execution of `InstallUtil.exe`, focusing on the command line arguments used. Pay close attention to instances where the options `/logfile=` and `/LogToConsole=false` are present, as these are indicative of suspicious behavior.
 
-  - **Correlate with Other Logs**: Gather supplementary logs, such as Windows Event Logs or Sysmon logs, to establish the context around the execution. Look for any unusual file accesses or network connections that occurred around the same time.
+  - **Check for related process behavior:** Investigate for any preceding or subsequent process events linked to `InstallUtil.exe` using Event ID 4688 and correlate with Event ID 4672 (Special Privileges Assigned to New Logon) to identify if elevated permissions were used, which may indicate malicious intent.
 
-  - **Examine Associated Files**: Investigate any files being executed alongside `InstallUtil.exe` or created during its execution. This includes reviewing installation directories or temporary files that might have been generated without proper permissions.
+  - **Examine command line arguments:** Analyze the command line arguments in Event ID 4688 for any unusual or unique strings beyond the specified arguments (e.g., `/logfile= ` and `/LogToConsole=false`), as legitimate calls typically include specific log file paths or exhibit standard usage patterns.
 
-  - **Identify User Context**: Determine under which user account `InstallUtil.exe` was executed. Investigate the user’s normal activity pattern and any previous alerts that may correlate with this execution to assess the legitimacy of the action.
+  - **Review corresponding Sysmon events:** If Sysmon is deployed, look for an Event ID 1 corresponding to `InstallUtil.exe` that would provide additional context on the parent process that invoked it, helping establish whether it was spawned from a legitimate application or another suspicious process.
+
+  - **Identify installation artifacts:** Verify whether any known malicious payload or service has been created or modified by checking for newly created services (Event ID 7045) or corresponding file artifacts in locations such as `C:\Program Files\` or any unusual directories. Significant changes in these areas might indicate a successful compromise.
+
+  - **Evaluate user context:** Determine the user context under which `InstallUtil.exe` was executed. Use Event ID 4624 (Successful Logon) to assess whether the user has a legitimate reason to install software or if the execution appears out of the ordinary for their role.
+
+  - **Look for timing patterns:** Correlate this activity with any network activity or other system events (e.g., failed login attempts, unusual outbound connections) that may indicate lateral movement or exfiltration attempts taking place around the same timeframe.
 
   ### Prioritization
-  This alert is classified as medium severity due to the potential for significant threat impact; the use of legitimate tools for malicious purposes is a common technique employed by attackers to avoid detection. The likelihood of encountering this behavior in an enterprise environment increases with overly permissive configurations, making it imperative to address any identified execution.
+
+  This alert is of medium severity due to the potential risk introduced to the environment by executing `InstallUtil.exe` in a suspicious manner. Given that this utility is often exploited for defense evasion, the likelihood of malicious intent is elevated, particularly in environments where monitoring is not stringent.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by environments where logging for process creation is not sufficiently enabled or configured. The detection logic assumes that `InstallUtil.exe` is being invoked in unusual contexts—specifically lacking log output, which should generally be present in standard operations. Therefore, proper configurations for process logging within the operating system are essential for the detection to function effectively. Additionally, the detection logic does not account for custom logging behaviors implemented by organizations that may not conform to the standard usage of `InstallUtil.exe`.
+
+  This detection may be evaded by attackers utilizing legitimate executables with benign command-line arguments or by properly logging InstallUtil usages. The detection relies on having Windows Process Creation logging enabled (Event ID 4688) as well as any Sysmon configurations capturing detailed process creation events. Legitimate activities such as system administrators performing updates or installations could falsely trigger this alert. A related detection to strengthen coverage could focus on monitoring unusual service installations or modifications through Event ID 7045, further illuminating service-level anomalies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,7 +1,8 @@
 title: COM Hijacking via TreatAs
 id: dc5c24af-6995-49b2-86eb-a9ff62199e82
 status: test
-description: Detect modification of TreatAs key to enable "rundll32.exe -sta" command
+description: Detect modification of TreatAs key to enable "rundll32.exe -sta" 
+  command
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/40b77d63808dd4f4eafb83949805636735a1fd15/atomics/T1546.015/T1546.015.md
 - https://www.youtube.com/watch?v=3gz1QmiMhss&t=1251s
@@ -40,38 +41,36 @@ falsepositives:
 - Legitimate use
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects modifications to the TreatAs registry key, which can enable the execution of malicious commands through legitimate processes such as `rundll32.exe`. The likely attacker objective is to achieve persistence and escalate privileges by evading standard authorization mechanisms. This activity falls under the MITRE ATT&CK tactic of "Privilege Escalation" (TA0004) and the technique "Application Layer Protocol" (T1546.015). The primary telemetry sources are Windows registry logs, specifically targeting registry changes related to the TreatAs key. If the behavior is malicious, it could lead to further exploitation of vulnerabilities to gain sustained access. Importantly, this detection does not confirm that the modification is solely malicious without further context.
+  This Sigma rule detects modifications to the "TreatAs" registry key, a technique often used in COM hijacking attacks to redirect legitimate executable calls to malicious payloads. The likely attacker objective is to achieve persistence and privilege escalation by substituting a trusted application with malicious code that can be executed under the guise of the legitimate application. This behavior corresponds to MITRE ATT&CK Tactic: Persistence, Technique: COM Hijacking (T1546.015).
+
+  The primary telemetry sources for this detection are Windows Registry event logs, specifically capturing changes to the registry keys associated with COM objects. If malicious, the impact could range from data breaches to complete system compromise. This detection does NOT confirm actual execution or payload delivery; it merely identifies an attempt to tamper with the registry.
 
   ---
 
   ### Investigation Steps
 
-  - **Verify the registry change: ** Check for modifications to the TreatAs key at `HKLM\SOFTWARE\Microsoft\MsixRegistryCompatibility\Package\...` using registry event logs. Look for Event ID 4657 which indicates registry value changes.
+  - **Check the registry modification details**: Review the Windows Registry logs for changes to the `HKLM\SOFTWARE\Microsoft\MsixRegistryCompatibility\Package` or `HKU\S-1-5-21-*` paths for entries modified regarding the `TreatAs` key. Look for unusual or non-standard entries.
 
-  - **Analyze the triggering process:** Review the Windows process creation logs (Security Event ID 4688 / Sysmon Event ID 1) to identify the parent process that triggered the registry change. Malicious activity may originate from unusual parent processes rather than typical Windows applications.
+  - **Validate calling process**: Examine the process ID and parent process of the modification. Use Event ID 4688 (Process Creation) to track which executable initiated the registry change. Legitimate modifications are typically made by `OfficeClickToRun.exe` or `msiexec.exe` during updates.
 
-  - **Identify legitimate activity:** Confirm expected behavior by cross-referencing `C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe` and `C:\Program Files (x86)\Microsoft Office\root\integration\integrator.exe` command executions. These can frequently interact with registry keys legitimately during updates.
+  - **Extract command line arguments**: Review the command line arguments used in the process creation events for `svchost.exe` or other involved executables. Look specifically for `rundll32.exe -sta` entries, as this is indicative of malicious intent.
 
-  - **Look for high-confidence malicious indicators:** Ensure that the registry modification was performed by untrusted applications not whitelisted in your environment. For example, changes initiated by `C:\Windows\system32\svchost.exe` can warrant deeper investigation as they may indicate impersonation of legitimate services.
+  - **Identify related artifacts**: Check for file creations in paths associated with the modified COM objects. Look for unusual DLL files or executables in the `C:\Users\*\AppData\Local\Temp\` directory and use Sysmon Event ID 10 for file creation detection.
 
-  - **Check for concurrent abnormal activities:** Review other security logs and EDR solutions for patterns of behavior that may correlate with this modification, such as unwanted persistence mechanisms, unusual network calls, or file modifications in the user profile or system directories.
+  - **Validate asset criticality**: If the modifications are found on high-value assets, such as domain controllers or systems containing sensitive data, prioritize the investigation accordingly.
 
   ---
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential impact on system integrity if an attacker is able to maintain persistence through the registry change. While this behavior is not extremely common, the potential for abuse exists, as it allows malicious actors to leverage legitimate processes to execute code without detection.
+  This alert warrants medium priority due to the potential impact of a successful COM hijacking attack on critical systems. While the likelihood of malicious abuse exists, benign modifications can occur as part of legitimate software updates or installations, hence further analysis is required before escalating.
 
   ---
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques include monitoring or reverting the registry changes and leveraging signed binaries to avoid detection. Reliable detection relies on having comprehensive logging for both registry access and process creations. Legitimate software installations and updates may trigger this alert, leading to false positives if not assessed properly. Companion detections to consider include alerts for unusual command-line arguments passed to `rundll32.exe` or monitoring for other privilege escalation techniques (T1548).
-
-  ---
+  Detection limitations include possible evasion through direct DLL injection or modifications made before logging is enabled. Ensure that registry auditing is properly configured and that relevant log sources, such as Windows Event Logs for Registry and Process Creation, are enabled for accurate detection. Legitimate activities like software installations may trigger this alert; therefore, context around the time of modification is essential. A related detection to consider is monitoring for unusual process spawning patterns from `svchost.exe`, which often serves as a cover in these attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

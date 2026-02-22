@@ -4,9 +4,9 @@ related:
 - id: f3f3a972-f982-40ad-b63c-bca6afdfad7c
   type: derived
 status: test
-description: Detects PsExec default pipe creation where the image executed is located
-  in a suspicious location. Which could indicate that the tool is being used in an
-  attack
+description: Detects PsExec default pipe creation where the image executed is 
+  located in a suspicious location. Which could indicate that the tool is being 
+  used in an attack
 references:
 - https://www.jpcert.or.jp/english/pub/sr/ir_research.html
 - https://jpcertcc.github.io/ToolAnalysisResultSheet
@@ -37,30 +37,36 @@ detection:
     - '\Downloads\'
   condition: selection
 falsepositives:
-- Rare legitimate use of psexec from the locations mentioned above. This will require
-  initial tuning based on your environment.
+- Rare legitimate use of psexec from the locations mentioned above. This will 
+  require initial tuning based on your environment.
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies the execution of PsExec, a Microsoft Sysinternals tool used for executing processes on remote systems, particularly when initiated from suspicious file locations such as the Temp or Public directories. The presence of PsExec could indicate malicious activities like lateral movement or remote code execution by an adversary. Attackers may utilize PsExec to establish remote command execution capabilities after gaining initial access to the network, facilitating further attacks such as data exfiltration or ransomware deployment.
 
-  Relevant MITRE ATT&CK tactics and techniques associated with this detection include:
-  - **Execution (TA0002)**: The act of running malicious or unauthorized programs.
-  - **Remote Services (T1569.002)**: Utilizing tools like PsExec to execute commands remotely.
-  - **Command and Control (T1071)**: If PsExec is leveraged to communicate with an external control server.
+  This Sigma rule detects the creation of named pipes by the PsExec service, specifically when executed from suspicious locations such as public folders or temp directories. The likely attacker objective is to achieve remote code execution or lateral movement within a network using PsExec, a tool commonly misused in post-exploitation scenarios. This detection aligns with the MITRE ATT&CK technique for Remote Services and Tactics Execution (T1569.002, TA0002).
 
-  Primary data sources for this detection include Sysmon event logs documenting named pipe creations, particularly Event IDs 17 (Named Pipe) and 18 (Named Pipe Server), which provide insight into the actual invocation and execution contexts of PsExec.
+  The primary telemetry sources required are Sysmon logs, specifically Event IDs 17 (Named Pipe Created) and 18 (Named Pipe Deleted) to track PsExec’s activity. If malicious, this behavior can indicate the presence of unauthorized access or an attacker moving laterally within the environment. Importantly, this detection alone does not confirm that an attack is in progress; it may also capture legitimate administrative activities.
 
   ### Investigation Steps
-  - **Review Named Pipe Logs**: Check Sysmon logs for Event ID 17 and Event ID 18 to identify instances where named pipes have been created, specifically the `\PSEXESVC` pipe. Look for unusual source and destination processes.
-  - **Analyze Execution Context**: Validate the file paths of executed images, investigating any running instances of PsExec originating from suspicious directories such as 'C:\Users\Public\' or 'C:\Windows\Temp\'.
-  - **Correlate User Activity**: Cross-reference the execution events with user activity logs (e.g., login times, administrative actions) to determine if the activity aligns with legitimate user behavior.
-  - **Investigate Process Hierarchy**: Utilize process tree analysis to trace parent-child relationships between processes that may indicate the initial point of compromise or further lateral movement.
+
+  - **Verify Sysmon Logging Configuration:** Ensure Sysmon event logging is configured to capture named pipe events (Event IDs 17 and 18). Use logs filtered by the 'PipeName' field to identify any suspicious executions.
+
+  - **Analyze Pipe Creation Logs:** Look for PsExec executions with the PipeName equal to `\PSEXESVC` and examine the `Image` field for entries containing paths like `C:\Users\Public\`, `C:\Windows\Temp\`, or `C:\Users\<User>\AppData\Local\Temp\`. Compare these findings against known legitimate process executions.
+
+  - **Identify High-Confidence Malicious Indicators:** Cross-reference any identified processes with a known malicious hashing database, particularly those associated with Cobalt Strike or other malicious usage of PsExec.
+
+  - **Assess the Source of Execution:** Investigate the user and processes that initiated the PsExec command. Look for correlated event logs (e.g., Windows Security Event ID 4688) that show process creation, including the user context under which PsExec was executed.
+
+  - **Recognize Legitimate Use Cases:** Document any business-related usage of PsExec from the detected locations which may provide context—such as system maintenance or patching across multiple systems that aligns with the organization's policies.
+
+  - **Validate Network Traffic:** If possible, check for network activity related to the execution of PsExec. Filter through firewall logs or network behavior logs to identify any unusual outbound connections initiated shortly after the PsExec execution.
 
   ### Prioritization
-  Alerts generated by this detection rule should be considered medium priority due to the potential severity of unauthorized remote execution on enterprise networks. While there may be legitimate uses for PsExec, frequent occurrences from unusual locations indicate a higher likelihood of malicious intent.
+
+  The alert's severity is medium because the affected system's criticality can vary; however, PsExec's typical usage strongly indicates potential malicious activity. The likelihood of abuse is notable, as tools like PsExec are frequently weaponized in breaches, particularly for lateral movement and privilege escalation.
 
   ### Blind Spots and Assumptions
-  This detection may not cover legitimate instances of PsExec used within its expected context, especially if users utilize it from standard paths. The detection logic assumes that all instances of PsExec from the defined suspicious locations are malicious, which may lead to false positives. Successful detection requires proper logging configurations in Sysmon, specifically enabling Event IDs 17 and 18 for named pipes; without these logs, detection will not function as intended.
+
+  Detection limitations include potential false positives generated by rare yet legitimate administrative use of PsExec from suspicious paths, necessitating thorough context validation. The requirement for proper Sysmon configuration impacts detection reliability, and alerts may arise from benign automated deployment scenarios. A related detection worth implementing is monitoring for abnormal process spawning activities (e.g., PowerShell or CMD launching PsExec) for enhanced coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

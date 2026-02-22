@@ -1,7 +1,8 @@
 title: Remote Schedule Task Lateral Movement via ATSvc
 id: 0fcd1c79-4eeb-4746-aba9-1b458f7a79cb
 status: test
-description: Detects remote RPC calls to create or execute a scheduled task via ATSvc
+description: Detects remote RPC calls to create or execute a scheduled task via 
+  ATSvc
 references:
 - https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tsch/d1058a28-7e02-4948-8b8d-4a347fa64931
 - https://github.com/jsecurity101/MSRPC-to-ATTACK/blob/ddd4608fe8684fcf2fcf9b48c5f0b3c28097f8a3/documents/MS-TSCH.md
@@ -34,26 +35,42 @@ falsepositives:
 - Unknown
 level: high
 note: |
+  ---
+
   ### Technical Context
-  The rule detects remote procedure call (RPC) requests to create or execute scheduled tasks via the Automation Task (ATSvc) service on Windows systems. Specifically, it identifies when an attacker leverages the RPC mechanism for lateral movement, which is often a method used to execute malicious tasks on remote systems without direct access. The likely attacker objectives include gaining unauthorized access, establishing persistence, or executing code within remote environments, all of which facilitate further exploitation of the network.
 
-  This activity maps to several MITRE ATT&CK tactics and techniques, particularly:
-  - **Lateral Movement (TA0008)**: the technique of moving through a network from one host to another to access information or resources.
-  - **Scheduled Task/Job (T1053)**: creating or modifying a scheduled task to execute commands.
-  - **Scheduled Task/Job (Windows) (T1053.002)**: specifically highlights scheduled tasks on Windows environments.
+  This rule detects remote Procedure Call (RPC) interactions aimed at creating or executing scheduled tasks via the ATSvc (Task Scheduler) service on a target machine. The likely attacker objective is to facilitate lateral movement within the network, enabling them to execute arbitrary commands or maintain persistence on compromised endpoints. This behavior aligns with the MITRE ATT&CK technique T1053.002 (Scheduled Task/Job: Scheduled Task) under the tactics of Persistence, Execution, and Lateral Movement.
 
-  Primary data sources for this detection include logs from the RPC firewall, which capture events related to RPC calls, specifically focusing on Event Logs indicating task creation or execution attempts via Remote Procedure Calls.
+  The primary telemetry sources for this detection are RPC logs captured by the RPC Firewall, specifically looking for Event ID 3 with a corresponding interface UUID of `1ff70682-0a51-30e8-076d-740be8cee98b`. If malicious, this behavior could lead to unauthorized system access or control over the target machine. It’s important to note that this detection does NOT confirm malicious behavior on its own but indicates possible unauthorized attempts to manipulate scheduled tasks.
+
+  ---
 
   ### Investigation Steps
-  - **Review RPC Firewall Logs**: Examine the RPC firewall logs for Event ID 3, specifically looking for any calls to the ATSvc (UUID: 1ff70682-0a51-30e8-076d-740be8cee98b) that indicate the creation or execution of scheduled tasks remotely.
-  - **Analyze Suspicious User Activity**: Investigate the source user and host making the remote calls. Look for any anomalies or previous login patterns that suggest unauthorized access.
-  - **Correlate with Process Creation Events**: Check the process creation events around the same time as the RPC calls to identify any unauthorized or unexpected processes that may indicate malicious execution.
-  - **Inspect Network Traffic**: Review NDR (Network Detection and Response) logs for any unusual communication patterns or traffic spikes related to the RPC services indicating lateral movement activity.
+
+  - **Review RPC logs for Event ID 3:** Check for logs indicating remote procedure calls for the ATSvc with the specified `InterfaceUuid` and `OpNum` (0 or 1). Focus on unexpected source addresses within your environment.
+
+  - **Verify the legitimacy of the source:** Correlate the originating IP address with asset records. If the source is unexpected or from outside expected network segments (e.g., internal management workstations), this could indicate malicious intent.
+
+  - **Inspect process creation events:** Look for associated Windows Security Event ID 4688 (Process Creation) on the target machine to identify what process initiated the RPC call. Legitimate operations will typically involve system maintenance or administrative tasks.
+
+  - **Assess Scheduled Task definitions:** Use PowerShell commands (e.g., `Get-ScheduledTask`) on the target system to verify if any new tasks have been created or modified around the same time as the detected RPC calls. Look for unusual tasks that lack administrative oversight.
+
+  - **Identify known trusted hosts:** Journal legitimate admin access patterns, focusing on approved workstations used for system management. Cross-reference the logs to understand if the RPC call aligns with established administrative behaviors.
+
+  - **Validate file activity:** If an associated task is found, check for file creation or modification timestamps using the Windows Security Event ID 4663 (File Access). Unusual file paths or sudden changes could indicate compromise or malicious actions stemming from the task execution.
+
+  ---
 
   ### Prioritization
-  This alert is classified as high severity as successful exploitation can lead to significant data breaches, unauthorized access, and potential compromise of critical systems within an enterprise environment.
+
+  This alert should be treated with high priority due to the potential impact of unauthorized scheduled task modifications on critical systems. The likelihood of using this method for lateral movement is significant, as it is a common technique employed by attackers during post-exploitation phases.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage related to systems that do not have the RPC firewall installed or improperly configured environments that do not log RPC interactions. The detection logic assumes that the RPC firewall is properly implemented and that relevant logs are being generated consistently. Additionally, if attackers use alternative methods to execute tasks (not utilizing ATSvc), this rule may not detect such activities, highlighting the need for a robust multi-faceted detection strategy.
+
+  This detection may not capture all lateral movement attempts, particularly those using encrypted traffic or alternative methods for task scheduling. Reliable detection requires that the RPC Firewall is configured properly across all endpoints. Legitimate activities, such as remote administrative tasks or service configurations, may inadvertently trigger this alert. A companion detection to consider is monitoring for Event ID 4648 (A login attempt was made using explicit credentials), which can further validate unauthorized access attempts in conjunction with suspicious task executions.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

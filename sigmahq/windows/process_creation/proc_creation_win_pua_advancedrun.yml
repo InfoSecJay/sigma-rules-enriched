@@ -40,42 +40,30 @@ level: medium
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_pua_advancedrun/info.yml
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of the AdvancedRun utility, a tool that allows users to run programs with various parameters, including executing applications with elevated privileges. Attackers may leverage AdvancedRun to bypass security mechanisms and execute malicious commands under the context of the SYSTEM account, aiming to achieve unauthorized access or pivot to other parts of the network. This behavior aligns with the MITRE ATT&CK tactics of Execution (TA0002) and Privilege Escalation (TA0004), specifically technique T1564.003 (Hide Artifacts: Hidden Files and Directories) and T1059.003 (Command and Scripting Interpreter: Windows Command Shell).
+  This Sigma rule detects the execution of the AdvancedRun utility, which can be used to launch processes under a different user context, including elevated privileges. Attackers may leverage AdvancedRun to execute malicious commands or payloads without raising immediate alarms, especially in environments where strict execution policies are in place. This behavior typically aligns with the MITRE ATT&CK tactic of "Execution" (TA0002) and the technique "Scheduled Task/Job" (T1053) as well as "Run Executable as a Different User" (T1134.002). The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1.
 
-  The primary telemetry source for this detection is Windows process creation events. Specifically, it looks for Event ID 4688 that captures command line details when a new process is created. If malicious, the execution of AdvancedRun could compromise system integrity or facilitate further malicious activities. However, this detection does NOT confirm that malicious intent is present without additional contextual analysis of the command line and associated telemetry.
-
-  ---
+  If malicious, this detection can indicate unauthorized privilege escalation or process execution that could lead to further exploitation or lateral movement within the network. However, this detection alone does NOT confirm malicious intent; AdvancedRun could be used legitimately for system administration purposes.
 
   ### Investigation Steps
 
-  - **Verify Process Creation Source:** Check for Windows Event ID 4688 (Process Creation) logs around the time of the alert to confirm the invocation of AdvancedRun.exe and gather information on the parent process that launched it.
+  - **Check process details for AdvancedRun execution:** Review Security Event ID 4688 alerts for process creation events containing `AdvancedRun.exe` to understand the context and user under which it was executed. Note the user privileges associated with this execution; legitimate administrative users may use this tool.
 
-  - **Analyze Command Line Arguments:** Look for specific command line parameters in logs that include `/RunAs` and `/EXEFilename`. Malicious usage will typically feature unusual or unrecognized executables listed in `/EXEFilename` compared to standard application paths.
+  - **Analyze command line arguments:** Inspect the command line used (check `CommandLine` field in the process creation logs) for the presence of `/EXEFilename`, `/Run`, `/WindowState 0`, and `/RunAs`. Signatures fitting this pattern should raise suspicion; binaries executed with these flags can indicate an attempt to run malware surreptitiously.
 
-  - **Check for System Account Execution:** Validate that AdvancedRun is being executed under the SYSTEM account. Legitimate use cases might involve known administrative tasks, while elevation to SYSTEM in unexpected contexts is indicative of possible malicious activity.
+  - **Validate user context:** Determine whether the execution took place under a known and trusted user context (e.g., system users for scheduled jobs). If executed under normal user accounts that lack administrative rights, this may indicate potential malicious activity.
 
-  - **Evaluate User Context:** Review the user account under which the AdvancedRun command was executed. Legitimate scenarios often involve administrative or IT personnel; unusual execution by non-admin accounts warrants further investigation.
+  - **Cross-reference with legitimate usage:** Document instances where AdvancedRun is used legitimately within your organization, and characterize typical command lines or use cases. For example, authorized administrative scripts may use it to perform scheduled tasks that are documented in internal policy.
 
-  - **Correlate with Threat Intelligence:** Cross-reference the process execution details with known threat intelligence regarding AdvancedRun abuse, particularly in connection to recent incidents or related malware campaigns.
-
-  - **Examine Subsequent Behavior:** Look for additional process creation events immediately following the execution of AdvancedRun that indicate further system changes or data access, which may demonstrate an escalation of privilege or lateral movement.
-
-  ---
+  - **Identify high-confidence malicious indicators:** Investigate any related process tree initiated by `AdvancedRun.exe` for suspicious parent-child relationships (using Sysmon logs). Look for processes like command prompts or PowerShell being launched from AdvancedRun, which often indicate malicious actions.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to its potential impact on critical systems if misused and the high likelihood that adversaries may exploit such utilities for malicious purposes. While not common, the use of AdvancedRun in documented attacks against enterprise environments does elevate the concern level.
-
-  ---
+  This alert should be considered medium severity due to the potential impact on the system's integrity and the likelihood of exploitation. AdvancedRun is commonly weaponized to wrongly elevate privileges or execute sensitive tasks without proper authorization. The affected asset's role in critical business functions also magnifies the urgency for rapid investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the ability of AdvancedRun to operate under valid user contexts, potentially masking malicious intent during legitimate administrative tasks. Reliable detection requires proper logging configurations for process creation events and real-time monitoring for any process execution under the SYSTEM account. Additionally, routine administrative tools may trigger similar alerts, necessitating careful contextual investigation. A companion detection rule focusing on suspicious process trees or unusual parent-child process relationships may enhance overall visibility into potential exploitation.
-
-  ---
+  Detection may be evaded if attackers use obfuscation techniques on the command line or rename the executable. Ensure that all necessary logging (e.g., enabling Process Creation logging via Group Policy) is active for reliable detection. Legitimate applications like maintenance scripts could trigger this alert under specific conditions, requiring careful contextual validation. Complementary detections for other suspicious process creations or command execution patterns, such as monitoring for unusual PowerShell usage (T1059.001), can help strengthen coverage against potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

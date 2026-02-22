@@ -52,25 +52,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule aims to identify potential persistence mechanisms that leverage the Windows telemetry feature. It focuses on the manipulation of the registry key associated with Windows telemetry, specifically the `TelemetryController` subkey. Attackers may exploit the `CompatTelRunner.exe` binary, which executes arbitrary commands as specified in the registry, to establish persistent access to a compromised system. Such behavior could be part of a broader tactic involving privilege escalation, execution, and persistence to maintain control over the target environment.
 
-  The likely objective of an attacker utilizing this method is to ensure covert long-term access to the system without raising alarms. By inserting malicious commands into the telemetry registry, they can facilitate the execution of harmful payloads or scripts every time the telemetry process runs. This falls under the MITRE ATT&CK tactics of **Persistence (T1547)** and **Execution (TA0002)**, specifically technique **T1053.005 (Scheduled Task/Job: Windows Management Instrumentation (WMI) Job)**.
+  This rule detects modifications to the Windows registry at the TelemetryController subkey, specifically targeting the inclusion of potentially malicious command executions via the binary **CompatTelRunner.exe**. The attacker likely aims to achieve system persistence by scheduling arbitrary code execution through legitimate Windows telemetry services. This behavior aligns with the MITRE ATT&CK tactic **Persistence** and technique **T1053.005: Scheduled Task/Job**.
 
-  Primary data sources include registry modification logs, specifically those that capture changes to the `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController` key. Configurations should utilize Sysmon to effectively monitor and log such registry actions.
+  Primary telemetry sources include Windows registry changes monitored via Sysmon, particularly the **HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController** path. If malicious, this could allow extensive unauthorized access or control over the system. However, this detection alone does not confirm malicious activity as legitimate applications may also modify these registry keys.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Examine registry logs for changes to `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController` for any unexpected modifications or key creations, especially entries containing command file extensions such as `.exe`, `.bat`, or `.dll`.
 
-  - **Analyze Sysmon Events:** Query Sysmon logs for events related to process creation events involving `CompatTelRunner.exe` and `DeviceCensus.exe`. Focus on identifying when these processes were executed along with the command parameters they used.
+  - **Verify registry modification details:** Check Sysmon Event ID 13 logs. Look for changes to **TargetObject** containing `\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController\` with **Details** indicating a command that includes file extensions like `.bat`, `.exe`, or `.cmd`. Legitimate activity will typically show benign commands related to system maintenance or updates.
 
-  - **Investigate Related Processes:** Look for unusual parent-child relationships involving `CompatTelRunner.exe`, checking if it spawned unexpected child processes, particularly those not typically associated with legitimate telemetry tasks.
+  - **Identify process attributes:** Cross-reference Sysmon Event ID 1 for process creation logs associated with **CompatTelRunner.exe**. Look for the command line parameters used. Malicious indicators include uncommon parameters or suspicious command execution paths.
 
-  - **Correlate with User Activity:** Assess the user accounts associated with registry modifications and process executions. Check for anomalous user behavior or privilege escalation attempts that may correlate with the telemetry command logging.
+  - **Assess system role and criticality:** Confirm the affected system's role within the enterprise. Systems that are critical (e.g., domain controllers or servers) warrant immediate escalation, particularly if the execution commands are suspicious.
+
+  - **Investigate related scheduled tasks:** Review the Task Scheduler (using the `schtasks` command) for any recent tasks that utilize **CompatTelRunner.exe** or have been altered. Malicious tasks may have atypical execution times or origins.
+
+  - **Check for other associated artifacts:** Validate any file creation or network connection activities initiated by commands listed in the logs. Look through Event ID 4688 and network traffic logs for abnormal behavior indicating potential data exfiltration or lateral movement.
 
   ### Prioritization
-  This alert is classified as high severity due to the significant potential impact of establishing persistence on a system. Exploiting telemetry for malicious purposes can lead to unauthorized access and data breaches, posing a serious risk to the organization’s cybersecurity posture.
+
+  This alert should be considered high severity due to its potential impact on system integrity and the likelihood that it could be abused for malicious persistence strategies. The use of legitimate Windows processes makes this behavior particularly concerning as it may bypass traditional security mechanisms.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if Sysmon is not properly configured to monitor the specific registry path and events. This rule assumes that all relevant telemetry registry modifications are captured by the logging infrastructure in place. Additionally, the detection logic may yield false positives if legitimate applications modify the telemetry registry for valid purposes. Proper logging of all registry changes is essential for this rule to function effectively, including ensuring Sysmon is deployed consistently across all endpoints.
+
+  This detection may be evaded by attackers using fileless techniques or modifying existing legitimate tasks to execute malicious commands. It relies on Sysmon configuration to reliably monitor the specific registry paths, which must be properly set up in advance. Legitimate system updates or telemetry adjustments by administrators may trigger this alert, potentially leading to false positives. A related detection to consider is monitoring API calls to **CompatTelRunner.exe** for abnormal patterns, enhancing overall coverage of potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

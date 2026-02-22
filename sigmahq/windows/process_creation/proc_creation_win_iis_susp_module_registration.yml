@@ -1,8 +1,8 @@
 title: Suspicious IIS Module Registration
 id: 043c4b8b-3a54-4780-9682-081cb6b8185c
 status: test
-description: Detects a suspicious IIS module registration as described in Microsoft
-  threat report on IIS backdoors
+description: Detects a suspicious IIS module registration as described in 
+  Microsoft threat report on IIS backdoors
 references:
 - https://www.microsoft.com/security/blog/2022/07/26/malicious-iis-extensions-quietly-open-persistent-backdoors-into-servers/
 author: Florian Roth (Nextron Systems), Microsoft (idea)
@@ -32,22 +32,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects potentially malicious registration of Internet Information Services (IIS) modules, which may indicate the presence of backdoors on web servers hosted within the enterprise. Attackers often utilize techniques like these to gain persistent access to compromised systems, manipulate web application behavior, or exfiltrate sensitive data. The typical attacker objectives include maintaining access after initial compromise, evading detection, and escalating privileges within the environment.
 
-  Relevant MITRE ATT&CK tactics include **Persistence** (TA0003) and the specific technique **Malicious IIS Modules** (T1505.004). These tactics and techniques highlight the methods by which adversaries establish and maintain their foothold in the environment, potentially using compromised web servers as platforms for further attacks.
+  This Sigma rule detects abnormal registrations of IIS modules that could indicate the presence of a backdoor, specifically when appcmd.exe, PowerShell, or gacutil is executed under the IIS worker process (w3wp.exe). The likely attacker objective is to establish persistence on compromised servers, providing ongoing access and control. This behavior aligns with the MITRE ATT&CK technique for “Application Layer Protocol” (T1505.004).
 
-  Primary data sources that will yield valuable evidence for this detection include process creation events, specifically focusing on instances where IIS worker process (w3wp.exe) is the parent process and command lines associated with IIS module registration activities. These logs can provide insights into any unauthorized modifications or registrations occurring on the server.
+  The primary telemetry sources include Windows Process Creation logs, specifically Event ID 4688, which captures command-line arguments, and potentially Sysmon Event ID 1 for more detailed process creation information. If malicious, the installed module could allow unauthorized users to interact with the server, execute arbitrary code, or exfiltrate data without detection. This detection does NOT confirm a compromise but indicates a suspicious behavior requiring further investigation.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Collect and analyze logs for any processes launched under the parent image `w3wp.exe`, focusing on command line arguments that indicate IIS module registration operations.
-  - **Correlate With System Audits:** Cross-reference the findings with system audit logs to identify any unauthorized changes to IIS configuration or module behavior following the suspicious registration events.
-  - **Assess Network Activity:** Examine network logs for any outbound communications initiated by the IIS application during or after the module registration to detect potential data exfiltration or command-and-control (C2) communications.
-  - **Query IIS Configuration:** Analyze the IIS configuration and installed modules for any unexpected entries or modifications, checking against established baselines to help detect unauthorized changes.
+
+  - **Verify process context:** Review Event ID 4688 for process creation logs where the `ParentImage` ends with `\w3wp.exe`. Confirm if the command line contains suspicious entries, which indicates potential malicious modification of IIS.
+
+  - **Assess command-line details:** Analyze the fields for detected command lines. If `appcmd.exe add module` is present, note the module name being added. This should not be part of normal admin tasks; compare against known legitimate module registrations.
+
+  - **Investigate PowerShell invocations:** For any logs showing `powershell.exe` and `system.enterpriseservices.internal.publish` in the CommandLine, verify if these scripts are related to standard operations or if they deviate from expected administrative usage patterns.
+
+  - **Determine expected behavior:** Identify legitimate administrative activities around IIS module management by consulting internal documentation or contacting system administrators. Legitimate modules typically have known names and usage patterns.
+
+  - **Identify high-confidence malicious indicators:** Look for the execution of `gacutil` with the `/I` flag, especially if it is preceded by `w3wp.exe`. This indicates an attempt to install assemblies into the Global Assembly Cache, which is highly unusual in regular operations.
+
+  - **Check for persistence mechanisms:** Search for any related events indicating subsequent HTTP requests or activity linked to the added modules, assessing if unusual traffic patterns emerge that may indicate exploitation of the newly registered module.
 
   ### Prioritization
-  The alert's severity is high due to the critical role of IIS servers in hosting web applications and the potential for significant impacts, including data breaches, loss of service, or further penetration into the network. The likelihood of exploitation through malicious modules also raises concern for ongoing persistence threats.
+
+  This alert is high-severity due to the significant risk posed by unauthorized IIS module registrations, as they can lead to severe compromises of the web server's integrity. The likelihood of malicious use is high, given that known exploits often target IIS configurations. Unauthorized module registration is a tactic commonly weaponized in campaigns against web servers.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage regarding legitimate administrative activities that involve IIS module registration, which could lead to false positives. The detection logic assumes that the initial context of the command line and parent process is indicative of malicious behavior, without accounting for valid administrative changes. Additionally, for the alert to function optimally, proper logging configurations must be established to capture all necessary process creation events in the Windows event log.
+
+  Potential evasion techniques may include legitimate administrative changes to perform similar actions or malware that mimics valid administrative commands. Reliable detection requires proper logging of process creation events (Event ID 4688) and may include additional visibility into PowerShell command execution. Legitimate activities may trigger this alert during regular updates or custom application deployments. A related detection can involve monitoring IIS access and error logs for unexpected behavior or traffic patterns post-module modification, enhancing overall visibility into potential compromises.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

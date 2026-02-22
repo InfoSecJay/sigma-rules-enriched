@@ -37,25 +37,36 @@ detection:
     - 'update'
   condition: selection
 falsepositives:
-- Modifying the Kubernetes Admission Controller may need to be done by a system administrator.
-- Automated processes may need to take these actions and may need to be filtered.
+- Modifying the Kubernetes Admission Controller may need to be done by a system 
+  administrator.
+- Automated processes may need to take these actions and may need to be 
+  filtered.
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies modifications made to mutating or validating webhook configurations within Kubernetes by monitoring API server audit logs. The significance of detecting such changes lies in the potential for adversaries to use webhooks for maintaining persistence in a compromised environment, as well as to exfiltrate sensitive information such as access credentials. Attackers may manipulate these configurations to insert malicious code into the application lifecycle or to alter admission policies, thereby gaining unauthorized access or control over workloads.
 
-  The relevant MITRE ATT&CK tactics associated with this behavior include **Persistence (T1078)**, where attackers establish a foothold in a network, and **Credential Access (T1552)**, which involves acquiring access credentials through various means. Additionally, techniques such as **Modification of Existing Applications (T1552.007)** may apply, as modifying webhook configurations can directly impact the behavior of applications within Kubernetes clusters. Log sources of primary interest include Kubernetes audit logs, which record requests to the API server, capturing details about the modifications made to webhook configurations.
+  This rule detects modifications to mutating or validating webhook configurations within a Kubernetes cluster. Such alterations can enable an attacker to establish persistence, intercept traffic, or exfiltrate credentials from pods, thereby compromising the security posture of the environment. The behavior correlates with multiple MITRE ATT&CK techniques, including persistence (T1078), initial access (T1552), and credential access (T1552.007). The primary telemetry source for this detection is Kubernetes audit logs, specifically tracking events related to the `admissionregistration.k8s.io` API group and associated resources.
+
+  If malicious, these modifications could lead to unauthorized access, data leakage, or remote code execution within the cluster. However, it is crucial to note that this detection only indicates a modification action; it does not confirm the intent behind the change or whether it was performed by an authorized user.
 
   ### Investigation Steps
-  - **Review Kubernetes Audit Logs:** Examine the audit logs for any entries related to the actions `create`, `update`, `delete`, `patch`, or `replace` against the resources `mutatingwebhookconfigurations` and `validatingwebhookconfigurations`.
-  - **Correlate with User Activity:** Identify the user or service account that initiated the modification to assess whether the actions were expected based on their roles and responsibilities.
-  - **Analyze Triggering Events:** Look for other related events that could indicate potential compromise, such as failed login attempts, unauthorized access to sensitive namespaces, or unusual access patterns prior to the webhook modification.
-  - **Assess Network Traffic:** Monitor outgoing traffic from the Kubernetes cluster to identify if there are unexpected data exfiltration attempts or connections to suspicious endpoints immediately following the webhook modifications.
+
+  - **Verify modified webhook configurations: ** Review Kubernetes Audit Logs (Event Source: `admissionregistration.k8s.io`), focusing on Event Types such as `create`, `update`, `delete`, or `replace` for the `mutatingwebhookconfigurations` and `validatingwebhookconfigurations` resources. Check fields like `objectRef.name` and `user.username` to understand the context of the changes.
+
+  - **Identify legitimate administrative actions:** Confirm if the modification was made by a user with proper administrative credentials. Look for logs in the Kubernetes Audit Store where the user may have performed expected maintenance activities, ideally with their roles and permissions outlined to ensure legitimacy.
+
+  - **Assess user and service account permissions:** Investigate Role-Based Access Control (RBAC) settings to ascertain if the user or service account making changes has the necessary permissions. This can be revealed through `kubectl get clusterroles` and `kubectl get clusterrolebindings` in conjunction with the audit log details.
+
+  - **Cross-reference timestamps for anomalies:** Combine Kubernetes audit logs with logs from the container orchestration platform (e.g., using Docker logs) to check for unusual activity around the same timestamps, particularly any automated processes or deployments that might align with the timeline of the modifications.
+
+  - **Establish potential malicious indicators:** Look for modification events by user accounts or service accounts that are typically associated with attacks or had no previous history of making such changes. Blueprints include service accounts exemplified by names similar to common attack vectors or those observed in recent incidents.
 
   ### Prioritization
-  This alert should be treated with medium to high severity due to the significant implications of unauthorized modifications to webhook configurations. These actions can lead to persistent access, credential theft, and further lateral movement within the enterprise environment.
+
+  This alert is rated medium severity. The actions detected can affect critical parts of Kubernetes infrastructure, and the likelihood of exploiting these modifications is high, given that this behavior is weaponized by various attack frameworks. However, benign administrative actions also commonly trigger this rule, necessitating careful validation during triage.
 
   ### Blind Spots and Assumptions
-  This detection may have gaps related to automated deployment processes which could generate false positives. It assumes that all legitimate administrative actions are logged appropriately and does not account for scenarios where configuration changes are made without proper authorization. Continuous monitoring and review of access controls, as well as ensuring comprehensive audit logging configuration, are essential for effective detection. Additionally, integration with CI/CD pipelines might mask legitimate changes, requiring careful tuning of alert configurations to mitigate noise.
+
+  There is a risk of evasion if an attacker manages to modify webhook configurations in a way that does not generate audit logs or if logs are insufficiently configured. Additionally, automated processes like CI/CD pipelines may trigger this alert without malicious intent. A related detection rule that strengthens coverage includes monitoring for unusual successful API calls to the Kubernetes API, which could indicate privilege escalation attempts or lateral movement within the cluster.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

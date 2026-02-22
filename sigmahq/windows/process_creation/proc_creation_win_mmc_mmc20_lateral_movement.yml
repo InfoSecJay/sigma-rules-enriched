@@ -1,9 +1,9 @@
 title: MMC20 Lateral Movement
 id: f1f3bf22-deb2-418d-8cce-e1a45e46a5bd
 status: test
-description: Detects MMC20.Application Lateral Movement; specifically looks for the
-  spawning of the parent MMC.exe with a command line of "-Embedding" as a child of
-  svchost.exe
+description: Detects MMC20.Application Lateral Movement; specifically looks for 
+  the spawning of the parent MMC.exe with a command line of "-Embedding" as a 
+  child of svchost.exe
 references:
 - https://enigma0x3.net/2017/01/05/lateral-movement-using-the-mmc20-application-com-object/
 - https://drive.google.com/file/d/1lKya3_mLnR3UQuCoiYruO3qgu052_iS_/view?usp=sharing
@@ -28,28 +28,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential lateral movement activity within a Windows environment using the Microsoft Management Console (MMC). It specifically looks for the execution of the `MMC.exe` process as a child of the `svchost.exe` process with the command line argument `-Embedding`. Such behavior is commonly associated with attackers attempting to execute malicious code on remote systems by leveraging legitimate administrative tools, thus blending in with normal operating behavior.
 
-  Attackers may aim to execute malicious commands, move laterally within the network, or escalate privileges by exploiting the trusted functionality of system processes. Detecting this behavior is critical as it indicates unauthorized access to systems that could lead to further infiltration, data exfiltration, and compromise of sensitive information.
+  This rule detects lateral movement using the Microsoft Management Console (MMC) through the spawning of the MMC application (`mmc.exe`) with the command line argument `-Embedding` as a child process of `svchost.exe`. This behavior is indicative of an attacker using legitimate system tools to gain unauthorized access to do actions on other hosts or sensitive data. The relevant MITRE ATT&CK tactic is "Lateral Movement" (ID: T1021.003).
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Execution** (TA0002) - using legitimate tools to execute commands.
-  - **Lateral Movement** (TA0008) - using techniques like `T1021.003: Remote Services: Windows Admin Shares` for accessing systems remotely.
+  The primary telemetry sources for this rule are the Windows process creation logs, specifically focusing on Security Event ID 4688 and Sysmon Event ID 1. If the rule is triggered maliciously, it could indicate an attempt to pivot or gain unauthorized access to resources, affecting the confidentiality and integrity of the system. Note that this detection does NOT confirm that a compromise has occurred on its own; further investigation is required to establish intent and impact.
 
-  The primary telemetry sources for evidencing this detection include:
-  - **Process creation events** from endpoint detection tools like EDR.
-  - Logs from the Windows Event Log indicating process execution.
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for `mmc.exe` spawned by `svchost.exe` to confirm the presence of the `-Embedding` command line flag. Gather additional context on execution time and the user account involved.
-  - **Analyze Parent-Child Relationships:** Investigate the parent-child process relationships to track the origin of the lateral movement attempt and identify unusual process trees that may indicate exploitation.
-  - **Correlate with User Activity:** Check the activity of the user account that triggered the alert for any anomalous behavior, such as accessing unusual systems or performing unexpected administrative tasks.
-  - **Conduct Network Analysis:** Review credible network traffic logs that correspond with the time of the alert; look for unusual SMB traffic patterns or RDP sessions that may suggest lateral movement.
+
+  - **Check process creation events:** Review Security Event ID 4688 or Sysmon Event ID 1 for process creation records involving `svchost.exe` as the parent image and `mmc.exe` with the `-Embedding` argument. This can pinpoint the existence of potentially malicious lateral movement.
+
+  - **Identify user context:** Determine the user context under which `mmc.exe` was executed by reviewing the `NewProcessName`, `ProcessId`, and the `CreatorProcessId` fields. Legitimate uses will typically show system or administrative users, whereas suspicious invocations may originate from unfamiliar accounts.
+
+  - **Examine parent process lineage:** Analyze the command line arguments of `svchost.exe` (ParentImage) to identify any anomalies. Legitimate uses usually do not invoke MMC this way and should show typical service-related arguments.
+
+  - **Correlate with network activity:** Look for outbound connections linked to the timestamps of the alert. Use Windows Firewall logs or Proxy logs to check if the machine was communicating with unusual external or internal systems concurrently, which may indicate laterally exploiting other systems.
+
+  - **Document system role:** Consider the asset involved; if it hosts critical resources or sensitive data, increase the urgency of the investigation. Compare against baseline behavior for the specific machine type (e.g., domain controller, workstation).
+
+  - **Confirm file creation or modifications:** Check for any newly created files or modifications in the file system related to `mmc.exe` using the File Creation Timestamp or Windows Event ID 4663. Look for logs indicating unauthorized access or change to sensitive directories.
+
+  ---
 
   ### Prioritization
-  This alert has a high severity rating in an enterprise environment due to the increased risk of lateral movement enabling an attacker to escalate privileges and compromise additional systems, posing a significant threat to the integrity and security of the network.
+
+  This alert is of high severity due to the potential impact on critical systems and data. The behavior is often weaponized by attackers for lateral movement, making it a significant threat indicator. Systems running this process are typically central to management functions, heightening the possibility of escalating privileges.
+
+  ---
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage when legitimate administrative activities utilize similar mechanisms, potentially resulting in false negatives. The detection logic assumes that `-Embedding` is a significant indicator of malicious intent, which may not always hold true in environments where MMC is regularly used for legitimate purposes. Additionally, proper logging configuration on all Windows hosts is required for this alert to function effectively, as missing process creation logs could lead to undetected malicious activity.
+
+  Evasion techniques may include altering the command line or using alternative process invocation methods. Reliable detection requires proper logging configurations for process creation, which should be enabled via Group Policy or endpoint telemetry solutions. Legitimate system admin tasks may trigger this rule when using MMC to manage services or settings. A related detection to consider is monitoring for interactions with remote desktop services, which may indicate further lateral movement activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

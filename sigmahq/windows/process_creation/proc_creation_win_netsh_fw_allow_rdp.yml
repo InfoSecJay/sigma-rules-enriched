@@ -1,8 +1,8 @@
 title: RDP Connection Allowed Via Netsh.EXE
 id: 01aeb693-138d-49d2-9403-c4f52d7d3d62
 status: test
-description: Detects usage of the netsh command to open and allow connections to port
-  3389 (RDP). As seen used by Sarwent Malware
+description: Detects usage of the netsh command to open and allow connections to
+  port 3389 (RDP). As seen used by Sarwent Malware
 references:
 - https://labs.sentinelone.com/sarwent-malware-updates-command-detonation/
 author: Sander Wiebing
@@ -36,22 +36,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects the unauthorized use of the `netsh.exe` command-line utility to modify firewall settings in a Windows environment, specifically allowing connections on port 3389, which is used for Remote Desktop Protocol (RDP). Attackers may leverage this technique to create backdoors or facilitate unauthorized remote access to compromised systems. The rule was inspired by the Sarwent malware, a known threat that exhibits behavior consistent with this detection logic.
 
-  The primary objective of an attacker using this technique is likely to bypass defensive mechanisms and establish a persistent method of access to the target environment. By allowing RDP connections, attackers can gain control over systems remotely, potentially leading to further exploitation, data exfiltration, or lateral movement within the network. This behavior falls under the MITRE ATT&CK framework's tactics of **Defense Evasion** (T1562.004) as it seeks to modify security settings to avoid detection.
+  This rule detects the execution of `netsh.exe` commands that modify firewall settings to allow incoming connections on TCP port 3389, which is used for Remote Desktop Protocol (RDP). The likely attacker objective is to establish remote control of the compromised system, often seen in post-exploitation scenarios where an adversary seeks to enable persistent access for further operations. This detection aligns with the MITRE ATT&CK technique "Application Layer Protocol" (T1562.004).
 
-  Primary data sources for this detection include **process creation events** that log command execution details within the Windows environment. These logs will reveal instances of `netsh.exe` execution along with the associated command-line parameters that can indicate potential malicious activity.
+  The primary telemetry sources include Windows process creation events and command line activity logged by Sysmon (Event ID 1) and Security Event ID 4688. If malicious, the use of this rule indicates unauthorized exposure of RDP, significantly increasing the risk of lateral movement or full system compromise. This detection does NOT confirm an active compromise; it merely indicates potentially dangerous configuration changes.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine process creation logs for instances of `netsh.exe` execution, focusing on entries that involve modifying firewall rules or allowing connections on port 3389.
-  - **Analyze Command-Line Arguments:** Specifically identify the command-line strings associated with `netsh.exe` executions and look for keywords such as "firewall", "allow", and "tcp 3389" to confirm if the command aligns with known attack patterns.
-  - **Correlate with User Accounts:** Determine if the user account executing the command has legitimate administrative rights or is associated with known malicious actors. Validate whether the command was executed during a standard administrative activity.
-  - **Check Network Connections:** Investigate network connection logs to identify any recent RDP connections, especially those initiated following the execution of the malicious command. Look for connections from unusual sources or outside typical operational hours.
+
+  - **Check process creation logs**: Look for Sysmon Event ID 1 or Security Event ID 4688 where the Image field contains `netsh.exe`. Compare timestamps with any known scheduled tasks or administrative maintenance windows.
+
+  - **Review command line arguments**: Analyze the CommandLine field for the presence of keywords like 'firewall', 'add', 'tcp', and '3389' in the relevant events. Malicious entries will typically attempt to configure the firewall to allow RDP without justification.
+
+  - **Validate legitimate behavior**: Confirm if similar command attempts correspond with documented IT maintenance activities or routine administrative functions, such as patching or resizing services.
+
+  - **Inspect firewall rules**: Using PowerShell (`Get-NetFirewallRule`), check for any firewall rules that allow inbound connections on TCP port 3389. Ensure they align with your organization's policy and do not have unapproved origins.
+
+  - **Identify high-confidence malicious indicators**: If the event logs show `netsh.exe` running with no legitimate prior RDP needs, this may indicate malicious activity, especially if correlated with other indicators of compromise, such as browser history showing suspicious web pages.
+
+  - **Cross-reference network logs**: Assess network telemetry for incoming RDP connection attempts (e.g., Windows Event ID 5156 - Windows Filtering Platform) following the execution of the detected command. Look for unusual IP addresses attempting to connect to this system.
+
+  ---
 
   ### Prioritization
-  Given the high potential for unauthorized access and the associated risks to sensitive data and system integrity, this alert holds a high severity level in an enterprise environment. The likelihood of exploitation through an opened RDP port presents significant threats, including lateral movement and data compromise.
+
+  This alert should be considered high priority, as it reveals a potential change to a critical service (RDP) on potentially valuable systems. The likelihood of malicious abuse is significant, especially given the known usage by malware in prior attacks. The configuration of RDP access is a common tactic employed by attackers post-exploitation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Potential gaps in detection coverage include legitimate administrative activities that may trigger similar command executions without malicious intent, leading to false positives. The detection logic assumes that `netsh.exe` is being used inappropriately, without accounting for legitimate administrative procedures. Additionally, the rule relies on accurate logging configurations for process creation events to be effective; therefore, if these logs are not captured due to misconfiguration or disabled auditing features, the alert may fail to trigger, leading to undetected malicious activity.
+
+  Detection may be circumvented by legitimate administrative actions, where an approved administrator may use `netsh.exe` for firewall configuration. The presence of alternative tools or scripts that achieve similar results (e.g., PowerShell commands) may evade detection as well. It is essential to ensure that logging for both Sysmon and Windows Security is correctly configured. A related detection to enhance coverage could be monitoring for unauthorized access attempts on RDP using Windows Event ID 4625 (failed logon events).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,8 @@
 title: Remote Code Execute via Winrm.vbs
 id: 9df0dd3a-1a5c-47e3-a2bc-30ed177646a0
 status: test
-description: Detects an attempt to execute code or create service on remote host via
-  winrm.vbs.
+description: Detects an attempt to execute code or create service on remote host
+  via winrm.vbs.
 references:
 - https://twitter.com/bohops/status/994405551751815170
 - https://redcanary.com/blog/lateral-movement-winrm-wmi/
@@ -31,42 +31,32 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects attempts to execute remote code or create services on a target host using the `winrm.vbs` script through Windows Remote Management (WinRM). A likely attacker objective could be lateral movement within a network, aiming to execute commands on remote systems to establish persistence or exfiltrate data. Relevant MITRE ATT&CK tactics include **Tactics: Execution (TA0002)** and **Lateral Movement (TA0008)**, specifically the technique **T1216 - Remote Service Session Hijacking**.
+  This Sigma rule detects attempts to execute remote code through the Windows Remote Management (WinRM) service using the `winrm.vbs` script executed by `cscript.exe`. The likely attacker objective is to leverage this functionality for lateral movement within a network to execute arbitrary commands or deploy malware on remote machines. This behavior is associated with the MITRE ATT&CK technique for Remote Services (T1216).
 
-  The primary telemetry source for this detection is Windows process creation logs, particularly focusing on executions involving `cscript.exe`. Security impacts of successful exploitation include unauthorized access to sensitive information, potential system compromise, or establishment of command and control channels. This detection does NOT confirm malicious intent inherently; it only denotes an execution pattern that could be indicative of non-standard behavior.
-
-  ---
+  Primary telemetry sources include Windows Security Event ID 4688 (Process Creation) and Sysmon Event ID 1 (Process Creation), capturing instances where `cscript.exe` runs with command lines indicating remote execution via WinRM. If successful, the impact can be severe, potentially compromising sensitive systems and escalating privileges. Importantly, this detection does NOT confirm that malicious activity has occurred, as legitimate administrators may also utilize WinRM for remote management.
 
   ### Investigation Steps
 
-  - **Review process creation events:** Examine Windows Security Event ID 4688 for processes starting with `cscript.exe`. Look for entries where the command line contains 'winrm', 'invoke Create wmicimv2/Win32_', and '-r:http'. Legitimate instances typically do not involve these parameters.
+  - **Review process execution details:** Check for Windows Security Event ID 4688 or Sysmon Event ID 1 where `Image` ends with `\cscript.exe` and `OriginalFileName` is `cscript.exe`. Verify the `CommandLine` for patterns that include 'winrm' and 'invoke Create wmicimv2/Win32_'. Malicious instances will typically execute structured WinRM commands unlike benign uses.
 
-  - **Assess user account activity:** Cross-reference the user account running the `cscript.exe` against organizational norms. Unusual accounts or those lacking appropriate permission levels warrant further scrutiny as they may signal unauthorized access.
+  - **Correlate with user context:** Investigate the user account initiating the `cscript.exe` process. Look at the `NewProcessName` and `UserName` fields from the logs. Unauthorized accounts or service accounts executing this command can indicate malicious activity.
 
-  - **Verify host role context:** Identify the role of the affected system. If it's a critical server or an endpoint with sensitive data, prioritize this investigation higher, as the impact of a compromise may be severe.
+  - **Validate network connections:** Confirm whether the remote command execution initiated any WinRM connections by analyzing Windows Firewall logs for fails or successes on port 5985/5986. Legitimate use may show consistent expected connection patterns in the organization.
 
-  - **Identify high-confidence malicious indicators:** Look for encoded PowerShell commands or unusual execution flags within the command line that can indicate malicious intent. For example, any command invoking remote shell operations through WinRM should raise alarms.
+  - **Analyze command-line patterns:** Obscure commands like `-r:http` should be highlighted. Compare against a known inventory of scripts or automation used by IT operations to distinguish between legitimate use and malicious intent.
 
-  - **Inspect for follow-on activities:** Review for related event types, such as Service Control Manager (Event ID 7045, 7036) to check if any new services were created shortly after the detection event, potentially indicating further malicious activity.
+  - **Check for subsequent activities:** After detecting the `cscript.exe` process, review for related actions such as creation of new services or scheduled tasks, specifically looking for unusual entries that may suggest persistence mechanisms using `New-Service` cmdlets.
 
-  - **Investigate log artifacts:** Check for file creation or modifications of suspicious files as a result of the execution, especially any custom scripts or executables that may have been deployed via WinRM.
-
-  ---
+  - **Monitor system audit policies:** Ensure proper audit policies are set to capture all process creations in the environment. Missing logs can leave gaps in detection, potentially allowing attackers to leverage this script undetected.
 
   ### Prioritization
 
-  This alert has medium severity due to the potential for significant impact if successful exploitation occurs on a critical system. The likelihood of malicious abuse is moderate, given the technique's common usage in lateral movement and exploitation scenarios. Athreat actors frequently leverage WinRM for post-exploitation activities, indicating a reasonable chance this alert signifies a genuine risk.
-
-  ---
+  This alert carries a medium severity based on the potential impact of compromised systems used for lateral movement combined with the likelihood of abuse by adversaries leveraging known Windows management tools. The behavior is occasionally weaponized during intrusions, necessitating a prompt response.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate administrative actions triggering this alert, as skilled personnel may use WinRM for necessary operations. Required log sources include process creation logs and, potentially, PowerShell logs (Event IDs 4103 for script block logging) for broader context. Common legitimate activities could involve remote server management but should not typically exhibit the specific command line parameters flagged. A related detection to strengthen coverage would involve monitoring for unusual network traffic directed towards WinRM endpoints, which may serve as a precursor to the behavior detected by this rule.
-
-  ---
+  Detection limitations include the potential for obfuscation techniques used by malicious actors, such as renaming scripts or using alternate execution methods for `cscript.exe`. Ensure that logging is enabled on systems to capture all relevant WinRM actions, as incomplete configurations could bypass detection. Additionally, legitimate administrative actions such as software deployment may inadvertently trigger this alert, underscoring the need for contextual analysis. A related detection to consider strengthening coverage could include monitoring for `wmic` command executions, another potential vector for lateral movement.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

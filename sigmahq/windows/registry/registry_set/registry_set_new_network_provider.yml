@@ -4,8 +4,8 @@ related:
 - id: baef1ec6-2ca9-47a3-97cc-4cf2bda10b77
   type: similar
 status: test
-description: Detects when an attacker tries to add a new network provider in order
-  to dump clear text credentials, similar to how the NPPSpy tool does it
+description: Detects when an attacker tries to add a new network provider in 
+  order to dump clear text credentials, similar to how the NPPSpy tool does it
 references:
 - https://learn.microsoft.com/en-us/troubleshoot/windows-client/setup-upgrade-and-drivers/network-provider-settings-removed-in-place-upgrade
 - https://github.com/gtworek/PSBits/tree/master/PasswordStealing/NPPSpy
@@ -36,27 +36,40 @@ falsepositives:
 - Other legitimate network providers used and not filtred in this rule
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This detection rule identifies attempts by an attacker to add a new network provider as a means to dump clear-text credentials. This behavior mimics the functionality of the NPPSpy tool, which is known for credential harvesting. Attackers may attempt to utilize new network providers to intercept credentials during the authentication process, thereby gaining unauthorized access to sensitive accounts and resources.
 
-  The potential threat scenario involves an advanced persistent threat (APT) or other malicious actors utilizing credential dumping techniques to obtain user credentials without raising red flags. The attacker’s objective is often to escalate privileges for lateral movement within the network or execute further attacks on targeted systems.
+  This rule detects attempts by an attacker to register a new network provider in the Windows Registry, which is often a precursor to credential dumping attacks, such as those executed by tools like NPPSpy. The likely objective of this behavior is to capture clear text credentials during network operations. This activity maps to the MITRE ATT&CK framework under the tactic "Credential Access" (TA0006) and technique "Credential Dumping" (T1003). The primary telemetry source is Windows Registry changes, specifically looking for modifications under `\System\CurrentControlSet\Services\NetworkProvider`. If successful, this malicious behavior could lead to unauthorized access to sensitive credentials, increasing the risk of further network compromise. However, this detection does NOT confirm that credential dumping has occurred; it merely highlights a suspicious modification in the Registry.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Credential Access** (TA0006)
-    - **Credential Dumping** (T1003)
-
-  Primary data sources for detecting these actions include registry change logs, specifically those capturing modifications to network provider settings in Windows. Additionally, visibility into process creation events that involve the `poqexec.exe` executable can aid in corroborating the detection, as this process is flagged by the rule.
+  ---
 
   ### Investigation Steps
-  - **Review Registry Changes:** Examine recent changes in the Windows registry under the key `\System\CurrentControlSet\Services\NetworkProvider` for any unauthorized additions or modifications.
-  - **Analyze Process Creation Logs:** Investigate process creation logs for instances of `poqexec.exe`. Check if this executable was invoked without legitimate context.
-  - **Correlate with User Activities:** Cross-reference the timings of the registry changes with user activities to determine if the changes align with legitimate operational patterns or if they denote potential malicious intent.
-  - **Investigate Network Provider Activity:** Explore related service settings for `WebClient`, `LanmanWorkstation`, and `RDPNP`, especially for unusual configurations or anomalies following any registry changes.
+
+  - **Review Registry Changes:** Examine Registry Event IDs related to the `TargetObject` path for changes in `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NetworkProvider`. Look for any user context changes (Event ID 4657) indicating inappropriate alterations.
+
+  - **Correlate with Process Execution:** Check for execution of known malicious tools like `poqexec.exe` (Event ID 4688). Look for parent processes that indicate suspicious command-line activity, especially from non-standard user accounts.
+
+  - **Evaluate Impacted Services:** Determine if the changes affect critical services like `WebClient`, `LanmanWorkstation`, or `RDPNP`. Consider asset criticality and dependencies on these services when assessing the impact.
+
+  - **Identify Legitimate Configurations:** Validate if the modified network providers are operationally necessary (e.g., enterprise policies using specific providers). Document any legitimate configurations that align with business needs.
+
+  - **Highlight Malicious Indicators:** Focus on the registration of new network providers not typically used in your environment. Example artifacts include unusual `TargetObject` paths or values and logs showing multiple rapid modifications (indicative of scripting behavior).
+
+  - **Cross-reference Companion Alerts:** Check for related alerts on credential dumping from other detection mechanisms, such as those targeting LSASS memory dumps or unauthorized access logs for high-value resources.
+
+  ---
 
   ### Prioritization
-  The alert is deemed medium severity due to the potential for credential exposure, which could lead to significant compromise within the network. While not every entry into the network provider registry indicates malicious activity, the nature of the behaviors this rule detects suggests a targeted effort to expose sensitive information.
+
+  This alert should be prioritized as medium severity due to the potential for significant security impact if successful. While registering a new network provider is not inherently malicious, this behavior is commonly exploited in credential dumping attacks, warranting immediate investigation.
+
+  ---
 
   ### Blind Spots and Assumptions
-  One significant gap in detection coverage is the possibility of legitimate software modifying network providers, which might lead to false positives. The detection logic assumes that non-filtered network provider modifications are potentially harmful, which may not hold true in every case. Additionally, for the alert to function as intended, the appropriate logging configurations must be in place to capture registry changes and process creation events effectively. If these configurations are missing or incomplete, crucial evidence may be overlooked.
+
+  Detection may be limited by legitimate registry modifications for network provider configurations, potentially leading to false positives. Accurate logging sources must be configured, including Windows Security Event logs and appropriate registry monitoring. Furthermore, standard operational changes or application updates could trigger the alert and should be considered during the investigation. A related detection for monitoring LSASS process access (T1003.001) could strengthen coverage against credential dumping attempts.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

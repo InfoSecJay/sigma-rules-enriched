@@ -4,7 +4,8 @@ status: test
 description: Detects DLL sideloading of "dbgcore.dll"
 references:
 - https://hijacklibs.net/     # For list of DLLs that could be sideloaded (search for dlls mentioned here in there)
-author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and research)
+author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and 
+  research)
 date: 2022-10-25
 modified: 2025-10-06
 tags:
@@ -35,27 +36,36 @@ detection:
     ImageLoaded|endswith: '\assistant\dbgcore.dll'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Legitimate applications loading their own versions of the DLL mentioned in this
-  rule
+- Legitimate applications loading their own versions of the DLL mentioned in 
+  this rule
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potential DLL sideloading activities involving the `dbgcore.dll` file, which can be exploited by threat actors to execute malicious payloads. DLL sideloading occurs when a legitimate application inadvertently loads a malicious DLL instead of the appropriate, intended version, often allowing attackers to bypass security measures. The likely attacker objective includes gaining persistence on the target system or executing additional malicious actions while evading detection.
 
-  The relevant MITRE ATT&CK tactics and techniques associated with this behavior include **Defense Evasion** (T1562), **Persistence** (T1547), and **Privilege Escalation** (T1068). The specifics of this detection are focused on the execution of `dbgcore.dll` from non-standard directories, which may indicate an attempt to run a hijacked or malformed library loaded with malicious code.
+  This rule detects instances of DLL sideloading specifically for `dbgcore.dll`, which can occur when an attacker exploits the legitimate process of loading a dynamically-linked library to execute malicious code. The likely attacker objective is to escalate privileges or maintain persistence by using a trusted DLL filename while actually substituting the legitimate DLL with a malicious one. This behavior fits into MITRE ATT&CK under the following tactics and techniques: **Defense Evasion (T1562)** and **Sideloading (T1574.001)**.
 
-  Primary data sources for this detection include **Windows image load events**, particularly logs that capture file loading activities, which record when a DLL has been successfully loaded by applications running on Windows systems.
+  The primary telemetry source for this detection is Windows image load events, specifically the loading of DLLs, tracked by the ImageLoaded log in Windows Event Logs. If malicious, this could lead to unauthorized access, data exfiltration, or exploitation of sensitive systems. It's important to note that this detection does NOT confirm that the DLL is malicious on its own but indicates a potential misuse of DLL loading mechanisms.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Examine recent image load events to identify other instances of `dbgcore.dll` that may indicate potential sideloading activities, especially from suspicious locations.
-  - **Assess Application Behavior**: For any application that loaded `dbgcore.dll`, assess its legitimacy by reviewing other loaded image files and the application’s normal behavior patterns.
-  - **Check Parent-Child Process Relationships**: Analyze the processes that loaded `dbgcore.dll` uniquely, focusing on their parent processes to determine if they originate from expected executables or if there are signs of process injection.
-  - **Inspect for Unusual Paths**: Investigate the loading of `dbgcore.dll` from uncommon directories or paths not associated with core Windows applications to identify potential abuse of DLL sideloading techniques.
+
+  - **Check Image Loaded Paths**: Review `Event ID 4688` (Process Creation) or related Sysmon logs for the loading of `dbgcore.dll` and note the file path. Malicious instances will typically deviate from standard directories (e.g., C:\Windows\System32\ or C:\Program Files\).
+
+  - **Identify Process Origin**: Determine the parent process creating the instance of `dbgcore.dll`. Legitimate processes tend to originate from known applications (e.g., system processes or legitimate software installations). Malicious ones may come from unusual processes, indicated by Event ID 4688 as well.
+
+  - **Correlate with Other Security Events**: Look for surrounding events in the timeline, such as failed logins or unusual network connections (e.g., `Event ID 5156` for Windows Firewall). This context can suggest if the behavior is part of a larger attack.
+
+  - **Validate File Integrity**: Examine the checksum and signatures of the loaded `dbgcore.dll`. Use tools or scripts to compare the loaded file against the known good version. Legitimate versions should match what is expected for the operating system and software.
+
+  - **Review Application Logs**: Analyze logs from applications that have historically loaded `dbgcore.dll`, especially when associated with user activities. This helps establish a context for legitimate versus suspicious behavior (e.g., application maintenance tasks).
+
+  - **Monitor for String Patterns**: Check for associated command line arguments in `Event ID 4688` that may indicate script-based execution alongside the loading of `dbgcore.dll`, particularly those that deviate from normal operational patterns.
 
   ### Prioritization
-  This alert is assigned a medium severity due to the potential impact of successful DLL sideloading, which could enable an attacker to maintain persistence, escalate privileges, or execute further malicious activities without immediate detection.
+
+  This alert is of medium severity given that the potential impact involves privileged access or system persistence. The likelihood of abuse is moderate as DLL sideloading is a commonly weaponized technique for evading detection. However, legitimate applications may perform similar actions, necessitating careful analysis.
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection if legitimate applications or users load their own `dbgcore.dll` from non-standard paths that are not covered by the rule's filters. The detection logic assumes that any loading of `dbgcore.dll` from specified directories signifies a possible attack, which may not always be true. Additionally, the correct configuration of logging for image load events is necessary; without these logs, the rule will not function as intended.
+
+  Detection may be limited by the presence of customized legitimate applications that also utilize `dbgcore.dll`. Analysts should ensure that Windows Event Logs are properly configured to capture image load events and that Sysmon is deployed for more granular telemetry. Legitimate activities, such as application updates or installations, may trigger similar alerts. Companion detections to strengthen coverage include monitoring for **Process Hollowing (T1093)**, as it may indicate similar malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

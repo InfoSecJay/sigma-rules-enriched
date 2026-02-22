@@ -1,8 +1,8 @@
 title: Registry Persistence via Explorer Run Key
 id: b7916c2a-fa2f-4795-9477-32b731f70f11
 status: test
-description: Detects a possible persistence mechanism using RUN key for Windows Explorer
-  and pointing to a suspicious folder
+description: Detects a possible persistence mechanism using RUN key for Windows 
+  Explorer and pointing to a suspicious folder
 references:
 - https://researchcenter.paloaltonetworks.com/2018/07/unit42-upatre-continues-evolve-new-anti-analysis-techniques/
 author: Florian Roth (Nextron Systems), oscd.community
@@ -32,24 +32,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects potential persistence mechanisms being established on Windows systems via the Registry Run key, particularly focusing on entries that may lead to execution of malware or other undesirable software. Attackers often employ the Registry Run key to ensure malicious payloads execute upon user login, thereby maintaining persistence even after system reboots. The presence of entries that point to common temporary locations, such as `$Recycle.bin` or `C:\Temp`, raises suspicion as they are often utilized by malware to obscure their presence and evade detection.
 
-  The suspected threat family associated with this detection includes various malware variants that leverage Windows Registry for persistence. The likely attacker objective here is to establish a foothold within the environment, allowing for further exploitation, data exfiltration, or lateral movement. Relevant MITRE ATT&CK tactics/techniques include:
-  - Persistence (T1547.001): Registry Run Keys / Startup Folder
-  - Privilege Escalation (T1548): Abuse Elevation Control Mechanism
+  This Sigma rule detects modifications to the Windows Registry, specifically targeting the Explorer "Run" key, which is commonly used for persistence mechanisms by malicious actors. The objective of an attacker utilizing this tactic is to establish a method for their malware or backdoor to execute automatically upon user login, often targeting legitimate system directories like Temp or the Recycle Bin to obfuscate their presence.
 
-  The primary data sources for this detection are Windows registry set logs, which can provide critical insights into changes made to the system's configuration settings, especially under keys that control startup behavior.
+  This behavior relates to the MITRE ATT&CK tactics of Persistence (T1547.001), specifically focusing on abuse of the Registry for establishing execution on startup. The primary telemetry source comes from Windows Registry changes, with the relevant log types being registry set events. Malicious activity in this context could lead to elevated privileges and persistence of an attacker’s malicious payload. However, this detection does NOT confirm an active compromise on its own; further investigation is necessary to correlate with additional telemetry and context.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Examine the registry set logs for alterations to the `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run` key, noting any entries that deviate from the norm, especially those pointing to suspicious folders or temp directories.
-  - **Analyze Process Creation Events:** Collect and analyze process creation events from endpoint detection tools to identify any processes spawned from suspicious registry entries. Pay particular attention to execution times that correlate with user logins.
-  - **Investigate User Activity:** Check user account activity around the time of the registry modification. Look for signs of unusual logins, especially those from non-administrative accounts, which could indicate privilege escalation attempts.
-  - **Correlate with Threat Intelligence:** Utilize threat intelligence feeds to correlate identified artifacts with known malicious activities or indicators of compromise that target the registry for persistence.
+
+  - **Review Registry Modifications:** Examine Registry Event ID 2050 (Windows Registry Set) for the key `HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run`. Validate the `TargetObject` for expected malicious paths (e.g., `$Recycle.bin`, `ProgramData`, etc.) against known benign entries.
+
+  - **Cross-check File System Artifacts:** Investigate file existence in suspicious directories noted in the Registry modification. Use file system logs to verify if executables or scripts were created or modified around the time of the registry change, specifically looking for unusual file size or modification timestamps in `C:\ProgramData\`, `C:\Temp\`, and similar paths.
+
+  - **Identify User Context:** Determine which user account made the Registry change using `Security Event ID 4688` (Process Creation) to track the process that triggered the modification. Assess if the user context aligns with legitimate administrative tasks or if it indicates unauthorized access.
+
+  - **Monitor Logins and Executions:** Check for repeated logins to the affected machine following the Registry modification using `Security Event ID 4624`. This can indicate if the persistence mechanism is being exploited actively, especially with failed login attempts (Event ID 4625) hinting at unauthorized access attempts.
+
+  - **Validate Application Whitelisting:** Review the application control or endpoint protection logs for any blocks or alerts related to processes executing from the suspicious paths identified in the Registry. This can provide insight into attempts to launch compromised binaries.
+
+  - **Analyze EDR Alerts:** If available, correlate with Endpoint Detection and Response (EDR) alerts linked to the identified Registry changes or any associated suspicious behaviors captured by the endpoint agents.
 
   ### Prioritization
-  The alert is considered high severity due to the potential for malware persistence within the environment. Persistence mechanisms increase the likelihood of successful attacks and complicate incident response efforts, thereby amplifying the threat impact.
+
+  This alert holds high severity due to its implication of potential malware persistence mechanisms, which can lead to elevated privilege gains on crucial systems. The likelihood of malicious intent is substantial, given the common exploit patterns associated with these Registry modifications. This behavior is frequently weaponized in various attack vectors, making rapid response imperative.
 
   ### Blind Spots and Assumptions
-  There may be blind spots related to environments where comprehensive logging of registry changes is not enabled. The detection logic assumes that suspicious entries will be created or modified in the specified registry path, which may not capture all avenues of persistence. Additionally, certain legitimate applications may use similar paths for valid purposes, leading to potential false positives. Sufficient logging and meticulous monitoring of registry activities are required for this alert to function effectively.
+
+  Detection may be limited by advanced evasion techniques where malware utilizes legitimate processes or names in less obvious locations to circumvent monitoring. Furthermore, the alert may be triggered by legitimate system administration tasks or software that modifies the Registry in expected operational contexts. A related detection mechanism could include monitoring for abnormal script executions that utilize similar persistence techniques, thus strengthening overall endpoint security coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

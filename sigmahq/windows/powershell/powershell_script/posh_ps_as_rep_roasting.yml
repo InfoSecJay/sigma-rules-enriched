@@ -1,8 +1,9 @@
 title: Get-ADUser Enumeration Using UserAccountControl Flags
 id: 96c982fe-3d08-4df4-bed2-eb14e02f21c8
 status: test
-description: Detects AS-REP roasting is an attack that is often-overlooked. It is
-  not very common as you have to explicitly set accounts that do not require pre-authentication.
+description: Detects AS-REP roasting is an attack that is often-overlooked. It 
+  is not very common as you have to explicitly set accounts that do not require 
+  pre-authentication.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1069.002/T1069.002.md#atomic-test-11---get-aduser-enumeration-using-useraccountcontrol-flags-as-rep-roasting
 - https://shellgeek.com/useraccountcontrol-flags-to-manipulate-properties/
@@ -30,20 +31,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies suspicious usage of the `Get-ADUser` PowerShell cmdlet with specific filters targeting `UserAccountControl` flags, particularly those that indicate accounts set to not require pre-authentication (flag value `4194304`). This behavior is associated with the technique of AS-REP roasting, where an attacker seeks to enumerate user accounts in Active Directory that have disabled pre-authentication. These accounts can be exploited to retrieve encrypted authentication tickets, facilitating unauthorized access to network resources.
 
-  The likely objective of an attacker using this method is to identify accounts that can be compromised without needing prior authentication, making it easier to crack the Kerberos tickets obtained. This aligns with the MITRE ATT&CK framework, particularly under the tactics of Discovery and the technique T1069.002, which focuses on Active Directory enumeration methods. The primary data source for this detection includes PowerShell script block logging from Windows endpoints, which captures detailed information about executed commands.
+  This Sigma rule detects PowerShell scripts that leverage the Get-ADUser cmdlet to enumerate Active Directory user accounts based on specific UserAccountControl flags, especially the absence of pre-authentication (flag: 4194304). An adversary using this method may aim to identify accounts that could be exploited for AS-REP Roasting attacks, facilitating the extraction of hashed credentials without further pre-requisites. The relevant MITRE ATT&CK tactic is Discovery, specifically the technique T1069.002 (Permission Groups Discovery).
+
+  The primary telemetry comes from Windows PowerShell logs, specifically those related to script block logging, which must be enabled to capture related events. If malicious, this behavior can compromise credentials and potentially lead to unauthorized access within the network. It is critical to note that this detection does not confirm that a successful attack has occurred; it only highlights potentially suspicious enumeration activity.
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Examine PowerShell script block logs for occurrences of the `Get-ADUser` command with `-band 4194304`. Look for parameters that suggest enumeration of accounts.
-  - **Analyze UserAccountControl Flags:** Check the `UserAccountControl` flags of user accounts in Active Directory to identify any that are marked to not require pre-authentication and are being queried.
-  - **Correlate with Account Activity:** Look for any recent logins or activities from accounts flagged in the detection, especially those that align with attempted or successful unauthorized access.
-  - **Inspect Authentication Requests:** Review Kerberos authentication logs for AS-REP requests to identify if any pre-authentication disabled user accounts were targeted.
+
+  - **Review PowerShell Script Logs:** Check for Event ID 4104 in Windows PowerShell logs to identify the execution of scripts that include the Get-ADUser cmdlet, especially those with parameters indicating the use of UserAccountControl by value 4194304.
+
+  - **Identify User Account Targeting Patterns:** Analyze the output of the detected script for any specific usernames or account patterns. Look for multiple queries against common service usernames (e.g., "krbtgt") that could indicate targeted reconnaissance.
+
+  - **Verify Script Legitimacy:** Cross-check recent PowerShell executions for known legitimate scripts that might employ similar commands. Look for documentation or change control approvals for routine administrative tasks that can explain the use of these parameters.
+
+  - **Evaluate Execution Context:** Analyze the user context under which the PowerShell script was executed. If executed from a non-administrative or unexpected user account within a sensitive environment, this could be an indicator of malicious intent.
+
+  - **Cross-reference with AD Logs:** Look at Event ID 4662 in the Security logs for any corresponding changes or accesses to Active Directory objects around the time the PowerShell script was executed. This may help correlate potential unauthorized actions.
 
   ### Prioritization
-  This alert has medium severity due to the potential for significant impact on the security of the enterprise environment if an account with `DONT_REQ_PREAUTH` is successfully exploited. Although AS-REP roasting attacks may not be prevalent, the existence of such accounts poses a substantial risk, warranting prompt investigation.
+
+  The severity of this alert is medium due to the critical nature of Active Directory within an enterprise environment. While enumeration on its own does not suggest immediate compromise, the high likelihood of leveraging discovered accounts for further attacks warrants timely investigation. This method is not commonly used, making legitimate occurrences rarer.
 
   ### Blind Spots and Assumptions
-  The primary gap in this detection logic is the reliance on PowerShell script block logging, which may not be enabled on all systems by default, leading to missed detections. The detection assumes that the accounts being queried are indeed inactive or have no legitimate need to bypass pre-authentication. Additionally, if logs are not sufficiently retained or collected, analysts may lack the historical data necessary for thorough investigations. Ensuring that script block logging is enabled and that logging practices meet compliance is critical for this alert to function effectively.
+
+  Detection may be limited if script block logging is not enabled or if PowerShell has been disabled by organizational policy, leading to potential missed detections. Legitimate administrative tasks may trigger this alert, such as regular audits or account management scripts. A related detection to consider for enhanced coverage is monitoring for unusual patterns of login failures (T1075.001), which could indicate attempts to exploit accounts discovered through enumeration.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -4,7 +4,8 @@ related:
 - id: 6e2a900a-ced9-4e4a-a9c2-13e706f9518a
   type: similar
 status: experimental
-description: Detects file creation events with filename patterns used by Impacket.
+description: Detects file creation events with filename patterns used by 
+  Impacket.
 references:
 - https://thedfirreport.com/2025/05/19/another-confluence-bites-the-dust-falling-to-elpaco-team-ransomware/
 - https://github.com/fortra/impacket
@@ -25,20 +26,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies file creation events with specific filename patterns associated with Impacket, a collection of Python classes for working with network protocols. In particular, it focuses on filenames that match the pattern `sessionresume_[a-zA-Z]{8}`, typically representing temporary files created during credential harvesting attacks using Impacket tools. Attackers using Impacket may aim to exfiltrate credentials or manipulate systems within a network, raising flags for potential lateral movement or privilege escalation.
 
-  The relevant MITRE ATT&CK tactics and techniques linked to this rule include **Credential Access** (TA0006) and **Credential Dumping** (T1003.001), indicating that the behavior being monitored is associated with the misuse of legitimate tools to harvest credentials from a system. To effectively detect these activities, primary data sources such as file event logs from Windows are crucial, as they record the creation of files that match the suspicious naming conventions indicated in the detection logic.
+  This Sigma rule detects file creation events that match specific naming patterns typically associated with the Impacket toolkit, specifically files created by `secretsdump.py` in a Windows environment. The primary attacker objective is often credential harvesting through techniques such as dumping credentials from memory or registry, which corresponds to the MITRE ATT&CK technique: Credential Dumping (T1003.001). The primary telemetry sources include Windows File Event logs, specifically targeting file creation events where the filename matches the regex pattern `\\sessionresume_[a-zA-Z]{8}$`.
+
+  If malicious, the security impact could include unauthorized access to sensitive credentials, facilitating lateral movement within the network. Importantly, this detection does NOT confirm that the system has been compromised on its own; further investigation is necessary to establish the context and intent of the file creation.
 
   ### Investigation Steps
-  - **Review File Creation Logs**: Check the Windows file event logs for entries that match the `sessionresume_[a-zA-Z]{8}` naming pattern, focusing on the timestamps and associated user accounts.
-  - **Investigate User Context**: Determine the user accounts involved in the file creation events. Investigate whether these accounts have legitimate reasons to create such files or if they show signs of being compromised.
-  - **Confirm Process Execution**: Cross-reference the file creation events with process creation logs to identify which processes created the suspicious files and understand their execution context.
-  - **Analyze Network Activity**: Examine any outbound connections initiated by the users or processes that created the files, exploring if there’s any unusual traffic directed to external servers, which may indicate data exfiltration.
+
+  - **Review Event IDs for file creation:** Check Windows Security Event ID 4663 or Sysmon Event ID 11 for the file creation events targeting names pattern matching `sessionresume_[a-zA-Z]{8}`. This confirms potential use of the Impacket tool.
+
+  - **Analyze parent process information:** For the detected file events, correlate the creation event with parent process information from Sysmon Event ID 1. A suspicious parent process like `powershell.exe` or `cmd.exe` may indicate malicious activity.
+
+  - **Examine the file hash:** For any detected file, compute and record the file hash (SHA256) to compare against known malicious hashes. Hashes associated with Impacket can indicate high-confidence malicious indicators if found.
+
+  - **Identify benign use cases:** Establish expected behavior by analyzing legitimate administrative activities. For instance, file creations relating to scheduled tasks or maintenance scripts often follow a predictable pattern and naming convention that does not match the Impacket pattern.
+
+  - **Monitor lateral movement attempts:** Check for subsequent network activity or internal authentication requests linked to the identified files using Azure AD sign-in logs or relevant Windows Event IDs like 4624 (Successful Logon), indicating potential lateral movement following credential dumping.
 
   ### Prioritization
-  This alert should be prioritized as high severity due to the potential for significant risk associated with credential access. The likelihood of an attacker leveraging Impacket tools indicates active exploitation attempts, which could lead to larger compromises in the organization’s network.
+
+  The alert severity is high, as it targets specific behavior associated with known tools used for credential harvesting. Given that credential dumping strategies are a common tactic for initial access and privilege escalation, the probability of malicious intent is significant, especially if the source host contains sensitive data or key assets.
 
   ### Blind Spots and Assumptions
-  The detection logic may miss file creations from other tools or manual processes not following the specific naming conventions used by Impacket. Additionally, it assumes that the environment’s Windows file event logging is correctly configured and that logs are retained long enough to capture relevant activities. If other logging mechanisms are in place (e.g., antivirus or EDR solutions), their capabilities could complement or fill gaps left in this detection.
+
+  Detection efficacy may be limited by potential evasion techniques, such as renaming files or using alternate naming conventions not captured by the regex. Reliable detection also requires comprehensive logging configurations on Windows file systems, including appropriate event log retention settings. Legitimate administrative activities, especially maintenance scripts running under system accounts, may inadvertently trigger this alert. A related detection, such as monitoring for known malicious process creation (e.g., powershell.exe or rundll32.exe), can help provide additional context and strengthen overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

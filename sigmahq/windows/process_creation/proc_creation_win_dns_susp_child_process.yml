@@ -1,9 +1,9 @@
 title: Unusual Child Process of dns.exe
 id: a4e3d776-f12e-42c2-8510-9e6ed1f43ec3
 status: test
-description: Detects an unexpected process spawning from dns.exe which may indicate
-  activity related to remote code execution or other forms of exploitation as seen
-  in CVE-2020-1350 (SigRed)
+description: Detects an unexpected process spawning from dns.exe which may 
+  indicate activity related to remote code execution or other forms of 
+  exploitation as seen in CVE-2020-1350 (SigRed)
 references:
 - https://www.elastic.co/guide/en/security/current/unusual-child-process-of-dns-exe.html
 author: Tim Rauch, Elastic (idea)
@@ -27,25 +27,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects instances where an unexpected child process is spawned from `dns.exe`, specifically when it involves `conhost.exe`. This behavior may indicate a potential security incident, particularly linked to remote code execution or exploitation techniques, such as those outlined in CVE-2020-1350, also known as SigRed. Attackers exploit vulnerabilities in DNS servers to execute arbitrary code, leading to a wide array of attack consequences, including unauthorized access and lateral movement within a network.
 
-  The relevant MITRE ATT&CK tactics for this detection include:
-  - **Initial Access** (TA0001), which encompasses methods for gaining a foothold within an environment.
-  - **Persistence** (TA0003), where attackers establish continuous access through various means.
-  - **Remote File Copy** (T1105), a technique used by adversaries to transfer files between hosts and execute malicious payloads.
+  This rule detects unexpected child processes spawned from `dns.exe`, specifically instances of `conhost.exe` that originate from this process. This behavior may indicate an attacker successfully exploiting vulnerabilities like CVE-2020-1350 (SigRed) to achieve remote code execution, potentially enabling persistent access or lateral movement within the network. The relevant MITRE ATT&CK tactics include "Persistence" and "Initial Access," specifically technique T1133 (External Remote Services).
 
-  The primary data sources for this detection are process creation events logged by the Windows operating system, which provide insights into the parent-child process relationships and can pinpoint unexpected behaviors.
+  The primary telemetry source is Windows Process Creation events, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing process creation and the associated parent-child relationship. If the activity is malicious, it poses significant risks, including unauthorized system access and data exfiltration. However, this detection alone does not confirm malicious intent or actual exploitation; further investigation is required to establish context.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine the process creation logs to identify instances where `conhost.exe` is a child of `dns.exe`. Look for the command line execution details and timestamps associated with this activity.
-  - **Correlate with Network Activity:** Check for unusual network traffic, particularly outbound connections initiated by these processes. This may include looking at DNS queries or connections to known malicious domains.
-  - **Analyze System and Security Logs:** Investigate Windows Event logs (specifically Event ID 4688 for process creation) for additional warnings or errors that may indicate an exploitation attempt.
-  - **Identify Anomalies in DNS Behavior:** Look for modifications in DNS settings, such as changes to forwarders or unexpected DNS requests that could indicate the misuse of `dns.exe` as a vector for attack.
+
+  - **Verify process relationships**: Cross-reference Event ID 4688 logs to confirm that `conhost.exe` is indeed spawned by `dns.exe` (ParentImage field). Look for multiple unexpected instances, as legitimate usage is rare.
+
+  - **Inspect command line arguments**: Check the CommandLine field of Event ID 4688 for suspicious flags or parameters (especially those indicating remote execution or obfuscation). Legitimate `conhost.exe` instances typically have benign command line inputs with user-level desktop association.
+
+  - **Evaluate system integrity**: Review Sysmon Event ID 10 (Process Access) for unusual access patterns concerning the `dns.exe` process. Confirm if `conhost.exe` is attempting to access or manipulate credential stores or sensitive files, which are red flags for malicious behavior.
+
+  - **Analyze network activity**: Collect and review network activity logs for outbound connections from `conhost.exe` that are associated with known command and control servers. Use network logs (firewall) to identify any unexpected external communications.
+
+  - **Examine system usage**: Determine if the affected host is a DNS server or a client. A legitimate DNS server should not have `conhost.exe` processes typically spawned from it, unless specifically designed scenarios exist.
+
+  - **Correlate findings with other alerts**: Look for related Sysmon Event ID 1 logs showing abnormal process chains that originate from other critical processes, which indicate further exploitation or lateral movement.
 
   ### Prioritization
-  The alert's severity is considered high due to the critical role that DNS services play in network infrastructure and the potential impact of a successful exploitation, which could lead to further attacks within the enterprise environment.
+
+  This alert is of high severity due to its potential association with critical system exploitation. The likelihood of malicious abuse is significant, given the specific process relationships involved, and this behavior is commonly weaponized to enable broader compromise of devices within the network.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited by the absence of comprehensive logging for all process creation events or due to misconfigurations in logging settings. The detection logic assumes that unusual children of `dns.exe` are indicative of malicious activity, however, there could be legitimate use cases for such behavior that may lead to false positives. Correct logging configurations for Windows process creation events are essential for this alert to function effectively.
+
+  Evasion techniques may include use of legitimate processes or well-known system tools that mask malicious activity. Reliable detection depends on ensuring Sysmon and Windows Event logging configurations are properly set, as missing logs can lead to significant blind spots. Legitimate administrative tasks, particularly in managed environments, may generate similar processes and could trigger this alert. Companion detections for external remote service access activities (related to T1133) could provide additional context and enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

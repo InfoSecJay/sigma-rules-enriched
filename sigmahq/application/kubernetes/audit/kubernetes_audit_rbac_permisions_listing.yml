@@ -28,40 +28,32 @@ falsepositives:
 - Unknown
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects attempts to enumerate Kubernetes RBAC permissions using the SelfSubjectAccessReview API, typically via commands like `kubectl auth can-i --list`. The likely attacker objective is to gather intelligence on user privileges within the cluster as part of the reconnaissance phase of an attack. This behavior maps to the MITRE ATT&CK technique ID T1069.003 (Permission Groups Discovery) and T1087.004 (Account Discovery). The primary telemetry sources for this detection are Kubernetes audit logs, specifically the events tied to the `create` verb on the `selfsubjectrulesreviews` resource within the `authorization.k8s.io` API group. If this detection indicates malicious activity, it can lead to privilege escalation or lateral movement within the Kubernetes environment. Importantly, this detection does NOT confirm that an unauthorized action has taken place on its own, as legitimate users may perform the same actions.
+  This Sigma rule detects attempts to enumerate RBAC (Role-Based Access Control) permissions in a Kubernetes cluster via the `SelfSubjectAccessReview` API. Attackers may use this to assess their level of access and to plan further actions within a compromised environment. The relevant MITRE ATT&CK techniques for this behavior include Discovery of Permissions (T1069.003) and Software Discovery (T1087.004).
 
-  ---
+  Primary telemetry sources include Kubernetes audit logs that capture requests made to the API server, specifically events where the verb is 'create' and the `objectRef.resource` corresponds to `selfsubjectrulesreviews`. If the activity is malicious, it may indicate an attempt to exploit access for unauthorized actions. This detection does NOT confirm successful exploitation or unauthorized access on its own but serves as an indicator of potential reconnaissance activity.
 
   ### Investigation Steps
 
-  - **Review audit logs for SelfSubjectAccessReview events**: Check Kubernetes audit logs (e.g., `kube-audit-*` or specific file locations) for events with `verb: create` and `objectRef.resource: selfsubjectrulesreviews`. Compare timestamps and user IDs to identify unusual activity.
+  - **Check Kubernetes audit logs:** Review Kubernetes audit logs for Event type `create` for `authorization.k8s.io/selfsubjectrulesreviews` (Event ID specific to Kubernetes audit logging). Look for the initiating user or service account to establish if the access is appropriate.
 
-  - **Identify the user initiating the request**: Examine the `user.userInfo` field in the audit log to determine who executed the enumeration attempt. Validate if this user typically performs this action or has legitimate access.
+  - **Validate the user or service account:** Identify the user or service account issuing the request and confirm if their access aligns with expected roles. Legitimate roles should typically have limited permissions unless justified.
 
-  - **Correlate with legitimate usage patterns**: Confirm if the user and their role typically perform `kubectl auth can-i` commands. Consider the context—recall that developers may need to verify permissions, while an unexpected user performing this action may be indicative of malicious intent.
+  - **Analyze cluster role bindings:** Lookup existing RBAC role bindings for the user using `kubectl get rolebindings --all-namespaces` command. Compare the retrieved roles against organizational policies for anomalies.
 
-  - **Check for concurrent suspicious activities**: Review other relevant logs for the same user around the same time (e.g., `kubectl` commands executed or changes to RBAC roles) to identify if this is part of a broader suspicious pattern.
+  - **Identify any high-confidence malicious indicators:** Look for patterns of repeated API requests or unexpected requests from accounts that are not typically involved in administrative actions.
 
-  - **Investigate the cluster's security posture**: Ensure that RBAC is appropriately configured and assess if there are recently modified roles or cluster policies that could indicate prior attempts at privilege escalation or unauthorized access.
+  - **Investigate surrounding activity:** Correlate access review events with other audit logs (e.g., job executions or resource creation) around the same time for suspicious activity patterns that may indicate escalation attempts.
 
-  - **Look for high-confidence malicious indicators**: Inspect for known malicious actors or Service Accounts linked to this enumeration attempt. Flag any anomalies or frequent API calls that do not align with typical user behavior.
-
-  ---
+  - **Benchmark against legitimate behavior:** Review normal RBAC request patterns from trusted users or automated services that regularly audit permissions. Document differences from flagged activities.
 
   ### Prioritization
 
-  This alert is of low severity; however, it warrants investigation due to its potential to indicate a reconnaissance effort leading to privilege escalation. While this behavior can be part of routine operations in Kubernetes, attempts by unauthorized users significantly increase the risk of compromise. Attackers have weaponized similar enumeration techniques in the past.
-
-  ---
+  This alert is classified as low severity due to its nature of information gathering rather than immediate threat. However, the impact could escalate if adversaries possess additional capabilities to exploit discovered permissions. Given the frequency of exploitation attempts via permission enumeration, this behavior warrants attention in a mature SOC environment.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss attempts made by unauthorized identities that do not trigger the audit logs due to misconfiguration or insufficient log verbosity settings. Relying solely on audit logs may lead to underreporting legitimate user activities, such as developers checking their permissions. It’s vital to complement this rule with detections for other discovery techniques (e.g., T1087.001 Account Discovery via enumeration of user credentials) to strengthen coverage. Proper logging configurations are critical to ensure comprehensive visibility in Kubernetes environments.
-
-  ---
+  Detection may be limited by the configuration of Kubernetes audit logging; ensure all relevant events are being captured and retained. Legitimate interactions, such as automated tools performing access checks for maintenance, may trigger this alert. A complementary detection could involve monitoring for unauthorized changes to RBAC configurations, which would strengthen overall security postures against privilege escalation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

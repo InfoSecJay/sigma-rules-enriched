@@ -4,8 +4,9 @@ related:
 - id: ec570e53-4c76-45a9-804d-dc3f355ff7a7
   type: similar
 status: test
-description: Detects execution of WinRAR in order to compress a file with a ".dmp"/".dump"
-  extension, which could be a step in a process of dump file exfiltration.
+description: Detects execution of WinRAR in order to compress a file with a 
+  ".dmp"/".dump" extension, which could be a step in a process of dump file 
+  exfiltration.
 references:
 - https://www.crowdstrike.com/blog/overwatch-exposes-aquatic-panda-in-possession-of-log-4-shell-exploit-tools/
 author: Florian Roth (Nextron Systems)
@@ -30,28 +31,35 @@ detection:
     - '.hdmp'
   condition: all of selection_*
 falsepositives:
-- Legitimate use of WinRAR with a command line in which ".dmp" or ".dump" appears
-  accidentally
+- Legitimate use of WinRAR with a command line in which ".dmp" or ".dump" 
+  appears accidentally
 - Legitimate use of WinRAR to compress WER ".dmp" files for troubleshooting
 level: medium
 note: |
   ### Technical Context
-  This rule detects the execution of WinRAR (rar.exe or winrar.exe) with the intent to compress files that have a ".dmp" or ".dump" extension. The presence of such file types can indicate they are memory dumps that attackers may seek to exfiltrate after gathering sensitive information from a compromised system. As such, this behavior could signify an attacker attempting to prepare collected evidence for data extraction, particularly in the context of post-exploitation activities.
 
-  The likely threat scenario involves an adversary who has gained unauthorized access to a system and aims to capture or transfer sensitive information stored within memory dumps. Memory dump files can contain a wealth of data, including credentials and personal information, making them lucrative for attackers. Relevant MITRE ATT&CK tactics and techniques include **Collection (TA0009)** and specifically **Data from Local System (T1560.001)**.
+  This rule detects the execution of WinRAR (via `rar.exe` or `winrar.exe`) specifically targeting files with a `.dmp` or `.dump` extension, indicating potential data exfiltration or manipulation of memory dump files. The likely attacker objective is to compress and possibly exfiltrate sensitive or confidential information captured in system dumps, which may contain sensitive data, credentials, or application state information, aligning with the MITRE ATT&CK technique for data compressed (T1560.001).
 
-  Primary data sources for detecting this activity include **process creation events** that monitor the execution of applications and the associated command-line arguments.
+  The primary telemetry sources include Windows process creation logs, specifically focusing on Security Event ID 4688 and Sysmon Event ID 1, capturing command line activities and the image name being executed. If malicious, the impact could be significant, allowing a threat actor to remove evidence of malicious activity or extract sensitive information from the host. However, this detection does NOT confirm malicious intent on its own since legitimate activities, such as troubleshooting, can also use the identified WinRAR command.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine process creation logs to identify instances where WinRAR is invoked, focusing on the command line to determine if any .dmp or .dump files were included in the compression command.
-  - **Analyze Command-Line Arguments:** Investigate the full command-line arguments associated with any WinRAR executions to discern any patterns that imply malicious intent, specifically looking for signs of exfiltration.
-  - **Correlate with User Behavior:** Assess the user context under which WinRAR was executed. Investigate if the user has a history of legitimate use of WinRAR or if this is an anomalous occurrence.
-  - **Cross-reference with Exfiltration Activity:** Check for any associated network traffic that may indicate data exfiltration, such as unexpected uploads to external IPs or services.
+
+  - **Check command line arguments:** Review the process creation logs for Security Event ID 4688 or Sysmon Event ID 1. Specifically, look for instances where `CommandLine` contains `.dmp`, `.dump`, or `.hdmp`. Legitimate uses will often include `-m`, `-v`, or similar switch indicators, which may suggest valid operations.
+
+  - **Review file creation timestamps:** Cross-reference the `.dmp` or `.dump` files with WinRAR execution timestamps to identify if those files were compressed shortly after being created. This could indicate malicious activity if recent dump files coincide with a WinRAR execution without legitimate incident context.
+
+  - **Examine surrounding process activity:** Investigate the parent-child process relationships for the WinRAR command. If it spawned from a suspicious process, such as a known malware executable or from a script, it may suggest malicious intentions.
+
+  - **Validate user context:** Analyze which user account executed WinRAR. Administrative or system accounts running this process, particularly on machines not typically tasked with dump file analysis, may raise suspicion compared to routine user accounts engaging in standard file management.
+
+  - **Identify related event entries:** Search for related detection alerts in the Security Event Log (Event IDs 4663, 4656) that may show unauthorized access to dump files. This can provide context about ongoing suspicious activities.
 
   ### Prioritization
-  The alert is deemed medium severity as it highlights potential data exfiltration behavior that may stem from an active threat. This behavior poses a significant risk to sensitive organizational data, necessitating timely investigation and response.
+
+  The severity of this alert is assessed as medium, as the use of WinRAR to compress sensitive `.dmp` files indicates potential malicious behavior, particularly in environments handling sensitive information. The likelihood of abuse is moderate given the common use of memory dump files for legitimate troubleshooting; however, this behavior is recognized as potentially weaponized by adversaries in data exfiltration scenarios.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if WinRAR is executed with user-defined commands not typically monitored, or if similar tools are used without equivalent detection measures in place. The rule assumes that any usage of WinRAR with .dmp or .dump files is suspicious, disregarding legitimate troubleshooting scenarios where users may compress memory dump files for technical support. For the alert to function accurately, comprehensive process creation logs must be enabled and retained.
+
+  Detection may be limited by the potential for legitimate WinRAR usage in troubleshooting, which can lead to false positives. Ensuring collection of process creation logs and appropriate command line auditing configurations is essential for accurate detection. Legitimate activities include routine troubleshooting or maintenance activities using the affected file types, which could also trigger this alert. A companion detection to consider is Sysmon logging for Process Access (Event ID 10) to further analyze access patterns and potential abuse around sensitive files.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

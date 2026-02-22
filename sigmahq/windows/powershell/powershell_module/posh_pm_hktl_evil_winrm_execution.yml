@@ -29,13 +29,14 @@ detection:
       ([System.Text.Encoding]::ASCII.GetString([System.Convert]::FromBase64String($a))).replace('???','')
   selection_payload_2:
     Payload|contains|all:
-    - $servicios = Get-ItemProperty "registry::HKLM\System\CurrentControlSet\Services\"
-    - Where-Object {$_.imagepath -notmatch "system" -and $_.imagepath -ne $null }
-      | Select-Object pschildname,imagepath
+    - $servicios = Get-ItemProperty 
+      "registry::HKLM\System\CurrentControlSet\Services\"
+    - Where-Object {$_.imagepath -notmatch "system" -and $_.imagepath -ne $null 
+      } | Select-Object pschildname,imagepath
   selection_payload_3:
     Payload|contains|all:
-    - $a +=  \"$($_.FullName.Replace('\\','/'))/\"}else{  $a += \"$($_.FullName.Replace('\\',
-      '/'))\" }                                                                                                 # https://github.com/Hackplayers/evil-winrm/blob/7514b055d67ec19836e95c05bd63e7cc47c4c2aa/evil-winrm.rb#L1001
+    - $a +=  \"$($_.FullName.Replace('\\','/'))/\"}else{  $a += 
+      \"$($_.FullName.Replace('\\', '/'))\" }                                                                   # https://github.com/Hackplayers/evil-winrm/blob/7514b055d67ec19836e95c05bd63e7cc47c4c2aa/evil-winrm.rb#L1001
     - $a=@();$
   condition: selection_wsm and 1 of selection_payload_*
 falsepositives:
@@ -43,27 +44,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the execution of the Evil-WinRM tool through PowerShell by analyzing specific logs for hardcoded strings and patterns present in the utility. Evil-WinRM is a well-known post-exploitation framework commonly used by attackers to facilitate lateral movement and gain unauthorized access to remote Windows systems, often taking advantage of weak or compromised credentials. By executing PowerShell scripts containing unique command sequences associated with Evil-WinRM, an attacker can exploit vulnerabilities in the target environment and gain increased privileges, allowing for the reconnaissance and enumeration of targets within the network.
 
-  Relevant MITRE ATT&CK tactics and techniques potentially applicable here include:
-  - **Lateral Movement** (TA0008)
-    - **Windows Remote Management** (T1021.001)
+  This Sigma rule detects the execution of the Evil-WinRM PowerShell module, which is commonly used for lateral movement in network environments. The attacker’s objective typically involves compromising a target system and gaining control over it remotely using Windows Remote Management (WinRM) protocols. The relevant MITRE ATT&CK tactic is **Lateral Movement** (TA0008) and the technique is **Windows Remote Management** (T1028).
 
-  The primary data sources essential for detecting this activity include PowerShell module logs and process execution logs, which help in identifying the execution of suspicious or unauthorized PowerShell commands, specifically those that may relate to the usage of Evil-WinRM in a compromised environment.
+  The primary telemetry sources are Windows PowerShell module logs, specifically looking for certain hardcoded strings used in Evil-WinRM scripts. If malicious, successful execution of this rule may indicate that an attacker is attempting to move laterally within the network and possibly exfiltrate sensitive data or further compromise other machines. This detection does NOT confirm a successful compromise on its own, as it identifies potentially malicious execution but does not guarantee malicious intent without further context.
 
   ### Investigation Steps
-  - **Review PowerShell Logs:** Examine PowerShell module logs for any entries that involve the execution of commands containing known Evil-WinRM strings such as 'Invoke-Binary' and payloads referencing registry services. Look for suspicious patterns or command syntax that aligns with the documented behavior of the tool.
 
-  - **Analyze Process Creation Events:** Investigate process creation logs to identify the execution of PowerShell scripts. Pay special attention to instances where the `wsmprovhost.exe` process was spawned, indicating likely malicious PowerShell activity that could relate to the use of Evil-WinRM.
+  - **Verify PowerShell Module Activity:** Check logs for specific Event IDs related to PowerShell execution (Event ID 400, 410, and 4688). Look for instances where `wsmprovhost.exe` is involved; this is benign in legitimate Windows management but critical in this case.
 
-  - **Check Network Connections:** Evaluate network logs for outbound connections originating from PowerShell execution contexts, particularly those aimed at unauthorized or unexpected external IP addresses, which may indicate communications with a command and control server.
+  - **Check for Suspicious Command Strings:** Investigate the presence of hardcoded strings detected by the rule, such as `Invoke-Binary` or variations of `IEX`). Extract samples from telemetry (PowerShell command output) that match these patterns, referencing the specific parameters used.
 
-  - **Correlate with Authentication Logs:** Cross-reference detected PowerShell activity with authentication logs to identify any unusual login attempts or user sessions, especially from users or systems that should not be executing such administrative tasks.
+  - **Analyze Recent WinRM Connections:** Review WinRM related logs in Event ID 4648 (Logon Attempt) or 4688 (New Process) to identify if there were any recent authentic WinRM sessions from non-administrative machines, which indicate potential lateral movement.
+
+  - **Cross-examine User Behavior:** Compare the detected activity against typical user behavior in operational logs. Investigate whether the user accounts initiate commands on this scope or if they typically generate baseline behaviors compatible with expected duties.
+
+  - **Identify High-Confidence Malicious Indicators:** Look for additional context such as unusual outbound connections to known bad IPs or domains, and utilize threat intelligence feeds. For example, check for connections to command-and-control (C2) servers that may coincide with the detected string patterns.
+
+  - **Monitor System Changes:** Examine registry changes reflecting commands run through PowerShell that modify service properties, specifically those involving `"To-Get-ItemProperty"` statements targeting `HKLM\System\CurrentControlSet\Services\`; signifying further probing activity that might precede an exploit.
 
   ### Prioritization
-  Given the elevated threat level posed by Evil-WinRM, alerts generated by this rule should be considered **high severity**. The tool facilitates lateral movement and can lead to significant data breaches or network compromise, especially in environments that may lack adequate protective measures.
+
+  This alert should be treated with high priority due to its implications for lateral movement, a critical aspect of post-compromise behavior. Given the high likelihood of malicious intent—especially in environments leveraging remote management tools—immediate response is necessary to investigate and contain any potential threats.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is that detection may not capture all instances of Evil-WinRM usage, particularly if attackers modify the command strings or use obfuscation techniques to evade detection. The detection logic assumes that PowerShell logging is sufficiently enabled and properly configured across the environment. It also relies on the presence of PowerShell module logs and accurate process execution data. Log configurations and security policy adherence are critical for ensuring the effectiveness of this alerting mechanism.
+
+  Detection may be limited by the absence of comprehensive PowerShell logging or if logs have been tampered with by an attacker. Malicious users may invoke PowerShell in a non-standard way that bypasses typical logging mechanisms, such as obfuscating command strings or using encoded commands. There is a possibility that legitimate administrative tasks may inadvertently trigger this alert, such as authorized use of PowerShell for system management. Complementary detections, such as monitoring for unauthorized changes in application or service configurations, can strengthen threat coverage and validation of any powershell activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

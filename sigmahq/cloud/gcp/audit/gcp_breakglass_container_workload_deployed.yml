@@ -29,20 +29,29 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This rule detects the unauthorized deployment of Kubernetes workloads in Google Cloud Platform (GCP) that utilize the "break-glass" flag to bypass Binary Authorization controls. This break-glass flag is intended for emergency situations, allowing risky actions that normally would be restricted, and its misuse can lead to security lapses and exposure to vulnerabilities in production environments. Attackers may exploit this capability to deploy malicious containers or further their objectives without validation, possibly leading to code injection, lateral movement, or data exfiltration.
 
-  Relevant MITRE ATT&CK tactics and techniques impacted by this behavior include **Privilege Escalation (TA0004)** and **Defense Evasion (TA0005)**. Specifically, technique **T1548 - Abuse Elevation Control Mechanism** applies as attackers could misuse this break-glass mechanism to escalate privileges while avoiding existing security measures. The primary data sources for effective detection of this behavior are GCP's audit logs, where detailed information on Kubernetes pod creations is logged.
+  This Sigma rule detects the deployment of Kubernetes workloads using the break-glass flag, which allows users to bypass Binary Authorization controls within Google Cloud Platform (GCP). Such actions are typically indicative of attempts to deploy potentially unsafe or unauthorized containers, often with the objective of avoiding security protocols for privilege escalation or malicious activities. The relevant MITRE ATT&CK tactic is **Defense Evasion (T1548)**, specifically related to **Application Layer Protocol Tactics (T1071)** and **Privilege Escalation.**
+
+  The primary telemetry source is GCP Audit Logs, specifically looking for activities related to Kubernetes clusters. If malicious, the potential impact includes unauthorized access, the execution of harmful code within the Kubernetes environment, or lateral movement within the cloud infrastructure. It’s important to note that this detection does NOT confirm that the workloads are malicious on their own; they may be legitimately deployed if conducted under proper administrative protocols.
 
   ### Investigation Steps
-  - **Review Audit Logs:** Check the GCP audit logs for entries that show the creation of Kubernetes pods and look specifically for the `break-glass` flag in the associated metadata.
-  - **Analyze Deployment Context:** Investigate the context in which the break-glass flag was used, focusing on who initiated the deployment, when it occurred, and what the specified images are. Look for anomalies in the timing of deployments or the user accounts involved.
-  - **Identify Risky Images:** Examine the container images that were deployed. Determine if these images are trusted and align with organizational policies, or if they are potentially malicious or unvetted.
-  - **Cross-Reference Policies:** Validate the deployment against organizational Binary Authorization policies to assess whether required security checks were bypassed and investigate potential policy misconfigurations.
+
+  - **Review GCP Audit Logs for Kubernetes Pod Creation Events:** Check for entries with `Event ID: cloudaudit.googleapis.com/activity`, focusing on `data.protoPayload.methodName: 'io.k8s.core.v1.pods.create'`. Look for use of the break-glass flag in the `data.protoPayload.resource.labels` field.
+
+  - **Identify User Context and Execution Time:** Examine the `data.protoPayload.authenticationInfo.principalEmail` field to determine who initiated the deployment. Confirm whether this user is authorized to perform such actions and validate the time of the event against known maintenance windows for legitimate deployments.
+
+  - **Correlate Deployment with Previous Audit Trails:** Cross-reference the current activity with historical logs under the same project or cluster. Look for a sudden spike in deployment activities or irregularities in container images used, especially those outside of standard organization protocols.
+
+  - **Assess Image Repository and Usage:** Validate the container image used during the deployment against a trusted source. If the image contains tags indicating known vulnerability (`data.protoPayload.resource.labels.image`), this could raise confidence in malicious intent.
+
+  - **Monitor for Subsequent Unusual Network Activities:** After identifying a break-glass pod deployment, watch for unexpected outbound connections or internal service communications via logs like `GCP VPC Flow Logs`. Legitimate deployments should maintain expected communication patterns.
 
   ### Prioritization
-  The alert is assigned a medium severity due to its potential for severe impact if exploited, as it allows deployment of unvalidated code that can introduce vulnerabilities to critical services. The likelihood of misuse is significant, considering the utility of the break-glass flag in time-sensitive scenarios.
+
+  This alert is of medium severity as the affected system is a Kubernetes cluster that can host multiple critical workloads. While not all break-glass deployments are malicious, they pose significant risks if abused, especially as such methods are increasingly weaponized by adversaries to conduct privilege escalation or evade security policies.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage if the audit logging for Kubernetes resources is not fully enabled or if access logs do not capture all necessary activities. An assumption made by the detection logic is that any instance of the break-glass flag implies malicious intent, which may not always be the case; legitimate emergency situations also exist. The effectiveness of this alert relies on the configuration of GCP audit logs and the retention of relevant data types to ensure comprehensive monitoring of Kubernetes activities.
+
+  Detection limitations exist, especially if necessary audit logging is disabled or if break-glass flag usage is masked under valid user activity. Legitimate activities could include emergency deployments for critical service recovery or testing environments. A related detection to consider is deployment of unauthorized images (detected through regular image scanning logs), which would bolster coverage against this type of abuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

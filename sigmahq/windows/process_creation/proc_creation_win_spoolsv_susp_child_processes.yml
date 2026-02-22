@@ -1,10 +1,12 @@
 title: Suspicious Spool Service Child Process
 id: dcdbc940-0bff-46b2-95f3-2d73f848e33b
 status: test
-description: Detects suspicious print spool service (spoolsv.exe) child processes.
+description: Detects suspicious print spool service (spoolsv.exe) child 
+  processes.
 references:
 - https://github.com/microsoft/Microsoft-365-Defender-Hunting-Queries/blob/efa17a600b43c897b4b7463cc8541daa1987eeb4/Exploits/Print%20Spooler%20RCE/Suspicious%20Spoolsv%20Child%20Process.md
-author: Justin C. (@endisphotic), @dreadphones (detection), Thomas Patzke (Sigma rule)
+author: Justin C. (@endisphotic), @dreadphones (detection), Thomas Patzke (Sigma
+  rule)
 date: 2021-07-11
 modified: 2024-12-01
 tags:
@@ -76,32 +78,40 @@ detection:
   - OriginalFileName: 'RUNDLL32.EXE'
   suspicious_rundll32_cli:
     CommandLine|endswith: 'rundll32.exe'
-  condition: spoolsv and ( suspicious_unrestricted or (suspicious_net and not suspicious_net_filter)
-    or (suspicious_cmd and not suspicious_cmd_filter) or (suspicious_netsh and not
-    suspicious_netsh_filter) or (suspicious_powershell and not suspicious_powershell_filter)
-    or all of suspicious_rundll32_* )
+  condition: spoolsv and ( suspicious_unrestricted or (suspicious_net and not 
+    suspicious_net_filter) or (suspicious_cmd and not suspicious_cmd_filter) or 
+    (suspicious_netsh and not suspicious_netsh_filter) or (suspicious_powershell
+    and not suspicious_powershell_filter) or all of suspicious_rundll32_* )
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
-  This Sigma rule detects potentially malicious child processes being spawned by the Windows Print Spooler service (spoolsv.exe). The Print Spooler service has been exploited in various attacks, including remote code execution and privilege escalation, which can compromise an entire system by enabling an attacker to execute arbitrary commands. This detection is particularly sensitive to processes that are unusual for the spooler to invoke, suggesting that an attacker may be taking advantage of the Print Spooler's inherent privileges.
 
-  The rule targets activities that fall under the MITRE ATT&CK techniques, notably "Exploitation of Remote Services" (T1203) and "Privilege Escalation" (T1068). Attackers may leverage compromised child processes to escalate privileges, deploy malware, or maintain persistence within the system. Primary data sources for detection include process creation logs from Windows, which track command-line arguments and the associated parent processes to identify suspicious activity originating from the spooler.
+  This Sigma rule detects the creation of suspicious child processes spawned from the Windows print spool service (spoolsv.exe). These processes may indicate an adversary leveraging the print spooler service to execute arbitrary code, potentially resulting in privilege escalation or remote code execution. The likely attacker objective is to exploit vulnerabilities in the print spooler service to gain unauthorized access or control over systems. The relevant MITRE ATT&CK techniques include **Execution (T1203)** and **Privilege Escalation (T1068)**.
+
+  Primary telemetry sources include Windows process creation logs, particularly **Security Event ID 4688** and **Sysmon Event ID 1**, which capture process execution details. If malicious, this behavior can signify an active compromise leading to unauthorized access or data exfiltration. However, the detection does NOT confirm malicious behavior on its own, as legitimate applications may also create child processes under spoolsv.exe.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Collect logs related to process creation events to identify any instances of spoolsv.exe spawning child processes, especially those listed in the detection logic. Pay close attention to the command-line arguments and image names.
 
-  - **Correlate Parent-Child Relationships:** Analyze the hierarchical relationship of processes stemming from spoolsv.exe. Investigate any identified child processes that exhibit unusual behavior or are commonly utilized in exploitation scenarios.
+  - **Confirm process creation details**: Review **Security Event ID 4688** and **Sysmon Event ID 1** for spoolsv.exe or check for process execution logs showing the child processes created. Look for child processes ending with `.exe` that may include `powershell.exe`, `cmd.exe`, or `curl.exe`, which are commonly misused.
 
-  - **Examine Network Traffic:** Investigate any network connections established by the identified child processes. Look for anomalous outbound connections that could indicate command and control activity or data exfiltration.
+  - **Analyze command line parameters**: For any detected child processes, examine the `CommandLine` field for malicious constructions, particularly those containing `.spl`, 'route add', or 'add portopening'. These attributes often indicate exploit attempts leveraging the print spooler.
 
-  - **Cross-Reference with Security Tools:** Utilize threat intelligence platforms and endpoint detection and response (EDR) tools to enrich findings and correlate with known malicious behaviors or indicators of compromise (IoCs).
+  - **Validate child process integrity**: Check the **Security** or **IntegrityLevel** field in event logs to ensure any child process spawned has an expected integrity level. High integrity (especially **System** level) for unusual child processes is a red flag.
+
+  - **Identify legitimate print activity**: Confirm if typical behavior is occurring in relation to spoolsv.exe, such as normal printing tasks, or user-initiated processes relevant to organizational operations. Comparison against baseline logs can clarify if the process activity is standard.
+
+  - **Check for known malicious artifacts**: Search for artifacts such as unusual binaries (`rundll32.exe`, `net.exe`, etc.) or legitimate executables from paths less typical for user executions. Examine file creation events indicating the presence of potentially malicious files in directories generally associated with prints or documents.
+
+  - **Correlate with threat intelligence**: Cross-reference detected behaviors with threat intelligence sources to assess if similar patterns have been associated with known threats or attacks, particularly those targeting the print spooler service.
 
   ### Prioritization
-  This alert is categorized as high severity due to the potential impact of successful exploitation of the Print Spooler service, which could lead to unauthorized access, privilege escalation, and significant damage to the network infrastructure.
+
+  This alert should be treated with high priority due to the potential impact on critical infrastructure components associated with printing and repository management. Given the likelihood of exploit attempts against the print spooler being common among threat actors, swift investigation is crucial.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection for the following scenarios: custom scripts or binaries that imitate legitimate spooler processes, as well as activities taking place outside of Windows process creation logs. The effectiveness of this detection relies on the proper configuration of Windows logging settings to capture all relevant process creation events. Further, the logic assumes an established understanding of normal behaviors for the Print Spooler service to distinguish between benign and malicious activity.
+
+  Detection may be limited by the presence of evasion techniques where actors modify the command line or spawn processes in ways that obscure their intention. Ensure that all necessary log sources, such as Sysmon or Windows Security logs, are adequately configured to capture process creation events comprehensively. Be aware that legitimate system maintenance tasks by administrators may trigger this alert, particularly those involving system updates or configuration changes. Companion detections such as monitoring for direct exploit attempts against the print spooler service (e.g., identifying CVE-based attacks) can enhance detection and coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

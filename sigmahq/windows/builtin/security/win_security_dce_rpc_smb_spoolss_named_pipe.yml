@@ -1,9 +1,9 @@
 title: DCERPC SMB Spoolss Named Pipe
 id: 214e8f95-100a-4e04-bb31-ef6cba8ce07e
 status: test
-description: Detects the use of the spoolss named pipe over SMB. This can be used
-  to trigger the authentication via NTLM of any machine that has the spoolservice
-  enabled.
+description: Detects the use of the spoolss named pipe over SMB. This can be 
+  used to trigger the authentication via NTLM of any machine that has the 
+  spoolservice enabled.
 references:
 - https://posts.specterops.io/hunting-in-active-directory-unconstrained-delegation-forests-trusts-71f2b33688e1
 - https://dirkjanm.io/a-different-way-of-abusing-zerologon/
@@ -27,42 +27,30 @@ falsepositives:
 - 'Domain Controllers acting as printer servers too? :)'
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the use of the spoolss named pipe over SMB, which is often used by attackers to conduct lateral movement within a network. The objective of leveraging this mechanism typically involves exploiting NTLM authentication vulnerabilities to gain unauthorized access to resources across machines with the spool service enabled. This behavior falls under the MITRE ATT&CK framework's "Lateral Movement" tactic, specifically technique T1021.002 (SMB/Windows Admin Shares).
+  This Sigma rule detects access to the spoolss named pipe over SMB, which can indicate an attempt to exploit Windows RPC (Remote Procedure Call) services for lateral movement within a network. The likely attacker objective is to leverage the spool service to authenticate to remote systems using NTLM, typically as a precursor to executing further actions on compromised systems. This behavior aligns with the MITRE ATT&CK technique for Lateral Movement via "Remote Procedure Call (RPC)" (T1021.002).
 
-  The primary telemetry source for this detection is Windows Security logs, specifically Event ID 5145, which records file sharing activity. If malicious, the security impact could include unauthorized access to sensitive systems or data compromise. It is important to note that this detection alone does not confirm malicious intent; it merely indicates that the specific named pipe was accessed and requires further investigation.
-
-  ---
+  The primary telemetry source is Windows Security Event Logs, specifically Event ID 5145 indicating file share access; relevant fields include ShareName and RelativeTargetName. If malicious, this may allow unauthorized access to system resources or facilitate credential theft. Importantly, this detection alone does not confirm malicious intent; it merely indicates that an RPC named pipe connection attempt has occurred.
 
   ### Investigation Steps
 
-  - **Review Event ID 5145 details:** Check the security logs for Event ID 5145. Look for the ShareName set to `\\\\*\\IPC$` and RelativeTargetName equal to `spoolss`. Confirm if the initiating process is expected or anomalous.
+  - **Identify the source of the connection:** Review Event ID 5145 in Windows Security Logs focusing on Source Address and File Share fields. Analyze connections originating from external or unexpected hosts, which could indicate potential malicious activity.
 
-  - **Verify the source IP and hostname:** Identify the source of the alert by examining the originating IP and hostname for unusual or unauthorized machines attempting to access the spoolss pipe.
+  - **Check for legitimate use cases:** Determine if the affected system is operating as a print server. Domain Controllers might naturally log these events due to spool service activity; verify that the system's role aligns with its expected behavior.
 
-  - **Assess legitimate business activity:** Determine if recent printer activities were legitimate, particularly on servers or workstations known to host shared printers or services that interact with spooling. Such activity typically involves consistent access patterns from authorized administrative accounts.
+  - **Correlate with authentication logs:** Investigate Security Event IDs 4624 (Logon) and 4625 (Logon failure) to check if there is a suspicious pattern of credential use that coincides with the spoolss pipe access. High volumes of failed access attempts could indicate credential abuse.
 
-  - **Check for high-confidence malicious indicators:** Discover if the requesting accounts or processes associated with this alert link to known lateral movement techniques or prior incidents. Patterns such as multiple failed authentication attempts or unusual timings may indicate malicious intent.
+  - **Examine process and service activity:** Use Sysmon Event ID 1 to track the creation of processes and services that could leverage the spool service for malicious purposes. Look for child processes initiated from legitimate services like `spoolsv.exe` exhibiting unusual behavior.
 
-  - **Correlate with other telemetry:** Cross-reference Windows Security logs with Sysmon Event ID 1 (Process Creation) to track related command-line arguments or paths indicative of tool usage consistent with lateral movement strategies.
-
-  - **Inspect account privileges:** Analyze access rights for the involved accounts to ensure they align with the organizational policy. Pay attention to accounts that possess more privileges than necessary for routine operations, particularly those accessing sensitive shares without clear need.
-
-  ---
+  - **Assess asset criticality:** Consider the importance of the systems involved. If the operation is observed on critical systems like Domain Controllers, elevate the investigation priority due to the potential impact of a successful lateral movement.
 
   ### Prioritization
 
-  This alert should be treated with medium priority in an enterprise context due to the potential security implications of unauthorized lateral movement. The affected systems could have significant access to sensitive data, increasing the likelihood of malicious abuse if not monitored closely. While this behavior can be weaponized, it also occurs in legitimate scenarios that require careful investigation to avoid false positives.
-
-  ---
+  This alert should be treated as medium severity. The impact could be significant if an adversary successfully gains unauthorized access to systems using the spool service. Additionally, the technique is commonly weaponized during lateral movement across networks, amplifying the need for immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential use of legitimate tools or services that operate over the spoolss pipe, leading to false positives. Comprehensive logging configurations must be enabled for Windows Security events for reliable detection. Legitimate administrative activities, such as routine printer testing or backend processes requiring spooler access, may trigger this alert. A companion detection involving alerts on NTLM authentication attempts or remote service calls could strengthen overall coverage and provide a more complete threat picture.
-
-  ---
+  Detection may be limited by environment-specific configurations; if logging for SMB events is not enabled, genuine access attempts may not be captured. Similarly, legitimate administrative or development activities may trigger this alert, especially in multi-purpose servers. Ensuring that Event ID 5145, along with other relevant authentication logs, are consistently captured and reviewed will enhance detection capabilities. Related detections for suspicious SMB traffic or abnormal NTLM authentication attempts can provide additional context and bolster overall security monitoring.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

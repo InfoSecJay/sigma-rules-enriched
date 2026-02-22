@@ -55,20 +55,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies modifications to DNS records within Active Directory that contain a base64-encoded blob indicative of a Kerberos coercion attack. The encoded string typically corresponds to a CREDENTIAL_TARGET_INFORMATION structure used by attackers to force authentication requests from victim systems to attacker-controlled hosts. By spoofing Service Principal Names (SPNs) via DNS manipulation, adversaries aim to redirect legitimate authentication processes, allowing them to collect credentials or establish unauthorized access. The primary objective of this attack is to escalate privileges and maintain persistence through manipulated authentication pathways.
 
-  The rule relates to the MITRE ATT&CK framework, specifically aligning with the "Credential Access" tactic (TA-0006) and the technique "Kerberos Coercion" (T1557.003). This indicates the potential for significant security breaches, as successful coercion could lead to unauthorized access to critical systems or sensitive data. Essential data sources for this detection include security event logs from Windows, particularly focusing on Event IDs 5136, 5137, and 4662, which capture modifications and accesses to DNS records.
+  This Sigma rule detects modifications to DNS records in Active Directory, specifically the creation or alteration of `dnsNode` objects containing a base64-encoded blob associated with Kerberos coercion attacks. The likely attacker objective is to manipulate DNS records to spoof Service Principal Names (SPNs), thereby coercing victim systems to authenticate against attacker-controlled hosts. This behavior aligns with the MITRE ATT&CK framework under the credential access tactic (T1557.003) and can also connect to persistence and privilege escalation techniques.
+
+  The primary telemetry sources are Windows Security Event logs, particularly Event IDs 5136 and 5137 for directory service changes and Event ID 4662 for service access events. If malicious, such actions could enable an attacker to gain unauthorized access to resources, potentially leading to further network compromise. It's important to note that this detection does NOT independently confirm that a successful Kerberos coercion has occurred; it indicates the likelihood of an attempt and requires further investigative validation.
 
   ### Investigation Steps
-  - **Analyze Security Event Logs**: Review Windows security event logs to identify events 5136 and 5137 related to DNS modifications. Pay attention to entries containing the base64 patterns 'UWhRCA' and 'BAAAA' to confirm potential Kerberos coercion activities.
-  - **Identify User Account**: Investigate the user account responsible for the DNS changes. Compile a list of recent activities for this account to check for any signs of compromise or unusual behavior, especially if the account has low privileges.
-  - **Correlate with Network Traffic**: Examine network logs for any unusual or unauthorized DNS queries and responses around the time of the detected modifications. This may provide context on whether the changes resulted in any active Kerberos authentication attempts to attacker-controlled services.
-  - **Review DNS Configuration**: Ensure that DNS logging and auditing are properly configured on the AD DNS server. Confirm that audit logs capture CreateChild events and any changes to DNS object settings in Active Directory.
+
+  - **Identify the user account responsible for the change:** Review Event ID 5136 and Event ID 4662 logs. Focus on the `SubjectUserName` field to determine if a low-privileged account made the changes, which may indicate compromise.
+
+  - **Check for the presence of encoded strings:** Look for base64-encoded blobs in fields like `ObjectDN` and `AdditionalInfo` of Event IDs 5136 and 4662. A match for "UWhRCA" or "BAAAA" is a strong indicator of potential malicious intent.
+
+  - **Validate DNS change purpose:** Query recent DNS modifications for the affected domain names using tools like dnscmd or PowerShell. Confirm whether legitimate service changes were documented or communicated.
+
+  - **Review for suspicious DN patterns:** Utilize logs or Active Directory scripts to audit `dnsNode` changes over the last 30 days for suspicious patterns. Legitimate changes often involve routine service adjustments or expansions.
+
+  - **Correlate with other security events:** Investigate for related alerts, such as suspicious authentication attempts targeting SPNs within Event ID 4624. Any failed authentication events from unusual IPs or accounts could indicate a correlated bit of malicious activity.
+
+  - **Assess network connectivity for external DNS lookups:** Examine network firewall or proxy logs for unusual outbound DNS queries to external IPs, indicating potential efforts to redirect traffic post-authentication.
 
   ### Prioritization
-  This alert should be prioritized as high due to the potential for significant impact if an attacker successfully executes a Kerberos coercion attack. The likelihood of such attacks occurring within enterprise environments can be elevated, particularly if there are known vulnerabilities (e.g., CVE-2025-33073) associated with existing systems.
+
+  This alert is prioritized as high severity due to the critical nature of Active Directory DNS infrastructure. The manipulation of DNS records can lead to significant security breaches if successfully exploited. Given that similar methods are commonly weaponized in advanced persistent threat scenarios, prompt investigation is crucial.
 
   ### Blind Spots and Assumptions
-  The detection logic relies on specific DNS object changes logged by Microsoft's Active Directory and assumes that auditing for these modifications is properly configured and enabled. If the necessary audit rules are not applied, these events may not be logged, leading to potential gaps in detection. Additionally, the rule assumes genuine events where base64-encoded strings are indeed malicious, but benign scenarios might exist where legitimate changes generate false positives. Proper configurations and the auditing of DNS records are essential for effective detection.
+
+  There are limitations in this detection, particularly if logging settings are not appropriately configured for DNS object changes. Evasion techniques may include using legitimate accounts to alter DNS records without raising suspicion. This alert could also be triggered by benign administrative actions such as routine DNS maintenance. A related detection for suspicious DNS query patterns can strengthen overall coverage against Kerberos coercion attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

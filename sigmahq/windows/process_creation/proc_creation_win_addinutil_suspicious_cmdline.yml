@@ -5,8 +5,8 @@ description: |
   Detects execution of the Add-In deployment cache updating utility (AddInutil.exe) with suspicious Addinroot or Pipelineroot paths. An adversary may execute AddinUtil.exe with uncommon Addinroot/Pipelineroot paths that point to the adversaries Addins.Store payload.
 references:
 - https://www.blue-prints.blog/content/blog/posts/lolbin/addinutil-lolbas.html
-author: Nasreddine Bencherchali (Nextron Systems), Michael McKinley (@McKinleyMike),
-  Tony Latteri (@TheLatteri)
+author: Nasreddine Bencherchali (Nextron Systems), Michael McKinley 
+  (@McKinleyMike), Tony Latteri (@TheLatteri)
 date: 2023-09-18
 tags:
 - attack.defense-evasion
@@ -47,25 +47,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies the execution of the Add-In deployment cache updating utility, `AddInUtil.exe`, when used with potentially malicious command-line arguments leading to suspicious paths such as those in temporary directories. Attackers may leverage `AddInUtil.exe` in a technique known as "living off the land" (LOLbins), where they utilize legitimate system tools to perform malicious actions, thereby evading traditional security measures. In this context, the objective is likely to execute a payload disguised under the guise of a benign process, ultimately compromising system integrity or exfiltrating sensitive data.
 
-  The relevant MITRE ATT&CK tactics and techniques applicable to this detection include:
-  - **Defense Evasion** (TA0005)
-  - **Command-Line Interface** (T1059.003)
-  - **Masquerading** (T1036)
+  This Sigma rule detects the execution of `AddInUtil.exe` with command-line parameters that include suspicious file paths or flags associated with the Add-In deployment utility often abused for malicious purposes. An attacker may use `AddInUtil.exe` with paths pointing to adversary-controlled locations to deploy malicious Addins.Store payloads, often leading to payload installation or lateral movement within a network. Relevant MITRE ATT&CK tactics and techniques include "Defense Evasion" (TA0005) and "Execution using Valid Accounts" (T1218).
 
-  The primary data sources for effective detection revolve around **process creation events**, which provide insight into executed commands, as well as the **command line arguments** supplied during process instantiation. These logs enable analysts to connect malicious activities to legitimate-looking software executions.
+  The primary telemetry source for this detection is Windows Process Creation logs, specifically targeting Security Event ID 4688 or Sysmon Event ID 1. If this behavior is malicious, it may allow attackers to introduce unwanted applications or malware into the environment, thereby compromising system integrity. Importantly, this detection does NOT confirm that an attack is occurring; it simply indicates suspicious use of a legitimate utility.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Collect and analyze process creation logs around the time of the alert to identify the execution of `AddInUtil.exe` and gather context on the command line parameters used.
-  - **Examine Command-Line Arguments**: Investigate the command line for any suspicious patterns, particularly those including `-AddInRoot:` or `-PipelineRoot:`, and look for common file paths that may indicate misuse, such as `\AppData\Local\Temp\` or `\Users\Public\`.
-  - **Check File Locations**: Cross-reference the execution paths with standard operating directories. Look into files in locations like `C:\Users\<USERNAME>\AppData\Local\Temp\` to determine if they contain suspicious payloads or were modified unexpectedly.
-  - **Assess Previous Activity**: Trace back user and system activities leading up to the execution of `AddInUtil.exe` to capture any preceding anomalous behavior that may indicate an initial compromise or lateral movement.
+
+  - **Review command-line details:** Check for `CommandLine` values containing `-AddInRoot:` or `-PipelineRoot:` followed by uncommon paths like `\AppData\Local\Temp\` or `\Downloads\`. Legitimate use typically does not involve these locations.
+
+  - **Validate process origin:** Examine the `Image` and `OriginalFileName` for exact matches to `AddInUtil.exe` with `Security Event ID 4688`. Be cautious of files with the same name located outside of typical directories (e.g., not in `C:\Program Files\`).
+
+  - **Correlate with current directory:** Ensure that `CurrentDirectory` values are reviewed, paying attention to any instances that include temporary paths or similar user profile directories, which can indicate potential abuse of the executable.
+
+  - **Identify high-confident malicious traits:** Look for any logs indicating the creation or modification of files in `C:\Users\Public\` or `C:\Windows\Temp\` shortly after the execution of `AddInUtil.exe`. Such artifacts are strong indicators of possible malicious activity.
+
+  - **Check for related legitimate usage:** Investigate if the user or process logged the execution during a scheduled maintenance or patch deployment around common update timelines, providing context for the use of `AddInUtil.exe`.
+
+  - **Profile host criticality and asset value:** Consider the role of the host executing `AddInUtil.exe`. High-value systems, like servers, warrant immediate escalation if suspicious activity is confirmed.
+
+  ---
 
   ### Prioritization
-  This alert is marked as high severity due to the potential high impact of attackers disguising their activity within legitimate administrative tools. The likelihood of misuse is significant, especially in environments where interactivity with system tools is common.
+
+  Given that this detection involves a potentially malicious execution of a tool that can easily be weaponized, alerts should be considered high-severity, especially if triggered from critical assets. The likelihood of adversaries exploiting legitimate tools for compromise is increasingly common in targeted attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  The detection rule may miss instances where `AddInUtil.exe` is utilized legitimately or where attackers employ alternative methods of execution not captured by the command-line patterns specified in the logic. It operates under the assumption that `AddInUtil.exe` will only be invoked with specific flags and paths, which might not encapsulate every potential misuse scenario. Furthermore, effective detection relies on the continuous logging of process creation events with detailed command-line arguments; environments lacking comprehensive logging configurations might face gaps in detection coverage.
+
+  Limitations include potential evasion techniques where attackers may obfuscate command-line parameters or execute `AddInUtil.exe` from non-suspicious paths. Reliable detection requires full visibility into Windows Process Creation logs and consistent monitoring of environment configurations. Legitimate activities, such as user-generated updates or installations via corporate software standards, may unintentionally trigger this alert, potentially leading to false positives. Related detections include those for unusual file creations or modifications in user directories, enhancing coverage for malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

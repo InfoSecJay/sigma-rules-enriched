@@ -31,29 +31,36 @@ detection:
     - 'C:\Program Files\Windows Kits\'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Legitimate applications loading their own versions of the DLL mentioned in this
-  rule
+- Legitimate applications loading their own versions of the DLL mentioned in 
+  this rule
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potential DLL sideloading activity involving the "DbgModel.dll" library. DLL sideloading is a technique commonly used by attackers to execute malicious code while masquerading as legitimate software functionality, often leading to privilege escalation, persistence, or defense evasion within a targeted system. In this scenario, an attacker may leverage a trusted process to load a compromised or malicious version of DbgModel.dll, thus gaining unauthorized access or executing malicious payloads.
 
-  The MITRE ATT&CK framework techniques relevant to this detection include:
-  - **T1574.001 - DLL Search Order Hijacking**: This technique covers the manipulation of a legitimate application's search path to load a malicious DLL.
-  - **T1068 - Exploitation for Privilege Escalation**: Successful DLL sideloading may result in escalated privileges for an attacker, allowing them broader access within the network.
+  This rule detects potential DLL sideloading of `DbgModel.dll`, a DLL associated with debugging and developer tools. Attackers may use DLL sideloading to execute malicious code by replacing a legitimate DLL with a malicious version, often aiming to achieve privilege escalation or maintain persistence in a compromised system. This is aligned with MITRE ATT&CK tactic "Defense Evasion" (TA0005) and technique "DLL Search Order Hijacking" (T1574.001).
 
-  Primary data sources useful for evidence collection include Windows image load events, which capture DLL loads and provide insight into potential manipulation of trusted libraries.
+  The primary telemetry source is Windows image load events, specifically tracking the `ImageLoaded` field in process creation logs (Event ID 4688 and Sysmon Event ID 1). If malicious, this behavior can lead to unauthorized access or execution of harmful code, affecting the integrity and confidentiality of systems. Importantly, this detection does NOT confirm that the loading of `DbgModel.dll` is malicious; it requires further investigation to assess the legitimacy of the source and context of the DLL.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Collect logs from image load events to identify instances where DbgModel.dll was loaded. Pay close attention to the full path of the loaded DLL for anomalies.
-  - **Analyze Parent Process Relationships**: Investigate the parent processes of the loading applications. Identify whether these processes are legitimate or have unusual origins.
-  - **Correlate with Application Whitelists**: Cross-reference the image loads against your organization's application whitelisting policies to ascertain if the DbgModel.dll load was performed by an authorized application.
-  - **Examine Contextual System Events**: Check for other relevant system activities around the time of the DLL load, including recent privilege escalations, scheduled tasks, or unusual network connections that might indicate additional malicious behavior.
+
+  - **Verify process loading specifics**: Review Event ID 4688 or Sysmon Event ID 1 for the process instantiating `dbgmodel.dll`. Check the `ImageLoaded` field for the full path to identify if it deviates from the expected paths like `C:\Windows\System32\`.
+
+  - **Identify the parent process**: Examine the `ParentImage` field of the process that loaded `dbgmodel.dll` to ascertain if a known benign application (like `visualstudio.exe` or `windbg.exe`) was responsible. Legitimate parent processes can indicate non-malicious activity.
+
+  - **Assess recent changes in DLL paths**: Check for alterations in the file paths or digital signatures of `dbgmodel.dll` to confirm whether it’s the official version or a potentially manipulated copy. Use file properties to compare against known MD5/SHA hashes of legitimate DLLs.
+
+  - **Suspicious command line arguments**: Review the command line arguments in Event ID 4688 or Sysmon Event ID 1 that initiated the process. Look for unusual parameters that could indicate malicious intent, such as the use of `cmd.exe` or scripts that invoke the process in an atypical manner.
+
+  - **Evaluate installed applications**: Investigate installed applications on the system, focusing on applications that may require `dbgmodel.dll`, such as debugging tools from Windows Kits. Correlate this with the `EventID=4688` to validate legitimate usage.
+
+  - **Reference artifact presence**: Confirm if any temporary files or logs were created in the same timeframe as the DLL loading, especially in the user's profile directories or application data paths. The presence of files created by suspicious processes may indicate an ongoing attack or exploitation attempt.
 
   ### Prioritization
-  This alert has a medium severity due to the potential for privilege escalation and persistent malicious code execution, which can have significant impacts on enterprise security. Given that DLL sideloading techniques are often leveraged by attackers to bypass defenses, any detection of such activity warrants prompt investigation.
+
+  The severity of this alert is medium due to its potential to be weaponized for privilege escalation and persistence, particularly on critical systems or development environments. However, the likelihood of malicious activity largely depends on the context of the process and the legitimacy of the application triggering the alert.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection coverage related to legitimate applications that may also load their own versions of DbgModel.dll, leading to potential false positives. The detection logic assumes that any load of the DLL outside of the specified trusted paths is suspicious, which could overlook benign use cases. Additionally, this rule relies on the availability of image load event logs, which must be properly configured and collected to function effectively.
+
+  Detection may be limited by the presence of legitimate applications that load their versions of `dbgmodel.dll`, which could create false positives. Reliable detection requires the configuration of logging to capture image load events effectively. Furthermore, benign activities, such as the use of legitimate debugging tools, may also trigger this alert. A companion detection for better analysis could include monitoring for unusual network connections or changes in system integrity following the loading of `dbgmodel.dll`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

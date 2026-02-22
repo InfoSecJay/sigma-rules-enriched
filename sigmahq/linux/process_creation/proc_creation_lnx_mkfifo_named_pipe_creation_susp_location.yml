@@ -4,8 +4,8 @@ related:
 - id: 9d779ce8-5256-4b13-8b6f-b91c602b43f4
   type: derived
 status: test
-description: Detects the creation of a new named pipe using the "mkfifo" utility in
-  a potentially suspicious location
+description: Detects the creation of a new named pipe using the "mkfifo" utility
+  in a potentially suspicious location
 references:
 - https://dev.to/0xbf/use-mkfifo-to-create-named-pipe-linux-tips-5bbk
 - https://www.mandiant.com/resources/blog/barracuda-esg-exploited-globally
@@ -26,25 +26,42 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the potentially suspicious creation of a new named pipe using the "mkfifo" utility, particularly if executed in unconventional directories such as `/tmp/`. Named pipes in Linux are often used for inter-process communication, but their usage in unexpected locations may indicate malicious intent. Attackers could exploit named pipes to facilitate command and control communications or enable lateral movement within a network. This activity may also coincide with recon or execution phases of an attack, making it essential for defenders to be vigilant about such events.
 
-  Relevant MITRE ATT&CK tactics/techniques include:
-  - **Execution (T1203)**: The creation and use of named pipes can be part of a broader strategy to execute malicious payloads or commands.
-  - **Command and Control (T1071)**: Named pipes might be utilized as a method for establishing a covert channel for command and control communications, especially when other channels are being monitored.
+  This rule detects the creation of a named pipe via the `mkfifo` utility, particularly in the `/tmp/` directory, which can indicate suspicious activity. An attacker may use named pipes for inter-process communication, potentially to facilitate data exfiltration or to establish a covert communication channel with a compromised process. Relevant MITRE ATT&CK tactics include Execution (TA0002) and potentially Resource Development (TA0042) if used for establishing command and control.
 
-  Primary data sources for this detection include process creation logs from Linux systems, which provide detailed insights on executed commands, command arguments, and user context.
+  Primary telemetry sources include Linux process creation logs, which capture system calls and command execution. Specifically, system calls related to named pipes and process creation will provide details on the command used, its arguments, and the executing user. If malicious, the presence of a named pipe in a potentially dangerous location could facilitate further exploitation or lateral movement. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may also create named pipes in similar locations.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Examine logs related to process creation for instances where `mkfifo` was executed, focusing on the command line arguments and user context to identify whether the execution appears legitimate or suspicious.
-  - **Analyze File System Changes**: Investigate the file system locations where named pipes were created, especially unusual directories such as `/tmp/`. Check for an unexpected creation time and whether the files exhibit any suspicious permissions.
-  - **Correlate with Other Security Events**: Cross-reference the identified events with other security logs, such as EDR alerts or network traffic logs, to assess if they correlate with other malicious activities such as inbound or outbound communications from the affected system.
-  - **Conduct User Behavior Analysis**: Assess the behavior and activity patterns of the users executing these commands to determine if they align with legitimate user activities or if there are indicators of compromised accounts.
+
+  - **Identify the invoking user and environment**: Check for user details in the process creation logs (e.g., `getent passwd <username>` or `/var/log/syslog` for entries correlating to Event IDs for `/mkfifo`). Determine if the user is an expected administrator or service account.
+
+  - **Review command history and execution**: Analyze user command history (e.g., `~/.bash_history`) for `mkfifo` execution. Look for unusual command parameters or recent logins from non-standard sources or locations.
+
+  - **Check for other suspicious processes**: Review the running processes using tools like `ps aux` or `top` to identify any unusual processes that may interact with the named pipe. Investigate processes with strange parent-child relationships, especially those created by system users.
+
+  - **Validate file permissions and access**: Examine the permissions of the created named pipe using `ls -l /tmp/` to ensure they aren't overly permissive (e.g., world-writable). A permissions misconfiguration may indicate malicious use.
+
+  - **Monitor for associated network activity**: Cross-reference any created named pipes with outbound network connections using tools like `netstat` or `lsof -i`. Unusual or unauthorized network connections following the named pipe creation should be flagged for further investigation.
+
+  - **Characterize legitimate use cases**: Consider legitimate applications that may create named pipes (e.g., specific application services or installed software). Ensure these applications are operating within expected usage patterns to rule out false positives.
+
+  ---
 
   ### Prioritization
-  The medium-level severity of this alert is warranted due to the potential for named pipes to facilitate malicious activities, such as unauthorized data exfiltration or the establishment of a covert communication channel. Given the commonality of certain commands being misused, incidents must be assessed in context, considering patterns and surrounding behaviors.
+
+  This alert is of medium severity due to the potential for significant security impacts if a named pipe is used for malicious purposes. The likelihood of abuse is moderate, as attackers commonly use such tactics for lateral movement or data exfiltration. While this behavior can be indicative of malicious activity, it isn't always weaponized in every incident.
+
+  ---
 
   ### Blind Spots and Assumptions
-  This detection rule primarily relies on the presence of logs generated by process creation events in Linux environments. A gap exists where logs might not capture all usage scenarios or if `mkfifo` is masked by an alternative method. Additionally, the rule assumes that any invocation of `mkfifo` in `/tmp/` holds potential malicious intent, which may not consistently be valid, thus necessitating further context for accurate incident determination. Also, specific log retention and monitoring policies must be in place to ensure coverage for the detection rule to function effectively.
+
+  This detection may miss legitimate usages of `mkfifo` by benign applications, such as development tools or valid system processes. The reliability of detection depends on having access to sufficient logging and process monitoring configurations—absence of which can lead to gaps in visibility. Companion detections, such as monitoring for anomalous network connections or unexpected child processes, can enhance context and improve detection fidelity.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

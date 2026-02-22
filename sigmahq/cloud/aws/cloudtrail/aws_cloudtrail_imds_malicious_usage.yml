@@ -29,46 +29,34 @@ detection:
   - sourceIPAddress: 'AWS Internal'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- A team has configured an EC2 instance to use instance profiles that grant the option
-  for the EC2 instance to talk to other AWS Services
+- A team has configured an EC2 instance to use instance profiles that grant the 
+  option for the EC2 instance to talk to other AWS Services
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects when an EC2 instance, utilizing an assumed role, performs actions outside of AWS Systems Manager (SSM). This behavior can indicate a compromised EC2 instance being used as a pivot point for lateral movement or credential exfiltration. The likely attacker objective might include gaining unauthorized access to other AWS resources by leveraging IMDS (Instance Metadata Service) credentials.
+  This Sigma rule detects unauthorized actions taken by an EC2 instance identity outside of AWS Systems Manager (SSM), indicating potential misuse of EC2 instance metadata service (IMDS) credentials. The likely attacker objective is to exploit a compromised EC2 instance for pivoting or escalating privileges within the AWS environment. This behavior aligns with the MITRE ATT&CK tactics and techniques of **Initial Access (T1078)** and **Privilege Escalation (T1078.002)**.
 
-  The relevant MITRE ATT&CK technique for this detection is **Valid Accounts (T1078)** and **Valid Accounts via Instance MetaData Service (T1078.002)**. The primary telemetry sources are AWS CloudTrail logs, particularly focusing on the `eventSource`, `eventName`, and `sourceIPAddress` fields. If the activity is malicious, it could lead to significant security incidents, including data breaches or unauthorized resource modifications. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate usage patterns may also trigger the alert.
-
-  ---
+  The primary telemetry source is AWS CloudTrail logs, specifically focusing on the `eventSource` related to SSM and the actions taken by roles associated with EC2 instances. If the activity is indeed malicious, it could lead to unauthorized access or manipulation of sensitive data and services. It is important to note that this detection does NOT confirm that malicious activity occurred on its own; further investigation is required.
 
   ### Investigation Steps
 
-  - **Review the CloudTrail event:** Check CloudTrail logs for `eventSource` set to `ssm.amazonaws.com` and `eventName` set to `RegisterManagedInstance`. Validate that the `sourceIPAddress` is not from a known AWS internal range, which could indicate misuse of the instance metadata credentials.
+  - **Review CloudTrail logs for suspicious actions:** Check for CloudTrail events where `eventSource` is `ssm.amazonaws.com` and `eventName` is not `RegisterManagedInstance`. Look for unusual activities particularly from EC2 instance roles.
 
-  - **Monitor assumed role activity:** Analyze the `userIdentity.arn` in the CloudTrail logs for instances of format `assumed-role/aws:`, focusing on how often this role is being used for actions outside the approved SSM context. Frequent role assumption coupled with suspicious events may indicate a potential compromise.
+  - **Identify source IP addresses:** Examine the `sourceIPAddress` field in the relevant CloudTrail logs. Legitimate SSM operations should originate from `AWS Internal`. Connections from external IPs may indicate compromise.
 
-  - **Validate the source IP address:** Identify the `sourceIPAddress` involved in the events. Ensure it matches legitimate internal AWS IP addresses. Abnormal external IP addresses or unusual geolocation patterns may characterize malicious behavior.
+  - **Evaluate IAM role permissions:** Validate the permissions associated with the EC2 instance’s IAM role. Ensure that it does not have elevated permissions that allow interaction with other services outside the intended scope for SSM-managed instances.
 
-  - **Identify legitimate usage patterns:** Determine normal operational behavior for the EC2 instances in question. Regular configurations or maintenance tasks may involve SSM, while anything accessing AWS services directly from an EC2 instance should be reviewed critically as exceptions to routine practices.
+  - **Correlate with known network behavior:** Cross-check outbound traffic from the compromised EC2 instances to detect any connections made to risky endpoints. Legitimate EC2 instances should not communicate with unknown external IPs unless predefined.
 
-  - **Look for additional indicators of compromise:** Check for atypical creation or modification events (e.g., unusual IAM role changes or EC2 instance launches). Review for any other related events tied to the same user or instance that could provide context to the suspicious behavior.
-
-  - **Document findings in your incident log:** Record any anomalies or expected behaviors related to the alerted EC2 instance and surrounding context (e.g., timing, IP address, user roles) for further investigation or response actions.
-
-  ---
+  - **Document prior actions of the affected instance:** Review the logs for previous legitimate SSM commands executed by the instance that may explain its operations. Establish a baseline to distinguish between normal and suspicious behavior.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the critical nature of compromised AWS credentials. The potential impact on sensitive resources is significant, and this behavior is known to be weaponized by adversaries seeking to exploit cloud infrastructures. The likelihood of malicious activity is high when actions are outside of expected SSM usage.
-
-  ---
+  This alert is of **high** severity as it affects the integrity of the AWS infrastructure and could indicate a compromised EC2 instance being used as a pivot point for further attacks. Given the common exploitation of EC2 roles for lateral movement, the likelihood of malicious abuse is significant, making immediate review critical.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if CloudTrail logging is not configured to capture all relevant events or if a sophisticated adversary uses evasion techniques to mask their activities. Legitimate activities such as automated scripts invoking SSM may lead to false positives, requiring contextual understanding. A companion detection to strengthen coverage would involve monitoring IAM role changes and analyzing API call patterns for anomalous behavior.
-
-  ---
+  Detection may be limited by the configuration of CloudTrail logging, especially if logging is incomplete or not properly enabled for all regions. Legitimate activities such as automated scripts calling SSM commands from secure EC2 instances may trigger this alert. A related detection to consider is anomalous behavior in IAM policies or roles being modified, which could support investigative efforts in this context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

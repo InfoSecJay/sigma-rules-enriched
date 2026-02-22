@@ -55,20 +55,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects suspicious file write activities targeting the SharePoint layouts directory, which could indicate potential web shell installations or post-exploitation activities by attackers. The SharePoint layouts directory is a critical aspect of SharePoint that may be leveraged by threat actors to execute malicious scripts or manage unauthorized access to the server. Attackers often exploit vulnerabilities in SharePoint, like CVE-2025-49704, CVE-2025-49706, or CVE-2025-53770, providing them a pathway to perform these malicious actions.
 
-  The relevant MITRE ATT&CK tactics include **Initial Access** (TA0001) through exploitation of software vulnerabilities (T1190), which allows attackers to gain a foothold within the environment. Additionally, the techniques for **Persistence** (TA0003) and *Web Shell* (T1505.003) highlight the potential for web shells being written to persist in the environment. The primary data sources for detecting this activity are Windows file event logs, which will capture the file write actions to critical directories such as SharePoint's layouts directory.
+  This rule detects the creation of potentially malicious files in SharePoint's layouts directory, specifically targeting webshell file types such as `.aspx`, `.php`, and `.ps1`. The likely attacker objective is to establish persistence or remote command execution capabilities post-exploitation, often leveraging known vulnerabilities within SharePoint as outlined in the references (e.g., CVE-2025-49704). This behavior correlates with the MITRE ATT&CK tactic for Initial Access (T1190) and Persistence (T1505.003).
+
+  The primary telemetry source is Windows file event logs, particularly concerning processes associated with PowerShell (e.g., `powershell.exe`, `cmd.exe`, `w3wp.exe`). If malicious, these actions could lead to severe data breaches or system takeovers. Importantly, this detection does NOT confirm that an attack has occurred; further context and analysis are required to ascertain intent.
 
   ### Investigation Steps
-  - **Review File Write Events:** Investigate the Windows file event logs for writes to the SharePoint layouts directory. Focus on events logged by processes like `cmd.exe`, `powershell.exe`, and `w3wp.exe`.
-  - **Correlate with User Accounts:** Analyze user account activity associated with the file writes. Look for unusual or unauthorized user accounts that may suggest intrusion attempts or compromised credentials.
-  - **Examine Process Execution:** Look into the parent-child process relationships in process creation logs to identify if suspicious scripts or commands preceded the file write events, indicating post-exploitation activity.
-  - **Analyze SharePoint Access Logs:** Check SharePoint access logs for any unauthorized attempts to access the layouts directory, which could provide context for the file write activity.
+
+  - **Identify the Process Initiator**: Check the Parent Process ID (PID) associated with the detected file write. Look for processes such as `w3wp.exe` (IIS Worker Process) or `powershell.exe` (Event ID 4688 or Sysmon Event ID 1) that indicate potential exploitation. A legitimate `w3wp.exe` action should only write expected web files.
+
+  - **Review File Details**: Examine the `TargetFilename` for suspicious extensions (e.g., `.php`, `.aspx`) in directory paths like `C:\Program Files\Common Files\Microsoft Shared\Web Server Extensions\15\TEMPLATE\LAYOUTS\`. Legitimate files typically include standard SharePoint layouts without unusual extensions.
+
+  - **Cross-reference Event Log Context**: Investigate recent security events (e.g., Event IDs 4624/4625 for logon attempts) that may show related access patterns, including unsuccessful logins or access from unknown accounts, suggesting potential reconnaissance prior to file modification.
+
+  - **Check File Metadata**: Inspect the creation timestamps and modification history for the suspicious file. Files created outside of normal operational hours or with invalid user privileges (e.g., `SYSTEM` instead of normal user) can serve as high-confidence indicators of malicious activity.
+
+  - **Validate Network Connections**: Correlate with firewall or proxy logs (e.g., from a network device) for unusual outgoing connections from the affected server to external IPs, especially networks known for hosting command-and-control (C2) servers. Malicious webshells often initiate outbound connections to communicate with attackers.
+
+  - **Monitor User Activity**: Review user account behaviors for abnormal file accesses (with Event IDs 4663 or 5145 for file access events) that could indicate data exfiltration attempts linked to the identified file modification.
 
   ### Prioritization
-  This alert has a high severity level due to the potential impact of malicious file writes in SharePoint. They can lead to unauthorized data access, system compromise, and significant reputational damage if exploited effectively by an attacker.
+
+  This alert is of **high severity** due to the critical nature of SharePoint within the enterprise, where exploited vulnerabilities can lead to significant data loss, operational disruption, or broader network compromise. The likelihood of malicious abuse is elevated, especially given the weaponization of known SharePoint vulnerabilities.
 
   ### Blind Spots and Assumptions
-  One limitation in detection coverage is the reliance on specific file name patterns and directory paths; attackers may alter their techniques to evade detection, potentially not matching these alerts. The detection logic assumes that appropriate logging levels are configured within the Windows environment to capture detailed file activity in real-time. Additionally, if file auditing is disabled for the SharePoint directories, the necessary log data will be absent, preventing accurate detection of this suspicious activity.
+
+  This detection may be evaded through file obfuscation or altered process names that don't match the specified criteria. Reliable detection requires fully enabled Windows file auditing and appropriate logging configurations for PowerShell and IIS. Legitimate administrative activities may also trigger this alert when updating site templates. Companion detections for unauthorized changes in SharePoint site's permissions could complement this rule for more robust coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

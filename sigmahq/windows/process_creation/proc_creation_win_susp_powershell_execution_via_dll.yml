@@ -44,25 +44,37 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies potential instances of PowerShell execution originating from DLLs instead of the standard PowerShell process. This behavior is characteristic of tools such as PowerShdll, which leverage legitimate Windows utilities to execute PowerShell commands covertly. The likely objective of an attacker employing this technique is to execute malicious PowerShell scripts while evading detection by utilizing trusted system processes and reducing their footprint.
 
-  The relevant MITRE ATT&CK tactics and techniques involved here include "Defense Evasion" (T1089) and "Command and Control" through PowerShell (T1218.011). Attackers may seek to manipulate the PowerShell environment to execute commands that facilitate further exploitation, lateral movement, or data exfiltration while maintaining a low profile on the system.
+  This rule detects abnormal PowerShell execution triggered via DLLs, specifically through processes like `rundll32.exe`, `InstallUtil.exe`, or `regsvr32.exe`. Attackers often employ this technique to obscure the execution of malicious PowerShell commands, primarily to execute scripts or commands without strictly invoking PowerShell itself. The goal is typically to gain unauthorized access, deploy malware, or execute payloads silently on the target system.
 
-  The primary data sources for this detection include process creation logs, which provide insight into command line executions, and the creation of potentially malicious processes that deviate from normal behavior.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion** (T1070), with the technique **Malicious PowerShell Command Execution** (T1218.011). This detection leverages Windows process creation logs, particularly monitoring for specific executables and command-line arguments that suggest malicious PowerShell operations. If confirmed malicious, this indicates potential system compromise and an ongoing security incident. However, this detection does NOT confirm that the execution leads to successful exploitation or persistent access; further investigation is required.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine logs for any instances where processes such as `rundll32.exe`, `regsvr32.exe`, and others listed in the detection logic are invoked in conjunction with unusual command-line arguments indicative of PowerShell execution.
 
-  - **Analyze Command-Line Arguments:** Focus on any command lines that contain keywords such as `Invoke-Expression`, `DownloadString`, or `IEX`, as the presence of these terms can signify nefarious attempts to execute scripts or commands remotely.
+  - **Review Process Creation Logs:** Check for **Process Creation** logs (Windows Event ID 4688) that indicate the execution of `rundll32.exe`, `InstallUtil.exe`, or similar. Specifically, look for entries with command lines containing strings such as 'IEX', 'Invoke-Expression', or 'DownloadString'.
 
-  - **Correlate with Security Alerts:** Check if the identified instances correlate with any existing security alerts or events across your security tools (such as EDR or SIEM) that indicate suspicious activity or prior alerts from known bad actors.
+  - **Validate Command-Line Arguments:** Examine the **CommandLine** field in the logs. Malicious indicators would involve PowerShell commands prefixed with `ICM`, `IEX`, or decoding commands using `.FromBase64String`. Compare these with known legitimate usage scenarios.
 
-  - **Investigate Parent-Child Process Relationships:** Assess the execution flow to determine if there are any parent processes that are normally benign but could be misused to execute DLL-based PowerShell commands, noting any irregular parent-child process hierarchies.
+  - **Check for Unusual Parent Process:** Identify the parent process that initiated the suspicious DLL execution. A legitimate execution typically stems from programs like installers or system maintenance tools, while unexpected origins (e.g., unknown executables) could indicate malicious activity.
+
+  - **Assess File Origin and Behavior:** Locate the original files associated with the suspicious execution (Image paths). Validate whether these files reside in trusted directories or were recently modified or created. Malicious alterations or unfamiliar sources can be significant indicators.
+
+  - **Cross-Reference with Indicators of Compromise (IOCs):** Check if the activity coincides with any identified IOCs, like known bad hashes or behavioral patterns associated with recent threats, specifically around the techniques used for lateral movement or privilege escalation.
+
+  - **Log Analysis for PowerShell Scripts:** Ensure monitoring of PowerShell logs (Event IDs 4103, 4104) to identify if any unusual scripts or command execution is being triggered post DLL execution, indicating potential payload delivery.
+
+  ---
 
   ### Prioritization
-  This alert should be treated as high severity due to its potential impact; successful exploitation can lead to significant data compromise or disruption of services. Furthermore, the use of DLLs for PowerShell execution often indicates a sophisticated attacker leveraging evasion techniques, elevating the likelihood of successful malicious actions.
+
+  This alert should be considered high-severity due to the implications of malicious PowerShell execution via DLLs. Given the potential for system compromise and the frequent targeting by attackers using similar methodologies, prompt investigation is essential. This behavior is not commonly benign, making it a significant security concern.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Detection coverage could be limited based on configurations that do not log all necessary process creation events or obscured command lines. Additionally, there may be assumptions that legitimate usage of the specified processes does not coincide with anomalous command-line arguments, leading to false negatives. To effectively utilize this alert, proper logging configurations should be in place, ensuring all process creation activities are captured, particularly for command-line events associated with PowerShell execution.
+
+  Detection limitations include potential evasion techniques where attackers may alter the command strings or use alternative scripting languages to avoid detection. The alert relies heavily on appropriate logging configurations; missing logs could lead to undetected malicious activity. Legitimate activities, such as application installations or updates using system utilities, may trigger similar alerts. A related detection to strengthen coverage would be monitoring for typical `PowerShell` process creation events alongside these suspicious DLL executions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

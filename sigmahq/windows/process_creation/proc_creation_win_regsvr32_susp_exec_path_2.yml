@@ -1,8 +1,8 @@
 title: Regsvr32 Execution From Highly Suspicious Location
 id: 327ff235-94eb-4f06-b9de-aaee571324be
 status: test
-description: Detects execution of regsvr32 where the DLL is located in a highly suspicious
-  locations
+description: Detects execution of regsvr32 where the DLL is located in a highly 
+  suspicious locations
 references:
 - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
@@ -58,29 +58,38 @@ detection:
     CommandLine: ''
   filter_main_null:
     CommandLine:
-  condition: selection_img and (selection_path_1 or (selection_path_2 and not selection_exclude_known_dirs))
-    and not 1 of filter_main_*
+  condition: selection_img and (selection_path_1 or (selection_path_2 and not 
+    selection_exclude_known_dirs)) and not 1 of filter_main_*
 falsepositives:
 - Unlikely
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to execute `regsvr32.exe` from locations deemed highly suspicious within a Windows environment. `regsvr32.exe` is a legitimate Windows tool used to register and unregister OLE (Object Linking and Embedding) controls, primarily DLL files. However, attackers may exploit this tool for malicious purposes, such as loading malicious DLLs from uncommon paths to evade detection by traditional security solutions.
 
-  The typical threat scenario involves an adversary using `regsvr32.exe` to execute a malicious payload, potentially as part of a larger attack strategy aimed at establishing persistence, moving laterally within the network, or executing code remotely. The attacker might leverage this behavior to bypass common security measures that monitor typical application paths for unauthorized activity. The relevant MITRE ATT&CK techniques include **Defense Evasion (TA0005)** and **User Execution (T1203)** as adversaries seek to use trusted system binaries for execution. The specific technique related to this rule is **Regsvr32 (T1218.010)**.
+  This Sigma rule detects the execution of `regsvr32.exe` from suspicious directories known for being misused by attackers, such as `PerfLogs`, `Temp`, and various `System32` subdirectories. This behavior often indicates an attacker attempting to register a malicious DLL file without raising alarms from conventional security measures. The likely adversary objective is to execute payloads in a stealthy manner while leveraging built-in Windows functionality, taking advantage of the system's inherent trust.
 
-  Primary data sources for this detection include process creation events that capture command-line execution details, allowing for the identification of unusual execution paths and the assessment of whether the command line contains DLL registrations from non-standard directories.
+  The detection is associated with the MITRE ATT&CK technique T1218.010: Signed Binary Proxy Execution – Regsvr32. The primary telemetry sources include Windows process creation events, specifically Security Event ID 4688 and Sysmon Event ID 1. A successful execution of this rule could lead to system compromise, remote access, data exfiltration, or lateral movement within the network. Importantly, this detection does NOT confirm malicious intent on its own; benign usage may occur under specific conditions, requiring further context.
 
   ### Investigation Steps
-  - **Review Process Creation Logs**: Analyze recent logs for instances of `regsvr32.exe` execution, focusing on command-line arguments that reveal the paths from which the execution originated.
-  - **Examine Suspicious Directories**: Investigate the contents of the directories listed in the detection logic (e.g., `C:\PerfLogs\`, `C:\Temp\`) to determine if any DLLs or artifacts appear suspicious or indicative of compromise.
-  - **Check for Persistence Mechanisms**: Look for scheduled tasks or startup entries that reference `regsvr32.exe` or any associated DLLs, particularly in non-traditional locations, which could indicate an attempt to maintain persistence within the environment.
-  - **Cross-reference with Known Threats**: Utilize threat intelligence sources to compare any identified DLLs with known malicious samples or threat actor methodologies to assess potential risk.
+
+  - **Review Process Creation Events:** Analyze Security Event ID 4688 and Sysmon Event ID 1 for any `regsvr32.exe` executions originating from the specified suspicious paths. Look for deviations from normal operational behavior.
+
+  - **Check Command Line Arguments:** Focus on the CommandLine field in both Event ID 4688 and Sysmon Event ID 1 for suspicious parameters. Legitimate usage often doesn’t include paths to `\Temp\` or `\PerfLogs\`. Any such instances should warrant further scrutiny.
+
+  - **Identify Malicious DLL Registration:** If available, cross-reference registered DLLs with known malicious hashes using Threat Intelligence feeds. Registration of unexpected or suspicious DLLs—particularly in the directories specified—indicates a higher confidence of malicious activity.
+
+  - **Evaluate Host Activity Context:** Determine the role of the host where the detection occurred. For example, if the system is a server handling sensitive data, further investigation is critical. Compare behaviors against typical workload patterns for that asset type to identify anomalies.
+
+  - **Assess User Behavior:** Review logs surrounding the alert, such as Windows Security logs for user logon events during the time of the regsvr32 execution. Malicious behavior may often coincide with unusual user actions or timings.
+
+  - **Check for Related Activity:** Look for additional alerts related to unusual PowerShell scripts or Command Prompt executions in proximity to the detected event, which may indicate coordinated malicious activity.
 
   ### Prioritization
-  The alert is classified as high severity due to the potential impact of unauthorized code execution and the likelihood of compromise when `regsvr32.exe` is executed from suspicious locations. Successful exploitation could lead to data loss, lateral movement, or further escalation within the network.
+
+  This alert is of high severity due to the potential impact of malware concealed within legitimate Windows binaries. Given that `regsvr32` can facilitate the execution of arbitrary code, the likelihood of malicious abuse is significant, especially in instances of detected behavior from uncommon directories, which are frequently weaponized in attacks.
 
   ### Blind Spots and Assumptions
-  One notable gap in detection coverage can arise from scenarios where `regsvr32.exe` is invoked from legitimate paths, especially when used correctly for administrative purposes. The detection logic assumes that any execution from specified suspicious directories merits attention and potential malice. Adequate logging must be enabled for process creation events, and the detection must be fine-tuned to minimize false positives from legitimate administrative actions that may involve `regsvr32.exe`.
+
+  The main detection limitations stem from the potential for adversaries to bypass this rule by executing `regsvr32` from legitimate directories or by using different methods to register malicious DLLs. Reliable detection requires ensuring adequate logging is enabled for process creation events across all endpoints. Furthermore, legitimate administrative activities may occasionally trigger this alert when registering software components. Other detections to enhance coverage include PowerShell executions involving `Invoke-WebRequest` or `Invoke-Expression`, which could signal attempts to download and execute malware.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

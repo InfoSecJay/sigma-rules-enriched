@@ -5,8 +5,8 @@ description: Detects process handle on LSASS process with certain access mask
 references:
 - https://web.archive.org/web/20230208123920/https://cyberwardog.blogspot.com/2017/03/chronicles-of-threat-hunter-hunting-for_22.html
 - https://www.slideshare.net/heirhabarov/hunting-for-credentials-dumping-in-windows-environment
-author: Roberto Rodriguez, Teymur Kheirkhabarov, Dimitrios Slamaris, Mark Russinovich,
-  Aleksey Potapov, oscd.community (update)
+author: Roberto Rodriguez, Teymur Kheirkhabarov, Dimitrios Slamaris, Mark 
+  Russinovich, Aleksey Potapov, oscd.community (update)
 date: 2019-11-01
 modified: 2023-12-19
 tags:
@@ -109,32 +109,39 @@ detection:
     - '\procmon64.exe'
     - '\procmon.exe'
     AccessList|contains: '%%4484'
-  condition: 1 of selection_* and not 1 of filter_main_* and not 1 of filter_optional_*
+  condition: 1 of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
-- Legitimate software accessing LSASS process for legitimate reason; update the whitelist
-  with it
+- Legitimate software accessing LSASS process for legitimate reason; update the 
+  whitelist with it
 level: medium
 note: |
   ### Technical Context
-  This detection rule targets potentially suspicious access requests to the Local Security Authority Subsystem Service (LSASS) process, specifically by monitoring the AccessMask of handle requests. LSASS is a critical Windows component responsible for enforcing the security policy on the system, handling authentication, and managing access tokens. Attackers often target LSASS with the intention of stealing credentials and gaining elevated privileges, making it a prime target for credential dumping tools like Mimikatz and similar malware.
 
-  The rule identifies AccessMask values that are commonly associated with attempts to read sensitive information from memory, reflecting the objectives of unauthorized actors looking to extract user credentials or system secrets. The relevant MITRE ATT&CK techniques include *Credential Dumping* (T1003) and *Credential Dumping via LSASS* (T1003.001), indicating specific exploit methods used by attackers to gain unauthorized access to sensitive account information.
+  This Sigma rule detects suspicious access requests to the LSASS (Local Security Authority Subsystem Service) process with specific access masks associated with credential dumping activities. The likely attacker objective is to gain unauthorized access to sensitive security information, such as user credentials, thus facilitating lateral movement within the network. This behavior is associated with the MITRE ATT&CK technique T1003.001 (Credential Dumping: LSASS Memory).
 
-  Primary data sources that will yield the most relevant information include Windows event logs (particularly Event IDs 4656 and 4663), which provide insights into object access and can indicate malfeasant activity around LSASS. Monitoring these events enables Security Operations Center (SOC) teams to promptly identify and respond to potential credential harvesting attempts.
+  The primary telemetry sources include Windows Security Event logs, specifically Event IDs 4656 (handle request) and 4663 (object access attempt). The security impact of malicious access to LSASS is significant, as it may lead to credential theft. It is important to note that this detection alone does not confirm malicious activity; legitimate applications may also access LSASS for valid reasons.
 
   ### Investigation Steps
-  - **Review Event Logs**: Examine Windows Security event logs, particularly Event IDs 4656 and 4663, to identify unauthorized access attempts to the LSASS process. Look specifically for the AccessMasks indicated in the detection logic.
 
-  - **Analyze Process Context**: Check the process context of any alerts. Identify the parent process and investigate the execution path of the process attempting access to LSASS. Legitimate processes should not typically request such high levels of access.
+  - **Identify the initiating process:** Review Security Event ID 4688 for process creation events related to the detected access to LSASS. Look for unusual or unrecognized process names that initiated the access attempts and correlate the timestamps with Event IDs 4656 and 4663.
 
-  - **Correlate with User Behavior**: Assess the accessing user or system account's typical activity. Look for anomalies, such as access requests by accounts that usually operate without admin privileges or during odd hours.
+  - **Validate access masks in the context:** For each triggering event, check the AccessMask value to confirm high-confidence malicious indicators. Masks like '0x1400' or '0x1f0fff' indicate potentially malicious intent, whereas masks such as '0x1000' may denote legitimate access.
 
-  - **Investigate Historical Data**: If available, perform a retrospective analysis on previous access attempts to LSASS. Utilize SIEM tools to assess trends and identify if similar patterns have occurred in the past, indicating potential ongoing malicious activity.
+  - **Review recent changes in user permissions:** Examine the user accounts involved in the access attempts. Identify any recent elevation of privileges or account changes that could indicate malicious use. Use logs from Event ID 4704 (use of a privilege) for tracking such changes.
+
+  - **Analyze legitimate access patterns:** Compare the detected access against known legitimate applications that interact with LSASS, such as system management tools and antivirus solutions. Ensuring these applications can be traced back to expected executables can help rule out false positives.
+
+  - **Check for known malicious processes:** Investigate whether the access attempts originated from processes commonly associated with credential dumping tools, such as 'procmon64.exe' or any other executable in the previously provided filters.
+
+  - **Correlate with historical data:** Review previous security events around the same time to identify other indicative behaviors or known patterns related to the entities triggering the alert. Leverage logs for unusual activity, such as failed login attempts or elevated execution privileges in proximity to the LSASS access.
 
   ### Prioritization
-  This alert should be treated with medium severity, given that unauthorized attempts to access LSASS can indicate imminent risks of credential theft, which could lead to further escalation and data breaches in an enterprise environment. Rapid identification and response to such alerts are crucial to mitigating damage and preserving system integrity.
+
+  This alert is rated as medium severity due to the sensitive nature of the LSASS process and its potential role in credential theft. The likelihood of abuse is notably high, as attacker tools commonly target this process for credential dumping. However, the presence of legitimate applications accessing LSASS may lead to false positives, necessitating careful investigation.
 
   ### Blind Spots and Assumptions
-  While the detection logic is designed to identify suspicious access patterns, there are inherent gaps in coverage, particularly with legitimate administrative actions or operational systems that may require elevated access to LSASS for valid purposes. Assumptions are based on the presumption that certain processes should not legitimately access LSASS with the specified AccessMasks. Proper log configurations are essential; without appropriate auditing of event logs, especially for Event ID 4656 and 4663, the detection rule may not function, leading to a blind spot in monitoring LSASS access requests.
+
+  Detection limitations include the potential for legitimate software to generate similar access patterns to LSASS. Ensure comprehensive logging is enabled for Windows Security Event logs to capture all necessary artifacts for reliable detection. Legitimate activities such as routine system management or antivirus updates may trigger this alert. A related detection that strengthens coverage could involve monitoring for known credential dumping tools (e.g., Mimikatz, ProcDump) using additional telemetry sources, such as process command line arguments or PowerShell script execution logs.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

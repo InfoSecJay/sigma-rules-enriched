@@ -46,22 +46,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies instances where the BitLocker Access Agent Update Utility (BaaUpdate.exe) loads DLLs from potentially insecure or publicly writable locations. Such behavior may indicate malicious activity, particularly lateral movement through exploitation of COM Hijacking techniques. Attackers could leverage the BaaUpdate.exe process to execute arbitrary code within the context of the currently logged-in user, potentially gaining unauthorized access to sensitive information or systems.
 
-  The primary threat scenario involves an attacker leveraging the COM classes that are configured to run as an interactive user, specifically targeting the BDEUILauncher Class (CLSID ab93b6f1-be76-4185-a488-a9001b105b94). By manipulating the execution environment of BaaUpdate.exe, they can run malicious code without needing to compromise credentials directly. This aligns with the MITRE ATT&CK tactics of Defense Evasion (T1203) and Lateral Movement (T1021.003), highlighting the risk of both executing unauthorized commands and moving laterally within the network.
+  This rule detects the execution of `BaaUpdate.exe`, the BitLocker Access Agent Update Utility, loading dynamic link libraries (DLLs) from suspicious and publicly writable directories. The behavior could indicate an attempted lateral movement using DLL hijacking techniques, specifically exploiting the COM classes associated with the utility to execute unauthorized code within the context of the logged-in user's session. The likely attacker objective is to achieve local privilege escalation and execute malicious payloads without requiring further credentials.
 
-  Key data sources for this detection include Windows process creation and image load events, specifically monitoring locations that are known to be less secure, such as temporary directories or publicly writable paths.
+  The relevant MITRE ATT&CK tactics and techniques are **Defense Evasion (T1218)** and **Lateral Movement (T1021.003)**. Primary telemetry sources required include image load events from Windows, specifically tracking the execution of `BaaUpdate.exe` and the subsequent loading of DLLs. If successful, this behavior poses a significant security risk as it allows attackers to run malicious code without detection in user contexts. However, this detection does NOT confirm that a compromise has occurred; further context is needed to ascertain the legitimacy of the behavior.
 
   ### Investigation Steps
-  - **Review Process Logs:** Analyze process creation logs to identify instances of BaaUpdate.exe execution, particularly those triggering DLL loads from suspicious directories.
-  - **Inspect DLL Load Logs:** Monitor image load logs for DLLs loaded by BaaUpdate.exe; focus on those originating from non-standard directories for malicious behavior.
-  - **Correlate User Activity:** Examine user session logs to understand the context in which BaaUpdate.exe was launched and whether it coincides with other suspicious activities.
-  - **Assess File Integrity:** Investigate any DLLs loaded from writable directories for known malicious signatures or behaviors, and correlate with threat intelligence feeds.
+
+  - **Review DLL load origins**: Check Event ID 4100 (Image Load) logs for DLLs loaded by `BaaUpdate.exe` to verify paths. Focus specifically on DLLs from directories like `C:\Users\Public\` or `C:\Windows\Temp\`, which indicate suspicious activity.
+
+  - **Identify known good execution contexts**: Cross-reference the execution of `BaaUpdate.exe` with typical organizational workflows, especially during Windows updates or BitLocker access agent updates. Legitimate execution may originate from system maintenance tasks within `C:\Program Files\BitLocker\`.
+
+  - **Analyze parent process**: Investigate the parent process of `BaaUpdate.exe` using Event ID 4688 (Process Creation). A legitimate parent process would be system services, while a suspicious parent may be other user-initiated applications or unusual processes.
+
+  - **Monitor for additional COM object usage**: Inspect logs for DCOM and COM events related to the CLSID `ab93b6f1-be76-4185-a488-a9001b105b94` to identify if other processes are attempting to utilize this COM object inappropriately.
+
+  - **Check for file creation in suspicious directories**: Look for any newly created DLL files in the identified suspicious directories. Use file creation timestamps and hashes to assess if they match known malicious signatures.
+
+  - **Evaluate user permissions**: Review the permissions set on the directories loaded by DLLs. Publicly writable directories should be tightly controlled; monitor user roles that have access to these paths to determine if this access is legitimate.
 
   ### Prioritization
-  This alert is classified as high severity due to the potential for attackers to exploit COM Hijacking techniques, granting them elevated privileges and facilitating lateral movement within an enterprise network, which could lead to significant data breaches or operational disruptions.
+
+  Alerts generated by this detection should be treated as high priority due to the potential for lateral movement and privilege escalation on critical enterprise systems. The likelihood of malicious abuse is elevated given that DLL hijacking techniques are common among attackers attempting to escalate privileges without direct credential theft. The specific exploitation of BaaUpdate.exe further increases the urgency of the investigation.
 
   ### Blind Spots and Assumptions
-  This detection relies on the assumption that sufficient logs are being captured for process creation and DLL loading events. Gaps may arise if alternate execution paths or security mechanisms are in place that prevent BaaUpdate.exe from being invoked via COM. Additionally, results could be skewed by benign uses of BaaUpdate.exe that involve legitimate processes loading DLLs from user-owned directories, requiring further context to differentiate between malicious and legitimate behavior.
+
+  This detection may be limited by users or applications legitimately accessing the detected paths (e.g., common user activities involving the `C:\Users\Public\` directory). Additionally, there may be cases where custom applications use `BaaUpdate.exe` without malicious intent. It is essential to ensure Windows logging configuration captures necessary image load events (Event ID 4100) consistently. A useful companion detection could involve monitoring for unusual COM activation requests linked to high-risk CLSIDs, which would enhance coverage against exploitation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

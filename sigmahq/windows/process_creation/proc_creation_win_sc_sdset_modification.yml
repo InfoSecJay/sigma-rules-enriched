@@ -6,8 +6,8 @@ related:
 - id: a537cfc3-4297-4789-92b5-345bfd845ad0     # Specific Technique
   type: similar
 status: test
-description: Detection of sc.exe utility adding a new service with special permission
-  which hides that service.
+description: Detection of sc.exe utility adding a new service with special 
+  permission which hides that service.
 references:
 - https://blog.talosintelligence.com/2021/10/threat-hunting-in-large-datasets-by.html
 - https://www.sans.org/blog/red-team-tactics-hiding-windows-services/
@@ -35,23 +35,40 @@ falsepositives:
 - Unknown
 level: medium
 note: |
+  ---
+
   ### Technical Context
-  This rule detects the use of the `sc.exe` utility to add a new Windows service with special permissions to hide the service from the standard service list. This behavior is typically executed by attackers to maintain persistence and evade detection. By utilizing the Service Control Manager (`sc.exe`), an attacker might create a service that runs malicious code, enabling them to retain access to a compromised system even after a basic cleanup.
 
-  In a threat scenario, an attacker may use this technique post-compromise to ensure that their malicious software or backdoor remains hidden and operational. While legitimate administrators also use `sc.exe` for legitimate service management tasks, the presence of unusual command-line arguments, particularly involving the `sdset` option, raises red flags. Relevant MITRE ATT&CK tactics include **Persistence** (T1547.001), **Defense Evasion** (T1574.011), and **Privilege Escalation** (T1068), as these techniques enable attackers to manipulate Windows services to their advantage.
+  This rule detects the use of `sc.exe` to modify the security descriptor of a Windows service, potentially adding new services with altered permissions that can facilitate stealthy persistence and control by an attacker. The likely objective is to hide malicious services or capabilities from system administrators, effectively enabling a foothold into the environment. This behavior aligns with MITRE ATT&CK techniques such as “Modify Existing Service” (T1574.011) and falls under the tactics of Persistence and Defense Evasion.
 
-  Primary data sources that provide the best evidence for this detection include process creation logs, which capture command-line arguments for executed binaries, and potentially Windows Event Logs that detail service creation and modification events.
+  The primary telemetry sources for detecting this behavior are the process creation logs, particularly Windows Event ID 4688, which captures the command line parameters used to execute `sc.exe`. If successful, malicious actions may allow an attacker to create a service that avoids detection by security controls. Importantly, this detection does not confirm that an attack has occurred; legitimate use of `sc.exe` for service management can trigger similar alerts.
+
+  ---
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Examine Windows process creation logs for `sc.exe` instances, particularly those that include the `sdset` command. Analyze the command-line parameters for any anomalies or unexpected service names.
-  - **Inspect Service Configurations:** Use tools like PowerShell or `Get-Service` to list all existing services and their configurations, looking specifically for services that have unusual permissions or security descriptors.
-  - **Conduct a Timeline Analysis:** Investigate the timeline of process creation events leading up to the service addition to identify other suspicious activities or anomalous behavior around the same time.
-  - **Check for Persistence Mechanisms:** Verify if the newly created service persists across reboots and see if there are associated scheduled tasks or registry entries that may indicate additional persistence mechanisms.
+
+  - **Review event details from process creation logs**: Check Windows Security Event ID 4688 for instances of `sc.exe` execution, focusing on the `CommandLine` field for `sdset`, which indicates an attempt to modify service descriptors.
+
+  - **Identify the specific command executed**: Look for command line arguments in `Event ID 4688` that include "sdset" along with the service name to determine what security descriptor is being modified; correlate these against a list of known services.
+
+  - **Analyze the resulting service permissions**: After identifying the command, use Windows Security Event ID 7045 to list current services and their permissions. Compare these to expected service configurations to identify any unauthorized changes.
+
+  - **Establish baselines for legitimate service management**: Validate regular usage patterns for service management within your environment; legitimate use may include administrative scripting or updates performed during scheduled maintenance.
+
+  - **Identify high-confidence malicious indicators**: If `sc.exe` is invoked with unusual parameters or on services not typically modified during routine operations, flag these instances for further review, emphasizing services with modified permissions that enable "Deny Access".
+
+  ---
 
   ### Prioritization
-  This alert is considered medium severity because, although service creation via `sc.exe` can be legitimate, the use of special permissions and hiding techniques indicates a potential compromise that could allow an attacker to maintain a foothold within the environment. The impact could be significant if the service allows for ongoing unauthorized access.
+
+  This alert should be treated with medium priority, particularly if it originates from critical servers or hosts. The likelihood of malicious abuse is moderate, especially if seen in conjunction with other suspicious behaviors. While not commonly weaponized for direct execution, modifications to service permissions can lay the groundwork for subsequent attacks.
+
+  ---
 
   ### Blind Spots and Assumptions
-  Gaps in detection coverage include scenarios where attackers may utilize alternate legitimate tools for service manipulation, such as PowerShell commands, making this rule potentially insufficient by itself. The detection logic assumes that logging options for process creation are enabled and properly configured within the environment. Additional assumptions include the presence of `sc.exe` usage for benign purposes, which could trigger false positives if not investigated in context. Proper logging settings are essential to ensure that all necessary data is captured for effective detection.
+
+  Detection of `sc.exe` may be limited if there is a lack of detailed command line logging or if relevant logs are not retained long enough for investigation. Legitimate configuration changes by administrators or automated systems may also trigger the alert. Companion detections to consider include monitoring for service creation or deletion via Windows Event ID 7045 or Service Control Manager logs to strengthen chaff coverage and decision-making processes.
+
+  ---
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

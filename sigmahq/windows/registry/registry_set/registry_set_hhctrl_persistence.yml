@@ -1,8 +1,8 @@
 title: Persistence Via Hhctrl.ocx
 id: f10ed525-97fe-4fed-be7c-2feecca941b1
 status: test
-description: Detects when an attacker modifies the registry value of the "hhctrl"
-  to point to a custom binary
+description: Detects when an attacker modifies the registry value of the 
+  "hhctrl" to point to a custom binary
 references:
 - https://persistence-info.github.io/Data/hhctrl.html
 - https://www.hexacorn.com/blog/2018/04/23/beyond-good-ol-run-key-part-77/
@@ -25,23 +25,34 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects attempts by attackers to establish persistent access on a Windows system by modifying the registry entry for `hhctrl.ocx`. The hhctrl.ocx file is a legitimate Windows component associated with HTML Help and can be abused by adversaries to point to a malicious binary, allowing them to regain control of the system after reboots or user logins. The attacker’s objective typically centers around maintaining access while evading detection, which is crucial for conducting further malicious activities undetected.
 
-  The threat scenario aligns with the MITRE ATT&CK framework, specifically under the techniques of Persistence (T1547), particularly file or registry permissions modifications, as attackers often manipulate registry keys to alter execution paths for malicious payloads. The primary data source for evidence collection includes Windows registry logs, where changes to specific keys, such as the one targeting `hhctrl.ocx`, can be monitored to identify suspicious modifications.
+  This rule detects modifications made to the registry key for `hhctrl.ocx`, a component associated with the Windows Help system, to point to a custom binary established by an attacker. The likely objective of this behavior is to maintain persistence on an infected system, enabling the adversary to execute malicious payloads even after system reboots. This detection aligns with the MITRE ATT&CK tactic of “Persistence” and technique “Modify Existing Service” (T1543.003).
+
+  The primary telemetry source for this detection is Windows registry modification logs, specifically regarding the `HKEY_CLASSES_ROOT\CLSID\{52A2AAAE-085D-4187-97EA-8C30DB990436}\InprocServer32\(Default)` registry path. If the modification is malicious, it can lead to significant impacts such as unauthorized remote access or data exfiltration. It is important to note that this detection does not automatically confirm malicious activity; it merely indicates a registry change that warrants further investigation.
 
   ### Investigation Steps
-  - **Review Registry Logs:** Analyze Windows registry logs for any modifications to the key `HKEY_CLASSES_ROOT\CLSID\{52A2AAAE-085D-4187-97EA-8C30DB990436}\InprocServer32`. Look specifically for entries that have been altered to direct to non-standard or malicious binaries.
 
-  - **Check Process Creation Events:** Inspect process creation events to identify any executions of `hhctrl.ocx`. Correlate these with timestamps of recent registry changes to determine if execution aligns with a suspicious modification.
+  - **Verify the registry modification:**
+    Check the Windows Registry for changes to the key `HKEY_CLASSES_ROOT\CLSID\{52A2AAAE-085D-4187-97EA-8C30DB990436}\InprocServer32\(Default)` using tools such as `regedit` or `reg query` to confirm if it points to a non-standard binary.
 
-  - **Examine Startup Entries:** Look for additional persistence mechanisms in startup folders or other registry locations such as Run keys that may indicate further attempts to maintain access beyond `hhctrl.ocx`.
+  - **Inspect the binary location:**
+    If the value points to a binary, assess the path. Legitimate usage typically remains in `C:\Windows\System32\hhctrl.ocx`. Any deviation, such as a newly created binary in a user or temp directory, is suspicious.
 
-  - **Conduct System Scans:** Utilize EDR tools to perform a full system scan for known indicators of compromise (IoCs) related to malware that might leverage hhctrl.ocx for persistence.
+  - **Monitor process creations:**
+    Review Security Event ID 4688 to track processes related to the modified hhctrl.ocx. Investigate if any processes spawned from unusual paths or if executable paths point to non-standard binaries linked to persistence methods.
+
+  - **Check for associated services:**
+    Examine Service Control Manager logs for any newly created services that reference `hhctrl.ocx` or the altered path, using Event ID 7045. Legitimate services do not commonly use this component for execution.
+
+  - **Analyze user activity:**
+    Look for recent user logins or elevated permissions (Event ID 4624 with Logon Type 3 and 5) that coincide with the change timestamp. This can help differentiate between potentially malicious and legitimate administrative activity.
 
   ### Prioritization
-  The alert is classified as high severity due to the significant risk presented by persistent access mechanisms. An attacker achieving persistent foothold could lead to extended data exfiltration, lateral movement, or complete system compromise, making this an urgent response scenario.
+
+  The alert severity is high due to the potential impact of unauthorized access to a critical system. The ability of an attacker to make such a modification indicates a high likelihood of malicious intent, as this method of persistence is known to be weaponized by various threat actors.
 
   ### Blind Spots and Assumptions
-  One gap in detection coverage is the potential for legitimate software and processes to modify the registry without triggering alerts, leading to false negatives. Furthermore, the detection logic assumes that administrators have not altered the default behavior of the `hhctrl.ocx`, which may not always hold true. The effectiveness of this alert relies on having comprehensive logs of registry changes enabled, which might not be configured across all enterprises.
+
+  Detection limitations include potential evasion techniques, such as a legitimate user modifying the registry, which could trigger a false positive. Reliable detection requires full visibility into registry changes, necessitating configured logging for registry access events. Legitimate updates to system components or software installations may also trigger these alerts. Companion detections could include monitoring system startup events or analyzing file creation timestamps for new binaries executing from unusual locations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

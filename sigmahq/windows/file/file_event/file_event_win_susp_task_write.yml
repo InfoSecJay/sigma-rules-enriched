@@ -1,8 +1,8 @@
 title: Suspicious Scheduled Task Write to System32 Tasks
 id: 80e1f67a-4596-4351-98f5-a9c3efabac95
 status: test
-description: Detects the creation of tasks from processes executed from suspicious
-  locations
+description: Detects the creation of tasks from processes executed from 
+  suspicious locations
 references:
 - Internal Research
 author: Florian Roth (Nextron Systems)
@@ -29,23 +29,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects the creation of scheduled tasks that originate from processes executed from suspicious locations, such as user-specific application data directories and privileged system paths. Attackers often utilize scheduled tasks to maintain persistence or to execute malicious payloads at specified times, which aligns with their objective of establishing long-term access to compromised systems. By monitoring the task creation in the Windows System32\Tasks directory, the SOC can identify potentially unauthorized activities indicative of privilege escalation or lateral movement within the network.
 
-  The relevant MITRE ATT&CK techniques involved include T1053 (Scheduled Task/Job) under the tactics of Persistence and Execution. These techniques illustrate a common method employed by attackers to ensure that malware runs automatically even after system reboots, effectively giving them extended access and control over the affected machines. The primary data sources for detecting this activity include file event logs that capture changes to the System32\Tasks directory, which provide insights on task creation events and the execution context of processes that initiated these actions.
+  This Sigma rule detects attempts to create scheduled tasks in the Windows System32\Tasks directory from processes originating in suspicious locations such as user profile folders or system configuration directories. The likely attacker objective is to establish persistence on a compromised system or execute malicious processes at startup, leveraging the Scheduled Task mechanism for privilege escalation. This behavior aligns with the MITRE ATT&CK techniques T1053 (Scheduled Task), T1035 (Service Registry Permissions Weakness), and any associated privilege escalation tactics.
+
+  The primary telemetry sources for this detection are file event logs detailing the creation or modification of tasks within the System32 directory. If malicious, the impact includes unauthorized execution of scripts or executables at system startup, potentially compromising system integrity or exfiltrating sensitive information. Importantly, this detection does NOT confirm that a malicious action is occurring; legitimate scheduled tasks may also trigger this rule.
 
   ### Investigation Steps
-  - **Verify Scheduled Task Creation:** Review the Windows event logs, specifically focusing on event IDs related to scheduled task creation (e.g., Event ID 4698). Cross-reference these events with the process creation logs to determine the origin of the task creation.
 
-  - **Analyze Process Execution Paths:** Investigate the process creation events that led to the creation of the scheduled task. Pay special attention to processes executed from suspicious directories such as AppData, PerfLogs, or SystemProfile.
+  - **Verify the originating process location:** Examine the Process Creation logs (e.g., Security Event ID 4688 or Sysmon Event ID 1) to determine if the process creating the scheduled task originated from directories like `C:\Users\<username>\AppData\`. Legitimate tasks often originate from known programs in `C:\Windows\System32\` or other non-user-specific paths.
 
-  - **Check Task Configuration:** Examine the properties of the created tasks, including the command line arguments and execution context (user or system). Look for unusual or unexpected commands that could indicate malicious intent.
+  - **Check task parameters:** Review the Task Scheduler logs (Event ID 106) for details on the parameters and command line used in the scheduled task creation. Look for parameters that contain obfuscated or unusual commands which are uncommon for standard applications.
 
-  - **Review User Accounts and Permissions:** Assess the user accounts that were used to create the scheduled tasks. Determine if these accounts have elevated permissions or if they are accounts that should not normally be creating tasks, which can indicate potential account compromise.
+  - **Correlate with user activity:** Investigate user activity related to the account responsible for the task creation, focusing on user authentication logs (Event ID 4624). If the user was inactive or logged off during the task creation, this is indicative of potential malicious behavior.
+
+  - **Analyze for high-confidence malicious indicators:** Evaluate for signs of exploitation such as a command pointing to known malicious binaries, particularly in non-standard paths (e.g., `C:\PerfLogs\` or `\Windows\System32\config\systemprofile`). Cross-reference against threat intelligence for known malware signatures.
+
+  - **Identify benign scheduled tasks:** Establish baselines for normal scheduled tasks in your environment by reviewing the Task Scheduler for expected applications and administrator-created tasks. Look for tasks created by trusted applications without unusual arguments or paths.
+
+  - **Validate against additional logs:** Check for file creation events related to the task (`Event ID 4663`) that show a creation action on executable files, particularly in high-risk directories. This can help confirm if payloads are being introduced into the environment alongside scheduled task creation.
 
   ### Prioritization
-  Given the high level of access that scheduled tasks can provide to an attacker and the potential for persistence and execution of malware, alerts generated by this rule should be prioritized as high severity. Effective detection of this activity is critical for containing and mitigating advanced threats within the enterprise environment.
+
+  This alert is considered high severity due to the potential impact on critical systems if scheduled tasks are maliciously leveraged to execute unauthorized actions. The behavior detected is frequently used by threat actors to maintain persistence, making it a realistic indicator of compromise in a mature environment.
 
   ### Blind Spots and Assumptions
-  This detection logic may not account for legitimate administrative activities or benign scheduled tasks created from approved processes, leading to potential false positives. Additionally, this rule assumes that logs for scheduled task creation events and process execution are enabled and retaining sufficient history for analysis. Environments that do not log these file events or lack proper logging configurations may miss crucial indicators of compromise. It is essential to ensure that Windows auditing settings are configured to capture the necessary event IDs to support this detection.
+
+  One limitation of this detection is that it can be evaded through use of legitimate programs or directly modifying scheduled tasks without appropriate logging enabled. Effective log source requirements include ensuring comprehensive task logging with the Windows Task Scheduler and process creation logs through Sysmon. Legitimate administrative activities, such as routine updates or maintenance tasks, may trigger this alert. Companion detections could include monitoring for unexpected changes to Group Policy that may indicate abuse of scheduled tasks for wider attack strategies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

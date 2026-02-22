@@ -30,26 +30,31 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This rule detects attempts to carry out DLL Search Order Hijacking, a technique where attackers create directories mimicking legitimate Windows system paths, but with added spaces. This manipulation tricks the Windows loader into searching these paths first for Dynamic Link Libraries (DLLs), leading users to load malicious code instead of the legitimate system DLL. The primary objective for an attacker employing this tactic is privilege escalation or the execution of malicious payloads under the guise of trusted system processes, facilitating stealthy attacks and persistence within the environment.
 
-  Relevant MITRE ATT&CK tactics and techniques for this detection include:
-  - **Persistence (TA0003)**: Methods used to maintain access to systems over time.
-  - **Privilege Escalation (TA0004)**: Gaining higher privileges within the system.
-  - **Defense Evasion (TA0005)**: Techniques aimed at avoiding detection and evasion of defenses.
-  - **DLL Search Order Hijacking (T1574.001)**: A specific technique under privilege escalation that involves manipulation of the DLL loading process.
+  This Sigma rule detects behaviors indicative of DLL search order hijacking, specifically when an attacker attempts to create folder structures resembling legitimate Windows directories but with added spaces (e.g., "C:\Windows \"). The likely attacker objective is to introduce malicious DLLs into the search path, allowing them to be loaded instead of the genuine Windows DLLs, enabling persistence or privilege escalation. This behavior aligns with the MITRE ATT&CK technique T1574.001 (DLL Search Order Hijacking).
 
-  The primary data sources for this detection are file event logs, specifically monitoring for the creation and modification of file paths that resemble legitimate Windows directories, while containing anomalies such as spaces or other deviations.
+  The primary telemetry source for this detection involves file event logs from Windows, particularly tracking file modifications in critical directories. If malicious, this technique could lead to exploits accessing sensitive data or executing unauthorized code. Importantly, this detection does NOT confirm that malicious activity has occurred; further investigation is needed to ascertain the intent behind the directory access.
 
   ### Investigation Steps
-  - **Review File Events**: Examine file event logs for DLL files created in non-standard paths that simulate legitimate directories, particularly those with additional spaces in the names.
-  - **Analyze Process Creation Events**: Check for processes that have accessed or loaded suspicious DLLs from the identified paths, which could indicate exploitation attempts using those hijacked DLLs.
-  - **Inspect System Configuration**: Validate the integrity of system folders for unusual file structures and ensure no unauthorized changes have been made to system directory names.
-  - **Query Device and User Behavior**: Investigate user and device behavior patterns around the time the suspicious DLLs were created to identify potential compromises and lateral movement.
+
+  - **Identify suspicious folders:** Check for newly created folders in `C:\Windows \`, `C:\Program Files \`, and `C:\Program Files (x86) \`. Use file event logs (Security Event ID 4663 or Sysmon Event ID 10) to find unusual paths or timestamps that may not align with legitimate application installations.
+
+  - **Examine the DLL files:** For any detected folder leveraging a space (e.g., "C:\Windows \mydll.dll"), review the properties and digital signatures of any .dll files present. Legitimate DLLs typically have recognizable publisher signatures (e.g., Microsoft). Any unsigned or unusual DLLs may indicate malicious activity.
+
+  - **Check user context:** Look at the user accounts that triggered the file creation events (Event ID 4663). If the creation was performed by service accounts or users with low activity levels, it can raise suspicion for potential abuse.
+
+  - **Review related process activity:** Cross-reference with process execution logs (Security Event ID 4688 or Sysmon Event ID 1) to identify any unexpected processes that reference these directories or DLLs. Malicious processes will often attempt to execute from these hijacked paths.
+
+  - **Identify legitimate administrative activity:** Investigate if there are any recent administrative tasks or software installations in the environment correlating with the detected folders. System administrators may create similar paths for testing purposes; distinguishing these from compromised activities is essential.
+
+  - **Monitor for exfiltration attempts:** Validate if there is any associated network activity suggesting data exfiltration after folder creation (using firewall or proxy logs). Look for outbound connections corresponding to the suspicious DLL paths that were created.
 
   ### Prioritization
-  The severity of this alert is high due to the potential impact of successfully executing a DLL hijacking attack, which can lead to unauthorized access and control over critical systems. Given that the likelihood of such tactics being employed by attackers is significant, timely responses are essential.
+
+  This alert is high severity due to its potential impact on system integrity and security, particularly if the affected system is a server or domain controller. The likelihood of malicious abuse is elevated, as DLL hijacking techniques are frequently weaponized in advanced persistent threat (APT) activities.
 
   ### Blind Spots and Assumptions
-  This detection rule may have gaps in coverage for scenarios where legitimate applications or system updates also create similarly named folders with spaces, leading to potential false positives. Additionally, it assumes that file event logging is comprehensive and properly configured to capture all relevant changes within the Windows system directories. Ensuring complete visibility into file system events is crucial for this alert's effectiveness, including monitoring for file system permissions and access control changes that could indicate malicious activity.
+
+  Detection limitations include the potential for legitimate software installers inadvertently creating folders with spaces, as well as evasion techniques such as renaming or encoding folder names. Reliable detection requires comprehensive logging of file system activities, especially around sensitive directories, which may not be consistently configured across all environments. Finally, companion detections for file creation in critical paths (e.g., abnormal patterns of creation in `%TEMP%` or documented software installation activity) could strengthen overall coverage against this type of attack.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

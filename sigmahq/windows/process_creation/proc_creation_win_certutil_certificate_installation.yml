@@ -31,32 +31,38 @@ detection:
     CommandLine|contains: 'root'
   condition: all of selection_*
 falsepositives:
-- Help Desk or IT may need to manually add a corporate Root CA on occasion. Need to
-  test if GPO push doesn't trigger FP
+- Help Desk or IT may need to manually add a corporate Root CA on occasion. Need
+  to test if GPO push doesn't trigger FP
 level: medium
 regression_tests_path: 
   regression_data/rules/windows/process_creation/proc_creation_win_certutil_certificate_installation/info.yml
 note: |
   ### Technical Context
-  This detection rule identifies the execution of `certutil.exe` with the `-addstore` flag, which is typically used to install a new root certificate on a Windows system. The ability to install a root certificate can be exploited by attackers to add their own certificate to the trusted root certificate store. This allows them to perform man-in-the-middle (MitM) attacks, intercepting and decrypting encrypted communications between the compromised system and external services without triggering typical security warnings. This behavior may indicate an attacker’s aim to maintain persistence or to facilitate data exfiltration by disguising their malicious traffic.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Defense Evasion** (TA0005)
-  - **Application Layer Protocol** (T1071)
-  - **Install Root Certificates** (T1553.004)
+  This rule detects the execution of `certutil` with the `-addstore` command line argument, indicative of the installation of a new root certificate on a Windows system. Attackers may aim to facilitate man-in-the-middle (MitM) attacks by installing trusted certificates that enable them to intercept or alter encrypted communications without triggering security warnings.
 
-  Primary data sources for detecting this activity include process creation logs, which provide insights into executed commands and their parameters, and system event logs that track changes to certificate stores.
+  This activity aligns with the MITRE ATT&CK technique T1553.004 (Root Certificate Installation). Primary telemetry sources include process creation logs (e.g., Security Event ID 4688) and Sysmon Event ID 1 that capture command-line arguments and process metadata. If malicious, the impact is significant, as it could compromise encrypted communications, leading to data theft or further system exploitation. Importantly, this detection does not confirm that malicious activity is occurring; it merely highlights that a root certificate has been added.
 
   ### Investigation Steps
-  - **Review Process Creation Logs:** Collect logs related to `certutil.exe` execution, focusing on any instances where `-addstore` and `root` appear in the command line arguments.
-  - **Analyze System Event Logs:** Check for changes in the certificate store, specifically looking for modifications that indicate a new root certificate has been installed.
-  - **Investigate Network Connections:** Examine outbound connections from the affected system to identify any unexpected or suspicious server communications that may involve the installed malicious certificate.
-  - **Evaluate Previous User Actions:** Cross-reference the time of the `certutil.exe` execution with other user activity logs to determine if there are any suspicious logins or activities leading up to the event.
+
+  - **Review process creation events:** Check for Security Event ID 4688 (or Sysmon Event ID 1) related to `certutil.exe`. Look for command line arguments containing `-addstore` and `root`. Ensure the process was executed by an authorized user.
+
+  - **Identify legitimate use cases:** Confirm if the root certificate addition was performed by Help Desk or IT personnel as part of a corporate update. Look for related process execution closely timed with known IT tasks, such as group policy updates.
+
+  - **Check certificate details:** Validate the installed root certificate against your organization's approved CA list. Review the certificate's issuer, expiration date, and associated key usage fields in Certificate Store (e.g., using `certmgr.msc`).
+
+  - **Look for suspicious command patterns:** Search for any instances of `certutil.exe` that include unusual switches or arguments not typical in standard operations (e.g., references to unrecognized or suspicious domains).
+
+  - **Monitor for lateral movement indicators:** Investigate for additional suspicious activity on the system after `certutil` execution, such as unusual outbound connections or changes to browser behavior, focusing on HTTP/HTTPS logs.
+
+  - **Correlation with other alerts:** Examine logs for other alerts (e.g., from EDR solutions) that may indicate suspicious activity coinciding with the certificate installation, creating a comprehensive view of potential malicious actions.
 
   ### Prioritization
-  This alert is considered medium severity due to the potential impact of an attacker installing a root certificate, which can facilitate unauthorized access and data interception. The likelihood of this event occurring is moderately high in environments where users have administrative privileges or where security controls are lax.
+
+  This alert has medium severity due to the potential compromise of the system's trusted certificate store. The execution of `certutil -addstore` could lead to serious security incidents if exploited for MitM attacks. While not all uses are malicious, it is a known technique employed by attackers, warranting priority investigation.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited in environments where logging of process creation events is not enabled or where users frequently require certificates to be installed legitimately, such as in IT-managed deployments. The detection logic assumes that every instance of `certutil.exe` with certain command-line arguments is malicious, potentially leading to false positives in cases where help desk or IT personnel are performing routine tasks. Effective detection requires that process creation logging is consistently enabled across systems.
+
+  Detection may be limited by legitimate administrative use of `certutil` for corporate certificate management, potentially causing false positives. Ensure that logs for process creation and execution are reliably collected and monitored. Additionally, be aware that direct system administration, such as IT adding valid corporate certificates, could trigger this alert. A companion detection for unauthorized outbound network connections can strengthen defense against potential MitM exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

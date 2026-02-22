@@ -4,8 +4,8 @@ related:
 - id: ac7102b4-9e1e-4802-9b4f-17c5524c015c
   type: derived
 status: test
-description: Detects alternate PowerShell hosts potentially bypassing detections looking
-  for powershell.exe
+description: Detects alternate PowerShell hosts potentially bypassing detections
+  looking for powershell.exe
 references:
 - https://threathunterplaybook.com/hunts/windows/190610-PwshAlternateHosts/notebook.html
 - https://threathunterplaybook.com/hunts/windows/190410-LocalPwshExecution/notebook.html
@@ -65,45 +65,34 @@ detection:
     Image:
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
-- Programs using PowerShell directly without invocation of a dedicated interpreter.
+- Programs using PowerShell directly without invocation of a dedicated 
+  interpreter.
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects instances of PowerShell being executed via alternate hosts that are using named pipes, potentially bypassing traditional detection methods focused on the `powershell.exe` process. The attacker may be attempting to leverage PowerShell's capabilities to execute malicious scripts or payloads using less common invocation methods, increasing the chances of evading detection by security solutions. This behavior aligns with MITRE ATT&CK techniques such as Execution (T1059.001) — specifically targeting PowerShell.
+  This rule detects the creation of named pipes that start with `\PSHost`, indicative of alternate PowerShell hosts. Attackers often utilize this technique to circumvent traditional detection methods that focus on the `powershell.exe` process itself. The likely objective is to execute malicious scripts or commands without being flagged by standard security measures. This behavior correlates with the MITRE ATT&CK tactic ‘Execution’ and technique ‘Command-Line Interface’ (T1059.001).
 
-  The primary telemetry source relevant to this detection is Sysmon logging for Named Pipe Events, particularly Event ID 17 (Named Pipe Created) and Event ID 18 (Named Pipe Closed). If the activities are malicious, they may enable attackers to run commands stealthily on a compromised host. However, it's crucial to note that this detection does NOT confirm that malicious activity has occurred on its own; legitimate applications may also utilize similar PowerShell invocation methods.
-
-  ---
+  The primary telemetry sources are Sysmon logs, specifically Event ID 17 (named pipe created) and Event ID 18 (named pipe connected). If the activity is malicious, it may signal a compromised system where an adversary is attempting to execute code or establish communication with a command and control (C2) server. This detection does NOT confirm that the activity is inherently malicious; legitimate administrative tasks using PowerShell may also trigger it.
 
   ### Investigation Steps
 
-  - **Review Sysmon logs for Named Pipe Events:** Check Sysmon Event ID 17 and 18 for created pipes starting with `\PSHost` indicating PowerShell execution. Look for processes like `pwsh.exe`, focusing on the command line and parent process to identify the execution context.
+  - **Check created named pipes and processes**: Review Sysmon Event ID 17 for pipe creation. Look specifically for `PipeName` starting with `\PSHost` and evaluate the associated `Image` field. Search for processes not on the exclusion list (e.g., common PowerShell paths). Malicious indicators include unexpected pipe names or unknown processes.
 
-  - **Cross-reference legitimate applications:** Verify if the detected processes match known legitimate applications (e.g., SQL Server, Azure agents, Microsoft Exchange). Compare the file paths and hashes against trusted sources or company baseline applications to rule out false positives.
+  - **Validate legitimate PowerShell usage**: Look for cases where `powershell.exe` or `pwsh.exe` is invoked with common administrative commands. Expected behavior might include scripted automation or system diagnostics, especially from systems managed by IT admins.
 
-  - **Investigate suspicious parent processes:** Identify the parent process of the PowerShell execution. Investigate if it is running from an uncommon location or has been recently modified, which may indicate exploitation.
+  - **Identify unusual parent-child relationships**: Analyze Event ID 1 (process creation) in Sysmon to see the parent process of the detected named pipe creation. Look for anomalous parent processes that could indicate process injection or execution from unexpected sources.
 
-  - **Identify high-confidence malicious indicators:** Check for common PowerShell command patterns or specific script executions associated with known malware behaviors (e.g., command manipulation, obfuscated scripts). Pay special attention to unusual execution paths that are out of compliance with standard practices.
+  - **Correlate with other telemetry**: Check Windows Security Event ID 4688 for any prior execution of the hosting PowerShell instances, specifically those invoking scripts or commands. A clear sign of malicious intent would be unusual command-line arguments or execution paths leading from unexpected parent processes.
 
-  - **Compare against compromised asset profiles:** Understand the asset's role and criticality. Cross-verify how often PowerShell is typically invoked on this host and baseline expected behaviors for power-user accounts or service accounts that might invoke it legitimately.
-
-  - **Assess for exfiltration artifacts:** Check for file creation or transfer events that may accompany PowerShell executions. Look for unusual network activity patterns or external communication, especially with unexpected IP addresses or domains.
-
-  ---
+  - **Investigate pipe connections**: Review Sysmon Event ID 18 for connections to the named pipes to assess the traffic. Determine if the connecting process is known or expected. Suspicious connections that originate from untrusted locations or appear to execute unexpected payloads should be flagged for deeper analysis.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential impact of compromise on systems where PowerShell is utilized extensively for automation and administrative tasks. The likelihood of being targeted by malicious actors using alternate methods is significant, as such techniques are commonly weaponized in attacks to evade detection.
-
-  ---
+  This alert is medium severity due to the potential for significant security implications if an adversary successfully executes malicious commands via an alternate PowerShell host. The likelihood of misuse is moderate, as the technique is increasingly weaponized in various attack campaigns.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss certain evasion techniques like direct use of WMI or scripts executed entirely in memory, which do not produce named pipe events. Ensure that Sysmon logging is properly configured; without it, the detection will be ineffective. Legitimate enterprise applications may also cause false positives when executing through PowerShell. A companion detection to consider is monitoring for anomalous outbound network connections that may arise from these PowerShell executions, providing a more comprehensive view of suspicious activity.
-
-  ---
+  Detection may be limited by the configurations of Sysmon, requiring proper logging for Events ID 17 and 18 to trigger alerts effectively. Legitimate applications or administrative scripts that create named pipes may trigger false positives, potentially obscuring true malicious activity. A related detection to consider is monitoring for any use of `Invoke-WebRequest`, as successful downloads often precede attempts to utilize these alternate hosts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

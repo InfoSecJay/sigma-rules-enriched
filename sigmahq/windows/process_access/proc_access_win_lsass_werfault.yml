@@ -1,9 +1,9 @@
 title: Credential Dumping Attempt Via WerFault
 id: e5b33f7d-eb93-48b6-9851-09e1e610b6d7
 status: test
-description: Detects process LSASS memory dump using Mimikatz, NanoDump, Invoke-Mimikatz,
-  Procdump or Taskmgr based on the CallTrace pointing to ntdll.dll, dbghelp.dll or
-  dbgcore.dll for win10, server2016 and up.
+description: Detects process LSASS memory dump using Mimikatz, NanoDump, 
+  Invoke-Mimikatz, Procdump or Taskmgr based on the CallTrace pointing to 
+  ntdll.dll, dbghelp.dll or dbgcore.dll for win10, server2016 and up.
 references:
 - https://github.com/helpsystems/nanodump/commit/578116faea3d278d53d70ea932e2bbfe42569507
 author: Florian Roth (Nextron Systems)
@@ -28,22 +28,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies attempts to dump credentials from the LSASS (Local Security Authority Subsystem Service) process by monitoring actions where the WerFault.exe process interacts with lsass.exe. Attackers often utilize tools like Mimikatz, NanoDump, and others to extract sensitive authentication tokens from LSASS memory. The main objective of this threat activity is to harvest credentials for lateral movement within the network, allowing attackers to escalate their privileges or impersonate users.
 
-  This detection aligns with the MITRE ATT&CK framework, specifically targeting the tactics and techniques related to Credential Access (TA0006) and Credential Dumping (T1003.001). By monitoring for specific API calls linked to debugging and memory access patterns associated with LSASS, organizations can better defend against these types of attacks.
-
-  Primary data sources for effective detection include Windows process access logs that provide insights into inter-process communication and memory access, as well as logs from security tools monitoring application behaviors and system performance.
+  This Sigma rule detects attempts to dump the memory of the Local Security Authority Subsystem Service (LSASS) process using the WerFault.exe process. Attackers often aim to extract sensitive credentials stored in LSASS for lateral movement or privilege escalation. This behavior fits within the MITRE ATT&CK framework under the tactic of Credential Access (T1003.001 - Credential Dumping via LSASS). Primary telemetry sources include Windows Event IDs related to process creation (4688) and Sysmon logs for process access events. If malicious, this activity can lead to unauthorized access to user credentials, posing a significant security threat. This detection does NOT confirm that the process is malicious by itself, as legitimate crashes of LSASS can also result in similar behavior.
 
   ### Investigation Steps
-  - **Review Process Access Logs:** Examine logs that capture access to the LSASS process, focusing on entries involving the WerFault.exe source to identify any unexpected interactions.
-  - **Analyze Call Trace Events:** Investigate any detected call traces pointing to the ntdll.dll, dbghelp.dll, or dbgcore.dll to confirm the legitimacy of the process actions and rule out benign scenarios.
-  - **Correlate with User Activity:** Cross-reference the activity with user actions within the environment to identify any unauthorized access attempts or legitimate user behavior that could be misinterpreted as malicious.
-  - **Check for Known Tools Usage:** Look for indicators of the identified credential dumping tools (Mimikatz, NanoDump) in the environment, alongside the corresponding timestamps of related process activities.
+
+  - **Check process creation activity:** Review Windows Security Event ID 4688 for instances of WerFault.exe launching. Verify the parent process; if it originates from a user application rather than an automated task or script, it may be benign.
+
+  - **Analyze Sysmon logs for process access:** Investigate Sysmon Event ID 10, focusing on process access events where WerFault.exe accesses lsass.exe. Look for granted access values of '0x1FFFFF' to indicate full control, which is suspicious.
+
+  - **Identify known malicious indicators:** If the WerFault.exe process is invoked with parameters typically used by Mimikatz or Procdump, such as memory address manipulation, flag this instance as high-confidence malicious activity.
+
+  - **Examine crash dump files, if available:** Validate the creation of dump files, specifically those with timestamps concurrent to the alert. Check for unusual file paths or security-scoped directory access which diverges from normal operations.
+
+  - **Review legitimate cases of LSASS access:** Confirm if user-driven applications are compliant with the expected access patterns for WerFault.exe. Typical legitimate behavior includes user crashes with error reporting, while attack vectors will often involve automated or script-driven access.
+
+  - **Correlate with other detections:** Look for related detections, such as network traffic to known C2 servers or prior alerts related to credential dumping. Such correlations strengthen the confidence level that the alert is linked to malicious activity.
 
   ### Prioritization
-  The severity of this alert is high because a successful credential dumping attempt can compromise user accounts, leading to potential lateral movement and extensive system access in the enterprise environment. Given the significant impact such breaches can have on security posture and data integrity, prompt investigation and response are imperative.
+
+  This alert is high-severity as it potentially indicates active credential dumping, which can lead to significant data breaches and unauthorized access. The likelihood of adversary abuse is substantial, given the frequency of credential harvesting in exploitation campaigns.
 
   ### Blind Spots and Assumptions
-  There may be gaps in detection if logging for process access events is misconfigured or if certain processes are not properly monitored. The detection logic assumes that WerFault.exe will only initiate memory dumps to manage crashes and not for legitimate problem-solving. Required logs include comprehensive process access data, and configurations must ensure that detailed logging is enabled for all process interactions, especially those involving LSASS and critical system processes.
+
+  Detection may falter if logging settings are insufficient, as proper Sysmon configurations are necessary for comprehensive insights. Legitimate activities, such as system crash reporting or debugging, could also trigger the alert and may not inherently indicate malicious intent. A combined detection of unusual network activity from the affected host and other process creation logs can provide deeper insight into this behavior and mitigate false positives.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

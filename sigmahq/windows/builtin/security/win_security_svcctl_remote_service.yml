@@ -1,8 +1,8 @@
 title: Remote Service Activity via SVCCTL Named Pipe
 id: 586a8d6b-6bfe-4ad9-9d78-888cd2fe50c3
 status: test
-description: Detects remote service activity via remote access to the svcctl named
-  pipe
+description: Detects remote service activity via remote access to the svcctl 
+  named pipe
 references:
 - https://web.archive.org/web/20230329155141/https://blog.menasec.net/2019/03/threat-hunting-26-remote-windows.html
 author: Samir Bousseaden
@@ -29,25 +29,31 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies potential unauthorized remote access to the SVCCTL named pipe, a critical component used for service management in Windows environments. Attackers may use this method to achieve lateral movement within a network, often aiming to evade traditional security measures by manipulating native Windows functionality to establish persistence or gather information about other systems. By exploiting the SVCCTL named pipe, an attacker can interact with remote services and potentially escalate privileges.
 
-  The primary objectives of such an attack include gaining unauthorized access to sensitive information or further compromising the system’s integrity. The associated MITRE ATT&CK tactics include **Lateral Movement** (TA0020) and **Persistence** (TA0003), with the specific technique being **Remote Services: SMB/Windows Admin Shares** (T1021.002). This highlights the importance of monitoring remote service activities, particularly those involving the IPC$ share and the svcctl named pipe.
+  This rule detects remote access attempts to the Windows `svcctl` named pipe via the IPC$ share, specifically looking for write access attempts (Event ID 5145). The likely attacker objective is to invoke service control functions remotely, which could facilitate lateral movement or persistence by exploiting services running on the host. The relevant MITRE ATT&CK tactic is **Lateral Movement** and the technique is **Remote Service Session** (T1021.002).
 
-  Key telemetry sources for this detection include Windows security event logs, specifically looking for Event ID 5145, which records detailed file share access incidents. Monitoring this event will provide valuable data regarding unauthorized write access attempts targeting the svcctl pipe.
+  The primary telemetry source for this detection is Windows Security Events with a focus on Event ID 5145, which logs access to shared resources. If malicious, successful exploitation of this behavior may enable an attacker to manipulate or control services on the target system. However, this detection does NOT confirm an ongoing compromise on its own, as legitimate administrative tasks can also invoke this behavior.
 
   ### Investigation Steps
-  - **Review Event Logs:** Examine Windows Security logs for Event ID 5145, focusing on access attempts to `\\*\IPC$`. Look for abnormal patterns, particularly concerning the `svcctl` named pipe.
 
-  - **Analyze User Activity:** Investigate the account initiating the remote service access. Check for unusual login times, geographic locations, or correlating activities that diverge from normal user behavior.
+  - **Review Event ID 5145 logs:** Search for Event ID 5145 in the Security Event Logs. Filter for logs where `ShareName` is `\\*\IPC$`, `RelativeTargetName` is `svcctl`, and `AccessList` contains `WriteData`. Look for user accounts that show anomalous access patterns.
 
-  - **Confirm Permissions and Share Configurations:** Validate the permissions set on the IPC$ share and the svcctl named pipe. Ensure that access is restricted to legitimate administrative users only.
+  - **Identify authorized access:** Cross-reference the detected access with known administration accounts or IT personnel to establish if the access was legitimate. Document expected service control activities for those accounts to discern normal versus abnormal use.
 
-  - **Cross-reference with Network Traffic:** If possible, enrich your investigation by analyzing network traffic associated with the detected activity. Use NDR tools to identify unusual connections, particularly from internal hosts to other endpoints on the network.
+  - **Correlate with other telemetry:** Check additional logs around the same timeframe (such as Sysmon Event ID 10) for related network connections or process creation events that might indicate malicious activity following the access attempt.
+
+  - **Analyze remote service calls:** Look for further evidence of remote service manipulation. Review relevant logs like `PowerShell` command logs (Event ID 4104) or `WMI` activity (Event ID 4688) to see if there are any remote procedure calls made post access.
+
+  - **Check for legitimate alternatives:** Compare findings against known IT operations that might invoke similar access patterns (e.g., system updates, approved external access). Document this alternative behavior for context.
+
+  - **Examine endpoint security alerts:** Review alerts from endpoint detection tools or antivirus solutions that may indicate further suspicious activities initiated by the same user or host following the remote access log.
 
   ### Prioritization
-  This alert should be treated with medium priority, as unauthorized access to system services can lead to significant security breaches, including data exfiltration or further exploitation of the network. Given the likelihood of such remote access attempts being employed by malicious actors, prompt investigation is critical to mitigate potential risks.
+
+  This alert is of medium severity. The potential impact lies in the ability to manipulate critical services or conduct lateral movement within the enterprise. The likelihood of this behavior being malicious increases due to the fact that it often precedes additional exploitation tactics, which are commonly weaponized in attacks.
 
   ### Blind Spots and Assumptions
-  There are potential gaps in detection that include systems where auditing for detailed file share access is not enabled, potentially leading to missed events. The detection logic assumes that legitimate administrative activity will not involve remote access to the svcctl named pipe using unusual accounts or during odd hours. It requires proper configuration of advanced audit policy settings, specifically the "Object Access > Audit Detailed File Share," to be effective. Without these logs, the detection capability may be compromised.
+
+  Evasion techniques might include legitimate users accessing services as part of regular administrative tasks, which can trigger false positives. Reliable detection requires the "Audit Detailed File Share" setting configured properly across all relevant systems. Additionally, Windows services frequently accessed may mask malicious actions, suggesting a need for contextual awareness of normal operations. A related detection could involve monitoring for unauthorized use of administrative tools like PsExec or WinRM, enhancing visibility into lateral movement activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

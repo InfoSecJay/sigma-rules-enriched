@@ -25,42 +25,32 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the use of the Pnscan utility, which is commonly associated with transferring binary data over the network in Linux environments. Malicious actors, particularly the TeamTNT group, use this tool to establish unauthorized communications, potentially for exfiltration of sensitive data or to facilitate additional malicious payloads once they compromise systems like Docker, Apache Hadoop, Redis, and Confluence.
+  This rule detects the use of the Pnscan tool, which is associated with sending and receiving binary data over the network. Pnscan is commonly leveraged by attackers, notably the group TeamTNT, to exfiltrate data or communicate with compromised systems. The relevant MITRE ATT&CK tactic is **Discovery** (ID: T1046), indicating that the attacker may be scouting for additional systems or data to exploit.
 
-  The detection aligns with the MITRE ATT&CK tactic "Discovery" and technique "Network Sniffing" (T1046). The primary telemetry source for this detection is process creation logs from Linux systems, with key focus on command line arguments revealing Pnscan activity. If malicious, this behavior could lead to significant compromise of sensitive systems and potential data loss. Importantly, this detection does NOT confirm malicious intent on its own; legitimate instances of Pnscan usage may exist.
-
-  ---
+  The primary telemetry source is Linux process creation logs, specifically looking for command line invocations that match the detection pattern for Pnscan. If malicious, the security impact could include data exfiltration or the establishment of a command-and-control channel. Importantly, this detection does not confirm that an attack is being executed; it only indicates that the Pnscan tool has been invoked, which could also occur due to legitimate use cases.
 
   ### Investigation Steps
 
-  - **Review command line activity:** Check for Pnscan command invocations using process creation logs (e.g., `/var/log/syslog`, `/var/log/auth.log`) focusing on lines containing `-W` or `-R` options. For example, search for entries with command lines that match `-(W|R)\s?(\s|"|')([0-9a-fA-F]{2}\s?){2,20}(\s|"|')`.
+  - **Review the command line arguments:** Check for instances of `-W` or `-R` in `cmdline` under the process creation logs (e.g., `/var/log/secure`). Look for the presence of hex-encoded payloads, which are common in malicious Pnscan usage.
 
-  - **Validate host roles:** Identify whether the affected system is running critical services like Docker or Apache Hadoop. Validate against expected configurations and roles for these applications to assess risk.
+  - **Inspect the process parentage:** Evaluate the parent process of the detected Pnscan invocation (use `pstree` or relevant logs). If the parent is a known benign tool or service (e.g., a legitimate Docker container or monitoring service), it may indicate legitimate use.
 
-  - **Identify high-confidence malicious indicators:** Look for known malicious patterns within the command line arguments. Any Pnscan command invocation that includes hex strings longer than 4 bytes after the `-W` or `-R` flag could indicate data manipulation or payload transfer and should be treated as suspicious.
+  - **Validate network activity:** Examine network logs for unusual outbound communications (e.g., using `tcpdump` or `iptables` logs). Look for non-standard ports or connections to known malicious IP addresses that were made immediately following Pnscan execution.
 
-  - **Check for legitimate uses:** Confirm if Pnscan was legitimately used for network diagnostics by querying the log history around the activity timestamp. Look for IT operations that may have executed commands with similar syntax to determine possible legitimate reasons.
+  - **Cross-reference with threat intelligence:** Investigate any related artifacts or sources in threat intelligence that may correlate with the detected command. Check for similar command line patterns observed in previous incidents involving TeamTNT.
 
-  - **Investigate network traffic:** Assess network logs (e.g., NetFlow, Zeek logs) to identify anomalies correlating with the command execution time. Look for unrecognized IP addresses or excessive outbound connections using unusual ports.
+  - **Identify system roles:** Consider the role of the affected asset. If a sensitive system (such as a Docker host or database server) was the source of the command, escalate the investigation due to increased risk.
 
-  - **Review surrounding activities:** Check for related suspicious behaviors on the system leading up to the Pnscan invocation, such as unauthorized software installations or unexpected process activity (Event ID 1 from Sysmon for Linux).
-
-  ---
+  - **Check for file creation or modification:** Ensure no unexpected files were created or modified in the system's file structure as a result of the command (look in `/tmp`, `/var/tmp`, and any application-specific directories).
 
   ### Prioritization
 
-  This alert is of medium severity as it indicates potentially malicious command line activity on critical Linux systems. The likelihood of malicious abuse is high given the targeted technologies, and Pnscan is a known tool in the adversary's toolkit, often associated with reconnaissance and data exfiltration.
-
-  ---
+  This alert should be prioritized as medium severity due to the potential impact of data exfiltration or additional compromise. The high likelihood of malicious use by recognized threat actors makes it crucial for analytical follow-up, especially in environments using Docker or related services.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss instances where attackers modify command lines or use alternative means to transfer data (e.g., using other network utilities). Successful detection relies on adequate logging configuration for all key Linux services; without capturing process creation data, detection capability diminishes. Additionally, legitimate activities such as systems administration tasks may inadvertently trigger this alert. A companion detection might involve monitoring for unusual outbound network connections that could correlate with Pnscan usage.
-
-  ---
+  Detection may be hampered by the use of process hiding techniques or by legitimate use of Pnscan in a controlled environment. Ensuring complete logging for all relevant process activities is essential. Additionally, legitimate system administrators could trigger this detection during network diagnostics for internal systems. A companion detection to consider would be monitoring outbound network connection logs for unusual destination patterns framing potential command-and-control communications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

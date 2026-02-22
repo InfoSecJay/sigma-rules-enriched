@@ -1,9 +1,10 @@
 title: Potential Initial Access via DLL Search Order Hijacking
 id: dbbd9f66-2ed3-4ca2-98a4-6ea985dd1a1c
 status: test
-description: Detects attempts to create a DLL file to a known desktop application
-  dependencies folder such as Slack, Teams or OneDrive and by an unusual process.
-  This may indicate an attempt to load a malicious module via DLL search order hijacking.
+description: Detects attempts to create a DLL file to a known desktop 
+  application dependencies folder such as Slack, Teams or OneDrive and by an 
+  unusual process. This may indicate an attempt to load a malicious module via 
+  DLL search order hijacking.
 references:
 - https://github.com/elastic/protections-artifacts/commit/746086721fd385d9f5c6647cada1788db4aea95f#diff-5d46dd4ac6866b4337ec126be8cee0e115467b3e8703794ba6f6df6432c806bc
 - https://posts.specterops.io/automating-dll-hijack-discovery-81c4295904b0
@@ -63,25 +64,34 @@ falsepositives:
 level: medium
 note: |
   ### Technical Context
-  This detection rule identifies attempts to exploit DLL search order hijacking, a technique commonly used to gain initial access or escalate privileges within a Windows environment. Attackers may create malicious DLL files in directories associated with well-known applications, such as Slack, Teams, or OneDrive, often targeting user-specific locations like AppData. This technique allows unauthorized code execution by tricking an application into loading a rogue DLL instead of the legitimate one, potentially leading to further compromise of the host or lateral movement within the network.
 
-  The suspected threat family could involve generic initial access techniques or known adversaries that utilize this methodology for lateral movement or persistence. Relevant MITRE ATT&CK tactics and techniques include:
-  - **Initial Access (TA0001)**
-  - **Execution (TA0002): T1218 - Signed Binary Proxy Execution**
-  - **Privilege Escalation (TA0004): T1574.001 - DLL Search Order Hijacking**
+  This Sigma rule detects attempts to create DLL files in sensitive application dependency directories, such as Microsoft OneDrive, Slack, and Microsoft Teams. The likely attacker objective is to execute a malicious module through DLL search order hijacking, exploiting the common behavior of these applications to load dynamic-link libraries from specified locations. This behavior aligns with the MITRE ATT&CK techniques T1574.001 (DLL Search Order Hijacking) and T1566.001 (Phishing: Spearphishing Attachment).
 
-  Consequently, the best sources for evidence include file event logs and process creation events, particularly those detailing file modifications in user-specific directories or common application folders.
+  The primary telemetry sources involve Windows file event logs, specifically tracking file creation or modification events within targeted directories. If malicious, this activity may lead to privilege escalation or persistence on the compromised system, compromising user data and application integrity. Importantly, this rule does NOT confirm malicious intent on its own; further validation through context and additional investigations is necessary.
 
   ### Investigation Steps
-  - **Review File Modification Logs:** Examine Windows file event logs focused on write operations to suspicious directories, such as AppData or application folders (e.g., OneDrive, Teams). Look for unexpected DLL files being created by uncommon processes.
-  - **Analyze Process Creation Events:** Correlate process creation logs in conjunction with file modifications. Investigate whether known processes (like cmd.exe or powershell.exe) were used to create DLLs in the targeted directories, which could indicate a potential unauthorized action.
-  - **Conduct a Threat Hunt for DLL Behavior:** Utilize your EDR solution to search for behaviors typically associated with DLL hijacking, such as uncommon DLL load sequences or unusual parent-child process relationships linked to Office applications.
-  - **Scrutinize User Privilege Levels:** Assess the privilege levels of user accounts that triggered this detection. Investigating accounts with elevated permissions that should not be creating DLLs in user application directories will help identify potential compromises.
+
+  - **Check process details:**
+    - Investigate the parent process of the detected cmd.exe instance using Security Event ID 4688 to identify how the command prompt was invoked. A legitimate invocation might originate from user activity, while suspicious activity could stem from automation or unusual applications.
+
+  - **Verify DLL file creation:**
+    - Confirm the creation of the DLL file in the target path by examining Windows Event ID 4663 (File Access) and checking for `CreateFile` operations in paths such as `C:\Users\<username>\AppData\Local\Microsoft\OneDrive\`. Look for a file being created with a suspicious name or hash.
+
+  - **Assess application context:**
+    - Review the execution context of the detected command to determine if it aligns with legitimate user activity. Validate if the user possesses authorization to create files in the respective application folders (e.g., OneDrive, Teams). Legitimate user activity should correlate with business operations.
+
+  - **Identify malicious indicators:**
+    - Analyze the properties of the DLL file created, including its hash and digital signature, to identify known malicious artifacts or deviations from expected application behavior. Any hash that matches a known threat should trigger further investigation.
+
+  - **Review previous logs for anomalies:**
+    - Query previous file event logs (Event IDs 4663 and 4660) leading up to the alert and check for any unusual deletions or modifications of DLL files. This may indicate prior reconnaissance or preparation for the hijacking attempt.
 
   ### Prioritization
-  This alert should be treated with medium severity due to the potential for initial access or privilege escalation by a threat actor. The likelihood of exploitation in environments with sufficient protections (like application whitelisting) reduces, but the presence of this technique indicates a possible compromise pathway that warrants immediate investigation.
+
+  This alert carries medium severity due to the potential impact on sensitive applications and user data. The likelihood of malicious abuse is significant, as DLL hijacking is a known tactic utilized by attackers to execute payloads stealthily. Although the exploitation of this vector is not as commonly weaponized as others, the presence of identifiable patterns increases the importance of timely and thorough analysis.
 
   ### Blind Spots and Assumptions
-  The detection logic relies on identifying specific processes and file paths; thus, there may be instances where legitimate application behavior is incorrectly flagged as malicious, particularly in environments heavily utilizing these applications. Furthermore, if file event logging is not enabled for user directories or if unusual processes aren't captured, there could be gaps in detection coverage. The assumption is also made that no legitimate administrative tools are being misused to create DLL files, which could lead to false positives if not properly filtered. Ensuring comprehensive logging is enabled for relevant processes and directories is essential for the effective functioning of this detection.
+
+  Detection limitations include evasion techniques such as altering file paths or using legitimate applications for DLL creation, potentially obfuscating malicious intent. Reliable detection requires comprehensive Windows file logging configurations, and the absence of certain log sources can lead to missed alerts. Legitimate activities like updates to application configurations or legitimate user scripts may trigger the alert. A related detection to consider is monitoring for unusual command line arguments or parent-child process relationships involving cmd.exe and other administrative tools, thereby enriching the analysis context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
