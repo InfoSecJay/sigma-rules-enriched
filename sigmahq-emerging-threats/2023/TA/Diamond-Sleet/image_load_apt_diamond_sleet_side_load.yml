@@ -28,25 +28,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule targets DLL sideloading activities leveraged by the Diamond Sleet Advanced Persistent Threat (APT) group. DLL sideloading exploits legitimate executables to load malicious libraries, often enabling evasion of security controls and potentially granting elevated privileges within a target environment. The attacker’s goal may range from data exfiltration to establishing persistent access for future exploitation.
 
-  Relevant MITRE ATT&CK tactics include:
-  - **Defense Evasion (T1568)**: By using sideloading techniques, adversaries can hide malicious actions within seemingly benign processes.
-  - **Persistence (T1574.001)**: Sideloaded DLLs can help maintain access to a compromised system, even after normal detection measures are applied.
-  - **Privilege Escalation**: This tactic is implied through the use of trusted processes to run malicious code.
+  This rule detects DLL sideloading, a technique where a malicious DLL is loaded through a trusted executable, circumventing security controls. The likely attacker objective is to execute arbitrary code on a compromised host while maintaining camouflage by utilizing legitimate binaries. This behavior is positioned in the MITRE ATT&CK framework under Tactics such as Defense Evasion (TA0005) and Persistence (TA0003), specifically targeting techniques T1574.001 (DLL Sideloading).
 
-  The primary data sources for detecting this behavior include Windows image load logs, which would capture instances of executable files loading associated DLLs from unexpected locations, such as `ProgramData`.
+  The primary telemetry sources are Windows Image Load events, specifically targeting the loading of DLLs associated with benign executables located in the ProgramData directory. If successful, this could lead to privilege escalation or system compromise. However, the detection alone does not confirm malicious intent; it must be investigated further in the context of additional activities and indicators of compromise.
 
   ### Investigation Steps
-  - **Review Image Load Events**: Examine logs for any instances where `clip.exe` or `wsmprovhost.exe` is loading `Version.dll` or `DSROLE.dll`, respectively. Look for patterns of suspicious behavior in these events.
-  - **Analyze Process Activity**: Investigate the execution chain of these processes. Determine if the initial executable originated from an expected and legitimate source, or if it could be indicative of malicious activity.
-  - **Check for Uncommon DLLs**: Assess the integrity and origin of loaded DLL files. DLLs from unexpected directories or those that show signs of being tampered with should be flagged for further analysis.
-  - **Correlate with Threat Intelligence**: Use threat intelligence to correlate detected behaviors with known TTPs (Tactics, Techniques, and Procedures) associated with the Diamond Sleet group and other similar APTs. This may provide context on the nature of the threat.
+
+  - **Identify the initial suspicious executable:** Check for Event ID 4104 (PowerShell logs) for any preceding scripts that may invoke `clip.exe` or `wsmprovhost.exe`. Confirm if these processes are being executed without prior legitimate use.
+
+  - **Assess loaded DLLs:** Review Event ID 4624 (logon events) and correlate with Sysmon Event ID 7 (Image loaded). Look for `Version.dll` and `DSROLE.dll` loaded within the context of the detected executables. Compare timestamps related to their execution to identify timing anomalies.
+
+  - **Review persistence mechanisms:** Investigate the Windows Startup folder and Task Scheduler for any scheduled tasks or shortcuts that may attempt to relaunch `clip.exe` or `wsmprovhost.exe`, noting creation dates. Legitimate tasks or shortcuts should reference signed binaries.
+
+  - **Evaluate process hierarchy:** Use Sysmon Event ID 1 (Process creation) to analyze parent-child relationships of the detected processes. A significant deviation from typical system processes may indicate malicious activity (e.g., `clip.exe` being launched by an uncommon parent process).
+
+  - **Check for suspicious network activity:** Evaluate network logs (like Windows Firewall logs or proxy logs) for outbound connections initiated by `clip.exe` or `wsmprovhost.exe`, which are uncommon for these executables. Look for unexpected domains or IPs that the processes may be communicating with.
 
   ### Prioritization
-  The severity of this alert is high due to the significant potential impact of DLL sideloading techniques on the security posture of an enterprise. Given that such methods can lead to unauthorized access and control over critical systems, the likelihood of successful exploitation necessitates prompt investigation and remediation.
+
+  This alert should be considered high-priority due to its association with sophisticated APT tactics, like DLL sideloading, which can facilitate lateral movement and persistence within the network. The likelihood of malicious exploitation is high, particularly given the rising profiles of similar threats. Also, this technique is commonly weaponized against enterprise infrastructures.
 
   ### Blind Spots and Assumptions
-  Detection coverage may be limited if logging is insufficient or misconfigured, leading to gaps in visibility over DLL operations on Windows systems. The detection logic assumes that flagged processes are inherently suspicious, but there may be legitimate cases of unusual DLL loads. Required logs include comprehensive image load events, and configurations must ensure that monitoring is enabled for all executable operations to facilitate accurate detection.
+
+  Detection capabilities may be limited by misconfigured logging settings that do not capture all relevant events for DLL loading or process creation. Legitimate applications may also load similar DLLs, creating a challenge in distinguishing malicious from benign activity. Additionally, attackers might use code obfuscation or benign executables for related evasion. A complementary detection to consider is monitoring for abnormal process parent-child relationships, which may indicate misuse of trusted applications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

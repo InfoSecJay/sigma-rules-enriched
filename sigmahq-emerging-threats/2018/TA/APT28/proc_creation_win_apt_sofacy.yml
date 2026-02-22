@@ -40,27 +40,29 @@ falsepositives:
 level: high
 note: |
   ### Technical Context
-  This detection rule identifies malicious activity associated with the Sofacy Trojan, a known tool leveraged by the APT28 threat group. Specifically, it targets the execution of `rundll32.exe` with command lines indicative of malicious intent, typically associated with the loading of payloads or execution of second-stage malware through DLLs. Attackers using this technique often aim to maintain persistence within a network or to execute additional payloads and commands under the radar by masquerading legitimate processes.
 
-  The relevant MITRE ATT&CK tactics and techniques for this rule include:
-  - **Execution (TA0002)**, specifically through `Command-Line Interface (T1059.003)` where the attacker manipulates command line interfaces to execute scripts and commands, and
-  - **Defense Evasion (TA0005)** using `Server Software Component (T1218.011)` to execute malicious code.
+  This rule detects activity indicative of the Sofacy Trojan loader, specifically looking for instances where `rundll32.exe` is invoked with command-line parameters associated with the loading of malicious DLLs from the local application data directory. The behavior often aligns with the tactics used by APT28 to deliver additional payloads. The relevant MITRE ATT&CK tactics include Execution (T1059.003) and Defense Evasion (T1218.011). Primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1.
 
-  Primary data sources likely to yield valuable evidence are process creation event logs, where details about executed processes, command line arguments, and associated images can be found. Analyzing these logs will aid analysts in identifying abnormal or suspicious command lines that deviate from standard operational behavior.
+  If left unchecked, this activity can lead to data exfiltration, lateral movement, or further compromise of the affected environment. However, it is important to note that this detection does NOT confirm that a malicious action was completed, as it may also trigger on benign uses of `rundll32.exe`.
 
   ### Investigation Steps
-  - **Review Process Creation Events:** Analyze logs for instances of `rundll32.exe` being executed. Pay close attention to the command line arguments to identify unusual parameters, particularly those containing paths to `%LOCALAPPDATA%` or files executed from temporary directories.
 
-  - **Examine Command Line Patterns:** Investigate for command lines that contain `.dat`, `.dll #1`, or similar constructs which are frequently used by Sofacy loaders. Cross-reference these with known indicators of compromise for additional context.
+  - **Examine the command line arguments: **Review the command line associated with `rundll32.exe` (Event ID 4688/Sysmon ID 1) for signs of malicious activity, paying particular attention to any reference to `%LOCALAPPDATA%` and unusual strings such as '.dat"' or '.dll #1'. Malicious variants will often exhibit suspicious patterns.
 
-  - **Check for Alternative Payload Execution:** Look for instances where other processes related to this activity could be executed or spawned by `rundll32.exe`. Presence of abnormal parent-child relationships in the process tree may reveal further insight into the attack lifecycle.
+  - **Verify the parent process: **Check the parent process of the detected `rundll32.exe` invocation (often explorer.exe) for unusual or unauthorized parent processes or service host instances (Event ID 4688/Sysmon ID 1). Legitimate behavior typically involves standard OS components like an interactive user query.
 
-  - **Identify Related Network Activity:** Monitor network logs for connections made shortly after these identified execution events. This can help determine if any data exfiltration or command-and-control activity follows the execution of the Trojan.
+  - **Assess the file path: **Look for files created or accessed in the `%LOCALAPPDATA%\Temp\` directory as part of the command line. Compare file creation timestamps with the alert timestamp for indicators of suspicious activity (exploring the temp directory can indicate potential evasion tactics).
+
+  - **Identify related processes: **Correlate with other suspicious activities or child processes spawned by the same parent. Attacker workflows often exhibit patterns where multiple processes are invoked shortly after the loader runs (e.g., additional PowerShell, Curl).
+
+  - **Check for known indicators of compromise: **Cross-reference the loaded DLL names against threat intelligence databases or internal lists of known malicious binaries to identify high-confidence malicious indicators related to APT28 activity.
 
   ### Prioritization
-  The severity of this alert is high as Sofacy Trojan activity indicates a targeted attack that could lead to significant data breaches or system compromise within the enterprise. The likelihood of encountering such threats increases given the advanced capabilities and persistence of APT28.
+
+  The severity of this alert is high due to the risk of sophisticated malware deployment that can lead to significant breaches. The likelihood of abuse is elevated as APT28 is known to deploy such tactics routinely. The behavior is specifically weaponized to bypass standard security controls by using legitimate Windows functionalities.
 
   ### Blind Spots and Assumptions
-  One potential gap in detection coverage is the reliance on the specific behavior of `rundll32.exe`, which may be used legitimately in some contexts. There may be assumptions that this command line structure will always indicate malicious intent. The detection logic assumes that process creation logs are adequately retained and accessible. If logging is misconfigured or if events are purged, detection will likely fail. It is crucial for organizations to ensure their process creation logging is enabled and configured appropriately to ensure this alert is actionable.
+
+  Detection relies heavily on the appropriate logging configurations for Event ID 4688 and Sysmon logs; any gaps in logging could lead to missed detections. Legitimate administrative tasks or software installations may inadvertently trigger this alert, especially those involving legitimate use of `rundll32.exe`. Companion detections include monitoring for lateral movement patterns post-invocation of the loader, such as abnormal connections to known command and control (C2) infrastructure or attempts at privilege escalation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
