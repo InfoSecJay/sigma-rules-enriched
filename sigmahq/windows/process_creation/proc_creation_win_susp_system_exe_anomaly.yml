@@ -42,6 +42,7 @@ detection:
     - '\dllhst3g.exe'
     - '\dwm.exe'
     - '\eventvwr.exe'
+    - '\fsquirt.exe'         # was seen used by sidewinder APT - https://securelist.com/sidewinder-apt/114089/
     - '\finger.exe'
     - '\logonui.exe'
     - '\LsaIso.exe'
@@ -108,33 +109,35 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_susp_system_exe_anomaly/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of specific Windows system binaries from locations outside their expected directories, which indicates potential abuse for malicious purposes. Attackers may attempt to execute these binaries from uncommon locations to conduct unauthorized actions while avoiding detection. This behavior is aligned with the MITRE ATT&CK framework's Defense Evasion tactic (T1036), which encompasses techniques for disguising malicious activities.
+  This Sigma rule detects the execution of specific Windows system binaries (e.g., `powershell.exe`, `lsass.exe`) from uncommon locations that deviate from their normal execution paths, indicating potential malicious behavior. Such deviation is often associated with attempts to evade detection by running legitimate processes from unexpected directories, a common tactic used by attackers to execute payloads while blending in with normal system operations.
 
-  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1. If malicious, this activity could lead to significant security impacts, such as unauthorized access, lateral movement, or execution of payloads. Importantly, this detection does not confirm malicious intent on its own; legitimate applications may mimic this behavior under specific circumstances.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion** (T1562), with technique T1036 (Masquerading). The primary telemetry sources include Windows Process Creation logs, specifically looking at Event ID 4688, which capture commands and execution paths. If the execution is indeed malicious, it could lead to unauthorized access, data exfiltration, or system compromise. This rule does NOT confirm unauthorized activity on its own; further context and analysis are necessary to determine whether the activity is truly malicious.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check Windows Security Event ID 4688 or Sysmon Event ID 1 for anomalies regarding the execution paths of critical system binaries like `powershell.exe` or `dfrgui.exe`. Look for processes originating from unusual directories not aligned with their typical locations (e.g., executed from `C:\Users\<username>\Downloads\`).
+  - **Identify the process location:** Review Event ID 4688 in the Security logs. Check if the execution path of the specified binaries deviates from standard locations (e.g., `C:\Windows\System32\`). Processes executing from paths like `C:\Users\<Username>\AppData\Local\Temp` may indicate malicious activity.
 
-  - **Validate known good locations:** Identify expected execution paths for these binaries (e.g., `C:\Windows\System32\`). Cross-reference any observed execution paths with a list of legitimate software and application deployment practices within the environment.
+  - **Cross-reference command line arguments:** Analyze the command line parameters associated with the process creation. Look for suspicious arguments (e.g., obfuscation, encoded payloads). This can often indicate malicious intent.
 
-  - **Identify execution parameters:** Examine the command-line parameters for additional context. Legitimate commands often have recognizable parameters—malicious execution may contain obfuscation or unexpected flags.
+  - **Examine historical behavior:** Check for previous instances of the detected binary executing from legitimate locations using the Sysmon Event ID 1 logs. Established normal behavior can provide context for the current alert. For example, validation that `powershell.exe` typically executes from `C:\Windows\System32\` during administrator tasks can indicate benign activity.
 
-  - **Check for process parent relationships:** Investigate parent and child process relationships in the process creation logs. For example, if a malicious `conhost.exe` is detected, its parent process (such as `cmd.exe` or `powershell.exe`) should also be assessed for suspicious activity.
+  - **Review associated user activity:** Look up the user account that executed the process in the Active Directory logs. Identify recent activities or anomalies related to this account that could indicate a compromise, such as failed login attempts from unusual IP addresses.
 
-  - **Assess for file artifacts:** Look for any newly created files or logs in the `%TEMP%` directory or other common safe zones that may indicate file drops or download activity. Validate file hashes against known malware signatures.
+  - **Confirm execution frequency:** Investigate operational logs to determine if this execution pattern is recurrent or a one-off event. Frequent execution of these binaries from uncommon paths may signify a persistent threat.
 
-  - **Capture system criticality:** Determine if the executed binaries run on high-value assets (e.g., domain controllers or sensitive server roles). The compromise of these systems elevates the alert's priority and response urgency.
+  - **Correlate with threat intelligence:** Check against Threat Intelligence platforms for any indicators of compromise (IoCs) related to the specific binaries being executed (e.g., `werfault.exe` was recently noted in campaigns associated with known threat actors).
 
   ### Prioritization
 
-  This alert is classified as high severity due to the potential critical impact of compromised system binaries and the likelihood of malicious execution methods. The nature of this behavior is commonly weaponized by adversaries to gain footholds in target environments, increasing the urgency of investigation and response.
+  This alert should be classified with high severity due to the criticality of the affected system components and the high likelihood of malicious exploitation in atypical execution scenarios. The behavior described is often a key component of intrusion tactics used by attackers to bypass defenses.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of audit logging configurations or if logs are improperly filtered, potentially overlooking the execution of system binaries. Legitimate administrative actions, like software installation or maintenance tasks using `powershell.exe`, could trigger this alert. A related detection to consider is monitoring for unusual PowerShell execution patterns or script block logging, which can provide broader context for evaluating the alert.
+  Evasion techniques may include executing processes from legitimate directories or utilizing customized paths that have not been previously established as suspicious. Reliable detection requires comprehensive logging (especially ensuring Security Event and Sysmon logging is properly configured). Legitimate administrative tasks and software installations (e.g., Windows Updates) may trigger this alert as well, necessitating careful contextual review. A related detection is monitoring for unusual network connections initiated by these processes to further assess credibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

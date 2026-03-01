@@ -8,7 +8,7 @@ references:
 - https://web.archive.org/web/20200925032237/https://threathunterplaybook.com/notebooks/windows/02_execution/WIN-190410151110.html
 author: Roberto Rodriguez @Cyb3rWard0g (rule), oscd.community (improvements)
 date: 2019-09-12
-modified: 2023-09-07
+modified: 2025-02-28
 tags:
 - attack.execution
 - attack.t1059.001
@@ -38,6 +38,8 @@ detection:
   filter_optional_terminal:
     ParentImage|contains: ':\Program Files\WindowsApps\Microsoft.WindowsTerminal_'
     ParentImage|endswith: '\WindowsTerminal.exe'
+  filter_optional_defender:
+    ParentImage|endswith: ':\Program Files\Windows Defender Advanced Threat Protection\SenseIR.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Likely. Many admin scripts and tools leverage PowerShell in their BAT or VB 
@@ -45,40 +47,30 @@ falsepositives:
   filters or use this to hunt for anomalies
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects occurrences of non-interactive PowerShell processes initiated by GUI-based parent processes like `explorer.exe`. This behavior often indicates an attempt by an attacker to execute PowerShell commands without user interaction, which is a common tactic for malicious scripts trying to stealthily perform actions on a compromised system. The relevant MITRE ATT&CK tactic is Execution, with the technique being PowerShell (T1059.001).
+  This Sigma rule detects non-interactive execution of PowerShell processes that are spawned by specific GUI processes, most notably "explorer.exe" and the Windows System Update process. The likely attacker objective is to execute malicious scripts without user interaction, facilitating stealthy execution during exploitation phases. This behavior relates to the MITRE ATT&CK technique "Command-Line Interface: PowerShell" (T1059.001), indicative of potential lateral movement or execution of unauthorized commands.
 
-  Primary telemetry sources include Windows Process Creation logs (Event ID 4688 for security, Sysmon Event ID 1 for detailed process creation), which capture the necessary details such as process images and their parent processes. If malicious, this activity may allow for remote code execution, data exfiltration, or lateral movement. This detection does NOT confirm that the PowerShell execution is malicious; further investigation is required to assess intent.
-
-  ---
+  The primary telemetry source for this alert is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing detailed command line arguments. If malicious, this behavior could allow an adversary to execute scripts for data exfiltration, credential theft, or lateral movement without detection. Importantly, this detection does not definitively confirm malicious intent, as legitimate administrative scripts or tool usage can trigger the same alert.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check Security Event ID 4688 and Sysmon Event ID 1 for details on the PowerShell process (`powershell.exe` or `pwsh.exe`) and the corresponding parent process. Look for unusual timestamps or rare parent-child process relationships that deviate from normal behavior.
+  - **Review the process tree for context:** Identify the parent process of PowerShell execution using Security Event ID 4688. Look for processes originating from "explorer.exe" or related system processes, indicating potential malicious invocation versus expected administrative activity.
 
-  - **Verify the parent process:** Assess the parent image for the PowerShell process. Legitimate parent processes include `explorer.exe`, but frequent automation or use of administrative scripts may also trigger this detection. If the parent image is an unusual system service or tool, consider escalating the investigation.
+  - **Analyze the command line arguments:** Check the CommandLine field in Security Event ID 4688 for unusual parameters or scripts, which can indicate unauthorized use. Legitimate activity often involves straightforward scripts reflecting routine administrative tasks.
 
-  - **Check command line usage:** Inspect the command line arguments for the PowerShell process. Malicious activity may include arguments that invoke unusual scripts or encoded commands. Look for any command line activity that appears obfuscated or uncommonly scripted.
+  - **Validate the execution origin:** Confirm if the PowerShell process is initiated from a known administrative script or tool (e.g., sysadmin-generated batch files) versus unknown or suspicious command sequences indicative of an attack.
 
-  - **Correlate with user activity:** Identify whether the user account associated with the PowerShell execution has administrative privileges or if there are any recent account policy changes. Legitimate uses often involve known scripts run by administrative users during scheduled maintenance or updates.
+  - **Correlate with other security alerts:** Review recent alerts or logs for related suspicious behavior, such as unusual logins or network connections from the same user or system. These can strengthen the case for or against malicious activity.
 
-  - **Identify high-confidence malicious indicators:** Look for known malicious hash values linked to PowerShell scripts or modules, especially those commonly used in known attack frameworks (e.g., Empire, Cobalt Strike). Cross-reference with threat intelligence databases.
-
-  ---
+  - **Check for scheduled tasks or scripts:** Look for any authorized or unauthorized scheduled tasks (Event ID 4698) that might invoke PowerShell in a non-interactive context, particularly if they're linked to administrative systems or tools.
 
   ### Prioritization
 
-  This alert has a low severity rating in a mature enterprise context due to the prevalence of benign administrative scripts using PowerShell and the likelihood of false positives. However, the potential for misuse, particularly in environments where privilege escalation or lateral movement is possible, necessitates diligent triage.
-
-  ---
+  This alert carries a low severity due to the high likelihood of benign administrative actions triggering the detection. However, given the prevalence of PowerShell abuse in attacks, it's important to assess whether the affected system is critical or belongs to an administrative role, since misuse here could pose a significant risk.
 
   ### Blind Spots and Assumptions
 
-  The detection may not identify sophisticated evasion techniques, such as PowerShell running from a trusted parent process via obfuscation or encoding, rendering it stealthier. Reliable detection requires proper logging configurations and possibly real-time process monitoring to capture all execution scenarios. Legitimate activities, like automated scripts from tasks scheduled during maintenance, may trigger this alert. A companion detection to consider is monitoring for unusual PowerShell cmdlet invocations consistent with post-exploitation behavior (e.g., `Invoke-WebRequest` or `Invoke-Command`).
-
-  ---
+  This detection may miss legitimate administrative uses, such as common task automation scripts. It relies on properly configured process creation logging; any gaps in logging or lack of Sysmon implementation can impair detection efficacy. Additionally, legitimate PowerShell scripts used as part of system maintenance could trigger false positives. Companion detections include network traffic analysis for outbound calls from suspected malicious PowerShell usage, enhancing overall detection effectiveness.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

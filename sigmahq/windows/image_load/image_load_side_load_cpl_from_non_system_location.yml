@@ -1,60 +1,67 @@
 title: System Control Panel Item Loaded From Uncommon Location
 id: 2b140a5c-dc02-4bb8-b6b1-8bdb45714cde
 status: test
-description: Detects image load events of system control panel items (.cpl) from
-  uncommon or non-system locations which might be the result of sideloading.
+description: |
+  Detects image load events of system control panel items (.cpl) from uncommon or non-system locations that may indicate DLL sideloading or other abuse techniques.
 references:
 - https://www.hexacorn.com/blog/2024/01/06/1-little-known-secret-of-fondue-exe/
 - https://www.hexacorn.com/blog/2024/01/01/1-little-known-secret-of-hdwwiz-exe/
+- https://github.com/mhaskar/FsquirtCPLPoC
+- https://securelist.com/sidewinder-apt/114089/
 author: Anish Bogati
 date: 2024-01-09
+modified: 2026-02-17
 tags:
 - attack.defense-evasion
-- attack.t1036
+- attack.persistence
+- attack.privilege-escalation
+- attack.t1574.001
 logsource:
   product: windows
   category: image_load
 detection:
   selection:
     ImageLoaded|endswith:
-    - '\hdwwiz.cpl'         # Usually loaded by hdwwiz.exe
     - '\appwiz.cpl'         # Usually loaded by fondue.exe
+    - '\bthprops.cpl'         # Usually loaded by fsquirt.exe
+    - '\hdwwiz.cpl'         # Usually loaded by hdwwiz.exe
   filter_main_legit_location:
-    ImageLoaded|contains:
-    - ':\Windows\System32\'
-    - ':\Windows\SysWOW64\'
-    - ':\Windows\WinSxS\'
-  condition: selection and not 1 of filter_*
+    ImageLoaded|startswith:
+    - 'C:\Windows\Prefetch\'
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+    - 'C:\Windows\WinSxS\'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Unknown
-level: medium
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/image_load/image_load_side_load_cpl_from_non_system_location/info.yml
 note: |
   ### Technical Context
 
-  This detection rule identifies the loading of system control panel items (.cpl) from uncommon or non-standard locations, which may indicate malicious activity such as sideloading of malware. Attackers may exploit these files to masquerade malicious executables as legitimate control panel items, gaining unauthorized access or executing payloads. The relevant MITRE ATT&CK technique is "Sideloading" (T1036).
+  This rule detects the loading of control panel items (.cpl files) from uncommon or non-standard locations, which may indicate attempts at DLL sideloading or other malicious exploitation techniques. Attackers typically aim to leverage legitimate processes to execute rogue code, thereby escalating privileges or establishing persistence on the system. The relevant MITRE ATT&CK techniques include Persistence via Sideloading (T1574.001) and Defense Evasion.
 
-  Primary telemetry sources include Windows Image Load events, specifically monitoring `ImageLoaded` actions to capture the paths of loaded control panel items. If detected activity is malicious, it could lead to further lateral movement, data exfiltration, or system compromise. Importantly, this detection alone does not confirm that the loaded .cpl file is malicious, as legitimate applications may also load control panel items from uncommon locations under specific circumstances.
+  Primary telemetry sources required for this detection include Windows image load events, specifically tracking Event ID 1102 from the Security Event Log or Sysmon Event ID 7. If this behavior is confirmed as malicious, it poses a significant risk by potentially allowing unauthorized code execution with the privileges of a trusted system process. However, it is critical to note that this detection does NOT confirm that malicious activity has occurred exclusively; further investigation is needed to validate intent and execution context.
 
   ### Investigation Steps
 
-  - **Verify the source path of the .cpl file:** Inspect the `ImageLoaded` field for the file path of the loaded .cpl. Legitimate loading should occur from `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, or `C:\Windows\WinSxS\`. Loading from other directories may indicate potential malice.
+  - **Examine the loading source: ** Check the `ImageLoaded` field for paths. Confirm if the .cpl file is being loaded from standard locations (`C:\Windows\System32\`, etc.) or uncommon locations (e.g., user profile directories, temporary files). Malicious sources may significantly deviate from expected behavior.
 
-  - **Check process relationships:** Identify the parent process using Sysmon Event ID 1 or Windows Event ID 4688. Look for unusual parent processes that may indicate an attacker execution chain (e.g., if `hdwwiz.exe` is parented by PowerShell or another non-standard process).
+  - **Review associated processes: ** Investigate the parent process of the .cpl loading event via Sysmon Event ID 10 or Security Event ID 4688. Look for known benign processes such as `fondue.exe`, `fsquirt.exe`, or `hdwwiz.exe`. Any deviation may indicate a malicious context.
 
-  - **Review execution timestamps:** Examine the timestamps of the `.cpl` loads against recent system changes or new deployments. Unexpected .cpl executions during off-hours or in rapid succession may signify malicious behavior.
+  - **Check for additional file activity: ** Validate file creation events in the vicinity of the alert using Sysmon Event ID 11. Unexpected file creation alongside .cpl loading may suggest an attempt to deploy malicious payloads.
 
-  - **Investigate related artifacts:** Look for any accompanying files (DLLs or other executables) loaded into memory alongside the flagged .cpl. Check API calls for `LoadLibrary` or `CreateProcess` that correspond to the .cpl’s execution.
+  - **Identify rare .cpl files executed: ** List other recently executed .cpl files from uncommon directories. If the same non-standard directory is being used for multiple .cpl loads, it could indicate a persistence mechanism.
 
-  - **Cross-reference with threat intelligence:** Utilize threat intelligence feeds to check if the observed .cpl files have known associations with malicious activity or malware campaigns.
-
-  - **Document any legitimate system usage:** Identify and record instances where common applications or legitimate scripts utilize the flagged .cpl files appropriately as part of system maintenance or legitimate workloads.
+  - **Cross-reference alerts with threat intelligence: ** Query threat intelligence sources for known bad hashes or family indicators linked to any visible .cpl files or processes. Look for alerts associated with HTA files or known malicious Mimikatz variants.
 
   ### Prioritization
 
-  This alert should be treated with medium priority. The potential impact of exploitation may allow adversaries to gain system control, with the likelihood of it being abused by attackers being moderate. Additionally, sideloading methods are increasingly weaponized in targeted campaigns.
+  This alert should be prioritized as high due to the potential for significant impact on critical systems if exploited, particularly with domain admin-level access. The likelihood of malicious abuse is substantial, given the use of common and trusted system processes for side-loading .cpl files that are typically loaded from secure system locations. This behavior is increasingly weaponized by sophisticated threat actors.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of comprehensive logging configurations, specifically if Image Load events are not being generated consistently. Legitimate applications or admin scripts may trigger this alert when accessing system control panel items from uncommon locations. For improved coverage, integrating related detections like process creation and DLL loading events (e.g., Event ID 4688 and Sysmon Event ID 7) can help validate the indicators of compromise further.
+  Detection is limited by potential evasion techniques such as the use of obfuscation or renaming authorized files. Accurate alerts depend on the proper configuration of Sysmon installation and log retention policies to capture detailed process and image load events. Legitimate activities like software installations or IT troubleshooting may trigger this alert. A related detection to consider is monitoring for unusual process creation events that may accompany this alert to improve coverage against coordinated attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

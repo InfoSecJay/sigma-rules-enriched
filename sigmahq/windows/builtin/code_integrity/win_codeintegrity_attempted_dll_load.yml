@@ -12,7 +12,7 @@ references:
 author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
   Systems)
 date: 2022-01-20
-modified: 2024-12-25
+modified: 2025-02-28
 tags:
 - attack.execution
 logsource:
@@ -49,12 +49,17 @@ detection:
     RequestedPolicy:
     - 8
     - 12
-  filter_optional_msoffice:
+  filter_optional_msoffice_1:
     FileNameBuffer|contains: '\Microsoft Office\root\vfs\ProgramFilesCommonX64\Microsoft
       Shared\OFFICE'
     FileNameBuffer|endswith: '\MSOXMLMF.DLL'
         # ProcessNameBuffer is AV products
     RequestedPolicy: 7
+  filter_optional_msoffice_2:
+    ProcessNameBuffer|contains: '\Program Files\Microsoft Office\root\vfs\ProgramFilesCommonX64\Microsoft
+      Shared\Office'
+    FileNameBuffer|contains: '\Windows\System32\'
+    RequestedPolicy: 8
   filter_optional_slack:
         # Example: https://user-images.githubusercontent.com/112784902/197407680-96d4b662-8a59-4289-a483-b24d630ac2a9.png
         # Even though it's the same DLL as the one used in the electron based app filter. We need to do a separate selection due to slack's folder naming convention with the version number :)
@@ -125,30 +130,36 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to load files that do not meet Windows code signing level requirements. Such behavior may indicate a security risk if untrusted or malicious files are trying to execute on a system, potentially bypassing the legitimate application control mechanisms. The likely attacker objective is to run unauthorized code or exploits that have been signed poorly or not signed at all.
+  This Sigma rule detects attempts to load files that do not meet the Windows signing level requirements, which can indicate that a file's signature is either revoked or its signature has expired. Attackers may exploit this vulnerability to execute untrusted or malicious code while bypassing application control mechanisms. The relevant MITRE ATT&CK tactic is **Execution** (TA0002) with the technique **Execution Guardrails** (T1203), indicating that the attacker aims to circumvent security controls around software execution.
 
-  The behavior aligns with the MITRE ATT&CK tactic of Execution, specifically the technique T1203: Exploitation for Client Execution. The primary telemetry source for this detection is the Windows Code Integrity Operational log, specifically Event IDs 3033 and 3034. If an alert is triggered, the security impact could include the execution of malware or unauthorized applications within an enterprise environment. This detection does NOT confirm the execution of malicious code on its own; further investigation is needed to ascertain the legitimacy of the activity.
+  The primary telemetry source for this detection is Windows Code Integrity operational logs, specifically focusing on **Event IDs 3033 and 3034**. If such behavior is malicious, it could allow malware of varying natures to execute on protected systems, compromising their integrity. It's crucial to note that this detection does **NOT** confirm that a security compromise has occurred; it merely indicates that a file was loaded without meeting signing requirements, which could be part of both benign and malicious activity.
+
+  ---
 
   ### Investigation Steps
 
-  - **Verify Event IDs:** Check for **Event ID 3033 or 3034** in the Windows Code Integrity Operational logs located at `C:\Windows\System32\winevt\Logs\Microsoft-Windows-CodeIntegrity%4Operational.evtx`. A hit indicates a failed signature check for a loaded file.
+  - **Check Event ID 3033 or 3034:** Review the Code Integrity operational logs for Event IDs **3033** and **3034**. Pay attention to the **ProcessNameBuffer** and **FileNameBuffer** fields for any malware-looking or uncommon paths, indicating potential unauthorized executions.
 
-  - **Correlate with Process Execution:** Cross-reference the process name and path from the event with **Security Event ID 4688** (Process Creation) to see if it links to any known malicious executables or to normal user applications. Normal applications typically will have valid signatures.
+  - **Assess Process Context:** Identify the **process** attempting to load the non-compliant file. If the **ProcessNameBuffer** matches known system processes or third-party software (e.g., antivirus executables), it may be a benign activity. Legitimate apps may exhibit frequent interactions with challenged DLLs.
 
-  - **Review Signature Details:** For the indicated files, use **sigcheck** (from Sysinternals) to verify the signing status of the DLL or executable in question. A legitimate process should have a valid signature, while a suspicious one may display revoked or expired signatures.
+  - **Validate Signature Status:** Utilize a command like `signtool verify /pa "<path_to_file>"` for any suspect files mentioned in the logs to assess their signature status and validity. An expired or revoked certificate can solidify the case for potential malicious use.
 
-  - **Examine the Environment Context:** Assess the host role (e.g., server vs. workstation) and criticality of the affected system. Load attempts from critical servers should be investigated more urgently than those from non-critical user workstations.
+  - **Track File Path and Origin:** Look into the **FileNameBuffer** for the full path of the file. If it resides in a common system directory (like `C:\Windows\System32`), consider its legitimacy. Paths indicating downloads or temporary directories are higher-risk indicators.
 
-  - **Identify High-Confidence Malicious Indicators:** Look for consistent patterns of multiple signature validation failures. If the same DLL or application repeatedly appears across multiple alerts, it may indicate an active exploit or malware presence.
+  - **Correlate with EID 3089:** After identifying any flagged processes, determine if Event ID **3089** is logged, as it provides additional context about the failure in meeting the code integrity policy, which can assist in revealing the specific cause of the non-compliance.
 
-  - **Evaluate Common False Positives:** Recognize that many legitimate antivirus and security applications may generate alerts due to their internal operations. Review documentation on the specific software to understand expected behavior regarding signature checks.
+  - **Identify Companion Activities:** Look for other relevant alerts or logs in proximity to the timing of this event (like **Event ID 4688 for process creation**) to establish a broader context. Correlating abnormal behaviors can enhance investigative outcomes.
+
+  ---
 
   ### Prioritization
 
-  This alert should be treated with moderate urgency, especially on critical systems where unauthorized software could pose significant risks. The presence of files failing signature validation can indicate attempts to exploit system vulnerabilities, suggesting a possibly malicious intent. However, given that legitimate software often triggers this rule, careful analysis is necessary to determine the true threat.
+  This alert should be treated with moderate severity due to its potential impact, particularly on systems where high integrity is essential, such as servers and critical endpoints. While this specific behavior is commonly associated with older binaries or benign third-party applications, its potential for abuse makes it a concern, especially if observed alongside other malicious activity.
+
+  ---
 
   ### Blind Spots and Assumptions
 
-  The detection may miss attempts by attackers leveraging signed malware, which could pass signature validation. It assumes that all required logs (Windows Code Integrity Operational logs) are enabled and actively monitored. Additionally, security software or updates could inadvertently trigger alerts, leading to legitimate activities erroneously flagged. Monitoring for related events like file access or process injection attempts (e.g., T1055: Process Injection) may enhance overall coverage.
+  The detection may miss evasion techniques where attackers utilize legitimate signed files to execute malicious payloads. The logs for Windows Code Integrity must be properly configured to ensure full coverage. Benign activities that may trigger this alert can include updates or malfunctions within trusted antivirus software. A related detection mechanism could involve monitoring process creation events (like Event ID 4688) for unusual parent-child relationships during such load attempts to ensure comprehensive coverage of related threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

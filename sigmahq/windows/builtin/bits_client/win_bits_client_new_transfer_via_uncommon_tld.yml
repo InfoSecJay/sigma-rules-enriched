@@ -9,7 +9,7 @@ references:
 - https://twitter.com/malmoeb/status/1535142803075960832
 author: Florian Roth (Nextron Systems)
 date: 2022-06-10
-modified: 2024-12-25
+modified: 2025-02-28
 tags:
 - attack.defense-evasion
 - attack.persistence
@@ -28,6 +28,7 @@ detection:
     - 'download.mozilla.org/'         # https://download.mozilla.org/?product=firefox-101.0.1-partial-101.0&amp;os=win64&amp;lang=en-US
     - 'cdn.onenote.net/'
     - 'cdn.office.net/'
+    - 'tscdn.m365.static.microsoft/'
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - This rule doesn't exclude other known TLDs such as ".org" or ".net". It's 
@@ -37,30 +38,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of the Background Intelligent Transfer Service (BITS) to download files from uncommon or suspicious top-level domains (TLDs). This behavior could indicate an adversary attempting to leverage BITS for persistence or to conduct post-exploitation activities, as BITS is often used to download or manage updates for legitimate software. The relevant MITRE ATT&CK tactic is "Defense Evasion" (TA0005), specifically technique "T1197 - BITS Employee" which is related to persistent execution of malicious payloads.
+  This detection rule identifies the use of the Background Intelligent Transfer Service (BITS) for downloading files from remote fully qualified domain names (FQDNs) that are deemed unusual or uncommon. The likely attacker objective is to leverage BITS to download malicious payloads or to maintain persistence, as BITS can operate in the background without raising immediate suspicion. This activity correlates with the MITRE ATT&CK tactics of Persistence (T1197) and Defense Evasion (T1070).
 
-  The primary telemetry sources include Windows Event Logs, specifically Event ID 16403, which captures BITS client activity, including job creation and file transfer details. Potential security impacts include the execution of malicious payloads, data exfiltration, or lateral movement within the network. It is important to note that the creation of BITS transfer jobs does not confirm malicious activity on its own, as legitimate applications may also use BITS for downloading updates.
+  Primary telemetry sources include Windows event logs specifically looking for Event ID 16403 from the BITS client, which logs job creation activities. The security impact of a malicious download via BITS could include data theft, installation of malware, or maintaining unauthorized access to the system. Importantly, this detection does not confirm malicious intent on its own; legitimate software updates or applications may also use BITS for file downloads.
 
   ### Investigation Steps
 
-  - **Review captured BITS transfers**: Locate Event ID 16403 in the Windows Event Logs to identify the specific BITS job details and the remote domain used in the transfer.
+  - **Identify source of BITS jobs:** Check Event ID 16403 in the Windows Event log for details on the process that initiated the BITS job. Review the `RemoteName` field for FQDNs involved in the download.
 
-  - **Evaluate the remote TLD**: Determine if the remote name belongs to a known benign source, such as Microsoft's domains (e.g., `cdn.onenote.net`, `cdn.office.net`). If the TLD is uncommon or has a history of being abused (e.g., `.xyz`, `.site`), this may indicate malicious behavior.
+  - **Examine remote domains:** Analyze the downloaded FQDNs against a list of known safe domains. Look for uncommon or suspicious TLDs, such as those that do not align with typical organizational use or recognized software vendors.
 
-  - **Identify created files**: Check the file system for any artifacts or files created by the BITS transfer, particularly in default download directories. E.g., use Sysinternals’ Process Monitor to observe file system activity for modifications around the time of the event.
+  - **Review historical BITS activity:** Cross-reference recent BITS jobs with historical data to see if there have been any repetitive downloads from the same or related FQDNs. Frequent downloads from obscure sources may indicate potential malicious activity.
 
-  - **Compare with legitimate behaviors**: Establish a baseline of expected BITS activity by reviewing logs for known software update patterns (e.g., Microsoft application updates). Any discrepancies could suggest unauthorized use.
+  - **Assess legitimate usage:** Determine if any authorized applications or systems within the organization utilize BITS for legitimate purposes. Document any software that may trigger these alerts to contextualize the activity.
 
-  - **Correlate with additional alerts**: Cross-reference findings against other security alerts or logs, such as firewall logs, for unusual outbound connections that align with BITS jobs appearing malicious or foreign.
-
-  - **Document investigation results**: Capture the findings of exited connections, registry changes, or indicators of later stage activities suggesting compromise or lateral movement within the network.
+  - **Check for high-confidence malicious indicators:** Actively search for the presence of known malicious hashes or files that were downloaded via BITS, particularly focusing on file paths or executables that are unusual or unexpected for the organization.
 
   ### Prioritization
 
-  This alert is medium severity due to its potential to indicate misuse of a commonly used service for malicious purposes. While downloads initiated via BITS are not uncommon, the use of suspicious TLDs significantly raises the risk of abuse and exploitation, especially if combined with other suspicious activities.
+  This alert is rated medium severity due to the potential for significant impact if malicious downloads occur, especially if associated with sensitive systems. While the use of BITS for downloads is common for legitimate software, the unusual TLDs could indicate an increased likelihood of malicious abuse, making it essential to investigate further.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited as legitimate applications could also use BITS to interact with domains not included in the filter. Also, varying endpoint security configurations may not log or provide adequate detail for BITS activities consistently. Common legitimate activities that may trigger this alert include regular updates for enterprise applications. A related detection to strengthen coverage would be monitoring for unusual application behaviors or powershell scripts invoking BITS unexpectedly.
+  Detection may be limited by the presence of filtering rules or legitimate applications that also use BITS for downloads, potentially leading to false positives. Ensuring comprehensive logging of BITS events and maintaining awareness of common benign FQDNs used by organizational applications is crucial for reducing misidentified alerts. Additionally, companion detections such as file execution logs (Event ID 4688 or Sysmon Event ID 1) could provide further context to identify malicious activity stemming from these downloads.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
