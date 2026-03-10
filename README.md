@@ -15,7 +15,8 @@ A [GitHub Actions workflow](.github/workflows/enrich-rules.yml) runs daily:
 1. Clones the latest SigmaHQ and LOLRMM repos
 2. Runs [sigma-llm-doc](https://github.com/InfoSecJay/sigma-llm-doc) to generate investigation guides
 3. Only processes new or changed rules (content hashing + cache)
-4. Commits the enriched output back to this repo
+4. **Removes orphaned rules** — enriched files whose upstream source no longer exists are deleted
+5. Commits the enriched output back to this repo (using `git add -A` to capture deletions)
 
 ## Structure
 
