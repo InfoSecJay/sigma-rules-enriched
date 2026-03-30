@@ -41,31 +41,35 @@ detection:
 falsepositives:
 - Legitimate use of TruffleHog by security teams or developers.
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_pua_trufflehog/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the execution of TruffleHog, a tool utilized to search for confidential information within source code repositories and platforms such as GitHub, Slack, and Jira. The likely attacker objective is credential theft or unauthorized data extraction, as evidenced by its usage in the Shai-Hulud malware campaign, which targeted vulnerabilities in npm packages to gather sensitive information. The relevant MITRE ATT&CK tactics and techniques for this behavior are Credential Access (T1552.001) and Discovery (T1083).
+  This Sigma rule detects the execution of TruffleHog, a tool intended for searching sensitive data in platforms such as Git and Jira but can be misused by attackers to locate secrets and credentials. The primary goal of an attacker using TruffleHog would be to exfiltrate sensitive information that could facilitate further exploitation or lateral movement within an organization. This behavior aligns with the MITRE ATT&CK techniques for Credential Access (T1552.001) and Discovery (T1083).
 
-  The primary telemetry sources are Windows process creation logs, particularly Event ID 4688 or Sysmon Event ID 1, capturing process execution details. If malicious, the security impact is significant, as it may lead to unauthorized access to sensitive data or credentials. Importantly, this detection alone does not confirm malicious intent; legitimate use of TruffleHog by developers and security teams can occur.
+  The primary telemetry source is the Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If executed maliciously, this could lead to serious security breaches, such as unauthorized access to sensitive data, account takeovers, and subsequent data exfiltration. However, this detection does NOT confirm malicious intent on its own, as TruffleHog may be legitimately used by security teams for vulnerability assessments.
 
   ### Investigation Steps
 
-  - **Review process execution details**: Analyze Event ID 4688 (Process Creation) for the creation of `trufflehog.exe`. Check fields like `NewProcessName` to examine the execution path and confirm the command line contains `docker --image`.
+  - **Review the command line used for execution:** Inspect the CommandLine field in Security Event ID 4688. Look for phrases such as 'docker --image', 'Git', 'Jira', or 'SharePoint'. Legitimate execution typically shows clear context surrounding vulnerability assessments without unusual parameters.
 
-  - **Inspect command line arguments**: Look for CommandLine entries containing keywords like `Git`, `GitHub`, and `Jira`. Legitimate usage typically includes security assessments but watch for unusual patterns in execution context or unexpected sources.
+  - **Check the parent process for context:** Identify the ParentProcessId in Event ID 4688 to understand the process that initiated TruffleHog. A process initiated from a known CI/CD tool (e.g., Jenkins, GitLab runner) is more likely benign.
 
-  - **Identify instances of verified results**: Search for processes executing TruffleHog with the command-line flag `--results=verified`, which may indicate unauthorized scanning efforts, particularly if executed without transparency.
+  - **Assess for malicious network activity:** Review network logs for unusual outbound connections made by TruffleHog, focused on unexpected destinations or protocols (e.g., accessing non-standard s3 buckets). This may indicate data exfiltration attempts.
 
-  - **Cross-reference user context**: Investigate the user account running TruffleHog. Commonly, these should be service accounts or security personnel. Unrecognized users executing this tool should escalate for further scrutiny.
+  - **Look for verified results flag:** Investigate CommandLine parameters for instances of '--results=verified,' suggesting TruffleHog is being used to filter data securely. Legitimate usage likely retains this flag, while its absence raises suspicion.
 
-  - **Validate telemetry completeness**: Ensure that Windows process creation audits are enabled across all endpoints and that Sysmon is logging appropriate details to avoid blind spots in process detection.
+  - **Validate with endpoint telemetry:** Check for file writes in common secret storage locations (e.g., .env, config.json) during the TruffleHog execution timeframe. Any creation or modification of sensitive files adds to the suspicion.
+
+  - **Determine asset criticality:** Assess if the host running TruffleHog is critical to business operations or has access to sensitive information. Execution on such endpoints should be prioritized for further review.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential for credential exposure and sensitive data extraction. While TruffleHog has legitimate uses, its deployment in this context raises risk, and the possibility of exploitation is plausible, especially if used in conjunction with other attack vectors.
+  This alert holds medium severity primarily due to the risk of sensitive data exposure, especially if TruffleHog is found running on critical infrastructure or accessing privileged repositories. While the software is legitimate, its execution in an unusual context increases the likelihood of malicious use.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if process creation auditing is not consistently enabled across all systems. Additionally, the alert may trigger during legitimate activities by authorized developers or security teams. It's important to consider related detections, such as suspicious API calls to repository services or unexpected access to sensitive data. A companion detection could involve monitoring for unauthorized access patterns within Git repositories (T1083).
+  The detection may miss cases where TruffleHog is executed with a renamed executable or through environments like docker that do not log standard Windows telemetry adequately. It's also important to understand that legitimate developers or security teams may use this tool in approved workflows without malicious intent. A companion detection to consider is monitoring for unauthorized access to code repositories, which could serve to verify whether sensitive data is being actively accessed or exfiltrated.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
