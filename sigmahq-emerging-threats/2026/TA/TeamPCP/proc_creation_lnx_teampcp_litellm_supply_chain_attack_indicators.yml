@@ -1,0 +1,82 @@
+title: LiteLLM / TeamPCP Supply Chain Attack Indicators
+id: 36603778-030c-43c4-8cbb-cd3c1d1a80c7
+status: experimental
+description: |
+  Detects process executions related to the backdoored versions of LiteLLM (v1.82.7 or v1.82.8).
+  In March 2026, a supply chain attack was discovered involving the popular open-source LLM framework LiteLLM by Threat Actor TeamPCP.
+  The malicious package harvests every credential on the system, encrypts and exfiltrates them, and installs a persistent C2 backdoor.
+references:
+- https://novasky.io/hunts/hunting-litellm-supply-chain
+- https://www.virustotal.com/gui/file/71e35aef03099cd1f2d6446734273025a163597de93912df321ef118bf135238/
+- https://huskyhacks.io/posts/litellm-cred-stealer/
+- https://www.wiz.io/blog/threes-a-crowd-teampcp-trojanizes-litellm-in-continuation-of-campaign
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-03-30
+tags:
+- attack.initial-access
+- attack.t1195.002
+- attack.collection
+- attack.t1560.001
+- attack.persistence
+- attack.privilege-escalation
+- attack.t1543.002
+- detection.emerging-threats
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_pth_package:
+        # Execution of .pth file
+    Image|contains: '/python3'
+    CommandLine|contains|all:
+    - "exec(base64.b64decode('aW1wb3J0"
+    - "kI2NF9TQ1JJUFQgPSAiYV"
+  selection_tar:
+    Image|endswith: '/tar'
+    CommandLine|contains|all:
+    - 'tpcp.tar.gz'
+    - 'payload.enc'
+    - 'session.key.enc'
+  selection_curl:
+    Image|endswith: '/curl'
+    CommandLine|contains|all:
+    - 'models.litellm.cloud'
+    - 'X-Filename: tpcp.tar.gz'
+  selection_sysmon_service:
+    ParentImage|contains: '/python3'
+    CommandLine|contains|all:
+    - 'systemctl'
+    - '--user'
+    - 'sysmon'
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the execution of processes associated with backdoored versions of the LiteLLM framework (v1.82.7 and v1.82.8). The primary objective of the attacker is to harvest credentials from the compromised system, encrypt this data, exfiltrate it, and establish a persistent command and control (C2) backdoor. The relevant MITRE ATT&CK techniques include Initial Access (Tech ID: T1195.002), Collection (Tech ID: T1560.001), and Persistence (Tech ID: T1543.002). The primary telemetry source for this detection is process creation logs from Linux, specifically monitoring command-line arguments and execution paths. If the behavior is malicious, it poses a significant security risk, as it can lead to credential theft and unauthorized access to sensitive information. Importantly, this detection alone does NOT confirm an active compromise; it merely indicates the execution of potentially malicious commands related to this threat.
+
+  ### Investigation Steps
+
+  - **Analyze process creation events:** Review process creation logs (Linux) for Event Type 1, focusing on executions involving `/python3`, `/curl`, or `/tar`. Check for the presence of command line arguments signifying the usage of `tpcp.tar.gz`, `payload.enc`, or unusual base64-encoded strings. Indicators of compromise include these specific command-line parameters being executed.
+
+  - **Check for persistent services:** Investigate for instances where a process executed with `systemctl` and related to `sysmon` appears under the parent process of `/python3`. This could indicate an attempt to install persistent services for C2 operations.
+
+  - **Identify legitimate alternative behavior:** Compare logged command executions to standard operations of legit software installations or updates within your environment. Legitimate executions will not reference unusual base64-decoded strings or the specific package commands indicated in the rule.
+
+  - **Correlate with credential-related logs:** Cross-reference user login and authentication logs, especially focusing on any abnormal access patterns or sudden spikes in login attempts post process execution. Capture logs from `auth.log` for relevant timestamps.
+
+  - **Verify unusual outbound connections:** Inspect network traffic logs for connections to `models.litellm.cloud` or any domains associated with known bad indicators. This can involve checking firewall logs for unusual data exfiltration patterns or destination addresses.
+
+  - **Validate file integrity:** Look for related artifacts in your file system, particularly the presence of `tpcp.tar.gz`, `payload.enc`, and `session.key.enc`. Confirming their existence, especially in unusual directories or locations, indicates investigation warranting further scrutiny.
+
+  ### Prioritization
+
+  The alert severity is high due to the potential impact on critical systems, as any compromised machine can lead to broader network access and credential theft. The behavior is indicative of a supply chain attack that can be weaponized by adversaries seeking to exploit widely used software, making it a significant concern for enterprise security.
+
+  ### Blind Spots and Assumptions
+
+  This detection may be limited by the lack of comprehensive logging for all process actions, making it susceptible to evasion via process renaming or obfuscation of command-line arguments. Ensuring proper logging configurations for process creation is critical. Legitimate package installation or system updates may trigger similar alerts, necessitating context checks. A companion detection for monitoring network connections to known malicious C2 infrastructure would enhance coverage against this threat.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
