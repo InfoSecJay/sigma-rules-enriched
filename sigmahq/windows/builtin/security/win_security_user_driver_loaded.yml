@@ -12,7 +12,7 @@ references:
 - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4673
 author: xknow (@xknow_infosec), xorxes (@xor_xes)
 date: 2019-04-08
-modified: 2025-10-07
+modified: 2026-03-29
 tags:
 - attack.defense-evasion
 - attack.t1562.001
@@ -26,24 +26,26 @@ detection:
     Service: '-'
   filter_main_exact:
     ProcessName:
-    - 'C:\Windows\System32\Dism.exe'
-    - 'C:\Windows\System32\rundll32.exe'
-    - 'C:\Windows\System32\fltMC.exe'
-    - 'C:\Windows\HelpPane.exe'
-    - 'C:\Windows\System32\mmc.exe'
-    - 'C:\Windows\System32\svchost.exe'
-    - 'C:\Windows\System32\wimserv.exe'
-    - 'C:\Windows\System32\RuntimeBroker.exe'
-    - 'C:\Windows\System32\SystemSettingsBroker.exe'
     - 'C:\Windows\explorer.exe'
+    - 'C:\Windows\HelpPane.exe'
+    - 'C:\Windows\ImmersiveControlPanel\SystemSettings.exe'
+    - 'C:\Windows\System32\Dism.exe'
+    - 'C:\Windows\System32\fltMC.exe'
+    - 'C:\Windows\System32\mmc.exe'
+    - 'C:\Windows\System32\rundll32.exe'
+    - 'C:\Windows\System32\RuntimeBroker.exe'
+    - 'C:\Windows\System32\ShellHost.exe'
+    - 'C:\Windows\System32\svchost.exe'
+    - 'C:\Windows\System32\SystemSettingsBroker.exe'
+    - 'C:\Windows\System32\wimserv.exe'
   filter_optional_others:
     ProcessName|endswith:
-    - '\procexp64.exe'
-    - '\procexp.exe'
-    - '\procmon64.exe'
-    - '\procmon.exe'
-    - '\Google\Chrome\Application\chrome.exe'
     - '\AppData\Local\Microsoft\Teams\current\Teams.exe'
+    - '\Google\Chrome\Application\chrome.exe'
+    - '\procexp.exe'
+    - '\procexp64.exe'
+    - '\procmon.exe'
+    - '\procmon64.exe'
   filter_main_startswith:
     ProcessName|startswith: 'C:\Program Files\WindowsApps\Microsoft'
   filter_optional_dropbox:
@@ -62,28 +64,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the usage of the 'SeLoadDriverPrivilege' privilege, which permits the loading and unloading of device drivers in kernel mode. Attackers may leverage this privilege to install malicious kernel drivers, enabling persistent access or other malicious functionalities at a low system level. The relevant MITRE ATT&CK tactic is **Defense Evasion** (TA0005), specifically utilizing the technique **T1562.001: Impair Defenses** to manipulate system behavior. Primary telemetry sources include Windows Security logs, particularly **EventID 4673**, which logs privilege use. If malicious, this activity could lead to significant security breaches, potentially compromising system integrity. Notably, this detection alone does not confirm malicious intent; legitimate applications may also require this privilege.
+  This Sigma rule detects the use of the 'SeLoadDriverPrivilege', which allows users to load or unload device drivers in kernel mode. Attackers may leverage this privilege to deploy malicious kernel drivers for persistence or to manipulate system functionality, thereby gaining elevated control over the affected system. The relevant MITRE ATT&CK techniques include Defense Evasion (T1562.001) as the attackers may seek to avoid detection while executing their payloads.
+
+  The primary telemetry source is Windows Security logs, specifically Event ID 4673, which logs instances where the SeLoadDriverPrivilege is utilized. If executed by unauthorized or unexpected processes, this behavior poses significant security risks, potentially leading to system compromise or evasion of security mechanisms. This detection does NOT confirm malicious activity on its own; legitimate applications and users may also legitimately utilize this privilege.
 
   ### Investigation Steps
 
-  - **Review the triggering event:** Check Windows Security logs for **Event ID 4673** concerning 'SeLoadDriverPrivilege' usage. Focus on the user account executing this event to determine if it's a known administrative account or a standard user.
+  - **Investigate the source of Event ID 4673:** Review the log entries for Event ID 4673 to identify the user and process name making the request. Focus on processes not included in the exemption filters, noting any unexpected activity.
 
-  - **Validate process legitimacy:** Cross-reference the **ProcessName** with malicious threat intelligence indicators. Look for any processes that are not typically associated with system management or known legitimate applications, such as *Dism.exe* or *mmc.exe*.
+  - **Check process hierarchy:** Utilize Sysinternals tools, such as Process Explorer, to check the parent-child relationship for the identified processes. Confirm if the parent process is a known or expected application. Legitimate entries typically originate from system processes or well-established applications.
 
-  - **Examine usage context:** Determine if the event occurred during normal system operation hours versus anomalous times. Check for related events (e.g., **Event ID 4688**, which logs process creation) to analyze the execution context of the processes that triggered the alert.
+  - **Assess associated DLLs:** Investigate the loaded modules for the identified process using Sysinternals' Process Explorer or similar tools. Look for any unsigned or unrelated DLLs that correspond with the event's timestamp to identify potential malicious activities.
 
-  - **Identify benign behavior:** Document expected uses of 'SeLoadDriverPrivilege' by trusted applications within your environment, such as certain legitimate system or maintenance applications. Compare any alerts against this baseline to help identify false positives.
+  - **Correlate with additional logs:** Examine other security events around the same time frame, such as Event ID 4688 for process creation, which can show if the triggering process itself was launched maliciously. It helps correlate behavior indicating a broader pattern of suspicious activity.
 
-  - **Collect additional telemetry:** Review local file paths for any newly created files related to the triggering process to check for suspicious kernel driver installations. Investigate log locations typically used for driver installations, such as `C:\Windows\System32\drivers`.
+  - **Understand established baselines:** Review the baseline of approved tools and applications that your organization regularly uses. Document any legitimate drivers or applications that utilize this privilege. This understanding is critical to distinguish between benign and malicious activity.
 
-  - **Correlate with installed software:** Generate a list of currently installed drivers using **Driverquery** or a similar command to assess if any newly installed drivers correspond with the alert. Investigate recent changes in system configurations, especially from high-privilege accounts.
+  - **Look for known unauthorized tools:** Search for the execution of processes like 'procexp.exe' or 'procmon.exe' in conjunction with event logs. If these processes are involved, ensure they are part of a legitimate investigation; otherwise, they could signal an attempt to obscure malicious activities.
 
   ### Prioritization
 
-  This alert has medium severity because it indicates possible privileged activity that could lead to serious system compromises if exploited. The likelihood of malicious use exists, given that non-administrative accounts executing such operations are generally rare. The usage of kernel driver loading privileges is a known technique leveraged by advanced persistent threats (APTs).
+  This alert has medium severity due to the potential for significant impact on system integrity and confidentiality if a malicious actor successfully loads a driver. The likelihood of abuse is moderate, as attack techniques involving driver manipulation are known and periodically weaponized in attacks. Prompt investigation is crucial as undetected malicious drivers can lead to severe security breaches.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of evasion by sophisticated malware that uses legitimate tools to perform kernel manipulations. Reliable detection depends on capturing **Event ID 4673** consistently across all endpoints; ensure sufficient logging configuration is in place. Legitimate activities, such as the use of Sysinternals tools, may trigger the alert, necessitating the establishment of a comprehensive whitelist. A related detection that could strengthen coverage is monitoring the creation of kernel-mode driver files, which should generally be limited to trusted updates or installations.
+  The detection is limited by the possibility of legitimate tools that also require SeLoadDriverPrivilege, such as antivirus or system management tools, which may trigger false positives. Comprehensive logging configurations for security event auditing are essential, including regular monitoring of security logs and ensuring consistent coverage across all endpoint systems. Additionally, legitimate usage of related tools can generate alerts, emphasizing the need for clear baselines for acceptable activity. A related detection like monitoring for new or unusual driver installations can enhance coverage and mitigate blind spots.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

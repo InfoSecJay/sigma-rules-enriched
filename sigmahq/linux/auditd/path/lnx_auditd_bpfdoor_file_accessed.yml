@@ -6,8 +6,11 @@ description: detects BPFDoor .lock and .pid files access in temporary file
 references:
 - https://www.sandflysecurity.com/blog/bpfdoor-an-evasive-linux-backdoor-technical-analysis/
 - https://www.elastic.co/security-labs/a-peek-behind-the-bpfdoor
+- https://www.rapid7.com/blog/post/tr-bpfdoor-telecom-networks-sleeper-cells-threat-research-report/
+- https://github.com/rapid7/Rapid7-Labs/blob/741c7196ec12a0a56b63463d1fd726ff14d3a97a/BPFDoor/rapid7_detect_bpfdoor.sh
 author: Rafal Piasecki
 date: 2022-08-10
+modified: 2026-03-30
 tags:
 - attack.execution
 - attack.t1106
@@ -19,9 +22,25 @@ detection:
   selection:
     type: 'PATH'
     name:
+    - /var/run/aepmonend.pid
+    - /var/run/auditd.lock
+    - /var/run/cma.lock
+    - /var/run/console-kit.pid
+    - /var/run/consolekit.pid
+    - /var/run/daemon.pid
+    - /var/run/hald-addon.pid
+    - /var/run/hald-smartd.pid
     - /var/run/haldrund.pid
-    - /var/run/xinetd.lock
+    - /var/run/hp-health.pid
+    - /var/run/hpasmlit.lock
+    - /var/run/hpasmlited.pid
     - /var/run/kdevrund.pid
+    - /var/run/lldpad.lock
+    - /var/run/mcelog.pid
+    - /var/run/system.pid
+    - /var/run/uvp-srv.pid
+    - /var/run/vmtoolagt.pid
+    - /var/run/xinetd.lock
   condition: selection
 falsepositives:
 - Unlikely
@@ -29,26 +48,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects access to specific lock and process ID (.lock and .pid) files commonly associated with the BPFDoor Linux backdoor. An attacker using BPFDoor aims to establish persistence and covert remote access to a compromised system. This activity aligns with the MITRE ATT&CK framework under the tactic “Execution” and technique “Command and Scripting Interpreter” (T1059) as well as “Command-Line Interface” (T1106). The primary telemetry sources required are audit logs from Linux systems, specifically focusing on auditd events that track file access. If malicious, this can indicate unauthorized access and potential persistence mechanisms being established. Importantly, this detection does NOT confirm an active compromise; it merely indicates file access behavior warranting further investigation.
+  This Sigma rule detects unauthorized access to specific process ID (.pid) and lock files associated with the BPFDoor backdoor on Linux systems. The behavior indicates a potential compromise, as BPFDoor typically aims to maintain persistence and evade detection by modifying system files. This detection fits into the MITRE ATT&CK framework under the Execution tactic (T1106: Native API) and may be related to other techniques such as T1059 (Command and Scripting Interpreter). The primary telemetry source is the audit logs from the Linux audit daemon (auditd), specifically monitoring access to the targeted files in the '/var/run/' directory.
+
+  If malicious, this behavior could compromise system integrity, facilitate unauthorized control, and potentially lead to further exploits or data exfiltration. However, this detection alone does not confirm the presence of the BPFDoor backdoor; it only indicates an abnormal access pattern to critical system files that may warrant further investigation.
 
   ### Investigation Steps
 
-  - **Check access times of the .lock and .pid files**: Correlate access timestamps with other system events (Audit Event ID 1100) to establish a timeline of activity and assess if access coincides with unusual login times or patterns.
+  - **Identify access events for specific files**: Review audit logs for access to the files '/var/run/*.pid' and '/var/run/*.lock'. Check for Event IDs related to file access (Linux audit log type) and look for unusual timestamps or user IDs that do not match expected operational patterns.
 
-  - **Review process and user context**: Identify the process accessing these files via Audit Event ID 1102, including user identifiers. Look for abnormal or unauthorized users accessing these files that do not align with established operational practices.
+  - **Analyze user activity around the alert**: Examine command history for the user that accessed the files. Look for shell commands executed (`sudo` or `su`), especially around the time the alert was generated. Command history files typically reside in '/home/<username>/.bash_history'.
 
-  - **Assess the criticality of the host**: Determine if the accessed files are on critical infrastructure (e.g., web servers, databases). Prioritize investigation based on the asset’s role within the organization.
+  - **Validate legitimate application behavior**: Confirm if any known applications commonly running on the host utilize or depend on the detected .pid or .lock files. For instance, database services or system daemons that might regularly write to these files can produce benign alerts.
 
-  - **Identify legitimate application access patterns**: Document expected behavior for applications utilizing these .lock or .pid files, assessing against known operational run times and access methods.
+  - **Correlate with network activity**: Look for outbound connections or suspicious network traffic from the affected host using tools such as netstat or packet capture logs. Particularly analyze connections on uncommon ports or patterns indicative of backdoor communication.
 
-  - **Correlate with other security telemetry**: Analyze surrounding security events (e.g., failed logins, unusual outbound traffic) to identify potential command-and-control activity, using logs from network devices or SIEM alerts related to suspicious outbound connections.
+  - **Examine process list for anomalies**: Use `ps aux` or `top` commands to identify any suspicious processes running on the host at the time of the alert. Check if any of these processes have unusual parent-child relationships or are accessing non-standard directories.
+
+  - **Identify the source of the activity**: Specifically check for high-confidence malicious indicators that align with known BPFDoor signatures or behaviors, such as attempts to spawn processes that involve the names of the detected lock or PID files.
 
   ### Prioritization
 
-  This alert is of high severity due to potential threats involving critical Linux systems that may be exploited for unauthorized remote access and persistence. The likelihood of abuse is significant, as BPFDoor has been weaponized in targeted attacks, indicating a need for immediate investigation.
+  This alert is considered high severity due to the critical function of the affected PID and lock files and the high likelihood of malicious exploitation when such access is detected. BPFDoor is a known evasive backdoor, commonly used by threat actors to maintain persistence or conduct further malicious operations.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if auditd is misconfigured or not collecting necessary events. Potential evasion techniques include attackers modifying access controls to avoid detection. Legitimate application updates or administrative activities could trigger the alert. Companion detections such as monitoring network connections to unusual external IPs would enhance overall security posture against these threats.
+  Detection may be limited by the configuration of the audit daemon, resulting in missed events if file access logging is not properly set. Legitimate applications on the host may also generate similar alerts due to normal operations, potentially leading to false positives. Companion detections that enhance coverage could include monitoring changes or accesses to sensitive system configurations or executables related to system services.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

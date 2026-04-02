@@ -8,7 +8,7 @@ references:
 - https://github.com/EmpireProject/Empire/blob/08cbd274bef78243d7a8ed6443b8364acd1fc48b/data/module_source/persistence/Install-SSP.ps1#L157
 author: iwillkeepwatch
 date: 2019-01-18
-modified: 2022-08-09
+modified: 2026-03-30
 tags:
 - attack.privilege-escalation
 - attack.persistence
@@ -25,6 +25,8 @@ detection:
     Image:
     - 'C:\Windows\system32\msiexec.exe'
     - 'C:\Windows\syswow64\MsiExec.exe'
+  filter_main_image_null:
+    Image:
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - Unknown
@@ -32,36 +34,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the addition of a Security Support Provider (SSP) to the Windows registry, specifically targeting entries in `\Control\Lsa\Security Packages` and `\Control\Lsa\OSConfig\Security Packages`. The likely attacker objective is to enable malicious access to encrypted and plaintext passwords stored in the Windows Local Security Authority (LSA), which could facilitate privilege escalation or lateral movement within the environment. This behavior is associated with the MITRE ATT&CK framework under the Persistence tactic, specifically technique T1547.005 (Registry Run Keys / Startup Folder).
+  This Sigma rule detects the addition of a Security Support Provider (SSP) to the Windows registry, specifically under `\Control\Lsa\Security Packages`. The detection targets potential modifications made by attackers aiming to gain access to sensitive information, such as plaintext and encrypted passwords stored within Windows, thereby escalating privileges and maintaining persistence. This behavior falls under the MITRE ATT&CK tactics of Privilege Escalation (Tactic ID: TA0004) and Persistence (Tactic ID: TA0003), with the technique being T1547.005: Registry Run Keys / Startup Folder.
 
-  The primary telemetry source is the Windows Registry, and relevant log types include registry event logs that capture changes made to these critical keys. If malicious, the security impact can be significant, potentially leading to full system compromise through credential extraction. However, it’s important to note that this detection does NOT confirm malicious intent on its own, as legitimate applications may also modify LSA configurations for valid purposes.
+  The primary telemetry source is Windows Registry Event logs. Successful exploitation can lead to significant security risks as attackers can leverage SSPs to siphon confidential user credentials. It is important to note that this detection alone does not confirm malicious intent or successful exploitation; further investigation is necessary to contextualize this behavior.
 
   ### Investigation Steps
 
-  - **Identify the Registry Change:**
-    Review Windows Registry Event Logs (Event ID 4657) for changes to `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System\LSA\Security Packages`. Confirm the addition of any SSPs not recognized as part of standard system behavior.
+  - **Check for Unauthorized SSP Entry:** Review Windows Registry logs for new entries under `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI\SecurityPackages`. Look for entries that do not align with known and expected SSPs.
 
-  - **Check the Associated Process:**
-    Analyze the process creation logs (Security Event ID 4688 or Sysmon Event ID 1) around the time of the registry change for indications that `msiexec.exe` or similar installers were executed. Investigate whether these processes are executing scripts or modules related to suspicious behavior.
+  - **Validate SSP Legitimacy:** Compare newly added SSPs against a baseline of known, legitimate providers commonly found in environments, such as "Negotiate," "NTLM," or "Kerberos." If an unknown DLL is registered, escalate as potentially malicious.
 
-  - **Investigate the Anomalous SSP:**
-    Cross-reference the added SSPs against known legitimate providers. Use documentation from trusted sources to validate whether the names of the SSPs are recognized or if they suggest malicious intent.
+  - **Examine Process Creation Events:** Review Security Event ID 4688 for process creation logs related to `msiexec.exe` before the SSP addition. Focus on command lines indicative of unusual installer behavior (e.g., unexpected parameters or invocation by non-administrative accounts).
 
-  - **Evaluate System Criticality:**
-    Assess the role of the affected host; if it’s a Domain Controller or a sensitive server, prioritize the investigation due to the criticality of the assets involved. Explore for signs of elevated privileges or lateral movement attempts.
+  - **Identify Potential Abuse:** Check for login behavior associated with the added SSP, particularly focusing on Event IDs 4624 (Logon) and 4625 (Logon Failure). Multiple failed logon attempts or logins from unusual accounts may indicate exploitation.
 
-  - **Look for User Behavior:**
-    Check user and administrative activity logs for any unusual access patterns or permissions escalations coinciding with the registry change event, indicating possible exploitation of the SSP.
+  - **Correlate with EDR Data:** If using an EDR solution, look for alerts or logs indicating abnormal process behavior from `lsass.exe`, including attempts to access secure Windows data or API calls made to manage security packages.
 
-  - **Identify Malicious File Indicators:**
-    Monitor for creation of suspicious DLLs in the `C:\Windows\System32` or `C:\Windows\SysWow64` directories that align with known malicious SSPs or abnormal activities, such as unexpected file execution or access anomalies.
+  - **Investigate System Asset Role:** Determine the role of the system where the SSP was added. Servers or workstations with critical functions (e.g., domain controllers) are high-risk targets for this type of persistence mechanism and should be prioritized for remediation.
 
   ### Prioritization
 
-  The alert severity is high due to the potential for significant impact on system confidentiality and integrity, especially if the host is critical or administrative. The likelihood of malicious abuse is high, as the addition of unrecognized SSPs is a known tactic used by adversaries to facilitate credential dumping and maintain persistence in an environment.
+  This alert should be considered high severity due to the potential for unauthorized access to sensitive credentials and the impact on system confidentiality. The likelihood of exploitation is significant, as malicious actors actively target the LSA for persistence and privilege escalation. Such behavior is often weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Some detection limitations include potential evasion techniques where an attacker may modify registry keys without raising alerts or utilize valid administrator behavior to avoid detection. Reliable detection requires comprehensive logging of registry events and real-time monitoring configurations. Legitimate activities that may inadvertently trigger this alert include authorized software installations that modify SSPs as part of their functionality. Related detections, such as monitoring for suspicious new services or scheduled tasks (e.g., T1050 - New Service), can help provide additional context around suspicious activity within the environment.
+  Detection may be limited by missing log sources if registry monitoring is not fully enabled or configured correctly. Legitimate administrative actions, such as software installation or updates that modify SSPs, can also trigger this alert. A companion detection to consider is monitoring for unauthorized changes to LSA configuration settings, which can provide additional context for any SSP modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
