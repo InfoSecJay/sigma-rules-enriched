@@ -12,6 +12,7 @@ references:
 - https://securelist.com/notepad-supply-chain-attack/118708/
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2026-02-02
+modified: 2026-03-16
 tags:
 - attack.collection
 - attack.credential-access
@@ -33,6 +34,11 @@ detection:
   - QueryName: 'github.com'
   filter_optional_google_storage_legit_domain:
     QueryName|endswith: '.googleapis.com'
+  filter_optional_uncommon_domains:
+    QueryName|endswith:
+    - '.azurewebsites.net'
+    - 'block.opendns.com'
+    - 'gateway.zscalerthree.net'
     # Add other known legitimate domains if any
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
@@ -44,30 +50,26 @@ level: medium # can be upgraded to high after tuning with known legitimate DNS q
 note: |
   ### Technical Context
 
-  This Sigma rule detects DNS queries made by the Notepad++ updater (gup.exe) to domains that are not part of the established update infrastructure. Such behavior may indicate that an attacker is attempting to exploit Notepad++'s updater mechanism to download malicious payloads. The relevant MITRE ATT&CK techniques include Initial Access (T1195.002), as this could serve as a vector for initial exploitation, and Collection (T1557), indicating data might be collected through the exploit.
-
-  The primary telemetry sources are DNS query logs, specifically monitoring queries related to gup.exe's network activity. A security incident due to malicious exploitation could lead to unauthorized data access or malware deployment within an organization. Notably, this detection does NOT confirm that the observed DNS queries are malicious on their own; further investigation is necessary to ascertain context and intent.
+  This Sigma rule detects DNS queries made by the Notepad++ updater (`gup.exe`) to domains that are not part of its established legitimate update infrastructure. Attackers may exploit the updater mechanism to deliver malicious payloads by modifying the DNS queries to direct users to nefarious servers. The relevant MITRE ATT&CK tactics include **Collection (T1560)** and **Initial Access (T1195.002)**. Primary telemetry sources include Windows DNS query logs, specifically focusing on log types related to DNS requests. If malicious, this activity could allow unauthorized software updates or malware installation, compromising system integrity. However, this detection does NOT confirm malicious intent without further correlation to additional indicators of compromise (IOCs).
 
   ### Investigation Steps
 
-  - **Review DNS query logs for gup.exe activity:** Filter DNS logs for queries where the process name ends with 'gup.exe' (e.g., Event ID: DNS query for query_name=*. Uncommon domains should be investigated further.
+  - **Confirm the process executing the DNS query:** Use Windows Security Event ID 4688 to verify if `gup.exe` is indeed the source of the DNS query. Look for signs of abnormal process behavior such as unusual parent processes.
 
-  - **Correlate with the established whitelist:** Identify any queries to domains other than "notepad-plus-plus.org" or legitimate SourceForge, GitHub, and Google Storage domains. Legitimate activity typically involves queries to these whitelisted domains.
+  - **Analyze DNS query details:** Review DNS logs for Event IDs related to DNS queries (e.g., Event ID 22 in Windows) and examine the `QueryName` field for any domains that fall outside the known legitimate update domains. Legitimate queries should predominantly include `notepad-plus-plus.org`, `sourceforge.net`, and related GitHub domains.
 
-  - **Examine associated DNS response details:** Look for anomalies in response times, response types (e.g., A, TXT), or unusual IP addresses (e.g., Event ID: 1234 DNS response fields such as ResponseAddress). Abnormal latencies may suggest the use of a malicious or untrusted DNS server.
+  - **Investigate system role and asset criticality:** Determine if the asset generating the alerts is critical. For instance, if the system is a production server, the potential impact is higher. Review logs for other outbound connections from the same asset.
 
-  - **Check for other active threats on the host:** Review process creation logs (e.g., Sysmon Event ID 1) for any unusual process behavior or parent-child process relationships initiated by gup.exe, indicating lateral movement or malicious exploitation.
+  - **Identify high-confidence malicious indicators:** Check for any DNS queries to domains such as `.azurewebsites.net`, `block.opendns.com`, or `gateway.zscalerthree.net`. If the query matches these suspicious domains, raise the alert level for further action.
 
-  - **Assess asset criticality:** Determine the role and sensitivity of the host running Notepad++. Analyze if an infection could lead to significant data loss or interruptions in services, prioritizing investigations accordingly.
-
-  - **Identify other suspicious behaviors:** Look for known indicators of compromise (IoCs) linked to Notepad++-related malware (e.g., unusual outbound traffic to known malicious IPs), enhancing the context of the alert.
+  - **Review legitimate activities:** Understand typical update behaviors and query patterns of Notepad++. Documented legitimate queries should primarily revolve around official update domains, indicating expected behavior.
 
   ### Prioritization
 
-  The severity of this alert is assessed as medium, primarily due to the potential for exploitation of a trusted application, which may result in unauthorized data access. However, the likelihood of this specific behavior being malicious may vary, as misconfigured systems might also trigger the alert. Continuous monitoring and tuning are recommended to accurately assess risks associated with this detection.
+  This alert has a medium severity level due to the potential impact on system integrity, particularly if the affected system is critical or sensitive. The likelihood of malicious abuse is plausible, given that supply chain attacks targeting software update mechanisms are increasingly common and effective.
 
   ### Blind Spots and Assumptions
 
-  This detection is limited by the potential for legitimate network misconfigurations causing unexpected DNS queries and the possibility of benign applications accessing unusual domains. Reliable detection requires comprehensive DNS logging configurations to ensure complete visibility into relevant queries. Additionally, legitimate updates or plugins that make unexpected DNS requests might trigger the alert. A companion detection, such as process creation logs for additional unusual executables, can help strengthen the context of this alert.
+  Detection limitations include possible evasion by legitimate applications misconfigured to contact unforeseen domains or due to using VPNs or proxies that alter DNS requests. The telemetry must be properly configured to capture all DNS queries accurately. Additionally, legitimate software tools that may perform similar network activities could inadvertently trigger the alert, including network monitoring solutions. A complementary detection involves monitoring for anomalous outbound traffic patterns indicative of data exfiltration stemming from such updates.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

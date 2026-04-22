@@ -12,6 +12,7 @@ references:
 - https://securelist.com/notepad-supply-chain-attack/118708/
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2026-02-03
+modified: 2026-03-16
 tags:
 - attack.collection
 - attack.credential-access
@@ -42,6 +43,14 @@ detection:
     - '.zip'
   filter_main_recycle_bin:
     TargetFilename|startswith: 'C:\$Recycle.Bin\S-1-5-21'
+  filter_main_plugins:
+  - TargetFilename|contains:
+    - '\plugins\JsonTools\testfiles\'
+    - '\Notepad++\plugins\ComparePlugin\'
+  - TargetFilename|contains|all:
+    - 'npp.'
+    - '.portable.'
+    - '\plugins\'
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - Custom or portable Notepad++ installations in non-standard directories.
@@ -50,30 +59,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of files by the Notepad++ updater (gup.exe) in locations that are unusual or potentially malicious. The likely objective of an adversary triggering this behavior could be to exploit the updater as a delivery mechanism for malware. The relevant MITRE ATT&CK tactics and techniques associated with this alert include Initial Access (TA0001), particularly through Supply Chain Compromise (T1195.002) and Collection (TA0009).
+  This rule detects the creation of files by the Notepad++ updater (gup.exe) in uncommon or suspicious locations, which is a behavior potentially indicative of exploitation or misuse. Adversaries may leverage the updater to deploy malicious files or malware, particularly if the original application itself is trusted. The relevant MITRE ATT&CK tactics and techniques are **Initial Access (T1195.002)** and **Collection (T1557)**. Primary telemetry sources include file event logs from Windows, specifically targeting log types that document file creation and modification events.
 
-  The primary telemetry source is the Windows file event logs, specifically targeting actions related to file creation and modification. If malicious, this activity could indicate a backdoor or unwanted software being installed that could compromise system integrity and user data. Importantly, this detection does NOT confirm malicious intent or activity on its own, as benign processes may trigger this rule, particularly legitimate uses of Notepad++ update functionality.
+  If malicious, the impact could be significant, potentially allowing attackers to introduce unwanted software or persist in a compromised environment. This detection does not confirm that the detected behavior is definitely malicious; legitimate applications may also trigger these alerts in atypical environments or configurations.
 
   ### Investigation Steps
 
-  - **Review Event ID 4663 or Sysmon Event ID 11:** Check for `ObjectType` that is generating the creation event, specifically involving `gup.exe`. Look for signs of unusual file names or extensions that deviate from normal update files.
+  - **Verify the file path of created files:** Check the `TargetFilename` field in Windows Security Event ID 4663 or Sysmon Event ID 11 for the specific file path. Legitimate paths typically include `C:\Program Files\Notepad++\` or `C:\Program Files (x86)\Notepad++\`. Paths outside these directories are suspicious.
 
-  - **Correlate file paths against known environments:** Validate file creation locations against standard installation paths for Notepad++. Legitimate updates should primarily occur under `C:\Program Files\Notepad++\` or `C:\Program Files (x86)\Notepad++\`.
+  - **Identify the parent process:** In conjunction with the detected file creation, query Event ID 4688 for the process creation details. Confirm if `gup.exe` is a child process of a known application. Legitimate processes will usually originate from a trusted Notepad++ instance.
 
-  - **Identify files created in temporary paths:** Focus on files created in `C:\Users\<username>\AppData\Local\Temp\`. Look for unexpected `npp..Installer.exe` or `.zip` files. Genuine installers may appear here, but unusual naming patterns may indicate malicious activity.
+  - **Correlate with user activity logs:** Reference audit logs for user actions around the time of the alert, such as `Logon` events (Event ID 4624). Cross-reference to see if the user commonly runs Notepad++ and its installer paths, to differentiate malicious behavior from typical usage.
 
-  - **Confirm file creation in user profile Recycle Bin:** Check for file creation events under `C:\$Recycle.Bin\S-1-5-21\`. Files stored in this location can suggest an attempt to hide malicious activity. Validate the context of these files against normal cleanup behavior by Notepad++.
+  - **Analyze for associated malicious indicators:** Check for recent suspicious network activity correlated with the process by reviewing Windows Firewall logs (Event ID 5156) or proxy logs. Look for unusual outbound connections made by `gup.exe`.
 
-  - **Assess system roles and asset criticality:** Determine if the affected system is part of a critical infrastructure or high-value target. Notepad++ typically operates on user workstations; unusual activity on a less secure system is of higher concern.
+  - **Validate presence of known malware signatures:** Utilize an endpoint protection tool to scan the files created by `gup.exe`, particularly those detected in locations like `C:\Users\*\AppData\Local\Temp\`. This may reveal known malware if it has been deployed.
 
-  - **Examine security software alerts:** Cross-reference with any alerts or logs from endpoint protection solutions regarding `gup.exe`. Legitimate updater processes should not trigger multiple alerts in a short time frame, which may indicate abuse or exploitation.
+  - **Review benign installation scenarios:** Understand configurations where Notepad++ was legitimately installed in custom locations. Document any instances where these atypical paths are considered acceptable for operational purposes.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential impact of compromised systems executing malicious software through seemingly benign applications. The likelihood of exploitation using legitimate software like Notepad++ is elevated, especially in cases of supply chain attacks where such tools may be weaponized.
+  This alert is classified as high severity due to its potential impact on compromised systems and the likelihood of exploitation through trusted software components. The use of common applications like Notepad++ makes this behavior a plausible target for adversaries, aligning it with known methods of compromise.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if the gup.exe has been improperly configured or if file monitoring on low-tier systems is inadequate. Legitimate software updates or portable installations of Notepad++ could trigger this alert. A related detection rule for monitoring unusual Powershell commands interacting with the updater could further strengthen coverage against potential file creation abuse.
+  This detection may miss diverse evasion techniques, such as renaming malicious executables or using other benign applications for similar file creation purposes. Reliable detection requires comprehensive logging configurations, including file system monitoring and sufficient granularity in the path logs. Legitimate updates from custom installations may also falsely trigger the alert. A related detection could include monitoring for unusual file modifications in other benign applications, enhancing the context around potential exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
