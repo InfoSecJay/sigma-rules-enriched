@@ -12,8 +12,10 @@ description: |
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1047/T1047.md
 - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wmic
+- https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-service
 author: frack113, Nasreddine Bencherchali (Nextron Systems)
 date: 2023-02-14
+modified: 2026-01-07
 tags:
 - attack.execution
 - attack.t1047
@@ -26,35 +28,48 @@ detection:
   - OriginalFileName: 'wmic.exe'
   selection_cli:
     CommandLine|contains: 'service'
-  condition: all of selection_*
+  filter_main_win32_methods:
+    CommandLine|contains:
+    - 'Change'
+    - 'Create'
+    - 'Delete'
+    - 'PauseService'
+    - 'ResumeService'
+    - 'SetSecurityDescriptor'
+    - 'StartService'
+    - 'StopService'
+    - 'UserControlService'
+  condition: all of selection_* and not 1 of filter_main_*
 falsepositives:
 - Unknown
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of WMI (Windows Management Instrumentation) queries using WMIC.EXE specifically targeting remote services. The likely objective of an attacker utilizing this technique is to perform reconnaissance on remote systems to identify running services, which can help in determining potential attack vectors or vulnerable services to exploit. This behavior aligns with the MITRE ATT&CK technique T1047 - "Windows Management Instrumentation" under the "Execution" tactic.
+  This rule detects the use of WMIC (Windows Management Instrumentation Command-line) to query service information on remote systems, indicating potential reconnaissance activity by an adversary. The likely attacker objective is to identify running services, which can assist in further exploitation. The relevant MITRE ATT&CK tactic is **Execution** and the technique is **WMIC** (T1047). The primary telemetry source includes Windows Process Creation events (Security Event ID 4688) and log types related to process execution.
 
-  The primary telemetry sources for this detection are process creation logs from Windows, particularly focusing on Event ID 4688, which records process initiation details. If malicious, this behavior may lead to further exploitation and control over target systems. This detection does NOT confirm malicious intent on its own, as legitimate administrative or monitoring tasks may also trigger these events.
+  If the detected activity is malicious, it could lead to service manipulation or enumeration of services in preparation for additional attacks. However, this detection does NOT confirm that an actual exploitation attempt has occurred, as legitimate administrative actions may also trigger the alert.
 
   ### Investigation Steps
 
-  - **Identify process execution context:** Review Security Event ID 4688 for WMIC.EXE executions. Note the `CommandLine` field for any arguments, especially those containing 'service'. A command line like `wmic service get state` indicates reconnaissance.
+  - **Verify the Command Line Used**: Check if the `CommandLine` field contains 'service' (Security Event ID 4688). Legitimate use may involve administrative actions or system checks rather than unusual service queries.
 
-  - **Analyze command parameters:** Validate the command line used. Commands with 'service' targeting multiple remote IPs or unexpected targets could indicate malicious intent while standard queries to local systems might be legitimate.
+  - **Identify Target Systems**: Review the `TargetUserId`, `TargetProcessId`, and `NewProcessName` fields to determine if the query was directed at critical systems or assets. Queries to sensitive servers may elevate the severity of the alert.
 
-  - **Check account permissions:** Evaluate the user account executing WMIC.EXE. If used by a standard user account without administrative privileges for remote querying, this raises suspicion.
+  - **Check Related Process Hierarchies**: Analyze the process tree for parent process relationships. If `WMIC.exe` was spawned by a suspicious or unexpected parent (like `powershell.exe`), this may indicate a malicious context.
 
-  - **Examine output implications:** Look for signs of output retrieval or parsing, such as errors like “No instance(s) Available” or issues connecting to the RPC server. These indications may suggest an attempt to probe multiple hosts.
+  - **Correlate with Firewall and Network Logs**: Look for unusual outbound connections or RPC activity related to the queried services, particularly using logs from Windows Firewall or network monitoring tools.
 
-  - **Review historical behavior:** Compare with past logs for similar WMIC commands from the same user or system. Established patterns of legitimate usage could suggest normal administrative tasks, while anomalies may hint at unauthorized activity.
+  - **Quantify Recurrence of Activity**: Determine if similar WMIC service queries have been repetitively executed in a short timeframe, using the `EventID` timestamps to identify potential malicious reconnaissance patterns.
+
+  - **Assess Recent Service Changes**: Review relevant service logs (like System Event logs, Event ID 7045) for changes in services that occurred around the same time as the WMIC execution. A pattern of service modifications following these queries could imply malicious intent.
 
   ### Prioritization
 
-  This alert is assigned a medium severity due to the potential impact on pivotal systems if exploited. Although reconnaissance alone may not lead to immediate compromise, it often precedes further malicious behavior, making it a noteworthy indicator for potential attacks.
+  This alert is of medium severity due to its potential impact on critical systems if it indicates unauthorized reconnaissance. The likelihood of malicious use is significant, as service enumeration commonly precedes further exploitation. This behavior is frequently weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate administrative use of WMIC for service queries, which can generate false positives. Reliable detection requires comprehensive logging of process creation and user actions. Additionally, network defense evasion techniques may include using legitimate administrative tools for reconnaissance, complicating detection efforts. A related detection could be monitoring unauthorized use of PowerShell commands for further coverage of reconnaissance activities.
+  Evasion techniques such as running WMIC from unusual locations or obfuscating command lines may bypass detection. This rule relies on the presence of adequate logging settings for process creation. Legitimate administrative tasks may inadvertently trigger the alert, especially in environments with active IT support. A related detection to consider is monitoring for unauthorized Service Control Manager (SCM) interactions, as they strengthen coverage for malicious service manipulation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

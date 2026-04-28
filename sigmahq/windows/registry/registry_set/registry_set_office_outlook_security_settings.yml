@@ -11,7 +11,7 @@ references:
 - https://learn.microsoft.com/en-us/outlook/troubleshoot/security/information-about-email-security-settings
 author: frack113
 date: 2021-12-28
-modified: 2023-08-17
+modified: 2026-01-09
 tags:
 - attack.persistence
 - attack.t1137
@@ -23,37 +23,40 @@ detection:
     TargetObject|contains|all:
     - '\SOFTWARE\Microsoft\Office\'
     - '\Outlook\Security\'
-  condition: selection
+  filter_main_outlook:
+    Image|startswith:
+    - 'C:\Program Files\Microsoft Office\'
+    - 'C:\Program Files (x86)\Microsoft Office\'
+    Image|endswith: '\OUTLOOK.EXE'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Administrative activity
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to registry values related to Outlook security settings, which may indicate attempts to weaken email security controls. An attacker may exploit this behavior to enable unsafe email features or bypass security measures, with the potential objective of reducing protection against phishing attacks or malware introduction. This action aligns with the MITRE ATT&CK technique T1137: "Office Application Startup," where adversaries may manipulate configurations for persistence.
+  This Sigma rule detects changes to the Windows Registry settings related to Outlook security. Such modifications may indicate an attacker attempting to weaken email security configurations to facilitate phishing, malware delivery, or other malicious activities targeting email communications. The relevant MITRE ATT&CK tactic is Persistence, specifically technique T1137 - "Office Application Startup".
 
-  Primary telemetry sources include Windows Registry event logs, specifically monitoring registry changes for keys related to Microsoft Office and Outlook. If these alterations are malicious, the impact could range from increased vulnerability to phishing attacks to unauthorized access to sensitive communications. It is important to note that this detection alone does not confirm malicious intent, as legitimate administrative activities may also trigger similar registry modifications.
+  The primary telemetry source for this detection includes Windows Registry change logs, specifically focusing on `SOFTWARE\Microsoft\Office\Outlook\Security`. If malicious, this behavior could potentially allow unauthorized manipulation of email security settings, leading to data breaches or account compromise. This detection does NOT confirm that malicious activity occurred; it merely highlights configuration changes that warrant further investigation.
 
   ### Investigation Steps
 
-  - **Inspect registry change details**: Review Windows Event ID 4657 for changes to registry keys under `\SOFTWARE\Microsoft\Office\` and `\Outlook\Security\`. Look for unusual values or keys not typically modified in your environment.
+  - **Verify the source of registry changes**: Review Security Event ID 4657 to identify which user or process initiated the registry update. Look for changes made by unexpected users or non-standard processes.
 
-  - **Verify legitimate administrative activities**: Cross-reference with your change management logs or processes to ensure changes correspond with authorized administrative actions. Legitimate admin actions might include updates initiated by IT personnel for compliance.
+  - **Identify legitimate administrative activity**: Check for recent legitimate administrative tasks, such as software updates or security audits, occurring around the same time. This can be cross-referenced with Event ID 4624 (Logon) to match user actions to administrative accounts.
 
-  - **Identify known bad indicators**: Check if the adjusted settings match known unsafe configurations, such as enabling "Allow unsafe client mail rules" in Outlook. Look for modifications in specific DWORD values that lower security settings.
+  - **Examine specific Registry keys**: Investigate the following Registry path for changes: `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\Outlook\Security\`. Look for values that might lower security settings, such as `AllowUnsafeClientMailRules`.
 
-  - **Assess user context**: Determine if the change was executed by users with administrative privileges on high-value assets. Event ID 4672 will help identify groups with special privileges at the time of the registry change.
+  - **Cross-reference process origin**: Identify the origin of the Outlook process using Sysmon Event ID 1 (Process Creation). Look for instances where `OUTLOOK.EXE` has a suspicious path or parameters which could indicate manipulation by a non-standard application.
 
-  - **Analyze timeline of changes**: Review the context around the time of the registry modification in the Windows Security Event Log (Event ID 4663) to identify any suspicious activity or prior alerts that correlate.
-
-  - **Validate file manipulation or exfiltration**: Look for any subsequent activity, such as file creations or unusual outbound communication related to email attachments or data exfiltration, particularly around the same timeline.
+  - **Monitor for subsequent malicious activity**: Check for any related malicious indicators following the registry change, such as outbound network connections initiated by Outlook that may indicate data exfiltration or command and control (C2) communications. Related Event IDs include 5156 for Windows Filtering Platform and 5158 for successful connection events.
 
   ### Prioritization
 
-  This alert should be prioritized as medium severity due to the potential impact on organizational security posture. While not highly common, the manipulation of Outlook settings can be weaponized by adversaries seeking to exploit email as a vector for attacks. The likelihood of malicious abuse increases if the change is made in a sensitive or high-value context.
+  This alert should be treated with medium priority based on the potential impact of altered security settings in an enterprise environment. The likelihood of malicious abuse is moderate, as attackers often target email systems; however, administrative activities could similarly trigger this rule. Identifying confirmed malicious changes would warrant immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  This detection may not account for sophisticated adversaries who employ stealthy methods to manipulate registry keys without triggering security logs. Reliable detection requires correct logging configurations of the Windows Registry, and legitimate administrative actions can easily trigger similar alerts. A related detection that enhances coverage would involve monitoring for abnormal email activities, such as unusual email flows or the use of unsafe client rules, which can further indicate potential exploitation of altered settings.
+  This detection may be limited by legitimate administrative activities that could also trigger registry changes. Required log sources include complete Windows Event logs and audit policies specifically configured to monitor registry access. Additionally, legitimate users could modify these settings during routine updates or due diligence. A related detection to consider is monitoring for unusual PowerShell commands (via Event IDs 4103 and 4104) that might further indicate exploitation attempts post-registry manipulation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

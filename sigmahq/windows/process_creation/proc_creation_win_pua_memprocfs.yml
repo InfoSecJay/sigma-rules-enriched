@@ -1,0 +1,65 @@
+title: PUA - Memory Dump Mount Via MemProcFS
+id: 8a1b2c3d-4e5f-6789-abcd-ef1234567890
+status: experimental
+description: |
+  Detects execution of MemProcFS a memory forensics tool with the '-device' parameter.
+  MemProcFS mounts physical memory as a virtual file system, allowing direct access to process memory and system structures.
+  Threat actors were seen abusing this utility to mount memory dumps and then extract sensitive information from processes like LSASS or extract registry hives to obtain credentials, LSA secrets, SAM data, and cached domain credentials.
+  MemProcFS usage that is not part of authorized forensic analysis should be treated as suspicious and warrants further investigation.
+references:
+- https://github.com/ufrisk/MemProcFS
+- https://0xdf.gitlab.io/2024/10/05/htb-freelancer.html#
+- https://www.huntress.com/blog/curling-for-data-a-dive-into-a-threat-actors-malicious-ttps
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-04-27
+tags:
+- attack.credential-access
+- attack.t1003
+- attack.t1003.001
+- attack.t1003.004
+- attack.t1003.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith: '\MemProcFS.exe'
+  - OriginalFileName: 'MemProcFS.exe'
+  - Description: 'MemProcFS'
+  selection_cli:
+    CommandLine|contains: '-device'
+  condition: all of selection_*
+falsepositives:
+- Legitimate use during memory forensics; if not part of authorized analysis, 
+  warrants urgent investigation
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_pua_memprocfs/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the execution of MemProcFS with the `-device` parameter, which indicates a potential attempt to access and extract sensitive data from a system’s memory. Attackers often use this tool to exfiltrate information from critical process memory, such as LSASS, which can lead to credential harvesting or lateral movement within a network. The relevant MITRE ATT&CK tactics and techniques are Credential Access (TA0006) and Process Injection (T1003), specifically T1003.001 (OS Credential Dumping: LSASS Memory) and T1003.004 (Credential Dumping: Process Space) among others.
+
+  The primary telemetry sources for this alert are the Windows Process Creation logs, specifically capturing Event ID 4688, detailing newly created process instances. If detected, the security impact can be significant as it implies possible unauthorized access to sensitive data, posing a high security risk. It is important to note that this detection alone does not confirm malicious intent without corroborating evidence from other sources.
+
+  ### Investigation Steps
+
+  - **Identify the Process Execution Context**: Check for Event ID 4688 (Process Creation) in the Windows security logs; verify that the `New Process Name` field corresponds to `MemProcFS.exe`, and ensure the account running the process has a legitimate business need.
+
+  - **Review Command Line Arguments**: In the same Event ID 4688 logs, inspect the `CommandLine` field for the `-device` parameter; benign use cases typically do not include this argument. Legitimate use cases for MemProcFS should come from authorized forensic analysis.
+
+  - **Correlate with Other Logs**: Look for subsequent evidence of memory access or data extraction in relevant logs such as Sysmon (Event ID 10 - ProcessAccess) and Windows Event ID 4663 (Access to an Object); identify attempts to access LSASS or Registry hives.
+
+  - **Analyze User Context and Timeliness**: Confirm the user context (Field: `New Process User`) and the time of execution; cross-reference with normal operational hours to help distinguish between legitimate forensic work versus a potential attack.
+
+  - **Seek Compromised Credential Artifacts**: Investigate for artifacts related to credential dumping, such as unusual registry access or suspicious network activity targeting sensitive data sources, as indicated in Event ID 4663 related specifically to `HKLM\SAM` or `HKLM\Security`.
+
+  ### Prioritization
+
+  This alert should be prioritized as high due to the potential for significant impact on credential security. The behavior is associated with well-known adversary techniques for data exfiltration and is commonly seen in credential harvesting attacks. The likelihood of malicious abuse is enhanced given the sensitivity of the information at risk.
+
+  ### Blind Spots and Assumptions
+
+  Detection of MemProcFS does not account for all legitimate forensic activities, making it essential to investigate the context of its execution thoroughly. Evasion techniques may include renaming the executable or using other similar tools with different names or arguments. Additional logging from Sysmon and EDR solutions would improve detection reliability. Companion detections could involve monitoring for unusual memory access patterns or multiple process creations linked to known credential dumping activities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

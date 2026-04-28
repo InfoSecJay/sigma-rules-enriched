@@ -1,8 +1,9 @@
 title: Script Interpreter Execution From Suspicious Folder
 id: 1228c958-e64e-4e71-92ad-7d429f4138ba
 status: test
-description: Detects a suspicious script execution in temporary folders or 
-  folders accessible by environment variables
+description: |
+  Detects suspicious script execution from suspicious directories or folders accessible by environment variables that may indicate malware activity.
+  Script interpreters (cscript, wscript, mshta, powershell) executing from folders like Temp, Public, or user profile directories may suggest attempts to evade detection or execute malicious scripts.
 references:
 - https://www.virustotal.com/gui/file/91ba814a86ddedc7a9d546e26f912c541205b47a853d227756ab1334ade92c3f
 - https://symantec-enterprise-blogs.security.com/blogs/threat-intelligence/shuckworm-russia-ukraine-military
@@ -10,7 +11,7 @@ references:
 author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
   Systems)
 date: 2022-02-08
-modified: 2023-06-16
+modified: 2026-02-17
 tags:
 - attack.execution
 - attack.t1059
@@ -40,10 +41,15 @@ detection:
     CommandLine|contains:
     - ':\Perflogs\'
     - ':\Users\Public\'
+    - '\%Public%'
     - '\AppData\Local\Temp'
     - '\AppData\Roaming\Temp'
     - '\Temporary Internet'
     - '\Windows\Temp'
+    - '\Start Menu\Programs\Startup\'
+    - '%TEMP%'
+    - '%TMP%'
+    - '%LocalAppData%\Temp'
   selection_folders_2:
   - CommandLine|contains|all:
     - ':\Users\'
@@ -54,35 +60,62 @@ detection:
   - CommandLine|contains|all:
     - ':\Users\'
     - '\Contacts\'
-  condition: 1 of selection_proc_* and 1 of selection_folders_*
+  - CommandLine|contains|all:
+    - ':\Users\'
+    - '\Documents\'
+  - CommandLine|contains|all:
+    - ':\Users\'
+    - '\Music\'
+  - CommandLine|contains|all:
+    - ':\Users\'
+    - '\Pictures\'
+  - CommandLine|contains|all:
+    - ':\Users\'
+    - '\Videos\'
+  filter_optional_chocolatey_installer:
+    ParentImage:
+    - 'C:\Windows\System32\Msiexec.exe'
+    - 'C:\Windows\SysWOW64\Msiexec.exe'
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains|all:
+    - '-NoProfile -ExecutionPolicy Bypass -Command'
+    - 'AppData\Local\Temp\'
+    - 'Install-Chocolatey.ps1'
+  condition: 1 of selection_proc_* and 1 of selection_folders_* and not 1 of 
+    filter_optional_*
 falsepositives:
-- Unknown
+- Various legitimate software have been observed to use similar techniques for 
+  installation or update purposes;thus, it is recommended to review and tune 
+  filters for your environment to reduce false positives before deploying to 
+  production.
 level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of Windows script interpreters (cscript.exe, wscript.exe, and mshta.exe) from potentially malicious locations, such as temporary directories or user-specific folders that may be manipulated by adversaries. The likely objective is to execute scripts that could perform unauthorized actions, including lateral movement, data exfiltration, or dropping additional malware. This behavior aligns with the MITRE ATT&CK technique for "Command and Scripting Interpreter" (T1059).
+  This rule detects the execution of script interpreters (like `cscript.exe`, `mshta.exe`, and `wscript.exe`) from suspicious directories—such as Temp or Public—potentially indicating malicious activity. Attackers may aim to execute scripts to carry out actions like data exfiltration, exploitation of vulnerabilities, or lateral movement within the network. This behavior aligns with the MITRE ATT&CK technique T1059 (Command and Scripting Interpreter).
 
-  The primary telemetry sources for this detection include Windows process creation logs (Security Event ID 4688) and Sysmon logs (Event ID 1). If these executions are malicious, they can lead to severe security breaches, including system compromise and data loss. It is important to note that this detection alone does not confirm malicious intent, as legitimate applications may also utilize script interpreters for benign purposes.
+  The primary telemetry source for this detection includes Windows process creation logs (Event ID 4688 and Sysmon Event ID 1), which provide insights into executed commands and associated paths. If the behavior is malicious, it may lead to significant security impacts, such as data compromise or system corruption. However, it is crucial to note that this detection alone does not confirm that the activity is indeed malicious, as legitimate applications may also use similar execution methods.
 
   ### Investigation Steps
 
-  - **Inspect process creation logs:** Review Security Event ID 4688 logs for suspicious process executions involving cscript.exe, wscript.exe, or mshta.exe. Look for CommandLine arguments containing " -ep bypass ", " -ExecutionPolicy bypass ", or " -w hidden " which can indicate obfuscation techniques.
+  - **Examine process creation logs:** Review Windows Security Event ID 4688 and Sysmon Event ID 1. Focus on instances where script interpreters are executed from paths like `C:\Users\Public\`, `C:\AppData\Local\Temp\`, or `C:\Windows\Temp\`. Compare the timestamps with any ongoing incident reports or known maintenance schedules.
 
-  - **Verify execution location:** Check the execution path of the identified scripts. Legitimate script executions usually occur from standard directories such as C:\Program Files\, while executions from folders like AppData\Local\Temp or public directories indicate potentially malicious activity.
+  - **Review command line arguments:** Scrutinize the command lines of the detected processes for indicators like `-ExecutionPolicy Bypass`, `-ep bypass`, or any use of `-w hidden`. Legitimate scripts typically do not employ these flags and would not operate from temporary directories.
 
-  - **Analyze associated user accounts:** Monitor the user account that triggered the alert by reviewing User Logon IDs in the process creation logs. Ensure the account is authorized to execute scripts in the flagged locations. Anomalous accounts or usage patterns can signify a compromise.
+  - **Validate the parent process:** Check the parent process of the detected script interpreter. If the parent process is `Msiexec.exe` with a command line containing `Install-Chocolatey.ps1`, consider this a benign installation. Otherwise, further investigation is warranted.
 
-  - **Check for other indicators of compromise:** Review Sysmon logs for related network activity (Event ID 3) connected to the process execution. Look for connections to known malicious IPs or domains that align with the timing of the script execution.
+  - **Identify user context:** Determine the user account under which the scripts were executed. If the execution is associated with a non-administrative user and targets sensitive directories, it may indicate suspicious activity.
 
-  - **Correlate with known benign activity:** Compare the alert against the typical behavior of authorized applications or scripts within your environment, particularly those executed from standard directories. Identify any ongoing legitimate scripts that might be invoking the same interpreters, noting their paths and purpose.
+  - **Correlate with other alerts:** Check for other alerts or behaviors that might indicate malicious intent, such as network connections initiated by the executing process or unusual file modifications on the same system.
+
+  - **Assess for legitimate software usage:** Review any recent installations or updates to confirm whether trusted applications have run scripts. Cross-reference logs with known installation times to lessen false positives.
 
   ### Prioritization
 
-  This alert should be prioritized as high severity due to the potential for significant impact on critical systems from unauthorized script execution. The likelihood of malicious abuse is substantial, as the behavior detected is commonly weaponized during various phases of attacks, particularly in post-exploitation scenarios.
+  Given the high severity level of this alert, systems affected are often critical, as they may host sensitive data or operate vital infrastructure. The likelihood of malicious exploitation is elevated due to the common abuse of script execution techniques by attackers. This behavior is frequently weaponized in various threat scenarios, thus warranting immediate attention.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logging is misconfigured or if necessary script execution telemetry is not enabled, such as turning on detailed process creation auditing. Legitimate applications like system management scripts can trigger this alert, creating noise in the monitoring process. Consider correlating with companion detections, such as anomaly detection for PowerShell (T1059.001), which can help strengthen coverage against script-based attacks.
+  This detection may miss obfuscation techniques where legitimate software behaves similarly but without triggering this rule. Accurate detection relies on comprehensive logging configurations, including Sysmon for detailed process tracking. Additionally, benign activities like software updates or scripts run by system management tools (e.g., chocolatey) may cause false positives. Companion detections for process injection or unusual outbound connections can enhance coverage against related threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

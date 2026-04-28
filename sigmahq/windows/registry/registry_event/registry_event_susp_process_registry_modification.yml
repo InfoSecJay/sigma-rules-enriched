@@ -32,13 +32,20 @@ detection:
     - '\mshta.exe'
     - '\wscript.exe'
     - '\cscript.exe'
-  filter_main_legit_wscript:
+  filter_main_binary_data:
+    Details: 'Binary Data'
+  filter_main_null:
+    Details:
+  filter_main_wscript_legit_1:
     Image|endswith: '\wscript.exe'
     TargetObject|contains:
     - 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Notifications\Data\'
     - '\Services\bam\State\UserSettings\S-1-'
     - 'Software\Microsoft\Windows Script\Settings\Telemetry\wscript.exe\'
     - 'Software\Microsoft\Windows\CurrentVersion\Internet Settings\'
+  filter_main_wscript_legit_2:
+    Image|endswith: '\wscript.exe'
+    TargetObject|contains: '\wscript.exe'
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - Some legitimate admin or install scripts may use these processes for registry 
@@ -47,28 +54,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects unauthorized registry modifications executed by scripts (e.g., WScript.exe, CScript.exe), which are atypical for legitimate administrative tasks. The likely attacker objective is to establish persistence or modify system behavior for malicious purposes, aligning with the MITRE ATT&CK tactics of Defense Evasion (T1562) and Persistence (T1059.005). The primary telemetry source is Windows Registry Event logs (Event ID 13), capturing modifications to registry keys.
+  This Sigma rule detects suspicious modifications to the Windows Registry triggered by script engine processes like WScript or CScript. These processes are typically leveraged by attackers to manipulate the registry surreptitiously, often for persistence and evasion tactics. The likely attacker objective is to create or modify registry entries that allow malicious software to execute automatically on system startup. This behavior aligns with the MITRE ATT&CK techniques T1112 (Modify Registry) and T1059.005 (Command and Scripting Interpreter: Windows Script Host).
 
-  If successfully executed, these registry changes can lead to issues like unauthorized data access or system instability by altering critical system settings. However, the detection alone does not confirm malicious intent; legitimate administrative tasks may trigger registry changes through these scripts.
+  The primary telemetry source for this detection is the Windows Registry event logs, specifically looking for registry modifications initiated by targeted process images. The security impact could involve persistent malware or unauthorized configuration changes. Importantly, this detection does NOT confirm malicious intent on its own; further investigation is always required to distinguish between legitimate use and nefarious activity.
 
   ### Investigation Steps
 
-  - **Check Event ID 13 for Registry Modifications**: Review Windows Registry Event logs to identify specific registry keys modified by the suspicious processes. Focus on keys outside the expected legitimate modification locations (e.g., UserSettings or Internet Settings).
+  - **Check the process involved**: Review Windows Event ID 4657 to identify the process making registry changes. Look specifically for event timestamps that correlate with the alert generation time. If the process is primarily a known administrative tool, it may be benign.
 
-  - **Validate Process Origins**: Investigate the parent processes of WScript.exe or CScript.exe using Security Event ID 4688 or Sysmon Event ID 1. Look for indicators that the process was spawned by a known legitimate application versus anomalous entries, such as scripts from temp directories.
+  - **Review registry paths affected**: Analyze the changes to the registry using Windows Event ID 4657 or querying the registry directly. Legitimate modification example paths include 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Notifications\Data\' which would imply normal operations rather than malicious intent.
 
-  - **Identify Malicious Registry Keys**: Specifically look for modifications to critical registry paths (e.g., HKCU\Software\Microsoft\Windows\CurrentVersion\Run). Changes here may indicate persistence mechanisms being established by an adversary.
+  - **Identify suspicious modifications**: Cross-reference with the specific paths modified as indicated in the alert. Modifications outside common administrative keys, especially related to persistence or execution (e.g., keys under 'SOFTWARE\Microsoft\Windows\CurrentVersion\Run'), could indicate a high-confidence malicious indicator.
 
-  - **Correlate with System Integrity**: Assess the asset's criticality and expected behavior by verifying whether legitimate admin scripts are indeed modifying the registry. Review if these changes correspond to recent installations or updates.
+  - **Examine legitimacy of scripts used**: For instances where WScript or CScript processes are involved, review the script content and execution context. If they are sourced from unexpected locations or executed by non-admin users, this raises red flags.
 
-  - **Review Telemetry for Evasion Indicators**: Cross-reference any detected script activity with anti-virus or application control logs for known malicious indicators (hashes, signatures, etc.). Focus on logs from endpoint security solutions for detection of malicious script execution.
+  - **Assess potential for evasion**: Document any patterns of legitimate activity that may appear similar to the alerts, such as software installation or updates that utilize WScript. This helps filter out false positives during ongoing investigations.
+
+  - **Monitor for related events**: Utilize hunting techniques by correlating this event with similar detections (e.g., from related Sigma rules concerning lateral movement or remote access mechanisms) to strengthen your investigation. Look for patterns in the execution of script processes over time to identify any unusual behavior.
 
   ### Prioritization
 
-  The alert is of medium severity due to the potential impact on critical systems, as unauthorized registry modifications can facilitate persistence and further exploitation. The use of scripting tools for registry manipulation is not common in legitimate operations, increasing the likelihood of malicious intent.
+  The alert is medium severity due to the potential impact on system integrity through unauthorized registry modifications. While the processes involved are not inherently malicious, their use for registry tampering in this context is often tied to adversarial actions. This behavior is indeed weaponized by attackers seeking to establish persistence mechanisms within the target environment.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative activities that employ scripts for registry changes, potentially leading to false positives. Ensure logging is enabled for Windows Registry modifications (Event ID 13) to capture all necessary changes. Common evasion techniques include use of obfuscated scripts or execution from non-standard paths. Companion detections that reinforce coverage include process creation logs (Event ID 4688) to correlate script executions with changes made.
+  This detection may be limited by legitimate administrative processes that also modify the registry but are not captured by the rule. A reliable detection requires thorough configuration of Windows Event logging to ensure registry changes are recorded. Routine administrative tasks, such as software installations or updates, may trigger this alert. A relevant companion detection might involve monitoring PowerShell usage (T1059.001), which could be used in conjunction with scripts that modify registry settings, enhancing overall visibility to malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

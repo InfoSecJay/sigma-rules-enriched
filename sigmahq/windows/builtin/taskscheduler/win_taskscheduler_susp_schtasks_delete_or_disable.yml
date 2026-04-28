@@ -1,0 +1,83 @@
+title: Important Scheduled Task Deleted or Disabled
+id: 9e3cb244-bdb8-4632-8c90-6079c8f4f16d
+related:
+- id: dbc1f800-0fe0-4bc0-9c66-292c2abe3f78     # ProcCreation schtasks delete
+  type: similar
+- id: 7595ba94-cf3b-4471-aa03-4f6baa9e5fad     # Security-Audting Eventlog
+  type: similar
+- id: 9ac94dc8-9042-493c-ba45-3b5e7c86b980     # ProcCreation schtasks disable
+  type: similar
+status: test
+description: |
+  Detects when adversaries try to stop system services or processes by deleting or disabling their respective scheduled tasks in order to conduct data destructive activities
+references:
+- https://www.socinvestigation.com/most-common-windows-event-ids-to-hunt-mind-map/
+author: frack113
+date: 2023-01-13
+modified: 2026-03-11
+tags:
+- attack.impact
+- attack.t1489
+logsource:
+  product: windows
+  service: taskscheduler
+  definition: 'Requirements: The "Microsoft-Windows-TaskScheduler/Operational" is
+    disabled by default and needs to be enabled in order for this detection to trigger'
+detection:
+  selection:
+    EventID:
+    - 141         # Task Deleted
+    - 142         # Task Disabled
+    TaskName|contains:
+    - '\Windows\SystemRestore\SR'
+    - '\Windows\Windows Defender\'
+    - '\Windows\BitLocker'
+    - '\Windows\WindowsBackup\'
+    - '\Windows\WindowsUpdate\'
+    - '\Windows\UpdateOrchestrator\'
+    - '\Windows\ExploitGuard'
+  filter_main_user:
+    UserName|contains:
+    - 'AUTHORI'
+    - 'AUTORI'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/builtin/taskscheduler/win_taskscheduler_susp_schtasks_delete_or_disable/info.yml
+simulation:
+- type: atomic-red-team
+  name: Windows - Disable the SR scheduled task
+  technique: T1490
+  atomic_guid: 1c68c68d-83a4-4981-974e-8993055fa034
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the deletion or disabling of critical Windows scheduled tasks that protect system integrity, such as those related to System Restore, Windows Defender, and BitLocker. The likely attacker objective is to disable security mechanisms or backup processes, facilitating data destruction or unauthorized access to sensitive systems. This behavior aligns with the MITRE ATT&CK technique T1489 (Impact - Data Destruction).
+
+  Primary telemetry sources include Windows Event Logs, specifically the "Microsoft-Windows-TaskScheduler/Operational" channel, where Event IDs 141 (Task Deleted) and 142 (Task Disabled) can be found. If malicious, this could enable data loss or compromise system recovery processes. Importantly, this detection does NOT confirm that malicious activity has occurred on its own; further investigation is needed to establish context.
+
+  ### Investigation Steps
+
+  - **Review scheduled task modifications**: Analyze Event ID 141 and 142 in the Task Scheduler Operational logs (Event Log channel) for the specified task names (e.g., '\Windows\SystemRestore\SR'). Look for unusual activity where the user context does not match typical administrative users.
+
+  - **Correlate with user activity**: Check Windows Security Event logs (Event ID 4624) for logins around the timestamp of the task deletion or disabling. Validate user behavior against known legitimate administrative actions to distinguish benign from malicious actors.
+
+  - **Investigate associated processes**: Review process creation logs (Windows Event ID 4688 or Sysmon Event ID 1) around the same time. Look for the use of PowerShell or command-line utilities (like schtasks.exe) that were used to modify scheduled tasks. Legitimate processes may include administrative tasks scheduled by known users.
+
+  - **Assess system role and criticality**: Confirm if the affected system has a critical role (e.g., domain controller, gateway, or data server). Malicious modification of tasks on essential systems poses higher risks and should be prioritized for immediate response.
+
+  - **Monitor for additional indicators of compromise**: Check for related alerts or events that may suggest ongoing compromise, like subsequent attempts to access or disable security features (e.g., Windows Defender events or BitLocker status changes).
+
+  - **Validate restoration options**: Examine logs for evidence of backup activity that would normally precede task changes (e.g., Event ID 107 (Task Started) on Backup Operation) to determine legitimate scheduled task behavior against malicious modifications.
+
+  ### Prioritization
+
+  This alert is high severity given that critical system tasks are being deleted or disabled, which can significantly compromise system security. The likelihood of malicious abuse is high, especially when it aligns with common attack vectors targeting known Windows features. This behavior is weaponized in various forms of cyberattacks, particularly those focused on data destruction.
+
+  ### Blind Spots and Assumptions
+
+  Potential evasion techniques include attackers using administrative privileges to mask their changes or legitimate users inadvertently altering task configurations during maintenance activities. Reliable detection requires that the Task Scheduler Operational log is enabled, as it is disabled by default. Legitimate administrative actions, such as scheduled updates or system reconfigurations, may trigger alerts. Related detection rules might include those monitoring for direct process creation events that correlate with task modifications (e.g., schtasks.exe executions).
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

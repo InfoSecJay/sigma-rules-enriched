@@ -42,39 +42,48 @@ detection:
     - '\Windows\WindowsUpdate\'
     - '\Windows\UpdateOrchestrator\Schedule'
     - '\Windows\ExploitGuard'
-  filter_sys_username:
+  filter_main_defender_update:
     EventID: 4699
     SubjectUserName|endswith: '$'      # False positives during upgrades of Defender, where its tasks get removed and added
     TaskName|contains: '\Windows\Windows Defender\'
-  condition: selection and not 1 of filter_*
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/builtin/security/win_security_susp_scheduled_task_delete_or_disable/info.yml
+simulation:
+- type: atomic-red-team
+  name: Windows - Disable the SR scheduled task
+  technique: T1490
+  atomic_guid: 1c68c68d-83a4-4981-974e-8993055fa034
 note: |
   ### Technical Context
 
-  This detection rule identifies the deletion or disabling of critical scheduled tasks, specifically those related to system maintenance and security (e.g., Windows Defender tasks, System Restore, Windows Update). Such actions could indicate an adversary's attempt to hinder system functionality, facilitate further exploitation, or achieve persistence without detection, aligning with the MITRE ATT&CK technique T1053.005 (Scheduled Task/Job). The primary telemetry sources include Windows Security Event logs, particularly Event IDs 4699 (Task Deleted) and 4701 (Task Disabled).
+  This detection identifies when important scheduled tasks are deleted or disabled on Windows systems, which may indicate malicious intent. Attackers may seek to disable legitimate security measures (like Windows Defender updates) or disrupt system stability and functionality. The relevant MITRE ATT&CK tactics and techniques are **Execution (T1053.005)** and **Privilege Escalation**.
 
-  If malicious, this behavior poses a significant security risk, suggesting an adversary is attempting to disrupt essential security processes or delete critical recovery options. However, this detection does NOT confirm malicious intent on its own; benign administrative actions or automated task management by third-party applications could trigger the same events.
+  The primary telemetry source is Windows Security logs, specifically Event IDs **4699** (Task Deleted) and **4701** (Task Disabled). If these activities are malicious, they can lead to an increase in vulnerability to further attacks or data exfiltration. It is important to note that this detection does NOT confirm malicious activity on its own, as legitimate administrative tasks may also lead to these events.
 
   ### Investigation Steps
 
-  - **Review relevant Event IDs:** Check Windows Security Event IDs 4699 and 4701 in the Security log to confirm the deletion or disabling of scheduled tasks. Focus on the associated `TaskName` field for any important system tasks listed in the rule.
+  - **Check Event IDs 4699 and 4701:** Review Windows Security logs for Event IDs **4699** (Task Deleted) and **4701** (Task Disabled). Look for tasks related to system security, such as `\Windows\SystemRestore\SR`, `\Windows\Windows Defender\`, and others listed in the detection criteria.
 
-  - **Identify and validate task behavior:** Compare the `TaskName` with expected legitimate activities. Tasks such as `\Windows\SystemRestore\SR` and `\Windows\WindowsUpdate\` should typically be present and enabled unless there is a documented maintenance window.
+  - **Identify the User Account:** Verify the `SubjectUserName` field associated with the events to determine if the actions were taken by a legitimate administrative account or a potentially compromised user account. Administrative accounts performing these actions may be benign, whereas unexpected user accounts can be suspicious.
 
-  - **Check user context of the action:** Examine the `SubjectUserName` field of the detected events. A username ending with `$` suggests the action occurred under a machine account, which might be legitimate for system tasks. However, unexpected actions by administrative users could indicate malicious activity.
+  - **Assess Task Importance:** Review legitimate scheduled tasks that were deleted or disabled. Confirm if they're critical tasks for the system’s functionality and security (e.g., Windows Defender, BitLocker, or System Restore). Their absence can signal higher risk.
 
-  - **Correlate with process creation logs:** Review related logs for process creation events (Security Event ID 4688 or Sysmon Event ID 1) around the same timeframe to find whether suspicious processes executed before or after the task modifications.
+  - **Correlate with Other Logs:** Cross-reference the deletion or disabling events (Event IDs **4699** and **4701**) with other telemetry, such as process creation logs (Event ID **4688** or Sysmon Event ID **1**). Look for unusual parent-child process relationships indicating a possible script or malicious actor performed the tasks.
 
-  - **Validate the execution context:** Ensure that the logon type associated with task deletion/disabling events shows expected indicators (e.g., logon type 2 or type 3) for routine administrative tasks, avoiding types 4 or 10 that may indicate unauthorized remote access.
+  - **Validate Against Known Maintenance:** Verify if these actions align with known maintenance schedules or updates (e.g., antivirus updates, system patches). Review past maintenance logs to determine if these changes fall within typical administrative behavior.
+
+  - **Identify Scheduled Task Execution History:** Check for any recent executions of the tasks that were deleted or disabled to understand their last known state. This can help establish whether they had been functioning as intended prior to the alteration.
 
   ### Prioritization
 
-  This alert has high severity due to the critical nature of the scheduled tasks being monitored. The likelihood of malicious actions leveraging task modifications is significant, especially since adversaries commonly manipulate scheduled tasks to maintain persistence or degrade system security features.
+  This alert is high severity due to the potential impact on critical system functionalities and security measures. The likelihood of adversarial activity is considerable, given that the manipulation of scheduled tasks is a known tactic used to disrupt system defenses and conduct further malicious activities.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by configurations missing the Advanced Audit Policy setting for Object Access, which is required for this detection to function. Additionally, legitimate administrative activities, such as routine maintenance or software updates, can trigger alerts. Companion detections for task creation or modification (Event ID 4700) may provide further context and strengthen coverage against potential abuse.
+  Detection may be limited by environments where logging at the required detail level is not enabled or where the `Audit Other Object Access Events` policy is not configured. Also, legitimate administrative tasks may occasionally trigger this alert when system updates or maintenance activities occur. A related detection that enhances coverage would involve monitoring for abnormal process creation linked to scheduled task modifications (e.g., alerts for Event ID **4688** associated with anomalous commands targeting scheduled task operations).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

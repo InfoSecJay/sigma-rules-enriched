@@ -8,7 +8,7 @@ references:
 - https://vanmieghem.io/stealth-outlook-persistence/
 author: Bhabesh Raj
 date: 2021-01-10
-modified: 2025-10-07
+modified: 2026-01-09
 tags:
 - attack.t1137.006
 - attack.persistence
@@ -44,14 +44,21 @@ detection:
     - 'C:\Program Files (x86)\Microsoft Office\OFFICE'
     - 'C:\Program Files\Microsoft Office\Root\OFFICE'
     - 'C:\Program Files (x86)\Microsoft Office\Root\OFFICE'
+    - 'C:\PROGRA~2\MICROS~2\Office'
     Image|endswith:
     - '\excel.exe'
     - '\Integrator.exe'
+    - '\OneNote.exe'
     - '\outlook.exe'
     - '\powerpnt.exe'
     - '\Teams.exe'
     - '\visio.exe'
     - '\winword.exe'
+  filter_main_vsto:
+    Image|startswith:
+    - 'C:\Program Files\Common Files\Microsoft Shared\VSTO\'
+    - 'C:\Program Files (x86)\Microsoft Shared\VSTO\'
+    Image|endswith: '\VSTOInstaller.exe'
   filter_optional_avg:
     Image:
     - 'C:\Program Files\AVG\Antivirus\RegSvr.exe'
@@ -69,26 +76,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of registry keys related to Visual Studio Tools for Office (VSTO) add-ins in Microsoft Office applications, such as Outlook, Word, Excel, and PowerPoint. Attackers may leverage VSTO add-ins for persistence, allowing them to maintain control over a compromised system without detection. The relevant MITRE ATT&CK tactic is Persistence (TA0003), with the technique being VSTO Add-in (T1137.006). The primary telemetry source is Windows Registry activity, specifically changes to keys under `HKEY_CURRENT_USER\Software\Microsoft\Office\<App>\Addins\`. If the detection indicates malicious behavior, there could be serious security implications, including ongoing unauthorized access or data exfiltration. However, this detection alone does not confirm malicious intent as it can also be triggered by legitimate VSTO add-in installations.
+  This rule detects unauthorized persistence mechanisms via Visual Studio Tools for Office (VSTO) add-ins in Microsoft Office applications. Attackers may install malicious add-ins to maintain access to a user's system or to facilitate further exploitation, often with the objective of data exfiltration or lateral movement within the network. This behavior is categorized under MITRE ATT&CK Tactic: Persistence (ID: TA0003) and Technique: VSTO Add-ins (ID: T1137.006).
+
+  The primary telemetry sources for this detection are Windows Registry changes, specifically targeting paths associated with Office add-ins. The security impact of this behavior can be significant, as it allows attackers to maintain persistence and potentially execute code whenever the affected Office application is launched. However, this detection rule should not be interpreted as confirmation of a breach; it only indicates that suspicious registry modifications have occurred.
 
   ### Investigation Steps
 
-  - **Identify the registry keys created or modified:** Check the Windows Registry for changes under `HKEY_CURRENT_USER\Software\Microsoft\Office\Outlook\Addins\` (Event IDs 4657, 4663) and evaluate the entry names for known malicious or suspicious add-ins.
+  - **Examine Registry Modifications:** Query the Windows Registry for changes to keys under `HKEY_CURRENT_USER\Software\Microsoft\Office\` related to add-ins, specifically any entries created or modified along paths that include "Addins". Focus on Event ID 4657 for registry modifications.
 
-  - **Check the execution context:** Determine the process that initiated the registry change. Look for registry modification events tied to `msiexec.exe` or `regsvr32.exe` (Event ID 4688) and verify if it aligns with expected behaviors, such as legitimate software installations.
+  - **Validate Known Good Add-ins:** Compare detected additions in the registry against a trusted baseline of known add-ins. Legitimate add-in installations will typically involve entries that are well-documented and commonly used, while unknown or untracked entries should be flagged as suspicious.
 
-  - **Review installed add-ins:** Open the Office application and navigate to the Add-ins management section to confirm whether the detected add-ins correspond to known and legitimate functionality expected within your organization.
+  - **Monitor Executable Behavior:** Review the running processes associated with suspicious registry keys. Look for any abnormal execution of `msiexec.exe`, `regsvr32.exe`, or `VSTOInstaller.exe`, notably through Sysmon Event ID 1 or Windows Event ID 4688, which may indicate the installation of unwanted software.
 
-  - **Validate against known AV exceptions:** Investigate any filtering entries such as those for AVG or Avast in the logs, ensuring these correspond to legitimate antivirus installations. This can help rule out benign behavior from recognized software.
+  - **Correlate with User Activity:** Investigate user activity logs (Windows Event ID 4624) to determine if unusual logins occurred around the time of the registry change, indicating potential unauthorized access to accounts and further validate if the action is benign or malicious.
 
-  - **Search for execution artifacts:** Check for any associated files created in `%temp%`, specifically looking for VSTO-related files or usage from the integration runtime, which may not typically reside in the user's profile.
+  - **Identify High-Confidence Indicators:** Look for abnormal command line arguments associated with any of the flagged processes (like `regsvr32.exe`) from Sysmon Event ID 4688. For instance, using unexpected or obfuscated DLLs within the command line may signal malicious intent.
+
+  - **Check for Related Persistence Mechanisms:** Investigate other common persistence techniques that could be leveraged alongside VSTO add-ins, such as changes made in `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\`, which could show additional malicious persistence.
 
   ### Prioritization
 
-  This alert should be treated with medium severity. The impact can be significant, especially if the affected system holds sensitive data or functions in a high-privilege context. While persistence via VSTO adds a layer of stealth to adversaries' objectives, it is also a method that can be used in legitimate scenarios, thus warranting careful analysis before escalating.
+  This alert carries a medium severity due to the potential for significant impact if malicious; an attacker could use VSTO add-ins not only for persistent access but also to execute code when Office applications are used. The likelihood of abuse is heightened given that these techniques are commonly weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited in environments where legitimate uses of VSTO add-ins are prevalent, potentially leading to false positives. The requirement for logging registry changes must be enabled to ensure coverage. Additionally, legitimate software installs or updates may trigger these alerts, making it crucial to review context and user actions. Related detections, such as execution of `msiexec.exe` or `regsvr32.exe` without known legitimate context (potentially indicating other persistence techniques), should be monitored for comprehensive understanding.
+  Detection limitations include the possibility that benign VSTO add-in installations may trigger this alert, leading to false positives. It is also assumed that logging for registry modifications is enabled and configured correctly on endpoints for reliable detection. Legitimate activities, such as deploying new trusted VSTO add-ins by IT, may trigger the alert. A related detection to consider is monitoring for script execution via `powershell.exe` through the MITRE technique (T1059.001), which can further enhance visibility into potential attack patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,29 +1,38 @@
 title: Potential AutoLogger Sessions Tampering
 id: f37b4bce-49d0-4087-9f5b-58bffda77316
+related:
+- id: d7b81144-b866-48a4-9bcc-275dc69d870e
+  type: similar
 status: test
-description: Detects tampering with autologger trace sessions which is a 
-  technique used by attackers to disable logging
+description: |
+  Detects tampering with autologger trace sessions which is a technique used by attackers to disable logging.
+  The AutoLogger event tracing session records events up that occur early in the operating system boot process.
+  Applications and device drivers can use the AutoLogger session to capture traces before the user logs in, and also used by security solutions as telemetry source.
+  Adversaries may disable these sessions to evade detection and prevent security monitoring of early boot activities and system events.
 references:
 - https://twitter.com/MichalKoczwara/status/1553634816016498688
 - https://thedfirreport.com/2021/10/18/icedid-to-xinglocker-ransomware-in-24-hours/
 - https://i.blackhat.com/EU-21/Wednesday/EU-21-Teodorescu-Veni-No-Vidi-No-Vici-Attacks-On-ETW-Blind-EDRs.pdf
+- https://learn.microsoft.com/en-us/windows/win32/etw/configuring-and-starting-an-autologger-session
+- https://blog.palantir.com/tampering-with-windows-event-tracing-background-offense-and-defense-4be7ac62ac63
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-01
-modified: 2025-10-07
+modified: 2025-12-26
 tags:
 - attack.defense-evasion
+- attack.t1562.002
 logsource:
   category: registry_set
   product: windows
 detection:
   selection_main:
-    TargetObject|contains: '\System\CurrentControlSet\Control\WMI\Autologger\'
+    TargetObject|contains: '\Control\WMI\Autologger\'
   selection_values:
     TargetObject|contains:     # We only care about some autologger to avoid FP. Add more if you need
     - '\EventLog-'
     - '\Defender'
     TargetObject|endswith:
-    - '\Enable'
+    - '\Enabled'
     - '\Start'
     Details: DWORD (0x00000000)
   filter_main_wevtutil:
@@ -41,31 +50,53 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/registry/registry_set/registry_set_disable_autologger_sessions/info.yml
+simulation:
+- type: atomic-red-team
+  name: Disable EventLog-Application Auto Logger Session Via Registry - Cmd
+  technique: T1562.001
+  atomic_guid: 653c6e17-14a2-4849-851d-f1c0cc8ea9ab
+- type: atomic-red-team
+  name: Disable EventLog-Application Auto Logger Session Via Registry - 
+    PowerShell
+  technique: T1562.001
+  atomic_guid: da86f239-9bd3-4e85-92ed-4a94ef111a1c
+- type: atomic-red-team
+  name: Disable EventLog-Application ETW Provider Via Registry - Cmd
+  technique: T1562.001
+  atomic_guid: 1cac9b54-810e-495c-8aac-989e0076583b
+- type: atomic-red-team
+  name: Disable EventLog-Application ETW Provider Via Registry - PowerShell
+  technique: T1562.001
+  atomic_guid: 8f907648-1ebf-4276-b0f0-e2678ca474f0
 note: |
   ### Technical Context
 
-  This rule detects modifications to Windows Autologger sessions, specifically targeting entries related to event logging and Windows Defender. Such tampering is indicative of an attacker’s objective to disable or manipulate logging mechanisms, thereby obscuring malware operations or activity footprints. The relevant MITRE ATT&CK tactic is Defense Evasion (TA0005), with the technique identified as WMI Event Subscription (T1546.004). The primary telemetry source is the Windows Registry, particularly focusing on WMI Autologger session configurations identified under `\System\CurrentControlSet\Control\WMI\Autologger\`.
+  This rule detects tampering with AutoLogger trace sessions, specifically focusing on modifications to registry keys that manage logging for early boot events in Windows. Attackers aim to disable these logging mechanisms to conceal their actions and evade detection during critical system events, indicating potential malicious objectives such as establishing persistence or executing unauthorized actions early in the boot process. The relevant MITRE ATT&CK technique is T1562.002 (Impair Defenses: Disable or Modify Tools).
 
-  If tampering is confirmed, it poses a significant security risk as it may enable malicious actors to operate undetected within the environment. However, this detection does NOT confirm that malicious activity has occurred on its own; it only indicates potential tampering of protective logging features.
+  Primary telemetry sources include Windows registry logs, particularly targeting changes to key paths within `\Control\WMI\Autologger\`. If malicious, this activity significantly undermines security monitoring capabilities and leaves the system vulnerable to further exploitation. It's crucial to note that the detection of registry modifications does not confirm malicious activity on its own; legitimate administrative actions may prompt similar changes.
 
   ### Investigation Steps
 
-  - **Review Registry Modifications: ** Investigate registry changes in `HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\WMI\Autologger\` for `Enable` or `Start` values set to `0` (DWORD). This indicates potential disabling of critical logging functionalities.
+  - **Assess the registry modification event:** Review Windows Security Event ID 4657 to investigate changes made to the registry paths associated with AutoLogger. Look for suspicious timestamps and user accounts making these changes.
 
-  - **Check Event Logs for Consistency:** Review Security Event ID 4656 and Windows Event log IDs 1102 or 104 for recent changes indicating clearing of logs. Compare timestamps of log clears against registry modifications to determine correlation.
+  - **Check for associated process activity:** Validate whether the process `wevtutil.exe` (Event Log Manipulation) was executed around the time of the registry modification. Investigate Security Event ID 4688 for new process creation related to this executable.
 
-  - **Identify Legitimate Configurations: ** Validate if registry values changed correspond to known legitimate processes or applications. For instance, a properly configured entry should have `Enable` value set to `1` for active logging.
+  - **Identify legitimate AutoLogger sessions:** Confirm expected behavior by checking existing AutoLogger sessions via `Get-WinEvent -ListLog *` to see if the sessions are intact prior to any incident. Sessions like `EventLog-Application` should generally be enabled.
 
-  - **Analyze Process Execution:** Investigate runs of `wevtutil.exe` via Process Monitor or similar tools to determine if there were inadvertent or malicious usages, looking for arguments related to disabling logs.
+  - **Determine malicious indicators:** Look for registry path modifications that disable logging, such as changes to `\EventLog-Application\Enabled` set to `0` or similar DWORD values indicative of tampering.
 
-  - **Correlate with Threat Intelligence:** Cross-reference behavior against threat reports or intelligence feeds regarding recent attacks using techniques like disabling Windows Defender logging. Look for known threat actors adopting this method.
+  - **Cross-reference with malware behavior:** Research context around recent incidents or malware campaigns linked to registry tampering; analyze for patterns around the identified user or system context.
+
+  - **Consider asset criticality:** Prioritize investigation on critical systems (e.g., domain controllers or endpoint protection servers) as disabling AutoLogger sessions poses a higher security risk on these assets.
 
   ### Prioritization
 
-  This alert is classified as high severity due to its potential impact on critical systems that rely on event logging for security monitoring. The likelihood of malicious exploitation is significant, given the common adversary tactic of manipulating logging systems to evade detection.
+  This alert is high severity due to the potential to undermine critical security defenses and the likelihood that adversaries will employ such tactics. The tampering behavior detected is commonly associated with advanced threats attempting to maintain persistence or facilitate further exploitation of the system.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by missing or incomplete log configurations; if log sources are not capturing registry changes effectively, potential attacks may go unnoticed. Legitimate administrative actions, such as system updates or configuration changes, might inadvertently trigger this rule. A companion detection mechanism could include monitoring command-line arguments and processing behavior of `wevtutil.exe` to strengthen logging integrity checks.
+  Detection may be limited by the absence of comprehensive registry monitoring; ensure sufficient logging is configured for registry changes. Legitimate administrative actions, such as software updates or configuration changes by system admins, may inadvertently trigger this alert. As a companion detection, consider monitoring for unusual process execution or unauthorized access to security-related group policies (MITRE ATT&CK T1484) to augment defensive capabilities against evasion tactics.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

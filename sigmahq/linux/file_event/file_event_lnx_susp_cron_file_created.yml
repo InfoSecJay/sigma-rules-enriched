@@ -1,0 +1,82 @@
+title: New Cron File Created
+id: 6c4e2f43-d94d-4ead-b64d-97e53fa2bd05
+status: experimental
+description: |
+  Detects the creation of cron files in Cron directories, which could indicate potential persistence mechanisms being established by an attacker.
+  Note that not all cron file creations are malicious - legitimate system administration activities and software installations may also create cron files.
+  This detection should be investigated in context, considering factors such as the user creating the file, the timing of creation, and the contents of the cron job.
+  Focus investigation on unexpected cron files created by non-administrative users or during suspicious timeframes.
+  Additionally, it is recommended to review the contents of the newly created cron files to assess their intent.
+  Furthermore, it is suggested to baseline normal cron file creation and apply additional filters to reduce false positives based on the specific environment.
+references:
+- https://github.com/microsoft/MSTIC-Sysmon/blob/f1477c0512b0747c1455283069c21faec758e29d/linux/configs/attack-based/persistence/T1053.003_Cron_Activity.xml
+- https://pberba.github.io/security/2022/01/30/linux-threat-hunting-for-persistence-systemd-timers-cron/
+- https://www.elastic.co/security-labs/primer-on-persistence-mechanisms
+- https://snehbavarva.medium.com/privilege-escalation-techniques-series-linux-cron-jobs-a5b797b424b4
+author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research), MSTIC
+date: 2021-10-15
+modified: 2026-04-28
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1053.003
+logsource:
+  product: linux
+  category: file_event
+detection:
+  selection_cron_dirs:
+    TargetFilename|startswith:
+    - '/etc/cron.d/'
+    - '/etc/cron.daily/'
+    - '/etc/cron.hourly/'
+    - '/etc/cron.monthly/'
+    - '/etc/cron.weekly/'
+    - '/var/spool/cron/crontabs/'
+    - '/var/spool/cron/root'
+  selection_cron_special_files:
+    TargetFilename|contains:
+    - '/etc/cron.allow'
+    - '/etc/cron.deny'
+    - '/etc/crontab'
+  filter_optional_legit_cron:
+        # Note: FPs on docker images: golang, postgres, python, redis, ruby
+    TargetFilename:
+    - '/etc/cron.daily/apt'
+    - '/etc/cron.daily/dpkg'
+    - '/etc/cron.daily/passwd'
+    - '/etc/crontabs/root'
+  condition: 1 of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Legitimate administrative tasks, package managers, containers, configuration 
+  management tools, cloud agents, or system maintenance operations might cause 
+  false positives. Apply baselining before deployment.
+level: low
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the creation of cron files in specified cron directories, indicating a potential persistence mechanism that an attacker might establish. The likely attacker objective is to maintain access to a compromised system by executing malicious scripts at regular intervals through cron jobs. This behavior is associated with the MITRE ATT&CK technique for cron jobs (Persistence: T1053.003). The primary telemetry sources include Linux file event logs showing modifications in specific cron directories such as `/etc/cron.d/` and `/var/spool/cron/crontabs/`. If malicious, this activity could lead to persistent system compromise or data exfiltration. However, the creation of a cron file does NOT confirm malicious intent on its own; legitimate administrative activities can also produce similar log entries.
+
+  ### Investigation Steps
+
+  - **Identify the user who created the cron file:** Check the file's metadata (e.g., using `ls -l /etc/cron.d/`) to determine the owner. Legitimate cron files are often created by administrative users (e.g., root), while unexpected entries by non-administrators may indicate abuse.
+
+  - **Examine the contents of the cron file:** Open the newly created cron file (e.g., `cat /etc/cron.d/<filename>`) to review the commands and scheduling. Look for suspicious commands or scripts that do not correlate with known business operations.
+
+  - **Check for recent modifications in cron directories:** Review logs for event IDs related to file creation and modification (e.g., `auditd` logs for `audit_rule`, or specific file events from the Linux audit framework) focusing on creation timestamps during out-of-hours periods or unusual activity patterns.
+
+  - **Assess the execution context:** Execute `crontab -l` for the user who created the cron file to determine if multiple cron jobs are defined and if they exhibit unusual scheduling behavior (e.g., frequent execution).
+
+  - **Validate against known benign cron jobs:** Compare the detected cron files against a baseline of legitimate cron jobs in your environment. Typical benign entries may be found in default installations (e.g., `/etc/cron.daily/`) or service-related jobs.
+
+  - **Analyze logs for associated patterns:** Investigate related log entries around the time of cron file creation, such as `/var/log/syslog` or `/var/log/cron`, to identify abnormal behavior (e.g., command executions immediately following cron job creation).
+
+  ### Prioritization
+
+  This alert should be treated with moderate severity due to the potential impact on system integrity and the likelihood of malicious use, particularly if created by non-administrative users. While cron jobs can be leveraged for scheduled execution, they are also commonly exploited for persistence in the context of targeted attacks, necessitating prompt investigation.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited by insufficient logging configurations; ensure file event logging is enabled for cron directories to capture all relevant activity. Additionally, attackers may employ obfuscation techniques to disguise malicious cron jobs or use legitimate administrative tools that create cron jobs as part of their operations. Legitimate software installations or maintenance tasks can also generate cron files, creating potential false positives. A related detection could include monitoring for unauthorized access to user shell history files, which may complement investigations into abnormal cron file creation.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

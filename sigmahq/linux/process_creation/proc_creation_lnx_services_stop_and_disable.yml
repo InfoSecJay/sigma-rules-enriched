@@ -1,14 +1,19 @@
 title: Disable Or Stop Services
 id: de25eeb8-3655-4643-ac3a-b662d3f26b6b
 status: test
-description: Detects the usage of utilities such as 'systemctl', 'service'...etc
-  to stop or disable tools and services
+description: |
+  Detects the usage of utilities such as 'systemctl', 'service'...etc to stop or disable tools and services on Linux systems.
+  Attackers may stop or disable security tools and services to evade detection, maintain persistence, or disrupt system operations.
 references:
 - https://www.trendmicro.com/pl_pl/research/20/i/the-evolution-of-malicious-shell-scripts.html
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-09-15
+modified: 2025-03-18
 tags:
 - attack.defense-evasion
+- attack.t1562
+- attack.impact
+- attack.t1489
 logsource:
   category: process_creation
   product: linux
@@ -19,39 +24,56 @@ detection:
     - '/systemctl'
     - '/chkconfig'
     CommandLine|contains:
-    - 'stop'
-    - 'disable'
-  condition: selection
+    - ' stop '
+    - ' disable '
+  filter_main_legit_snapd:
+    Image|endswith: '/systemctl'
+    CommandLine|contains:
+    - '--no-reload disable snap-snapd-'
+    - ' stop snap-snapd-'
+  filter_main_ssh_preinstall:
+    Image|endswith: '/systemctl'
+    ParentCommandLine|contains: 'tmp.ci/preinst upgrade'
+    CommandLine|contains|all:
+    - ' stop '
+    - 'ssh.'
+  filter_main_ubuntu_upgrade:
+    ParentCommandLine|contains: '/dpkg/info/ubuntu-pro-client.prerm upgrade'
+    Image|endswith: '/systemctl'
+  filter_optional_aws_agent:
+    Image|endswith: '/systemctl'
+    CommandLine|endswith: 'snap.amazon-ssm-agent.amazon-ssm-agent.service'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Legitimate administration activities
+- Some false positives are to be expected. Apply additional filters as needed 
+  before pushing to production.
 level: medium
 note: |
   ### Technical Context
 
-  This detection rule identifies the use of utilities such as `systemctl`, `service`, or `chkconfig` to stop or disable services on Linux systems. The likely attacker objective is to disrupt security monitoring, terminate processes, or render critical services inactive, facilitating further malicious activity. This behavior falls under the MITRE ATT&CK tactic of "Defense Evasion" (T1222) and the technique "Application Layer Protocol" (T1071).
+  This rule detects the execution of commands to disable or stop services on Linux systems using utilities like `systemctl` and `service`. Attackers typically execute these commands to evade detection mechanisms, hinder system functionality, or maintain unauthorized persistence. The relevant MITRE ATT&CK tactics are **Defense Evasion (T1562)** and **Impact (T1489)**.
 
-  The primary telemetry sources include Linux process creation logs, specifically capturing command execution related to system service management. If malicious, this activity could lead to critical system compromise, service outages, or evasion of other security controls. It is important to note that this detection does NOT prove malicious intent on its own, as legitimate administrative actions may trigger similar alerts.
+  Primary telemetry sources include process creation logs from Linux systems, with specific focus on log types that capture command executions and arguments, as well as potential indications of malicious activity. If this detection is confirmed to be malicious, it may lead to significant security impacts, including service disruptions and exposure of sensitive data. However, this detection does NOT confirm that an attack occurred on its own; legitimate administrative activities can also trigger similar logs.
 
   ### Investigation Steps
 
-  - **Check process creation logs**: Review `/var/log/syslog` or `/var/log/messages` for Event ID entries indicating the execution of `systemctl`, `service`, or `chkconfig` commands. Look for command lines containing the terms 'stop' or 'disable'.
+  - **Identify the command execution source**: Review process creation logs (e.g., Syslog or audit logs) to check for Event IDs related to process creation that include 'systemctl', 'service', or 'chkconfig'. Extract the relevant CommandLine field to determine the arguments used, particularly looking for 'stop' or 'disable' actions.
 
-  - **Identify user context**: Verify the user account executing the command. If it is a non-administrative account without a legitimate purpose for stopping services, it poses a serious threat. Use the `who` or `last` commands for context.
+  - **Correlate with known administrative activities**: Validate if the command execution aligns with expected system maintenance or deployment scenarios. For instance, commands from legitimate administrative scripts or activities, particularly those in the context of system upgrades, may represent benign, scheduled tasks.
 
-  - **Review system service status**: Use `systemctl list-units --state=disabled` to review what services have been disabled recently. Compare against expected operational configurations to spot unauthorized changes.
+  - **Check for high-confidence malicious indicators**: Look for command lines containing keywords like 'stop' or 'disable' without accompanying legitimate parent processes, especially from non-standard users or unexpected times (e.g., non-business hours).
 
-  - **Correlate with other alerting mechanisms**: Cross-reference alerts related to privilege escalation or unauthorized access attempts within `/var/log/auth.log` to assess if the command was part of a broader attack.
+  - **Identify potential evasion attempts**: Investigate any instances where security tools or monitoring services (like antivirus or intrusion detection) have been disabled or stopped. Cross-reference with application logs or specific service logs that show expected behavior.
 
-  - **Validate expected administrative activity**: Determine if recent service modifications align with scheduled maintenance or known administrative responsibilities. Look for logged maintenance windows or scheduled scripts using standard operational logs.
-
-  - **Monitor for similar commands**: Check if additional related commands have been executed, such as re-enabling services via `systemctl start` or configuring services back through scripts. This could indicate sophisticated attempts to maintain persistence.
+  - **Inspect for file creation or modification**: Review log types that could indicate changes to system files or configurations, such as `/var/log/syslog` or `/var/log/auth.log`, to validate any unauthorized changes that occurred alongside the command execution.
 
   ### Prioritization
 
-  This alert is of medium severity due to its potential impact on system operations, especially on critical Linux servers. The likelihood of malicious abuse is significant, as attackers often attempt to disable security services to carry out their activities undetected. While the behavior isn’t uncommon in legitimate settings, current trends show it frequently weaponized in targeted attacks.
+  This alert is of medium severity due to the potential impact on critical systems if legitimate security tools are disabled or disrupted. While the likelihood of malicious abuse exists, benign administrative actions can occur similarly, making context essential for triage.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations exist as legitimate administrative tasks can trigger similar alerts. Additionally, misconfigured logging settings may lead to oversight of critical process creation events. Legitimate activities, such as routine service outages for maintenance, may result in false positives. A related detection that strengthens coverage would be monitoring for unusual process creations associated with service management commands (e.g., unusually timed or from unexpected user contexts).
+  Detection may be evaded by attackers using obfuscated command lines or executing actions through legitimate accounts. Ensuring comprehensive logging on all relevant systems is crucial for reliable detection. Additionally, benign activities such as scheduled service maintenance could inadvertently trigger alerts. Companion detections like monitoring for unauthorized privilege escalations (T1068) can enhance overall security visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

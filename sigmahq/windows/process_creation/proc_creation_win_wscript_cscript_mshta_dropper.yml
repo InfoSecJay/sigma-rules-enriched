@@ -1,0 +1,87 @@
+title: Potential Dropper Script Execution Via WScript/CScript/MSHTA
+id: cea72823-df4d-4567-950c-0b579eaf0846
+related:
+- id: 1e33157c-53b1-41ad-bbcc-780b80b58288
+  type: similar
+status: test
+description: Detects wscript/cscript/mshta executions of scripts located in user
+  directories
+references:
+- https://thedfirreport.com/2023/10/30/netsupport-intrusion-results-in-domain-compromise/
+- https://redcanary.com/blog/gootloader/
+- https://www.microsoft.com/en-us/security/blog/2025/03/06/malvertising-campaign-leads-to-info-stealers-hosted-on-github/
+author: Margaritis Dimitrios (idea), Florian Roth (Nextron Systems), 
+  oscd.community, Nasreddine Bencherchali (Nextron Systems), Dave Johnson
+date: 2019-01-16
+modified: 2026-02-17
+tags:
+- attack.execution
+- attack.t1059.005
+- attack.t1059.007
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_exec:
+    Image|endswith:
+    - '\wscript.exe'
+    - '\cscript.exe'
+    - '\mshta.exe'
+  selection_paths:
+    CommandLine|contains:
+    - ':\Perflogs\'
+    - ':\Temp\'
+    - ':\Tmp\'
+    - ':\Users\Public\'
+    - ':\Windows\Temp\'
+    - '\AppData\Local\Temp\'
+    - '\AppData\Roaming\Temp\'
+    - '\Start Menu\Programs\Startup\'
+    - '\Temporary Internet'
+    - '\Windows\Temp'
+    - '%LocalAppData%\Temp\'
+    - '%TEMP%'
+    - '%TMP%'
+  selection_ext:
+    CommandLine|contains:
+    - '.hta'
+    - '.js'
+    - '.jse'
+    - '.vba'
+    - '.vbe'
+    - '.vbs'
+    - '.wsf'
+    - '.wsh'
+  condition: all of selection_*
+falsepositives:
+- Some installers might generate a similar behavior. An initial baseline is 
+  required
+level: medium
+note: |
+  ### Technical Context
+
+  This rule detects the execution of WScript, CScript, or MSHTA processes with scripts located in common temporary or user directories, which is indicative of potential dropper scripts being executed. The likely attacker objective is to deploy malware by executing obfuscated or malicious scripts that can download or install further payloads onto the system. The relevant MITRE ATT&CK techniques associated with this behavior are "User Execution" (T1203) and "Script Execution" (T1059.005, T1059.007). Primary telemetry sources include Windows Process Creation events (Security Event ID 4688) and Sysmon Event ID 1, capturing subprocess execution data. If malicious, this behavior could lead to a compromise of the system with unauthorized access or data theft. However, this detection alone does not confirm that malicious activity has occurred, as legitimate installers may exhibit similar behaviors.
+
+  ### Investigation Steps
+
+  - **Review the Process Command Line:** Examine Security Event ID 4688 or Sysmon Event ID 1 for the command line of the executed process. Look for patterns indicating script execution, such as the presence of '.hta', '.js', or other script extensions. Benign examples may include authorized deployment scripts, while malicious examples show unexpected script file paths in user directories.
+
+  - **Correlate Event Times:** Check the event timestamps against other related activity logs (e.g., network connections, file modifications) in the same timeframe (Event ID 4624 for logons). Regular user activity may show consistent times based on user behavior, while spikes in execution may indicate malicious intent.
+
+  - **Investigate File's Existence and Hash:** Confirm that the script or associated file exists in a temporary directory, using `Get-Item` PowerShell command or examining the file system directly. Check the file’s hash against known malicious indicators (VirusTotal or threat intelligence sources). Malicious hashes will show multiple detections, whereas legible installations will generally present fewer or legitimate flags.
+
+  - **Examine Parent Process ID (PPID):** Look at the parent process of WScript, CScript, or MSHTA executions through Event ID 4688. Malicious executions are often child processes spawned by an unusual or suspicious parent, such as a PowerShell or CMD prompt. Legitimate behavior typically reflects a known, trusted application as the parent.
+
+  - **Validate User Context:** Check the user account executing the script. Using Event ID 4624, confirm whether it’s a typical user profile, privileged account, or an uncommon service account. Non-standard users executing script files increase the likelihood of malicious activity.
+
+  - **Confirm Network Activity:** Assess any associated network activity through IDS/IPS logs (e.g., successful connections to suspicious external IPs) or Windows Firewall logs (Event ID 5156). Benign activities will likely involve internal communication or known good domains, while malicious connections will show suspicious IP addresses or anomalies.
+
+  ### Prioritization
+
+  The alert severity is medium due to the potential impact on critical systems, especially if the execution occurs on a privileged user account or server. The likelihood of malicious abuse is moderate, as dropper scripts are frequently used in various attack campaigns. This behavior is weaponized in many advanced persistent threat (APT) scenarios, making prompt investigation necessary.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited by legitimate installers that also execute via WScript, CScript, or MSHTA, potentially leading to false positives if a baseline of normal behavior is not established. Required log sources for reliable detection include full command line logging enabled in Windows settings and Sysmon deployed across endpoints. Actions for legitimate software installations, such as those deploying applications and creating files in user directories, may trigger this alert. A related detection that enhances coverage might involve monitoring for unusual outbound connections initiated by those same script processes, illustrating a complete potential compromise pathway.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

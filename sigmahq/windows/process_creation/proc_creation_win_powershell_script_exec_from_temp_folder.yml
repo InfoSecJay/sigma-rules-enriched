@@ -1,0 +1,82 @@
+title: Potentially Suspicious Powershell Script Execution From Temp Folder
+id: a6a39bdb-935c-4f0a-ab77-35f4bbf44d33
+status: test
+description: Detects a potentially suspicious powershell script executions from 
+  temporary folder
+references:
+- https://www.microsoft.com/security/blog/2021/07/13/microsoft-discovers-threat-actor-targeting-solarwinds-serv-u-software-with-0-day-exploit/
+author: Florian Roth (Nextron Systems), Max Altgelt (Nextron Systems), Tim 
+  Shelton
+date: 2021-07-14
+modified: 2026-02-17
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+    CommandLine|contains:
+    - '\Windows\Temp'
+    - '\Temporary Internet'
+    - '\AppData\Local\Temp'
+    - '\AppData\Roaming\Temp'
+    - '%TEMP%'
+    - '%TMP%'
+    - '%LocalAppData%\Temp'
+  filter_optional_vscode:
+    CommandLine|contains: '-WindowStyle hidden -Verb runAs'
+  filter_optional_amazon_ec2:
+    CommandLine|contains: '\Windows\system32\config\systemprofile\AppData\Local\Temp\Amazon\EC2-Windows\'
+  filter_optional_generic:
+    CommandLine|contains:
+    - ' >'
+    - 'Out-File'
+    - 'ConvertTo-Json'
+  filter_optional_chocolatey_installer:
+    ParentImage:
+    - 'C:\Windows\System32\Msiexec.exe'
+    - 'C:\Windows\SysWOW64\Msiexec.exe'
+    Image|endswith: '\powershell.exe'
+    CommandLine|contains|all:
+    - '-NoProfile -ExecutionPolicy Bypass -Command'
+    - 'AppData\Local\Temp\'
+    - 'Install-Chocolatey.ps1'
+  condition: selection and not 1 of filter_optional_*
+falsepositives:
+- Administrative scripts
+level: medium
+note: |
+  ### Technical Context
+
+  This Sigma rule detects executions of PowerShell scripts originating from temporary file locations, a behavior often associated with malicious activities, particularly those leveraging obfuscation and execution evasion tactics. The primary objective of an attacker may be to run scripts that facilitate unauthorized actions, such as payload deployment or system enumeration, while avoiding detection by conventional monitoring solutions. This behavior corresponds to the MITRE ATT&CK technique for PowerShell (T1059.001).
+
+  Key telemetry sources include Windows process creation logs (specifically, Security Event ID 4688 or Sysmon Event ID 1). If malicious, this detection can indicate a potential compromise, particularly if the scripts are executed with elevated privileges or hidden windows. However, this detection does **not** confirm that the PowerShell script is malicious on its own, as legitimate administrative tasks may also trigger similar alerts.
+
+  ### Investigation Steps
+
+  - **Check the Command Line Arguments:** Review the CommandLine field for indications of obfuscation (e.g., use of `-WindowStyle hidden -Verb runAs`). Malicious executions often invoke these parameters to operate covertly.
+
+  - **Identify the Parent Process:** Review the ParentImage field (Event ID 4688 or Sysmon ID 1) to investigate if the PowerShell execution was initiated by benign processes such as `Msiexec.exe` or other administrative tools. Malicious activity may show unexpected parent processes.
+
+  - **Evaluate Execution Context:** For instances where the CommandLine indicates usage of `Install-Chocolatey.ps1`, assess if the command was executed correctly and if it's associated with unauthorized software installations. Legitimate usage will often not include the bypass of execution policy.
+
+  - **Review Temp Folder Contents:** Validate entries in the temp directories (e.g., `C:\Users\<username>\AppData\Local\Temp`) to identify the presence of suspicious script files that correlate with the alert. Legitimate temp files will typically include known processes or user activity.
+
+  - **Correlate with User Activity:** Analyze user accounts associated with the alert for any unusual behavior patterns or previous alerts in the same timeframe, specifically any activities on high-privilege accounts that may indicate lateral movement or escalation attempts.
+
+  - **Investigate System Changes:** Check for signs of manipulation or system configuration changes, especially in event logs related to account modifications or software installations, indicating potential use of the PowerShell scripts for persistence or deploys.
+
+  ### Prioritization
+
+  This alert should be treated with medium severity due to the elevated privileges often associated with PowerShell execution, alongside the strategic targeting of temporary directories, which are typical for evasion techniques. Malicious actors frequently exploit such methods, making immediate investigation critical.
+
+  ### Blind Spots and Assumptions
+
+  There are limitations in detection related to the varying use cases of PowerShell that may be benign, such as administrative scripts. Reliable detection depends on properly configured log sources such as Sysmon or Windows Security logs. Legitimate administrative actions may also generate similar alerts, particularly during routine system maintenance. Another related detection to consider is visibility around elevated command execution logs (Event ID 4672) to strengthen overall coverage against misuse of administrative power.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

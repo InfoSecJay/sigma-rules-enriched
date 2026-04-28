@@ -1,0 +1,77 @@
+title: Chmod Targeting Sensitive Directories
+id: 6419afd1-3742-47a5-a7e6-b50386cd15f8
+status: test
+description: |
+  Detects chmod targeting files in sensitive directory paths on Linux systems.
+  Attackers may use chmod to change permissions of files in these directories to maintain persistence, escalate privileges, or disrupt system operations.
+references:
+- https://www.intezer.com/blog/malware-analysis/new-backdoor-sysjoker/
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1222.002/T1222.002.md
+author: 'Christopher Peacock @SecurePeacock, SCYTHE @scythe_io'
+date: 2022-06-03
+modified: 2026-03-18
+tags:
+- attack.defense-evasion
+- attack.t1222.002
+logsource:
+  product: linux
+  category: process_creation
+detection:
+  selection:
+    Image|endswith: '/chmod'
+    CommandLine|contains:
+    - '/tmp/'
+    - '/.Library/'
+    - '/etc/'
+    - '/opt/'
+  filter_main_update_shells:
+    CommandLine|contains: 'chmod --reference=/etc/shells'
+    ParentCommandLine|endswith: '/update-shells'
+  filter_main_postinst:
+    CommandLine|contains: '/etc/'
+    ParentCommandLine|contains|all:
+    - '/var/lib/dpkg/info/'
+    - '.postinst configure'
+  filter_main_apt_key:
+    CommandLine|startswith: 'chmod 700 /tmp/apt-key-gpghome.'
+  filter_main_mkinitramfs:
+    CommandLine|startswith: 'chmod 755 /var/tmp/mkinitramfs'
+  filter_main_landscape:
+    CommandLine: 'chmod 0775 /etc/landscape/'
+  filter_main_ubuntu_apparmor:
+    CommandLine: 'chmod 644 /etc/apparmor.d/tunables/home.d/ubuntu'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Some false positives are to be expected. Apply additional filters as needed 
+  before pushing to production.
+level: medium
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the use of the `chmod` command on sensitive Linux directories, such as `/tmp/`, `/etc/`, and `/opt/`. The likely attacker objective is to alter file permissions to achieve persistence, privilege escalation, or disrupt normal system operations. This behavior is associated with the MITRE ATT&CK tactic of Defense Evasion (T1203) and technique T1222.002, which focuses on altering file or folder permissions.
+
+  The primary telemetry sources include process creation logs from Linux systems, specifically those that capture command-line executions. If malicious, altering permissions on sensitive directories can lead to unauthorized access or system instability. Importantly, this detection does NOT confirm that malicious activity is occurring—it merely indicates that an action was taken that warrants further investigation.
+
+  ### Investigation Steps
+
+  - **Review process creation events:** Check for Security Event ID logs related to `chmod`, particularly those under /tmp/, /etc/, and /opt/. Focus on Event IDs that capture command line details (`cmdline` field), which can provide context for the usage of `chmod`.
+
+  - **Identify legitimate usage contexts:** Understand expected `chmod` commands in your environment, such as updates or installations, particularly from known packages or during installations (`ParentCommandLine` patterns involving `apt` or `dpkg`). For example, commands like `chmod 755 /var/tmp/mkinitramfs` are typically benign and relate to system updates.
+
+  - **Flag high-confidence malicious indicators:** Look for unusual patterns, like `chmod 0775 /etc/landscape/` without a legitimate context or following a suspicious process (e.g., an uncommon user or process ID, or unusual parent processes). Anomalous command-line parameters that are not part of standard user workflows should be noted.
+
+  - **Correlate with other telemetry sources:** Cross-examine with log files from `auditd` or app logs to see if any unauthorized changes were reported following the `chmod` command. This can strengthen the case for determining potential illicit actions.
+
+  - **Assess asset criticality:** If the alert involves systems hosting core applications or sensitive data (such as databases or application servers), prioritize this investigation due to the higher potential impact of a compromise in these contexts.
+
+  - **Review recent changes or anomalies:** Check for recent compromises or changes in the configuration of sensitive directories that coincide with `chmod` events. Investigate if any relevant incidents have occurred that may explain this behavior or if it ties to known vulnerabilities.
+
+  ### Prioritization
+
+  This alert should be treated with medium severity. The impact of the affected system can be substantial if critical or sensitive directory permissions are altered, suggesting a likelihood of malicious abuse. Though not routinely weaponized, the use of `chmod` for unauthorized permission changes is a known technique among advanced threat actors to maintain access or escalate privileges.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited by legitimate administrative tasks, which could trigger similar alerts. Ensure that file auditing is configured to capture all relevant changes to sensitive directories to enhance detection capabilities. This alert could also be triggered by automated system updates that change file permissions legitimately. A related detection to consider is monitoring the use of `chown`, which can also indicate attempts to manipulate file ownership.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

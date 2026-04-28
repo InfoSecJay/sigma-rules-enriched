@@ -1,13 +1,14 @@
-title: Clear Linux Logs
+title: Linux Logs Clearing Attempts
 id: 80915f59-9b56-4616-9de0-fd0dea6c12fe
 status: stable
-description: Detects attempts to clear logs on the system. Adversaries may clear
-  system logs to hide evidence of an intrusion
+description: |
+  Detects logs clearing attempts on Linux systems via utilities such as 'rm', 'rmdir', 'shred', and 'unlink' targeting log files and directories.
+  Adversaries often try to clear logs to cover their tracks after performing malicious activities.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1070.002/T1070.002.md
 author: Ömer Günal, oscd.community
 date: 2020-10-07
-modified: 2022-09-15
+modified: 2026-03-18
 tags:
 - attack.defense-evasion
 - attack.t1070.002
@@ -18,40 +19,47 @@ detection:
   selection:
     Image|endswith:
     - '/rm'            # covers /rmdir as well
+    - '/rmdir'
     - '/shred'
     - '/unlink'
     CommandLine|contains:
     - '/var/log'
     - '/var/spool/mail'
-  condition: selection
+  filter_main_legit_systat:
+    Image|endswith: '/rm'
+    CommandLine|startswith: 'rm -f /var/log/sysstat/'
+  filter_main_dmseg:
+    Image|endswith: '/rm'
+    CommandLine|startswith: 'rm -f -- /var/log//dmesg'     # // before dmesg is not typo
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Legitimate administration activities
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts by adversaries to clear logs on Linux systems, specifically through commands designed to delete or shred log files. The primary objective of this behavior is to erase traces of malicious activity, which can impede incident response and forensic analysis. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion, specifically the technique T1070.002: Indicator Removal on Host (Clear Logs).
+  This Sigma rule detects attempts to clear logs on Linux systems using commands like `rm`, `rmdir`, `shred`, or `unlink`, specifically targeting log files and directories, commonly found in `/var/log` and `/var/spool/mail`. Its primary objective for attackers is to erase traces of malicious activities, reflecting an intention to obscure evidence of compromise. This behavior aligns with the MITRE ATT&CK tactic of "Defense Evasion" and the technique T1070.002 (Indicator Removal on Host).
 
-  The primary telemetry source for this rule is the process creation logs from Linux systems, capturing commands executed by users. If malicious, the impact can be severe, as it may indicate a compromise that could lead to data exfiltration or further malicious actions. However, this detection does NOT confirm that a compromise has occurred on its own, as legitimate administrative activities could also trigger similar log-clearing commands.
+  The primary telemetry sources include Linux process creation logs, particularly focusing on command execution details containing specific arguments indicating log file modifications. If successful, this could lead to a lack of accountability for prior actions on the system. However, this detection does NOT confirm malicious intent on its own, as legitimate administrative activities may also result in similar command usage.
 
   ### Investigation Steps
 
-  - **Validate the process execution: ** Check logs for Process Creation (e.g., `/var/log/auth.log` or `/var/log/syslog`) specifically looking for Event ID 100 or equivalent that indicates execution of commands like `/rm`, `/shred`, or `/unlink`.
+  - **Examine recent process creation events:** Check for events like `syslog` or `auditd` with Event IDs related to command execution. Look for `Image` containing `/rm`, `/rmdir`, `/shred`, or `/unlink` and `CommandLine` containing log paths (e.g., `/var/log`). Legitimate commands to check for include `rm -f /var/log/sysstat/` which indicate standard log maintenance.
 
-  - **Review the command line arguments: ** Examine the CommandLine field in process creation logs for terms like `/var/log` or `/var/spool/mail`. Legitimate use may include system maintenance but should not occur under unusual circumstances or from unexpected users.
+  - **Identify suspicious command usage:** Focus on processes that employ the aforementioned commands with abnormal timing or frequency, particularly during non-business hours. Look for command lines targeting files in `/var/log/` or indices such as user privileges or process owners that are unusual for the affected system.
 
-  - **Identify user context: ** Correlate the username associated with the log-clearing activity. Legitimate users may execute log-clearing commands during scheduled maintenance; however, unexpected users or external accounts executing such commands may be indicative of malicious intent.
+  - **Cross-reference with user history:** Review the `last` command output or similar logs to correlate if the user executing the command has a legitimate reason for clearing logs. Identify any anomalous user actions preceding the log clearing attempts, which may indicate compromise.
 
-  - **Track recent access to sensitive logs: ** Investigate any related access logs (e.g., `sudo` logs or system event logs) to see if there were recent suspicious attempts to access log directories prior to the clearing action, indicating potential pre-existing reconnaissance efforts.
+  - **Check for subsequent system behavior:** Investigate logs post-incident to determine if there was an increase in system error logs or unusual activity from the affected system, which might suggest an attempt to cover up persistent malicious actions.
 
-  - **Assess for additional signs of intrusion: ** Search for other indicators of compromise that may align with log-clearing, such as unusual file modifications or access attempts, using tools like `auditd` to check for anomalous file access patterns on critical directories.
+  - **Validate log retention policies:** Ensure log retention is appropriately configured and functionally replicates artifacts, and review settings in logging systems like `rsyslog` to ensure configurations are not mistakenly allowing legitimate overwrites.
 
   ### Prioritization
 
-  This alert is rated as medium severity within an enterprise context due to the potentially significant impact on security posture if log-clearing incidents are indeed adversarial in nature. Adversaries commonly employ these actions to conceal their activities, which raises the likelihood of malicious abuse if detected. Therefore, rapid investigation and validation of context are crucial.
+  This alert should be treated with medium severity due to the potential impact on forensic investigations and the likelihood that an adversary may leverage log clearing techniques to hide malicious activity. Such techniques are commonly utilized by attackers in various scenarios of compromise.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by logged events being overwritten or deleted by legitimate processes. Further, it assumes that log configuration captures all relevant process creation events. Legitimate administrative activities, such as routine log maintenance or debug scenarios, may trigger the detection as well. A related detection could be monitoring for unusual `sudo` usage patterns that could indicate privilege escalation attempts, providing additional context for investigations.
+  Detection may be limited by potential evasion tactics, where an attacker could schedule these commands through a cron job or disguise them within legitimate processes. It is essential to ensure comprehensive logging is enabled for process creation and commands executed. Legitimate administrative tasks, such as system maintenance or log rotations, could also trigger this rule. A related detection to complement this would involve monitoring for unexpected cron jobs or scheduled tasks that execute log-clearing commands, reinforcing overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

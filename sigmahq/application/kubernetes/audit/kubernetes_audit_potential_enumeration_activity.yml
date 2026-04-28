@@ -1,0 +1,94 @@
+title: Kubernetes Potential Enumeration Activity
+id: 597a7e84-187d-458b-9e4f-2f5a0e676711
+status: experimental
+description: |
+  Detects potential Kubernetes enumeration or attack activity via the audit log.
+  This includes the execution of common shells, utilities, or specialized tools like 'Rakkess' (access_matrix) and 'TruffleHog' via Kubernetes API requests.
+  Attackers use these methods to perform reconnaissance (enumeration), secret harvesting, or execute code (exec) within a cluster.
+references:
+- https://www.nccgroup.com/research/detection-engineering-for-kubernetes-clusters/
+- https://github.com/trufflesecurity/trufflehog
+- https://github.com/corneliusweig/rakkess
+author: uniqu3-us3r
+date: 2026-04-28
+tags:
+- attack.execution
+- attack.discovery
+- attack.t1609
+- attack.t1613
+logsource:
+  product: kubernetes
+  service: audit
+detection:
+  selection_status:
+    responseStatus.code: 'ALLOW'
+  selection_request_uri:
+    requestURI|contains:
+            # Shells Encoded
+    - '%2fbin%2fash'
+    - '%2fbin%2fbash'
+    - '%2fbin%2fbusybox'
+    - '%2fbin%2fdash'
+    - '%2fbin%2fsh'
+    - '%2fbin%2fzsh'
+            # Shells Plain
+    - '/bin/ash'
+    - '/bin/bash'
+    - '/bin/busybox'
+    - '/bin/dash'
+    - '/bin/sh'
+    - '/bin/zsh'
+            # Tools Encoded
+    - '%2fusr%2fbin%2fcurl'
+    - '%2fusr%2fbin%2fkubectl'
+    - '%2fusr%2fbin%2fperl'
+    - '%2fusr%2fbin%2fpython'
+    - '%2fusr%2fbin%2fwget'
+            # Tools Plain
+    - '/usr/bin/curl'
+    - '/usr/bin/kubectl'
+    - '/usr/bin/perl'
+    - '/usr/bin/python'
+    - '/usr/bin/wget'
+  selection_request_user_agent:
+    userAgent|contains:
+    - 'access_matrix'          # Rakkess
+    - 'trufflehog'             # Secret scanning tool
+    - 'azurehound'             # Azure/Cloud discovery
+    - 'micro-scanner'          # Vulnerability scanning
+  condition: selection_status and 1 of selection_request_*
+falsepositives:
+- Authorized administrative maintenance via kubectl
+- Automated internal infrastructure monitoring and certificate rotation
+- Security-approved vulnerability or secret scanning in DevSecOps pipelines
+level: medium
+note: |
+  ### Technical Context
+
+  This Sigma rule detects potential Kubernetes enumeration or attack activities through API requests, specifically monitoring for the invocation of shells and enumeration tools like 'Rakkess' and 'TruffleHog'. These behaviors typically indicate an attacker attempting reconnaissance, secret harvesting, or executing arbitrary commands within the cluster as part of the adversary's objectives to discover weaknesses or sensitive data.
+
+  Relevant MITRE ATT&CK tactics include "Execution" (TA0002) and "Discovery" (TA0007) with techniques such as Command-Line Interface (T1059) and Remote File Copy (T1105). The primary telemetry source is Kubernetes audit logs, tracking requests to the Kubernetes API with a particular focus on user agents and the executed command patterns. If malicious, these actions could lead to unauthorized access or data breaches.
+
+  It is critical to note that this detection alone does not confirm that a successful breach or data exfiltration has occurred; it merely indicates suspicious activity that requires further investigation.
+
+  ### Investigation Steps
+
+  - **Review API request logs for specific commands:** Investigate Kubernetes audit logs (Event types) for requests containing encoded or plain paths such as `/bin/bash` or `/usr/bin/curl`. Focus on any unauthorized attempts from non-administrative users.
+
+  - **Check user agent patterns:** Look for API requests with user agents that include 'access_matrix', 'trufflehog', or 'micro-scanner' which are indicative of enumeration or vulnerability scanning activities. Validate if these requests come from expected internal tools.
+
+  - **Identify known legitimate use cases:** Confirm whether legitimate administrative tasks were performed using `kubectl` or similar tools. Check if the requests correlate with scheduled maintenance or security assessments approved by security teams.
+
+  - **Correlate timestamps with alerts:** Match the timestamps of the detected requests with other alert logs to identify potential lateral movement or simultaneous suspicious activities in the cluster.
+
+  - **Validate access permissions:** Cross-check the user roles associated with the detected activities against the Kubernetes RBAC (Role-Based Access Control) policies to ensure proper authorization. Document any discrepancies.
+
+  ### Prioritization
+
+  The alert is rated as medium severity based on the critical nature of the impacted Kubernetes environment. Since clusters often manage sensitive workloads, any enumeration or exploitation attempts pose a high risk. This activity could be an early indicator of an attack, as similar behaviors are commonly weaponized in the exploitation lifecycle.
+
+  ### Blind Spots and Assumptions
+
+  Detection of these activities may be limited if the Kubernetes audit logs are incorrectly configured or if certain log levels are not enabled, leading to incomplete visibility. Additionally, legitimate activities such as automated deployment processes or authorized scans can trigger this alert, potentially diluting its effectiveness. Companion detections focusing on unauthorized access patterns or unusual user behavior can enhance visibility and context regarding these activities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

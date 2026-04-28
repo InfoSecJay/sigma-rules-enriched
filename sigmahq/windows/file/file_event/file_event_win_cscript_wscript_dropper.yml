@@ -4,13 +4,13 @@ related:
 - id: cea72823-df4d-4567-950c-0b579eaf0846
   type: derived
 status: test
-description: Detects a file ending in jse, vbe, js, vba, vbs written by 
-  cscript.exe or wscript.exe
+description: Detects a file ending in jse, vbe, js, vba, vbs, wsf, wsh written 
+  by cscript.exe or wscript.exe
 references:
 - WScript or CScript Dropper (cea72823-df4d-4567-950c-0b579eaf0846)
 author: Tim Shelton
 date: 2022-01-10
-modified: 2022-12-02
+modified: 2026-02-17
 tags:
 - attack.execution
 - attack.t1059.005
@@ -23,15 +23,25 @@ detection:
     Image|endswith:
     - '\wscript.exe'
     - '\cscript.exe'
-    TargetFilename|startswith:
-    - 'C:\Users\'
-    - 'C:\ProgramData'
+    TargetFilename|contains:
+    - ':\Perflogs\'
+    - ':\ProgramData\'
+    - ':\Temp\'
+    - ':\Tmp\'
+    - ':\Users\'
+    - ':\Windows\Temp\'
+    - '\AppData\Local\Temp'
+    - '\AppData\Roaming\Temp'
+    - '\Start Menu\Programs\Startup\'
+    - '\Temporary Internet'
     TargetFilename|endswith:
-    - '.jse'
-    - '.vbe'
     - '.js'
+    - '.jse'
     - '.vba'
+    - '.vbe'
     - '.vbs'
+    - '.wsf'
+    - '.wsh'
   condition: selection
 falsepositives:
 - Unknown
@@ -39,30 +49,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of potentially malicious files with extensions such as .jse, .vbe, .js, .vba, and .vbs initiated by WScript or CScript (Windows scripting engines) on Windows systems. The likely objective of the attacker is to execute scripts that may perform unwanted actions like downloading malware, exfiltrating data, or establishing persistence. This behavior relates to the MITRE ATT&CK technique T1059.005 (JavaScript) and T1059.007 (Visual Basic Script).
+  This Sigma rule detects the creation of script files (e.g., `.js`, `.vbs`, `.vbe`, `.jse`, `.wsf`, `.wsh`, `.vba`) by Windows Script Host executables (e.g., `wscript.exe`, `cscript.exe`) in common directories associated with temporary and application data. The attacker objective may include establishing persistence, deploying malware, or executing arbitrary scripts for execution on target systems. This behavior relates to MITRE ATT&CK technique **T1059.005: Command and Scripting Interpreter: Windows Commands** and **T1059.007: Command and Scripting Interpreter: Visual Basic**.
 
-  The primary telemetry sources involve Windows file events, specifically tracking writes made by the `wscript.exe` and `cscript.exe` processes in user directories or ProgramData. If malicious, this activity poses a significant risk, potentially leading to execution of harmful scripts on the system. However, it's important to note that this detection alone does not confirm that the scripts are malicious without further analysis of their content and context.
+  Key telemetry sources include Windows file event logs capturing file creations (e.g., Security Event ID 4663 or NTFS change journal entries). If malicious, these actions may indicate an attempt to execute a script as a payload. However, this detection does NOT confirm the execution or efficacy of the scripts—only their creation.
 
   ### Investigation Steps
 
-  - **Review file creation events:** Check for file creation events corresponding to Event ID 4663 in security logs. Focus on file paths starting with `C:\Users\` or `C:\ProgramData` to identify newly created scripts.
+  - **Review file creation events**: Check Security Event ID 4663 for file creation events matching extensions listed in the detection rule. Look for entries indicating a path that leads to either user or system directories, which may indicate malicious script activity.
 
-  - **Examine process execution details:** Investigate the command-line parameters used by processes `wscript.exe` and `cscript.exe` via Sysmon Event ID 1. Identify unusual or obfuscated command-line strings that suggest malicious intent.
+  - **Verify parent process**: Validate the parent process of the script file creation using Event ID 4688 to ensure it is initiated by `wscript.exe` or `cscript.exe`. Legitimate processes should be applications like Microsoft Office or legitimate administrative scripts rather than unexpected executables.
 
-  - **Identify recently created files:** Look for the timestamps of the detected files. If they are created shortly after a user logged in or during unusual hours, this may indicate suspicious activity.
+  - **Identify script content**: If possible, analyze the actual content of the created script files for malicious indicators such as encoded strings, obfuscated code, or known malicious commands. Legitimate scripts typically contain benign automation tasks.
 
-  - **Validate known benign scripts:** Refer to an inventory of approved scripts (if available) to cross-check with detected file paths. Legitimate scripts typically belong to known applications and should follow naming conventions (avoid odd characters or unfamiliar patterns).
+  - **Correlate with other endpoint behavior**: Check for related alerts or behaviors, including exclusive network connections (use Firewall logs or Proxy logs for unusual outbound connections) that may coincide with the timing of script creation. Look for connections to known malicious infrastructure.
 
-  - **Correlate user behavior:** Investigate the activity leading to file creation by examining logs for unusual user behavior or elevated privileges on the account associated with the file creation, such as Event ID 4624 (Logon) in security logs.
+  - **Examine artifact paths**: Legitimate activities may include system updates, user-initiated tasks, or application downloads; ensure that file paths (like `:\Temp\` or `:\ProgramData\`) align with expected behavior for active user applications or scheduled tasks.
 
-  - **Check network activity:** Monitor network connections initiated by the newly created script files for outbound requests, focusing on unusual destinations or protocols. Validate against known safe external addresses.
+  - **Assess the asset role**: Determine if the affected asset is a server, workstation, or critical system. Higher-risk machines (like domain controllers or customer-facing platforms) should escalate the response and investigation efforts.
 
   ### Prioritization
 
-  This alert carries a high severity level as it targets potential script-based malware execution, which is a commonly weaponized technique. The presence of such scripts typically indicates a strong likelihood of malicious activity, especially if the affected systems are critical to business operations or handle sensitive data.
+  The alert severity is high due to the potential impact on enterprise systems if malicious scripts are executed. The likelihood of abuse is significant, as these script-based payloads are commonly weaponized in various attack vectors like phishing campaigns or remote access Trojans.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of certain logging configurations, such as auditing file and process creation events. Adversaries may use obfuscation or legitimate scripts to evade detection. Additionally, legitimate administrative activities or scheduled task executions might trigger the alert. A related detection to consider strengthening coverage includes monitoring for script execution attempts via Event ID 4688 to capture the full context of these scripting activities.
+  Detection may be limited by the absence of comprehensive file auditing configurations or if script execution policies are overly permissive. Legitimate activities such as software installations or automated updates might trigger this alert under specific conditions. Companion detections for script execution or modifications to system startup items would enhance coverage against potentially malicious scripts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

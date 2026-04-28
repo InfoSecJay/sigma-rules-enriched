@@ -10,6 +10,7 @@ references:
 - https://learn.microsoft.com/en-us/deployoffice/compat/office-file-format-reference
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-01-23
+modified: 2026-01-09
 tags:
 - attack.initial-access
 - attack.t1566.001
@@ -25,37 +26,44 @@ detection:
     - '.xltm'
     - '.potm'
     - '.pptm'
-  condition: selection
+  filter_main_office:
+    Image|startswith:
+    - 'C:\Program Files\Microsoft Office\'
+    - 'C:\Program Files (x86)\Microsoft Office\'
+    Image|endswith:
+    - '\WINWORD.EXE'
+    - '\EXCEL.EXE'
+    - '\POWERPNT.EXE'
+    TargetFilename|contains: '\~$'     # Temporary files created by Office applications
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Very common in environments that rely heavily on macro documents
 level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of new Office macro files (e.g., .docm, .xlsm) on Windows systems, which are often leveraged by attackers for initial access and execution of malicious code. The likely objective of the attacker is to deliver malware using social engineering tactics, exploiting users into executing malicious macros. This behavior is relevant to the MITRE ATT&CK technique T1566.001 (Phishing: Malicious Link). The primary telemetry source for this detection is file creation events on Windows systems, specifically focusing on file paths and event types that indicate new file creation.
+  This Sigma rule detects the creation of new Microsoft Office macro-enabled files (e.g., `.docm`, `.xlsm`, `.pptm`) on Windows systems. The likely attacker objective is to create malicious documents that, when opened, can execute harmful macros to gain unauthorized access or deliver malware. This detection corresponds to the MITRE ATT&CK technique for Initial Access, specifically T1566.001 - "Phishing: Malicious Link."
 
-  If malicious, the creation of these files can facilitate the distribution of ransomware, keyloggers, or backdoors within a network. However, this detection does NOT confirm malicious intent on its own, as legitimate Office macro file creation is common in environments that rely heavily on such documents.
+  The primary telemetry sources are Windows file event logs, particularly those related to file creation. The relevant log types will capture information when files with the specified extensions are created, especially if they originate from Microsoft Office application paths. If the alert is valid, it poses a security risk as it may indicate an attempt to employ macro malware. Importantly, this detection does not confirm that the file is malicious on its own; it merely denotes the creation of an Office macro file.
 
   ### Investigation Steps
 
-  - **Check recent file creations:** Review Windows Security Event ID 4663 for file creation events that include '.docm', '.xlsm', '.dotm', etc. Focus on timestamps and user accounts involved in these activities to assess if they align with known malicious behavior.
+  - **Review the file creation context**: Check Windows File Event logs for Event ID 4663 that detail the creation of files ending with `.docm`, `.xlsm`, etc. Verify the user and process (e.g., WINWORD.EXE, EXCEL.EXE) involved in this file creation. Legitimate activity often involves users creating these documents intentionally during regular tasks.
 
-  - **Analyze file properties:** Verify the metadata of newly created macro files (e.g., via PowerShell cmdlets like `Get-ItemProperty`). Check for unusual attributes such as modified timestamps or author fields indicating potential tampering.
+  - **Identify suspicious creation paths**: Confirm that the file was created in unusual directories (e.g., user’s Desktop or Downloads instead of Work Documents) by checking the `TargetFilename` or `BaseFileName` fields in the event logs. Look for deviations from typical user behavior.
 
-  - **Cross-reference with user activity:** Look through authentication logs (Event ID 4624) to correlate user login activity at the time of file creation. Validate that the user account responsible for the creation is known to use macro-enabled files legitimately.
+  - **Check for associated file attributes**: Look for temporary files created by Office (e.g., filenames that begin with `~$`) in Event ID 4663 logs. The presence of these temporary files may support malicious intent, especially if they accompany the creation of the final macro file.
 
-  - **Identify known malicious indicators:** Search for files that trigger this rule originating from email attachments or untrusted web sources, particularly those reported as malicious in threat intelligence feeds.
+  - **Correlate with user behavior**: Investigate the user’s recent activities using Windows Security Event logs for Event ID 4624 (Successful logon) and Event ID 4648 (Logon attempt using explicit credentials). Frequent document creation with macros following abnormal login behaviors could indicate malicious activity.
 
-  - **Check for related detections:** Compare findings with companion detection rules related to malicious email attachments or macro execution to see if there is a pattern of behavior that strengthens the case for malicious activity.
-
-  - **Document legitimate macro use:** Record the legitimate business use cases within the environment. Understand common file creation patterns from trusted sources to provide context for investigations.
+  - **Assess for known malicious indicators**: Search for established threat actor TTPs using Threat Intelligence databases to ascertain if the created Office files have been documented in previous incidents, particularly malware distribution campaigns targeting macro-enabled files.
 
   ### Prioritization
 
-  The alert severity is considered low due to the high prevalence of legitimate Office macro file creation in enterprise environments. However, it requires attention as malicious use of macros is a common tactic for initial access, making it a potential precursor to more serious threats if confirmed.
+  The severity of this alert is low, as many users legitimately create macro-enabled documents for valid business purposes. However, this behavior can be weaponized by attackers to facilitate malware distribution. The overall impact may vary based on the criticality of the asset involved and the potential for misuse in targeted campaigns.
 
   ### Blind Spots and Assumptions
 
-  Detection of macro file creation is limited by false positives from legitimate use, often found in organizations using Office documents extensively. It requires proper access to file creation telemetry, which might be constrained if logging isn’t configured for file events. Legitimate activities, such as regular office workflows or automated reports, may trigger this alert as well. A related detection for comprehensive coverage could involve monitoring for the execution of these macro files (e.g., via Event ID 4688 for process creation) to identify potentially malicious execution following their creation.
+  This detection may miss attacks where macros are embedded in legitimate documents or if office file creation is masked by other activities (e.g., renaming existing files rather than creating new ones). Furthermore, there must be consistent logging from Windows file events, which may require specific configurations to ensure completeness. Legitimate activities such as shared document creation in collaboration tools might trigger the alert. Related detections for enhanced coverage include monitoring for execution of macros in Office applications (e.g., tracking Event ID 4688 for process creation related to macros).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

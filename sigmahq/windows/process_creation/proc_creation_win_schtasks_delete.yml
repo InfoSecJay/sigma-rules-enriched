@@ -13,6 +13,7 @@ references:
 - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-09-09
+modified: 2026-03-11
 tags:
 - attack.impact
 - attack.t1489
@@ -20,11 +21,12 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection:
-    Image|endswith: '\schtasks.exe'
-    CommandLine|contains|all:
-    - '/delete'
-    - '/tn'
+  selection_img:
+  - Image|endswith: '\schtasks.exe'
+  - OriginalFileName: 'schtasks.exe'
+  selection_cli_delete:
+    CommandLine|contains|windash: '/delete'
+  selection_cli_task:
     CommandLine|contains:
             # Add more important tasks
     - '\Windows\BitLocker'
@@ -34,35 +36,39 @@ detection:
     - '\Windows\Windows Defender\'
     - '\Windows\WindowsBackup\'
     - '\Windows\WindowsUpdate\'
-  condition: selection
+  condition: all of selection_*
 falsepositives:
 - Unlikely
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_schtasks_delete/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the deletion of scheduled tasks, specifically those related to critical system functions such as BitLocker, Windows Defender, and System Restore. Attackers may disable or delete these tasks to hinder system defenses and perform malicious activities undetected. This behavior aligns with the MITRE ATT&CK tactic of "Impact" (TA-1489), indicating the adversary's objective to disrupt or alter the regular functioning of the system.
+  This Sigma rule detects the deletion of scheduled tasks relating to essential Windows services and processes, specifically through the execution of `schtasks.exe` with a delete command. The behavior indicates that an adversary may be attempting to halt important security or recovery tasks to facilitate data loss or system manipulation. The relevant MITRE ATT&CK technique associated with this behavior is Impact (T1489).
 
-  The primary telemetry source for this detection is the Windows Event Log related to process creation, specifically focusing on the `schtasks.exe` command line operations. If this behavior is initiated by an unauthorized user or process, it could lead to significant security impacts, such as data loss or system integrity compromise. However, this detection alone does not confirm successful exploitation or an ongoing attack; it indicates a potential clear and present danger that requires further investigation.
+  The primary telemetry sources required include Windows Process Creation events, especially Security Event ID 4688 and Sysmon Event ID 1, which capture the execution and arguments of processes. Malicious activities may result in the deletion of critical tasks linked to system operations like BitLocker or Windows Update, decreasing system recovery capabilities or compromising security. However, this detection does NOT confirm that the activity was indeed malicious on its own, as legitimate administrative actions could lead to similar command executions.
 
   ### Investigation Steps
 
-  - **Review Recent Task Deletions**: Check Windows Event Log for Security (Event ID 4688) or Sysmon Event ID 1 for schtasks.exe executions. Look for CommandLine values containing "/delete /tn" along with any critical task names (e.g., `\Windows\Defender`).
+  - **Review Process Creation Events**: Check Security Event ID 4688 or Sysmon Event ID 1 for `schtasks.exe` execution. Look specifically for CommandLine containing `/delete`, indicating potential task deletion.
 
-  - **Validate Task Existence**: Use PowerShell (`Get-ScheduledTask`) or Task Scheduler to confirm whether the deleted tasks truly exist prior to deletion. Lack of legitimate tasks indicates a potential security incident.
+  - **Examine Task Deletion Targets**: Identify which scheduled tasks were deleted from the CommandLine arguments. Focus on critical services such as those related to `\Windows\BitLocker` or `\Windows\Windows Defender`, as deletion of these would likely indicate malicious intent.
 
-  - **Analyze Execution Context**: Check the event logs to determine the user account that initiated the schtasks.exe command, especially looking for non-administrative accounts or unusual service accounts. Legitimate task modifications typically involve admin accounts.
+  - **Correlate with Administrative Actions**: Identify any legitimate administrative activities or maintenance events during the same timeframe, using Event ID 4624 and consulting audit logs. Administrators might also be managing tasks related to system updates or backups.
 
-  - **Correlate with Other Alerts**: Check for related alerts in the last 72 hours that involve the same user account or process, especially any alerts from antivirus or intrusion detection systems indicating suspicious activity.
+  - **Look for Unusual Timing or Frequency**: Analyze the timestamps of the alerts for repetitive task deletion activities. Multiple deletions in a short period may suggest automated scripts used by an adversary rather than typical administrative behavior.
 
-  - **Monitor System Impact**: Evaluate the functional state of the affected system. If essential tasks like Windows Defender were deleted, assess the system for vulnerabilities or compromised integrity, such as checking for unusual network connections or file alterations.
+  - **Identify Malicious Indicators**: Search for unusual IP addresses or user accounts associated with the command execution. Elevated privileges or accounts with a history of suspicious activity can suggest malicious intent.
+
+  - **Check for Artifact Creation**: Look for evidence of data reduction or system changes post-task deletion, such as file creation or network activity indicative of file exfiltration. This could be tracked via Sysmon Event ID 11 or network monitoring solutions.
 
   ### Prioritization
 
-  Given that the behavior involves the deletion of important scheduled tasks, which could disable critical security measures, the alert is of high severity. The likelihood of this activity being malicious is significant, as the specific tasks targeted are critical to system security and functionality, making them frequent targets for adversarial activities.
+  This alert should be categorized as high severity due to its potential impact on critical system tasks, such as security functions and data integrity. The likelihood of malicious abuse is significant, particularly as task deletions are a common technique utilized by attackers to undermine system defenses.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques may include legitimate administrative actions or system maintenance by IT staff, which could also trigger this alert. Successful detection relies on the availability of Windows Event Logs and proper logging configurations for process creation. Legitimate scheduled tasks that may be deleted include software update processes or periodic system maintenance tasks. A related detection for monitoring unusual process creations by administrative accounts would strengthen the coverage against this potential adversary workflow.
+  This detection may miss attempts to delete scheduled tasks through alternate mechanisms, such as PowerShell or other administrative tools. It requires proper logging configuration on endpoints to capture necessary events reliably. Legitimate maintenance activities, like scheduled task administration, may trigger this alert, necessitating thorough contextual review. A companion detection, monitoring for abnormal process execution patterns, could provide additional assurance against false positives and broaden coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

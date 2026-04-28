@@ -4,8 +4,11 @@ related:
 - id: 17f878b8-9968-4578-b814-c4217fc5768c
   type: obsolete
 status: test
-description: Detects modification of autostart extensibility point (ASEP) in 
-  registry.
+description: |
+  Detects modification of Windows Registry Classes keys used for persistence.
+  Adversaries modify these autostart extensibility points (ASEP) to execute malicious code when file types are opened or actions are performed.
+  Various legitimate software also uses these keys. Currently, this rule only filters out known legitimate software paths,
+  thus it is recommended to review and tune filters for your environment to reduce false positives before deploying to production.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1547.001/T1547.001.md
 - https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns
@@ -64,26 +67,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects modifications to Autostart Extensibility Points (ASEP) in the Windows registry, specifically under the `\Software\Classes` path. This behavior is often associated with persistence mechanisms used by attackers to maintain access to a compromised system, as they can execute malicious code upon system startup or user logon. The relevant MITRE ATT&CK techniques include T1547.001 - Registry Run Keys / Startup Folder. Primary telemetry sources include Windows Registry Set logs related to registry modifications. If malicious, the security impact can be significant, enabling undetected re-execution of malware. However, this detection does not confirm that the modification is definitely malicious without further context or corroborating evidence.
+  This Sigma rule detects modifications to Windows Registry Classes keys that are often exploited by adversaries for persistence through autostart configuration (specifically, multiple autostart extensibility points). The primary goal of this behavior is to enable malicious code execution whenever specific file types are interacted with, ensuring that even after reboots or user logins, the malicious payload remains active. The relevant MITRE ATT&CK tactics and techniques for this behavior include Persistence (TA0003) and Registry Run Keys / Startup Folder (T1547.001).
+
+  The primary telemetry sources for this detection are Windows Registry logs that specifically log registry modifications. Event data includes the path of the registry keys being altered (TargetObject) and can reveal indicators of compromise when suspicious modifications are noted. If these modifications are indeed malicious, the impact can range from data exfiltration to full system compromise. However, this detection does NOT confirm malicious activity on its own; legitimate software and administrative actions often create similar registry changes, necessitating thorough analysis.
 
   ### Investigation Steps
 
-  - **Review registry modification logs:** Check Windows Registry Set logs for Event ID 4657. Look for changes in keys like `\Software\Classes\Folder\ShellEx\ExtShellFolderViews` or `\Software\Classes\.exe`. Legitimate changes typically involve known software and should not include unusual key modifications.
+  - **Review registry modification details**: Check `TargetObject` field in logs for any changes made to `\Software\Classes`. Look for uncommon keys that are not part of standard software installations (Event ID 13 in Security logs).
 
-  - **Identify high-confidence malicious indicators:** Search for unauthorized modifications by cross-referencing the TimeCreated or SourceImage fields to known malicious paths (e.g., `C:\Windows\System32\drvinst.exe`). Modifications made by this executable should be investigated further.
+  - **Identify high-confidence malicious indicators**: Cross-reference `TargetObject` against a known list of malicious keys (e.g., direct modifications to `\CLSID\{AC757296...}` entries that are not part of expected installations).
 
-  - **Examine prior executions or related events:** Check Sysmon Event ID 1 for process creation logs involving `drvinst.exe` and `svchost.exe`. Look for unusual command-line arguments or parent processes that could indicate malicious activity.
+  - **Correlate with known applications**: Verify if the application modifying keys is a known software that usually manipulates these classes, for example, legitimate installers or drivers (e.g., Event ID 4688 for process creation).
 
-  - **Validate legitimate behavior:** Compare the registry changes with typical software installations or updates. For example, if a legitimate administrator changes autorun settings during a software deployment, it could explain the modifications.
+  - **Validate expected administrator behavior**: Confirm if the modification was initiated by an authorized administrative tool, which could indicate routine maintenance. Check the user context under which the modification occurred and compare with typical admin activity logs.
 
-  - **Assess for evasion tactics:** Be aware that attackers might use legitimate tools or processes to make these registry changes (e.g., script-based installations or Group Policy Objects). Evaluate the context of the changes to differentiate them from potential spoofing.
+  - **Check for anomalies in process execution**: Look for unusual execution patterns by running processes associated with registry modifications (e.g., `drvinst.exe`, `svchost.exe`). Use Sysmon logs (Event ID 1) for detailed command line parameters.
+
+  - **Run a comprehensive host inventory**: If persistence changes are detected, survey the affected system for additional indicators of compromise, such as scheduled tasks or startup items related to the modified registry keys that could indicate a larger infection.
 
   ### Prioritization
 
-  The alert is of medium severity due to the potential persistence mechanisms involved. Systems affected, particularly those with administrative privileges, may have a higher risk of exploitation. Malware commonly leverages these registry modifications for re-infection, making this behavior notable but not uncommon.
+  Given that the detected behavior concerns critical registry modifications associated with persistence, the alert should be considered medium to high severity. The potential for exploitation is significant since adversaries commonly leverage these registry paths for malware persistence. However, the likelihood of benign administrative modifications means that context is crucial before escalating.
 
   ### Blind Spots and Assumptions
 
-  Detection may be hampered if the logging level is insufficient or if key log sources are not enabled (e.g., Registry Auditing). Legitimate software installations can frequently trigger this alert, leading to false positives. Companion detections, such as Process Injection (T1055), can strengthen coverage since attackers often use multiple methods to maintain persistence.
+  Detection may be limited by false positives due to the prevalence of legitimate software installations that modify these registry keys. It's essential to maintain comprehensive logging from both Windows Registry and process creation events to ensure reliable detection. Legitimate administrative actions may often trigger this alert, such as software updates. Companion detections, such as monitoring for associated process spawns or monitoring tools that can identify unusual DLL injections, can enhance coverage against related persistence mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

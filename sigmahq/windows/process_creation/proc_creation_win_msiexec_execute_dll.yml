@@ -10,7 +10,7 @@ references:
 - https://twitter.com/_st0pp3r_/status/1583914515996897281
 author: frack113
 date: 2022-01-16
-modified: 2024-03-13
+modified: 2026-01-09
 tags:
 - attack.defense-evasion
 - attack.t1218.007
@@ -20,45 +20,42 @@ logsource:
 detection:
   selection:
     Image|endswith: '\msiexec.exe'
-    CommandLine|contains|windash: ' -y'
-  filter_apple:
+    CommandLine|contains|windash: ' /Y'
+  filter_main_legit_path:
     CommandLine|contains:
-    - '\MsiExec.exe" /Y "C:\Program Files\Bonjour\mdnsNSP.dll'
-    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Bonjour\mdnsNSP.dll'
-    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Apple Software Update\ScriptingObjectModel.dll'
-    - '\MsiExec.exe" /Y "C:\Program Files (x86)\Apple Software Update\SoftwareUpdateAdmin.dll'
-    - '\MsiExec.exe" /Y "C:\Windows\CCM\'
-    - '\MsiExec.exe" /Y C:\Windows\CCM\'         # also need non-quoted execution
-    - '\MsiExec.exe" -Y "C:\Program Files\Bonjour\mdnsNSP.dll'
-    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Bonjour\mdnsNSP.dll'
-    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Apple Software Update\ScriptingObjectModel.dll'
-    - '\MsiExec.exe" -Y "C:\Program Files (x86)\Apple Software Update\SoftwareUpdateAdmin.dll'
-    - '\MsiExec.exe" -Y "C:\Windows\CCM\'
-    - '\MsiExec.exe" -Y C:\Windows\CCM\'         # also need non-quoted execution
-  condition: selection and not 1 of filter_*
+    - '\MsiExec.exe" /Y "C:\Program Files\'
+    - '\MsiExec.exe" /Y "C:\Program Files (x86)\'
+    - '\MsiExec.exe" /Y "C:\Windows\System32\'
+    - '\MsiExec.exe" /Y "C:\Windows\SysWOW64\'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Legitimate script
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `msiexec.exe` with specific command line arguments that indicate potential misuse to run arbitrary DLL files. The objective behind this behavior is typically to execute malicious payloads under the guise of legitimate software installation processes. This is related to the MITRE ATT&CK tactic of Defense Evasion (T1218.007). The primary telemetry source for this detection is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which provide critical information about executable processes and their command line parameters. If malicious, this behavior can lead to the execution of unauthorized software, potentially resulting in data breaches or system compromises. Importantly, this detection alone does not confirm that a malicious action has occurred; it only indicates potentially suspicious behavior that requires further investigation.
+  This Sigma rule detects the execution of `msiexec.exe` with a command line that contains "/Y" and is not associated with standard installation directories. The likely attacker objective is to leverage the Windows Installer to execute a malicious payload disguised as a legitimate installation, thus facilitating the execution of unauthorized code without raising suspicion. This behavior falls under the MITRE ATT&CK tactic of Defense Evasion (ID: T1218.007).
+
+  The primary telemetry sources are Windows process creation events and command line arguments associated with `msiexec.exe`. Security impact can include unauthorized system modifications, breaches of sensitive data, and installation of malware. Importantly, this detection does NOT confirm malicious intent by itself; legitimate scripts may also use `msiexec.exe` with similar command line patterns.
 
   ### Investigation Steps
 
-  - **Check the command line for unusual DLL paths:** Review the command line arguments for instances of `msiexec.exe` using CommandLine logs (Event ID 4688) to identify any occurrences where the command line includes paths to unusual or unexpected DLLs such as `C:\Program Files\Bonjour\mdnsNSP.dll` or `C:\Windows\CCM\`.
-  - **Identify the parent process:** Investigate the parent process of the `msiexec.exe` instance. If the parent process is suspicious (e.g., a script or another process known for misuse), raise the priority of the alert.
-  - **Review execution context:** Examine the context in which the `msiexec.exe` was executed. Look for any indicators of administrative-level execution, as legitimate installations usually occur at lower privilege levels or are initiated by legitimate system tools.
-  - **Assess file change indicators:** Check for recent file or registry changes associated with the DLL being executed (use log artifacts from FileSystem or Registry logs). Review paths related to system updates or known legitimate software to distinguish between benign behavior and potential compromise.
-  - **Identify legitimate use cases:** Document instances where `msiexec.exe` is used within acceptable scopes for software installations, e.g., vendor-specific installations like Apple Software Update or legitimate updates for Bonjour. Compare behavior against baseline patterns for your environment.
-  - **Monitor for associated artifacts:** Look for evidence of the file creation or modification associated with executed DLLs within the same time frame, to validate the execution context (e.g., check for logs indicating `.dll` file changes using Sysmon Event ID 11).
+  - **Review process creation events**: Investigate Security Event ID 4688 and Sysmon Event ID 1 for the execution of `msiexec.exe`. Focus on the command line arguments to identify any suspicious usage or parameters that deviate from standard installation behaviors.
+
+  - **Analyze command line arguments**: Examine the command line for the presence of "/Y" and verify against known legitimate paths. Legitimate installations typically reference paths like `C:\Program Files\` or `C:\Windows\` without obscure parameters or references to non-standard DLLs.
+
+  - **Identify high-confidence malicious indicators**: Specifically look for command lines that include unexpected DLLs or arguments that do not align with traditional software installation. Detections might show custom scripts or abhorrent paths, indicating potential exploitation.
+
+  - **Cross-reference with application logs**: Validate against relevant application logs such as Windows Installer logs or relevant MSI package logs in Event Viewer to cross-check the legitimacy of the installation process occurring at the time of the alert.
+
+  - **Perform asset criticality assessment**: Determine the role of the host where the alert was triggered. If it involves critical infrastructure, escalate the alert due to increased risk.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential impact on system integrity and the likelihood of abuse by malicious actors. `msiexec.exe` is frequently abused for executing malware, but its legitimate usage is common in enterprise environments, therefore requiring careful analysis of the context to avoid false positives.
+  The severity of this alert is medium due to the capability of `msiexec.exe` to execute potentially harmful code, especially in a critical asset or server context. While this behavior is not uncommon, its usage for malicious intent is increasingly weaponized in various attack vectors, thus necessitating prompt analysis.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss instances where adversaries have modified the command line syntax or employed obfuscation techniques to evade detection. Additionally, specific configurations or logging settings must be enabled to capture all necessary data; for example, Sysmon must be configured correctly for comprehensive coverage. Legitimate software deployments by IT staff using `msiexec.exe` could trigger false alerts. A related detection rule for monitoring unusual PowerShell invocation (which may call `msiexec.exe`) can provide complementary visibility into potentially harmful activities.
+  This detection can be evaded if an adversary uses obfuscation techniques, such as altering paths or parameters that do not trigger the alert. Full coverage requires comprehensive logging from both process creation and MSI installation processes. Legitimate administrative tasks, such as software deployments or updates initiated via scripts, can inadvertently trigger this alert. A related detection rule focusing on unusual command line patterns in `powershell.exe` or `cmd.exe` could bolster coverage against similar evasion strategies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

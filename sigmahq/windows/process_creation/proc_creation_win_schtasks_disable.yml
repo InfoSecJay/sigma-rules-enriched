@@ -3,6 +3,8 @@ id: 9ac94dc8-9042-493c-ba45-3b5e7c86b980
 related:
 - id: 7595ba94-cf3b-4471-aa03-4f6baa9e5fad     # Security-Audting Eventlog
   type: similar
+- id: 9e3cb244-bdb8-4632-8c90-6079c8f4f16d     # TaskScheduler EventLog
+  type: similar
 status: test
 description: Detects when adversaries stop services or processes by disabling 
   their respective scheduled tasks in order to conduct data destructive 
@@ -13,7 +15,7 @@ references:
 - https://thedfirreport.com/2021/10/18/icedid-to-xinglocker-ransomware-in-24-hours/
 author: frack113, Nasreddine Bencherchali (Nextron Systems), X__Junior
 date: 2021-12-26
-modified: 2024-08-25
+modified: 2026-03-11
 tags:
 - attack.impact
 - attack.t1489
@@ -21,12 +23,12 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection:
-    Image|endswith: '\schtasks.exe'
-    CommandLine|contains|all:
-    - '/Change'
-    - '/TN'
-    - '/disable'
+  selection_img:
+  - Image|endswith: '\schtasks.exe'
+  - OriginalFileName: 'schtasks.exe'
+  selection_cli_disable:
+    CommandLine|contains|windash: '/disable'
+  selection_cli_task:
     CommandLine|contains:
             # Add more important tasks
     - '\Windows\BitLocker'
@@ -37,37 +39,42 @@ detection:
     - '\Windows\Windows Defender\'
     - '\Windows\WindowsBackup\'
     - '\Windows\WindowsUpdate\'
-  condition: selection
+  condition: all of selection_*
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_schtasks_disable/info.yml
+simulation:
+- type: atomic-red-team
+  name: Windows - Disable the SR scheduled task
+  technique: T1490
+  atomic_guid: 1c68c68d-83a4-4981-974e-8993055fa034
 note: |
   ### Technical Context
 
-  This Sigma rule detects the disabling of scheduled tasks using the `schtasks.exe` executable, particularly targeting critical tasks associated with system integrity, security features, and data protection processes. The likely attacker objective is to hinder protective mechanisms, potentially as a precursor to data destruction or further malicious activity, fitting within the MITRE ATT&CK framework under the tactic of Impact (T1490). Primary telemetry sources include Windows process creation logs, specifically Event ID 4688, which captures command-line execution details.
-
-  If a malicious actor successfully disables these scheduled tasks, they may create vulnerabilities for subsequent actions such as ransomware deployment or other destructive measures. It is crucial to note that this detection does not confirm malicious intent on its own; benign administrative activities or maintenance operations may also result in similar command execution patterns.
+  This detection identifies attempts to disable scheduled tasks on Windows using the `schtasks.exe` utility. Attackers may target critical tasks to disrupt operations, such as Windows Defender or system recovery, with the objective of enabling data loss, malware persistence, or evading defenses. This behavior aligns with the MITRE ATT&CK framework, particularly with the tactic of Impact (ID: T1490). The primary telemetry source for this detection comes from process creation events, specifically Windows Security Event ID 4688, which logs command line activity and the execution of processes. If malicious, disabling these tasks could lead to undetected breaches, extended malware presence, and significant data integrity risks. It is vital to note that this detection does NOT confirm that an attack has occurred; it indicates potential malicious intent that requires further investigation.
 
   ### Investigation Steps
 
-  - **Review Process Creation Logs:** Check Windows Security Event ID 4688 or Sysmon Event ID 1 for instances of `schtasks.exe` being executed. Look specifically for command lines including `'/Change'`, `'/TN'`, and `'/disable'`.
+  - **Review command line arguments:** Check Windows Security Event ID 4688 for the execution of `schtasks.exe` with the `/disable` argument. Look for command lines that directly mention disabling Windows critical tasks like `\Windows\Defender\` or `\Windows\SystemRestore\`.
 
-  - **Correlate with System Context:** Identify the asset role and criticality. For example, tasks affecting Windows Defender or System Restore on a file server should raise immediate concern compared to less critical systems.
+  - **Examine task status:** Query Task Scheduler (`Get-ScheduledTask`) to confirm the status of the tasks that were allegedly disabled. Identify any unauthorized changes to the status of critical system tasks, which could indicate malicious action.
 
-  - **Analyze Targeted Task Names:** Look for specific references in the command line such as `\Windows\BitLocker`, `\Windows\ExploitGuard`, and `\Windows\SystemRestore\SR`. If these are present, prioritize the alert as potentially malicious.
+  - **Identify recent changes:** Review the Windows Event Log (Event ID 4697) to identify any recent modifications to system services or scheduled tasks. Check for ASR (Attack Surface Reduction) task entries to see if critical security services were targeted.
 
-  - **Assess User Context:** Investigate the user or service account initiating the task change. Administrative tasks performed by non-administrative users may indicate malicious behavior.
+  - **Validate legitimate activity:** Compare the alert with routine maintenance or administrative activity. Scheduled tasks can be legitimately disabled during system updates or maintenance windows. Ensure that authorized personnel are associated with the changes to the task statuses in the event logs.
 
-  - **Identify Legitimate Operations:** Confirm whether the disabling of tasks aligns with expected maintenance processes. Scheduled task updates or corporate policy changes may lead to similar command outputs without malicious intent.
+  - **Look for related artifacts:** Investigate other processes initiated around the same timestamp. Check for patterns of malicious behavior, such as the execution of known malware or unauthorized scripts around the time of the `schtasks` command execution.
 
-  - **Check for Previous Alerts:** Look for correlating alerts or activities around the same timeframe that may indicate an ongoing malicious campaign or trend.
+  - **Review alert history:** Cross-reference this alert against similar instances (related alert ID: 7595ba94-cf3b-4471-aa03-4f6baa9e5fad) to identify trends or common systems being targeted, which may indicate a coordinated attack or vulnerability exploitation.
 
   ### Prioritization
 
-  This alert is of high severity due to the critical nature of the affected scheduled tasks, which are integral to system security and stability. The likelihood of exploitation is high, especially given the recent trend of initial access leading to impact through disabling security measures. Such behavior is increasingly weaponized in modern attacks, including ransomware campaigns.
+  This alert carries a high severity due to the potential direct impact on critical system functionalities, such as security mechanisms and data recovery options. The likelihood of malicious intention is significant, particularly given the common use of task disabling as a precursor to more severe actions, including ransomware deployment and data destruction.
 
   ### Blind Spots and Assumptions
 
-  Detection of this activity may be limited by logged events configurations; ensuring that Sysmon is properly configured can enhance visibility. Additionally, legitimate administrative operations, including policy changes or system maintenance, could inadvertently trigger this alert. Related detections, such as monitoring for unauthorized Elevation of Privilege attempts (T1068), can provide complementary coverage and context for a fuller understanding of the attack landscape.
+  This detection may miss attacks that use alternate methods to disable tasks or manipulate command line arguments to conceal their actions. The reliability of detection heavily relies on proper configurations of Windows Event Logging. Legitimate administrative tasks may trigger this alert, particularly during system maintenance activities. A companion detection, such as monitoring for modifications to scheduled tasks (similar to Event ID 4697), would enhance coverage against these attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
