@@ -11,7 +11,7 @@ author: Wojciech Lesicki
 date: 2021-06-01
 modified: 2022-09-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.011
 logsource:
   category: process_creation
@@ -35,28 +35,33 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of rundll32.exe, a legitimate Windows process, that is being used to load Dynamic Link Libraries (DLLs) with the 'StartW' function from the command line. This behavior is characteristic of Cobalt Strike, a known attack framework that is often utilized in post-exploitation scenarios. The likely attacker objective is to execute malicious payloads stealthily by leveraging the built-in rundll32 utility, facilitating commands without triggering traditional security measures.
+  This Sigma rule detects execution of the `rundll32.exe` process with commands that load DLLs, particularly using the `StartW` function, which is commonly associated with the Cobalt Strike framework. The likely objective of an attacker using this technique is to execute malicious payloads hidden within DLL files, enabling backdoor access or other malicious activities. This behavior falls under the MITRE ATT&CK technique T1218.011 (Signed Binary Proxy Execution) within the exploit and delivery phases of the attack lifecycle.
 
-  The relevant MITRE ATT&CK tactic for this behavior is "Defense Evasion" (T1203), specifically technique "Rundll32" (T1218.011). Primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, which capture command-line arguments and the process tree. If this behavior is malicious, it could lead to further compromise, exfiltration of data, or lateral movement within the network. However, this detection alone does NOT confirm that the activity is malicious, as rundll32 can be legitimately used for various system functions.
+  The primary telemetry source for detection includes Windows process creation logs, specifically looking for Security Event ID 4688, which captures process creation details, including command line arguments. If this behavior is attributed to an adversary, it could lead to unauthorized access and further compromise of critical systems. However, this detection alone does not confirm that malicious activity has occurred, as legitimate applications may also use similar command line constructs.
 
   ### Investigation Steps
 
-  - **Examine the command line arguments:** Check for Event ID 4688 (Security log) or Sysmon Event ID 1 for rundll32.exe executions where `CommandLine` contains `.dll` and ends with `StartW` or `,StartW`. Malicious indicators include the non-standard use of rundll32 to execute DLLs.
+  - **Review process creation events:**
+    - Check Security Event ID 4688 for instances of `rundll32.exe` with command line arguments. Look for uses of `StartW` or DLL paths in the process creation events.
 
-  - **Review parent process relationships:** Evaluate the parent process of rundll32.exe (accessible in Event ID 4688 and Sysmon). A parent process like cmd.exe or PowerShell with unusual command-line arguments may indicate malicious activity, while benign processes like Explorer.exe do not raise concern.
+  - **Identify command line arguments:**
+    - Focus on the `CommandLine` field within process creation logs. Malicious activity typically has obfuscated or unusual DLL paths, while benign uses will generally involve known and trusted system DLLs.
 
-  - **Identify legitimate rundll32 usage:** Compare against common system/service activities. Legitimate rundll32 calls usually do not load arbitrary DLLs or invoke `StartW`. Routine system activity can be verified against known-good hashes or application whitelists.
+  - **Analyze parent process relationships:**
+    - Investigate the parent process of `rundll32.exe` to identify how it was launched. Look for anomalies such as suspicious parent processes (e.g., cmd.exe or powershell.exe) that may indicate a malicious chain of execution.
 
-  - **Correlate with network activity:** Cross-reference unexpected rundll32 execution with network logs (e.g., proxy, firewall) for calls to external IPs or domains associated with known malicious actors. Look for unusual outbound traffic correlated with the timestamp of the alert.
+  - **Cross-reference system integrity:**
+    - Validate the `Image` field against known good hashes for `rundll32.exe`. This can help to rule out tampered or replaced binaries, which is a strong indicator of compromise.
 
-  - **Flag suspicious file access:** Monitor for unusual DLL file access patterns in the relevant directories (typically C:\Windows\System32\ and user temp directories). Validate creation or modification timestamps that coincide with the rundll32 execution.
+  - **Identify recent changes or unusual activities:**
+    - Review system event logs for recent modifications to the system or suspicious accounts. Examples might include unexpected administrative logins, changes to Group Policy Objects, or unusual Windows services starting.
 
   ### Prioritization
 
-  This alert has a high severity due to the potential impact on critical servers or endpoints. The use of rundll32 by a known exploit framework like Cobalt Strike suggests a high likelihood of malicious intent, especially if observed in environments that do not typically utilize this process in such a manner. The behavior is commonly weaponized in advanced persistent threats and is pivotal in post-exploitation activities.
+  The alert should be considered high priority due to its potential impact on affected systems, especially if executed on critical infrastructure. The nature of DLL loading via `rundll32.exe` is commonly exploited in advanced persistent threats (APTs) and is frequently weaponized in modern attacks whereby adversaries deploy command-and-control capabilities.
 
   ### Blind Spots and Assumptions
 
-  Detection of this behavior may be evaded through process impersonation or by using alternate tools that achieve similar results without invoking rundll32. Reliable detection requires Sysmon for detailed process creation logging. Legitimate administrative tasks or software installations may trigger the alert, such as updates or system maintenance routines. Monitoring companion detections such as abnormal PowerShell usage (T1059.001) can enhance threat visibility and validation of malicious activity.
+  Detection may be limited in environments where logging is not consistently enabled or configured for process creation events. Well-crafted benign applications might trigger this alert, such as legitimate software that uses `rundll32.exe` to load essential components correctly. A companion detection to consider is monitoring for unusual network connections initiated by `rundll32.exe`, which may provide further context for the investigation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

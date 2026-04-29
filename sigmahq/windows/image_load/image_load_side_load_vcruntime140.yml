@@ -12,9 +12,10 @@ references:
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2026-01-12
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -41,30 +42,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This rule detects potential DLL sideloading activities specifically involving the `vcruntime140.dll` library, commonly targeted by threat actors to execute malicious code while appearing as a legitimate application process. The likely objective of the attacker is to leverage this technique to maintain persistence, evade defenses, and execute payloads masked as trusted system libraries such as those associated with SQL Server components. This detection corresponds to the MITRE ATT&CK technique T1574.001 (DLL Side-Loading).
+  This Sigma rule detects potential DLL sideloading of `vcruntime140.dll`, which is often exploited by attackers to load malicious payloads disguised as legitimate applications, such as SqlWriter or SqlDumper. The likely objective for attackers is to execute unauthorized code while avoiding detection. The relevant MITRE ATT&CK tactics and techniques are Persistence (T1574.001) and Execution.
 
-  The primary telemetry sources are Windows image load events indicating DLL loading activities. Required log types include Windows Security Event IDs 4688 (process creation) in combination with Sysmon Event ID 7 (Image Load), which helps correlate the loading of the targeted DLL with parent process information. If confirmed as malicious, this behavior could lead to significant security impacts, including unauthorized access or data exfiltration. Importantly, this detection does NOT confirm malicious intent on its own without additional contextual information.
+  The primary telemetry source is Windows image load events, specifically looking for image loads of `vcruntime140.dll`. The detection assumes that legitimate loads occur from well-known paths and are signed by a valid Microsoft certificate. If malicious, this could lead to unauthorized access, execution of malicious code, or lateral movement within the network. However, it is important to note that this detection does not confirm intent; further investigation is required to determine if the behavior is part of an attack.
 
   ### Investigation Steps
 
-  - **Review the DLL loading context:** Check Sysmon Event ID 7 for `vcruntime140.dll` and correlate it with Event ID 4688 to identify the parent process. Look for loading related to known system processes like `SqlWriter.exe` or `SqlDumper.exe`, which are more likely benign.
+  - **Check event logs for DLL loads:** Review Windows Event Log for Image Load events (Event ID 4663) related to `vcruntime140.dll`. Look for entries outside of legitimate paths (`C:\Windows\System32\`, `C:\Program Files\`, etc.).
 
-  - **Validate legitimate signatures:** Confirm the `Signed`, `SignatureStatus`, and `Description` fields of the loaded `vcruntime140.dll`. If any deviations occur (e.g., unsigned or invalid signatures), flag for further analysis as potential malicious indicators.
+  - **Assess signature status:** Validate the digital signature of the loaded DLL. If the signature is invalid or not signed by Microsoft, this is a high-confidence malicious indicator.
 
-  - **Investigate the parent process:** Examine the process tree for the parent process identified in the loading event. Ensure that it originates from a trusted path (like `C:\Windows\System32\` or `C:\Program Files\`). Malicious parent processes may originate from atypical locations, indicating potential compromise.
+  - **Identify the parent process:** Look into the process which initiated the DLL load. For benign activity, legitimate applications like `SqlWriter.exe` or other known system utilities should be the parent process. Malicious loads may occur from suspicious or unknown executables.
 
-  - **Identify recent changes or anomalies:** Check change management logs for any recent updates or installations relating to the involved applications. Unexpected deployment of applications or changes to critical software can indicate a compromise path used by adversaries.
+  - **Review process creation events:** Investigate related process creation events (Security Event ID 4688) around the same time as the image load. Identify processes that load `vcruntime140.dll` without a legitimate parent process.
 
-  - **Check for additional malicious indicators:** Look for known IOCs associated with the attacker’s tools in memory or file system scans. For example, check for regkeys or executables associated with APT29’s behaviors. The presence of any well-known malicious process names could reinforce malicious intent.
+  - **Monitor for changes in registry:** Check the registry for modifications associated with the DLL load, especially under `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`. Legitimate applications should not frequently alter these registry locations.
 
-  - **Determine impacted assets' criticality:** Evaluate the role of the host running the detected activity. High-value hosts like database servers or administrative systems should be prioritized for deeper investigation, given the potential for severe security implications if breached.
+  - **Investigate unusual network activity:** Use network logs to check for any unusual outbound connections that occur after the `vcruntime140.dll` load. Look for connections to suspicious or untrusted domains.
 
   ### Prioritization
 
-  This alert is of **high severity** due to the critical nature of the `vcruntime140.dll` library as an execution vector for attackers. The fact that DLL sideloading is frequently weaponized by advanced adversaries, such as APT29, increases the likelihood of malicious abuse, particularly within sensitive enterprise infrastructures.
+  This alert should be treated as high severity due to the potential impact on the affected system and the likelihood that such techniques are employed by advanced persistent threats (APTs). DLL sideloading is a commonly weaponized method for carrying out malicious payloads, making it critical to investigate promptly.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by compliance configurations or lack of Sysmon deployment across all endpoints, potentially leading to gaps in visibility for image load events. Legitimate activities, such as updates to trusted applications or installations of updates from Microsoft, may trigger false positives. A related detection mechanism, like monitoring unusual parent processes executing `vcruntime140.dll`, could strengthen overall detection reliability and context for analysts.
+  This detection may be evaded if attackers utilize obfuscation or load DLLs from legitimate paths without modification. It requires logs from all relevant security sources, especially monitoring for Windows image loads. Legitimate applications that use `vcruntime140.dll` might trigger this alert, such as well-known SQL Server support utilities. A companion rule monitoring execution from suspicious handlers (e.g., executed from temporary files) can enhance detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

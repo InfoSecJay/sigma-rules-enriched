@@ -9,7 +9,6 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-08-30
 modified: 2024-12-01
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -42,28 +41,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the abuse of User Account Control (UAC) by leveraging NTFS reparse points and DLL hijacking with `wusa.exe` to escalate privileges. The likely attacker objective is to gain elevated access rights on a Windows system, allowing them to execute malicious payloads or tools while bypassing security measures. This behavior falls under the MITRE ATT&CK techniques for Privilege Escalation (T1548.002) and Defense Evasion.
+  This rule detects attempts to bypass User Account Control (UAC) using NTFS reparse points and DLL hijacking techniques, specifically through the execution of `wusa.exe` or `DismHost.exe`. The likely attacker objective is to gain elevated privileges on a Windows system by exploiting these vulnerabilities. The relevant MITRE ATT&CK tactic is **Privilege Escalation**, and the technique is **T1548.002: Abuse Elevation Control Mechanism: Bypass User Access Control**. The primary telemetry sources are process creation logs, specifically Security Event ID 4688 and Windows Sysmon Event ID 1, which provide details on command line arguments and process integrity levels. If malicious, this behavior can lead to unauthorized access to sensitive data and administrative capabilities.
 
-  Primary telemetry sources include Windows Process Creation logs, specifically Event ID 4688 for new process creation, and the command line provided in those logs. The potential security impact is significant as it may allow an adversary to operate with system-level permissions undetected. However, this detection does NOT confirm malicious activity on its own; further investigation is required to establish intent and context.
+  This detection does not confirm intent or the success of an attack on its own and must be correlated with additional data points to ascertain the risk.
 
   ### Investigation Steps
 
-  - **Check Process Creation Events:** Review Windows Security Event ID 4688 for instances of `wusa.exe` being invoked with parameters indicating it is executing `update.msu` from a user's Temp directory (`C:\Users\*\AppData\Local\Temp\`). This may indicate a potential UAC bypass.
+  - **Check process creation logs:** Review Security Event ID 4688 or Sysmon Event ID 1 for instances of `wusa.exe` where the command line starts with `"C:\Windows\system32\wusa.exe" /quiet C:\Users\` and ends with `\AppData\Local\Temp\update.msu`. Match with `IntegrityLevel` values of 'High' or 'System' for potential malicious activity.
 
-  - **Review Parent Process Context:** Verify the presence of the parent process `dism.exe` (Event ID 4688) with command line parameters showing `/online /quiet /norestart /add-package /packagepath:"C:\Windows\system32\pe386" /ignorecheck`. If this command is seen alongside elevated integrity levels, it indicates a higher likelihood of malicious intent.
+  - **Examine parent process relationships:** Look into process creation logs for `DismHost.exe`, specifically filtering for the parent command line as `"C:\Windows\system32\dism.exe" /online /quiet /norestart /add-package /packagepath:"C:\Windows\system32\pe386" /ignorecheck`. Ensure that the `IntegrityLevel` also matches 'High' or 'System'.
 
-  - **Inspect Integrity Levels:** Focus on processes that are launched with 'High' or 'System' integrity levels (Event ID 4688). Legitimate usage typically does not involve launching `wusa.exe` or `DismHost.exe` directly from user directories and usually runs at lower integrity levels.
+  - **Identify benign usage:** Legitimate updates or administrative activity may use `wusa.exe` for system updates from recognized sources (e.g., Microsoft). Confirm whether the detected `update.msu` files are from trusted updates or installations to differentiate between benign and malicious behavior.
 
-  - **Identify Malicious Indicators:** Look for the presence of the `DismHost.exe` executed with command lines containing `\dismhost.exe {` as well as the usage of Temp folders. If found as low-frequency but elevated integrity level processes, this is a strong indication of a malicious escalation attempt.
+  - **Look for suspicious task scheduling:** Check for any scheduled tasks that might leverage the `wusa.exe` or `DismHost.exe` to execute during unusual times or from atypical user profiles, as this behavior may indicate attempts to leverage the detected technique.
 
-  - **Cross-Reference with Other Logs:** Compare against Sysmon Event ID 1 (Process Creation) to link `wusa.exe` and `DismHost.exe` events with executed code or relationships with other processes that might not conform to normal patterns.
+  - **Verify DLL integrity:** Validate the presence of `wusa.exe` and `DismHost.exe` against known good hashes and check for any unauthorized changes, particularly in the `C:\Windows\system32\` directory that may indicate hijacking.
 
   ### Prioritization
 
-  The alert must be considered high priority given the potential for system level privilege escalation that could allow a threat actor extensive control over affected systems. The use of UAC bypass techniques is commonly weaponized in attacks, making it crucial for analysts to prioritize these alerts.
+  This alert is high severity due to the risk of privilege escalation that could significantly impact system integrity and security. The likelihood of malicious abuse is substantial, as UAC bypass techniques are commonly weaponized by adversaries to escalate privileges and execute malicious payloads undetected.
 
   ### Blind Spots and Assumptions
 
-  There is a risk of false positives, particularly due to legitimate applications invoking similar command patterns during software updates or installations. This rule may miss instances where logs are not configured to capture all related process creation events. For effective detection, ensure Windows Process Auditing is enabled for process creation and include Sysmon logging. A related detection to consider is monitoring for unusual command line parameters in other standard Windows processes that could indicate abuse or modification.
+  Detection may be limited by the presence of legitimate administrative actions that could mirror the behavior of the rule, leading to potential false positives. It is crucial to ensure that logging for process creation is consistently enabled across all endpoints, as missing logs would hinder detection success. Additionally, legitimate software installations or system updates could inadvertently trigger this alert, making context-based analysis critical. A related detection to consider is monitoring for malformed or suspicious executable files being executed from the `\AppData\Local\Temp\` directory, which could bolster coverage against similar evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

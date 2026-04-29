@@ -8,8 +8,9 @@ author: X__Junior (Nextron Systems)
 date: 2023-08-03
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -27,28 +28,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the potential sideloading of the "vivaldi_elf.dll" file, which may indicate an attempt to load a malicious DLL via Vivaldi's browser executable. The likely attacker objective is to exploit the Vivaldi browser's execution context to gain persistence, escalate privileges, or evade detection. The relevant MITRE ATT&CK tactic is Persistence with the technique ID T1574.001 (DLL Sideloading). The primary telemetry sources required for this detection are Windows Event Logs, specifically focusing on event ID 4104 from PowerShell logs or Event ID 4688 for process creation logs. If malicious, this behavior could lead to the installation of malware that executes within the context of a trusted application. Importantly, this detection does NOT confirm malicious intent by itself, as legitimate applications may also load DLLs.
+  This Sigma rule detects the loading of the "vivaldi_elf.dll" dynamic link library (DLL), which is often associated with the Vivaldi web browser. This behavior is indicative of potential DLL sideloading, where an attacker could leverage a benign process (e.g., "vivaldi.exe") to execute malicious code masked as a legitimate DLL. The likely attacker objective is to gain persistence, privilege escalation, or execute malicious payloads in a stealthy manner.
+
+  The relevant MITRE ATT&CK tactics and techniques are: **Persistence** (T1574.001) and **Privilege Escalation**. The primary telemetry source for this detection is Windows image load events, particularly focusing on the path from which the DLL is loaded alongside the parent process. If malicious, this could lead to unauthorized access and system compromise. Importantly, this detection does NOT confirm that the activity is malicious on its own, as there could be legitimate reasons for the DLL to be loaded.
 
   ### Investigation Steps
 
-  - **Examine process creation history:** Review Windows Security Event ID 4688 for Vivaldi.exe processes. Check timestamps and parameters used; legitimate instances usually have minimal arguments and typical load paths (e.g., `C:\Program Files\Vivaldi\Application\vivaldi.exe`).
+  - **Check the image load events:** Review Windows Event ID 4105 to identify when "vivaldi_elf.dll" was loaded and note the process that initiated this action.
 
-  - **Identify suspicious DLL loading:** Look for Event ID 4104 in PowerShell logs where "vivaldi_elf.dll" appears in conjunction with Vivaldi.exe. Malicious indicators include non-standard paths that do not align with typical Vivaldi installations.
+  - **Verify process legitimacy:** Confirm that the parent process (e.g., "vivaldi.exe") is running from the expected path: `C:\Program Files\Vivaldi\Application\vivaldi.exe`. If it deviates, investigate further.
 
-  - **Analyze the DLL file properties:** Review the file path of "vivaldi_elf.dll" using Sysinternals tools or Windows properties. Legitimate DLLs should originate from the Vivaldi installation folder, while unexpected directories or modified timestamps are red flags.
+  - **Identify abnormal DLL locations:** Cross-check any loading of "vivaldi_elf.dll" against known benign file paths. Loading from alternate directories (e.g., user directories or temporary folders) may indicate malicious intent.
 
-  - **Review for unusual outbound connections:** If the Vivaldi browser was launched shortly before this detection, check for unusual outbound HTTP/S requests in proxy logs or Windows Firewall logs. This could indicate data exfiltration or communication with a Command & Control server.
+  - **Track process command-line arguments:** Analyze command-line arguments of the parent process using Security Event ID 4688 to differentiate benign launches that may include normal browsing-related arguments from suspicious ones that indicate exploitation.
 
-  - **Cross-reference with threat intelligence:** Validate if the specific version of "vivaldi_elf.dll" is known to be associated with known malware campaigns. Utilize threat intelligence platforms to scan for reported malicious use of this DLL.
+  - **Look for known malicious indicators:** Identify if multiple instances of "vivaldi_elf.dll" are loading concurrently or if it appears within unusual process trees involving other known malicious processes (e.g., `cmd.exe` or `powershell.exe`).
 
-  - **Evaluate user behavior and asset criticality:** Determine if the user operating the Vivaldi instance has elevated privileges or is associated with sensitive data handling. Legitimate usage patterns from trusted enterprise endpoints typically do not exhibit unexpected DLL loads.
+  - **Review recent file creations or modifications:** Check for unexpected writes (Creation Time or Last Modified Time) to the directory where "vivaldi_elf.dll" is located, especially during unusual hours, which might signal a potential attack or backdoor deployment.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential security impact if malicious, with risks including unauthorized access and persistence. The likelihood of malicious abuse is notable, as DLL sideloading has been weaponized by various adversaries targeting Windows environments. Close monitoring and investigation are warranted, especially on critical assets.
+  This alert has medium severity due to the potential for privilege escalation and persistence threats leveraging DLL sideloading. Given that Vivaldi is generally a less common browser, attacks utilizing its processes may not be as readily recognized. The likelihood of this behavior being weaponized increases with the stealthy attributes of DLL sideloading methods.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include adversaries employing benign-sounding DLL names or relying on legitimate paths to sideload malicious code. This rule requires the correct configuration of both image loading and process logs to ensure reliable detection. Legitimate activities, such as regular updates or plugin installations, may trigger this alert. A related detection to strengthen coverage could involve monitoring for unexpected parent-child process relationships indicating anomalous activity.
+  Detection may be limited by evasion techniques such as name squatting (renaming malicious DLL files to appear benign) or the potential for legitimate Vivaldi updates causing similar behavior. Reliable detection requires adequate logging from image load events and appropriate configurations to capture necessary telemetry. Legitimate activities may include app updates or functionalities related to Vivaldi extensions that load additional DLLs. A related detection rule could involve monitoring unexpected child processes spawned from the Vivaldi browser, providing complementary coverage against potential exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

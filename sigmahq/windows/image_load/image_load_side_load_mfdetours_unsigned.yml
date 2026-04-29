@@ -13,8 +13,9 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-08-11
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -32,28 +33,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the sideloading of the unsigned DLL "mfdetours.dll" through the execution of "mftrace.exe," which may allow an adversary to manipulate arbitrary processes on the system. The likely attacker objective is to achieve persistence and escalate privileges within the environment by injecting malicious functionality into legitimate processes. This behavior corresponds to the MITRE ATT&CK technique for DLL Side-Loading (T1574.001).
+  This Sigma rule detects the execution of the 'mfdetours.dll' file, which may indicate potential DLL sideloading—an attack technique where a malicious DLL is loaded in place of a legitimate library. The likely objective of this activity is to gain persistence or escalate privileges by injecting code into a legitimate process. This behavior aligns with the MITRE ATT&CK tactic for "Persistence" (TA0003) using the technique ID "DLL Side-Loading" (T1574.001).
 
-  Primary telemetry sources include Windows image load events, specifically targeting Event ID 4104 from PowerShell, as well as Sysmon Event ID 7, which logs DLL loading information. The security impact of successful exploitation includes potential unauthorized access and system control by an attacker. This detection does NOT confirm that the activity is indeed malicious without additional context, as benign applications could also perform similar actions.
+  The primary telemetry source is Windows Image Load logs, specifically watching for instances where 'mfdetours.dll' is loaded outside of the expected directory, i.e., not from valid paths such as 'C:\Program Files (x86)\Windows Kits\10\bin\'. If successful, this could allow an adversary to run arbitrary code with the permissions of the host process. Importantly, while this detection indicates potential suspicious behavior, it does not confirm that malicious activity has definitively occurred without further investigation.
 
   ### Investigation Steps
 
-  - **Check image load events for mfdetours.dll:** Verify Sysmon Event ID 7 for instances of "mfdetours.dll" being loaded in unusual directories outside of trusted paths, which may suggest malicious intent.
+  - **Check process execution context:** Review the parent process of any observed 'mfdetours.dll' loading using Security Event ID 4688 and confirm if it is a trusted application, such as 'mftrace.exe'. Malicious indicators include loading from locations outside trusted paths.
 
-  - **Assess the execution of mftrace.exe:** Review Security Event ID 4688 for process creation logs detailing command-line parameters used with "mftrace.exe". Malicious uses often involve paths that do not follow standard application directories.
+  - **Audit system log sources:** Query Event ID 1074 from the Windows System log for unexpected system restarts or shutdowns that may indicate attempts by the attacker to manipulate the system state around the DLL load.
 
-  - **Validate legitimate behavior:** Determine if "mfdetours.dll" is loaded from the legitimate installation path (e.g., `C:\Program Files (x86)\Windows Kits\10\bin\`). Confirm that the signature status of the DLL is "Valid".
+  - **Identify legitimate usage:** Cross-reference the process and DLL activity with known legitimate usage of 'mftrace.exe' in your environment, noting expected directory paths and authorized personnel. Legitimate usage generally involves 'mftrace.exe' loading 'mfdetours.dll' from ['C:\Program Files (x86)\Windows Kits\10\bin\'].
 
-  - **Identify known malicious indicators:** Search for hierarchical paths or file names linked to known malware that also use "mfdetours.dll". Cross-reference with threat intelligence for associated hashes or known file artifacts.
+  - **Analyze signature information:** Look at the SignatureStatus of DLLs using Sysmon Event ID 7 to confirm whether 'mfdetours.dll' is signed. Unsigned DLLs loaded unexpectedly could indicate malicious activity.
 
-  - **Correlate with additional telemetry:** Check for related PowerShell logs (Event ID 4104) where "mftrace.exe" is invoked, particularly concerning suspicious arguments indicating attempts to attach to critical system processes.
+  - **Search for unusual command line arguments:** Use Sysmon Event ID 1 to inspect the command line parameters of the process invoking 'mfdetours.dll'. Suspicious indicators include arguments that don't align with legitimate function calls or parameters.
+
+  - **Correlate with threat intelligence and other alerts:** Check for any related alerts for similar DLL sideloading behaviors either using other detection rules or by referencing the identified relationship to the similar Sigma rule (ID: d2605a99-2218-4894-8fd3-2afb7946514d).
 
   ### Prioritization
 
-  This alert is high severity due to its potential impact on critical systems and the likelihood of abuse by adversaries employing DLL sideloading techniques. Given the sophistication associated with DLL injection, this behavior may be a precursor to more extensive attacks.
+  This alert holds high severity as it involves the potential execution of arbitrary code which could lead to significant breaches of integrity and availability. The likelihood of malicious usage is high due to the nature of DLL sideloading being frequently weaponized by attackers to insert malicious payloads into legitimate processes.
 
   ### Blind Spots and Assumptions
 
-  The detection may be limited by the absence of necessary logging configuration, as not all systems log image loads by default. Legitimate applications may also invoke "mfdetours.dll" without malicious intent, which could generate false positives. A related detection to enhance coverage is monitoring for exploits related to process injection techniques, as they may provide additional context surrounding the threat landscape.
+  Detection may be limited by log configuration; ensuring that Image Load logs are properly captured is essential. Attackers could employ evasion techniques such as altering the DLL's signature or using process hollowing. Legitimate software installation or debugging may trigger the alert coincidentally. Companion detections include monitoring for suspicious modifications in process integrity checks or registry changes which might enhance coverage around persistence mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -15,8 +15,9 @@ author: Florian Roth (Nextron Systems)
 date: 2022-06-28
 modified: 2023-02-15
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1197
 - attack.s0190
 - attack.t1036.003
@@ -54,28 +55,28 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the usage of `bitsadmin.exe` to download files from URLs that directly reference an IP address. The primary objective of an attacker using this technique may be to exfiltrate sensitive data or deploy malware without triggering traditional security measures, as direct IP downloads can bypass domain-based filtering. This behavior is associated with the MITRE ATT&CK techniques **T1197 - Spear Phishing via Service** and **T1036.003 - Masquerading: Match Legitimate Name or Location**. The primary telemetry sources are process creation logs from Windows, specifically focusing on the `CommandLine`, `Image`, and `OriginalFileName` fields. If malicious, this behavior could allow unauthorized data transfer or system compromise. Importantly, this detection alone does not confirm an intrusion; it may also signal legitimate use if it is consistent with organizational practices.
+  This rule detects the use of `bitsadmin.exe` to download files using URLs that contain direct IP addresses. The likely attacker objective is to facilitate covert file transfers, which could either be data exfiltration or malware delivery. This behavior correlates with MITRE ATT&CK techniques such as **“Command and Control over Direct IP” (T1197)**, confirming potential evasion of traditional web filtering mechanisms. Primary telemetry sources involve Windows process creation logs (Event ID 4688), specifically targeting the command line arguments associated with `bitsadmin`. The security impact of this activity is significant, as it may indicate unauthorized data access or malicious software deployment. Importantly, this detection alone does NOT confirm that the files being downloaded are malicious; further investigation of the file contents is necessary.
 
   ### Investigation Steps
 
-  - **Check process creation logs for bitsadmin activity:** Review Security Event ID 4688 or Sysmon Event ID 1 entries for any invocation of `bitsadmin.exe`. Look for command lines containing ` /transfer `, ` /create `, or ` /addfile ` along with direct IP addresses.
+  - **Check Process Creation Logs**: Review security logs for Event ID 4688 to identify instances of `bitsadmin.exe` being executed, using `CommandLine` field filtering for arguments that contain `"/transfer"`, `"/create"`, or `"/addfile"`.
 
-  - **Identify suspicious command lines:** Focus on command lines that contain IP addresses in the format `://1`, `://2`, etc. Legitimate usage typically involves URLs with domain names, so flag any command line following this pattern.
+  - **Validate Command Line for IP Usage**: Confirm any detected `bitsadmin.exe` executions include an IP address in the `CommandLine` field, particularly looking for patterns like "://X" (where X is a digit) to catch direct IP calls.
 
-  - **Review file transfer times:** Analyze the timestamps of the bitsadmin activity against normal operational hours. Unexpected file transfers outside of typical hours may suggest malicious intent.
+  - **Assess File Download Path**: Determine the file path written by `bitsadmin.exe` by checking the `FilePath` and `ParentImage` fields in Event ID 4688. Legitimate activity may show common paths like `C:\Users\<username>\Downloads` or `C:\Temp`.
 
-  - **Correlate against user activity:** Investigate the user account associated with the bitsadmin invocation to identify any recent anomalies or elevated permissions for that account. Cross-reference Event ID 4624 (logon events) and check if the user has a history of similar behavior.
+  - **Identify Malicious Indicators**: Look for known malicious IP addresses or domains that the downloaded files might indicate by cross-checking against threat intelligence feeds or services. High confidence in malicious intent may arise if the IP is associated with known threat actors.
 
-  - **Examine network traffic logs:** Leverage network monitoring tools to check for any outbound connections to the detected IP address. Validate if the link is associated with known benign services or if it corresponds to malicious indicators, such as known C2 addresses.
+  - **Review User Context and Activity**: Assess the user context under which `bitsadmin.exe` was invoked. If the user role is not consistent with this activity (e.g., a standard user running on a non-server environment), this may indicate compromise.
 
-  - **Assess for persistence:** If the bitsadmin utility was used in conjunction with other persistence techniques, review for additional malicious indicators, such as unusual registry changes or scheduled tasks (using Event ID 4698).
+  - **File Content Verification**: If possible, retrieve and analyze the downloaded file (e.g., using antivirus/anti-malware tools) to confirm its nature. Look for executable or script formats that may indicate malicious content.
 
   ### Prioritization
 
-  This alert has a high severity level due to the potential impact of the affected system, especially if critical assets are involved. Directly downloading files via IP can be an indicator of living-off-the-land techniques commonly employed by attackers, thereby increasing the likelihood of malicious abuse.
+  This alert is high severity due to the potential for data leakage or malware deployment on critical systems. The likelihood of malicious abuse is significant, as adversaries commonly use direct IP downloads to evade security controls. While the behavior is not universally weaponized, it is frequently observed in real-world attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Limitations include potential evasion via using legitimate endpoints or misconfigured security settings that may allow benign activities to trigger the alert. Reliable detection necessitates proper logging of process creation and command line parameters on endpoints. Legitimate activities, such as internal applications downloading updates from IP addresses, can cause false positives. Related alerts for entire file downloads via unauthorized scripts or user actions would enhance detection coverage against this behavior.
+  Detection may be limited by certain evasion techniques, such as using HTTPS or other obfuscation methods to hide IP addresses within the command string. Required log sources for reliable detection include complete process creation logs, especially in environments where logs may be truncated. Legitimate activities, such as internal IT operations or automated system updates using direct IPs, may trigger this alert. A companion detection that strengthens coverage would be monitoring for downloads via other utilities (e.g., `curl`, `wget`), as this can provide a fuller picture of download behaviors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

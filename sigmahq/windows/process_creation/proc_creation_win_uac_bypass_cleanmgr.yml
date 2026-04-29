@@ -9,7 +9,6 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-08-30
 modified: 2024-12-01
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -31,26 +30,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the use of `cleanmgr.exe` for bypassing User Account Control (UAC) through scheduled tasks. This behavior is indicative of an attacker attempting to escalate privileges on a system by exploiting UAC bypass techniques, which are designed to execute commands with elevated privileges without user consent. Relevant MITRE ATT&CK tactics include Defense Evasion (T1568) and Privilege Escalation (T1548.002). Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 for process creations and Sysmon Event ID 1 for process events. The security impact of a successful exploitation can result in an attacker gaining unauthorized administrative access to critical systems. Importantly, this detection alone does not confirm malicious activity but highlights potential abuse of system utilities commonly leveraged for privilege escalation.
+  This rule detects a UAC bypass technique utilizing the Windows Disk Cleanup utility (cleanmgr.exe) in an unusual manner. The likely objective of the attacker is to execute commands with elevated privileges without triggering User Account Control (UAC) prompts, thereby achieving privilege escalation. This behavior aligns with the MITRE ATT&CK tactic of Privilege Escalation, specifically the technique T1548.002, which focuses on abuse of UAC to gain higher system permissions. The primary telemetry source for this detection is Windows Process Creation logs, specifically Security Event ID 4688. If malicious, this could lead to unauthorized access to sensitive system functions and data. However, this detection alone does not confirm that an attack has occurred; it merely indicates the presence of a suspicious command invocation pattern.
 
   ### Investigation Steps
 
-  - **Check process creation logs**: Review Security Event ID 4688 for instances of `cleanmgr.exe` being executed. Look for command lines ending with `"\system32\cleanmgr.exe /autoclean /d C:`. Legitimate use typically includes different command line arguments or a different parent process context.
+  - **Identify the process command line:** Review Security Event ID 4688 for processes where `CommandLine` ends with `"\system32\cleanmgr.exe /autoclean /d C:`. Look for unusual or unexpected parameters in the command line indicative of malicious intent.
 
-  - **Identify parent process legitimacy**: Validate the parent process for suspect instances. Confirm if the parent command line includes `C:\Windows\system32\svchost.exe -k netsvcs -p -s Schedule`, which is often indicative of scheduled task executions. Legitimate scheduled tasks rarely use `cleanmgr.exe` in this manner.
+  - **Verify parent process:** Check the `ParentCommandLine` of the detected process for `C:\Windows\system32\svchost.exe -k netsvcs -p -s Schedule`. If present, this process usually indicates a scheduled task context which is typically benign; changes to this behavior should be noted for further investigation.
 
-  - **Analyze integrity levels**: Investigate the integrity level of the process creation. High and System integrity levels (SIDs: S-1-16-16384, S-1-16-12288) are common for escalation attempts. Check Sysmon Event ID 1 logs for cases where cleanmgr.exe is executed with elevated integrity.
+  - **Assess integrity levels:** Examine `IntegrityLevel` fields for the flagged process, ensuring they are `High` or `System`. Legitimate use of cleanmgr.exe generally does not operate at such elevated integrity levels without clear administrative action.
 
-  - **Correlate with other security alerts**: Determine if there are associated alerts in endpoint detection tools that indicate other suspicious behavior patterns, such as multiple processes following the execution of `cleanmgr.exe` that imply further exploitation.
+  - **Correlate with scheduled tasks:** Look for any scheduled tasks created or last run around the time of the alert by checking Windows Task Scheduler logs (Event ID 106). Suspicious task activity or unexpected scheduling may indicate malicious use.
 
-  - **Examine scheduled tasks**: Inspect Task Scheduler for any newly created or modified tasks. Focus on tasks using `cleanmgr.exe` to ensure they are explicitly created by administrative users and not by potentially compromised accounts. Legitimate tasks usually fit clear operational profiles.
+  - **Review system activity:** Investigate other Security Event IDs, particularly 4688 and 4689, within the timeframe of the alert for any other processes that could be related or indicative of a broader attack pattern.
+
+  - **Analyze host role significance:** Determine the criticality of the host affected by the alert; if it’s a domain controller or a sensitive server, prioritize the response accordingly as compromise could have far-reaching impacts.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential for privilege escalation within critical systems. The specific technique detected is weaponized commonly by adversaries, making timely investigation imperative to mitigate risk effectively.
+  This alert is considered high severity due to its potential impact on critical systems and the likelihood of abuse in targeted attacks. Privilege escalation techniques like UAC bypass are often weaponized in real-world scenarios, making immediate investigation paramount.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by missing or misconfigured logging for process creation. Adversaries might deploy other UAC bypass techniques or legitimate administrative tasks which could trigger this alert. The use of administrative tools under routine maintenance by IT operations could yield false positives. A related detection for monitoring unusual task scheduler activities may strengthen overall security posture against UAC bypass tactics.
+  This detection may miss variations of UAC bypass techniques that do not utilize cleanmgr.exe. Additional configurations, such as ensuring comprehensive auditing settings are enabled for process creation logging, are required for reliable detection. Legitimate administrative activities (e.g., system maintenance scripts) could inadvertently trigger this rule. Monitoring for other companion detections related to process creation using scheduled tasks will strengthen overall threat visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

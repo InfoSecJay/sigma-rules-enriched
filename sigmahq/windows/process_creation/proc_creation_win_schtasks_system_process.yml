@@ -12,8 +12,8 @@ tags:
 - attack.privilege-escalation
 - attack.execution
 - attack.persistence
+- attack.stealth
 - attack.t1053.005
-- attack.defense-evasion
 - attack.t1036.004
 - attack.t1036.005
 logsource:
@@ -50,30 +50,26 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the creation of scheduled tasks using the legitimate Windows utility `schtasks.exe`, particularly when these tasks are associated with system processes like `lsass.exe` or `svchost.exe`. The likely attacker objective is to execute payloads or establish persistence by masquerading as these trusted processes. This behavior relates to the MITRE ATT&CK tactics of Execution (T1203.005), Persistence (T1053.005), and Defense Evasion (T1036.005).
-
-  The primary telemetry sources are Windows process creation logs from Sysmon (Event ID 1) or Security Event ID 4688. If malicious, this behavior could allow an adversary to maintain control over the system, execute unauthorized commands, or avoid detection. However, it's important to note that the alert does NOT confirm malicious intent by itself; legitimate administrative tasks may trigger the same detection.
+  This Sigma rule detects the creation of scheduled tasks that improperly leverage system processes such as `winlogon` and `explorer`. Attackers often employ these tactics to execute malicious payloads or maintain persistence while masquerading as trusted system components. The relevant MITRE ATT&CK techniques are T1053.005 (Scheduled Task/Job: Scheduled Tasks) and T1036.004 (Masquerading: Rename System Utilities), as well as T1036.005 (Masquerading: Match Legitimate Name or Location). The primary telemetry sources are Windows process creation events (Security Event ID 4688 and Sysmon Event ID 1) focusing on command-line parameters. If malicious, this behavior can lead to unapproved persistence mechanisms and further compromise of the affected system. This detection alone does not confirm malicious intent without additional context.
 
   ### Investigation Steps
 
-  - **Inspect scheduled task creation events:** Review Windows Sysmon Event ID 1 or Security Event ID 4688 specifically for scheduled tasks created with `schtasks.exe`. Look for tasks whose command line includes system process names (e.g., 'lsass', 'svchost').
+  - **Review scheduled task creation logs:** Check for Security Event ID 4698 or Sysmon Event ID 1 to find entries for newly created tasks. Look for unusual or unexpected scheduled tasks, especially those containing system process names.
 
-  - **Identify abnormal command line usage:** Search for command lines containing system process names along with the `/create` flag in Task Scheduler logs. Legitimate use will typically not invoke sensitive system processes for scheduling tasks.
+  - **Analyze command line arguments:** Cross-reference the affected task’s CommandLine (Event ID 4688) against known legitimate system processes. Look for parameters indicating potential misuse, particularly any task creation commands that include `schtasks.exe` with suspicious arguments.
 
-  - **Correlate with system process logins:** Examine Event ID 4624 for successful logins that correspond to the time when the scheduled task was created. Legitimate activity will likely be initiated by a known administrator account, whereas malicious activity may show unusual or unexpected user accounts.
+  - **Identify host role or asset criticality:** Determine the role of the host where the scheduled task was created. If it's a critical server or endpoint, prioritize the investigation, especially if the task is running under SYSTEM or NETWORK SERVICE accounts.
 
-  - **Check task details for persistence goals:** Review the `schtasks` output for any unusual or recurrent scheduling frequencies (e.g., every minute) or task actions that point to executing less common or untrusted executables, which are indicators of malicious persistence.
+  - **Verify legitimate scheduled tasks:** Examine existing scheduled tasks via PowerShell commands like `Get-ScheduledTask` to compare against the detected task. Legitimate administrative activities should not entail creating tasks with system executable names.
 
-  - **Analyze the host for other suspicious behavior:** Use endpoint detection tools or review recent logs for additional indicators of compromise (IoCs), such as file creations or modifications tied to the newly-scheduled tasks.
-
-  - **Validate legitimate administrative tasks:** Confirm scheduled tasks related to normal operational procedures involving trusted system processes. Document expected use cases to differentiate between benign and malicious action.
+  - **Look for high-confidence malicious indicators:** Validate if the scheduled task was created in a typical user profile or if it points to an unusual execution context. Creation of tasks that execute with `cmd.exe` or use flags that redirect to public URLs can be highly suspicious.
 
   ### Prioritization
 
-  This alert should be considered high-severity due to the potential security impact of unauthorized process execution on critical systems. The likelihood of exploitation increases, particularly in environments where adversaries commonly use scheduled tasks to maintain persistence and evade defenses.
+  This alert is of high severity due to its potential impact on system integrity and persistence capabilities. The likelihood of exploitation is high, given that scheduled tasks are commonly used by adversaries to execute malicious actions stealthily. The behavior aligns closely with known tactics employed in various attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques may include modifying the command line to mask the process names or utilizing non-standard executable names. Reliable detection requires comprehensive logging of both Sysmon and Windows Security events. Legitimate administrative actions, such as software updates or scheduled maintenance tasks, may inadvertently trigger this alert. A complementary detection would include monitoring for unusual account privilege escalations (T1068) associated with system processes to enhance contextual understanding.
+  Detection limitations exist as legitimate administrative actions could trigger this alert, especially with benign task creations involving system processes. Reliable detection requires comprehensive log collection from both Security Event IDs and Sysmon logs to cover diverse attack vectors. Regular system maintenance and configuration changes may also create noise. Related detection rules involving unusual parent-child process relationships (e.g., suspicious processes spawning `schtasks.exe`) can strengthen overall coverage against this attack pattern.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

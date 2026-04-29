@@ -9,7 +9,7 @@ author: 'oscd.community, @redcanary, Zach Stanford @svch0st'
 date: 2020-10-10
 modified: 2022-12-02
 tags:
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1553.004
 logsource:
   product: windows
@@ -32,30 +32,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the installation of a root certificate on a Windows system via PowerShell commands such as `Move-Item` or `Import-Certificate`, which adversaries may use to bypass security warnings when connecting to malicious servers. The objective of this behavior is typically to enable the adversary to perform man-in-the-middle (MitM) attacks without raising red flags from security mechanisms. This action corresponds to the MITRE ATT&CK tactic of Defense Evasion (TA0005) and the technique for Root Certificate Installation (T1553.004).
+  This detection identifies attempts to install a root certificate on a Windows system using PowerShell, which could be indicative of an adversary seeking to trust their own controlled certificates. The likely attacker objective is to prevent users from receiving warning messages when connecting to malicious web servers, facilitating man-in-the-middle (MitM) attacks or other malicious activities. This behavior aligns with the MITRE ATT&CK tactic "Defense Evasion" and the technique "Install Root Certificate" (T1553.004).
 
-  The primary telemetry source comes from PowerShell logging, specifically requiring Script Block Logging to be enabled (Event ID 4104). If this behavior is malicious, it can allow an adversary to intercept and manipulate encrypted traffic. However, this detection does NOT confirm whether the root certificate is being installed for legitimate reasons, such as corporate management or infrastructure setups.
+  Primary telemetry sources include Windows PowerShell script block logging, specifically monitoring for the use of commands like `Move-Item` and `Import-Certificate`. If malicious, this could lead to unauthorized connections to adversary-controlled domains, severely impacting data confidentiality and integrity. However, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions may trigger the same events, such as corporate IT staff installing trusted root CAs.
 
   ### Investigation Steps
 
-  - **Review PowerShell execution logs:** Check for Event ID 4104 to identify the specific PowerShell commands executed around the alert time. Search for commands including 'Move-Item' and 'Import-Certificate' in the `ScriptBlockText` field.
+  - **Review PowerShell script logs:** Check for Security Event ID 4104 (PowerShell Script Block Logging) to identify the specific commands executed. Look for `Move-Item` or `Import-Certificate` related to path `Cert:\LocalMachine\Root`.
 
-  - **Identify the certificate's issuer:** Investigate the certificate installed in `Cert:\LocalMachine\Root` using `Get-ChildItem Cert:\LocalMachine\Root`. Legitimate corporate root CAs will have recognizable issuers. Look for any certificates issued by unrecognized entities or odd timestamps.
+  - **Identify expected legitimate behavior:** Verify if the installation of root certificates aligns with scheduled policy updates from IT/GPOs, which may use similar commands. Cross-reference timestamps with corporate change management records to validate legitimacy.
 
-  - **Examine system roles:** Confirm the role of the affected system. Administrative systems or Domain Controllers are more critical; unexpected certificate installations on these systems warrant a higher priority for investigation.
+  - **Check for related system activity:** Look at Windows Event ID 4656 (Handle Accessed) and 4663 (Attempted Access) for unauthorized access to the certificate store. This additional context may indicate anomalous usage patterns surrounding the certificate installation.
 
-  - **Review recent IT activity:** Check ticketing systems or documentation for any authorized root certificate installations. Legitimate activities may include IT personnel installing a corporate root certificate aligned with recent operational changes.
+  - **Analyze the certificate details:** If a root certificate is found, check the subject and issuer against known trusted CAs. Malicious indicators may include not commonly recognized issuers or certificates with self-signed attributes.
 
-  - **Look for network abnormalities:** Utilize network monitoring tools to check for connections to known malicious domains or unusual external traffic patterns that may exploit the installed root certificate for MitM attacks.
+  - **Validate asset criticality:** Determine if the affected asset is part of a critical system or high-risk environment. Machines handling sensitive data or admin tasks should be prioritized in the investigation.
 
-  - **Evaluate the existence of pending IT changes:** Consult with the IT department about recent updates or planned changes that could involve root certificate installations. Documented processes should be aligned with expected behavior.
+  - **Inspect for exfiltration artifacts:** Search for indications of subsequent malicious actions, such as connections to known bad IPs or domains (e.g., through Web Proxy logs or DNS query logs). Look for unexpected outbound connections corresponding to the timing of root certificate installation.
 
   ### Prioritization
 
-  This alert should be considered medium priority due to its potential for high impact on the security posture of critical assets if exploited, particularly in environments where sensitive data is handled. While root certificate installations can be legitimate, the likelihood of malicious actors using this technique makes timely investigation essential.
+  This alert is medium severity due to the potential impact of a compromised root certificate, particularly if installed on critical systems. The likelihood of this attack vector being weaponized is moderate, as it provides adversaries with significant capabilities to intercept and manipulate traffic without alerting users.
 
   ### Blind Spots and Assumptions
 
-  Common evasion techniques may include adversaries using legitimate CAs to blend in with normal operation patterns, potentially obscuring malicious intent. This detection relies on Script Block Logging being enabled in the environment; without it, the detection may not trigger. Legitimate activities, such as authorized IT personnel installing a corporate root CA, can trigger this alert. A related detection to consider for comprehensive coverage includes monitoring for unusual network traffic associated with certificates installed on the server, which could indicate misuse of a newly installed root certificate.
+  Detection may be limited by the organization’s PowerShell logging configuration; Script Block Logging must be enabled for this detection to be effective. Legitimate activities, such as internal IT operations for adding corporate certificates, could also trigger this alert, leading to false positives. A related detection could involve monitoring for unusual outbound connections to enhance coverage, as the installation of a root cert can lead to further suspicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

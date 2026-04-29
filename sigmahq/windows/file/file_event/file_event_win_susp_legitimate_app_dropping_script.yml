@@ -9,7 +9,7 @@ author: frack113, Florian Roth (Nextron Systems)
 date: 2022-08-21
 modified: 2023-06-22
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   product: windows
@@ -49,30 +49,36 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects instances where legitimate applications on Windows systems drop scripting files (such as PowerShell scripts or batch files) to disk. Attackers often attempt to utilize trusted applications, also known as Living Off the Land Binaries (LOLBins), as vehicles to execute scripts that facilitate further malicious actions, such as payload execution or lateral movement. The likely attacker objective is to leverage trusted processes to evade detection while executing malicious code.
+  This Sigma rule detects instances where certain legitimate Windows applications (e.g., WordPad, AcroRd32.exe) are inappropriately creating script files on disk (.ps1, .bat, .vbs, etc.), which can indicate a malicious use case, such as script-based malware or lateral movement. The likely attacker objective is to drop scripts that could be used for post-exploitation activities, including data gathering or executing further payloads. This behavior aligns with the MITRE ATT&CK technique for “Script Execution” (T1218).
 
-  This behavior aligns with the MITRE ATT&CK framework, specifically targeting the Defense Evasion tactic (TA0005) and the technique of **"Masquerading" (T1036)** by using trusted applications to execute or deliver malicious content. The primary telemetry sources include Windows file event logs that capture file creation (such as Security Event ID 4663 and Sysmon Event ID 11). If successful, this activity could lead to unauthorized execution of scripts and compromise of sensitive systems.
-
-  It is essential to note that this detection does NOT confirm actual malicious activity on its own; it requires further investigation to distinguish between benign and malicious use of the flagged applications.
+  Primary telemetry sources include Windows file event logs, with relevant log artifacts comprising Event IDs tied to file creation and modification activities. If this behavior is malicious, it can lead to unauthorized access, data exfiltration, or system compromise. Importantly, this detection does NOT confirm that the observed behavior is always malicious, as legitimate applications in some enterprise configurations may generate scripts for valid purposes.
 
   ### Investigation Steps
 
-  - **Review source and destination paths:** Check for the creation of scripts (e.g., *.ps1, *.bat) in unexpected directories such as C:\Users\Public\ or temporary folders; legitimate scripts are generally found in user scripts directories.
+  - **Check file creation timestamps:**
+    Review file creation timestamps for generated scripts in directories typically associated with legitimate applications. Look in C:\Users\<username>\AppData\Local\Temp and match timestamps with application usage patterns.
 
-  - **Identify associated process relationships:** Use Sysmon Event ID 1 or Process Explorer to check the parent-child process relationship of the triggering applications; if a suspicious or uncommon application initiated the script creation (e.g., involving `mshta.exe`), this may indicate malicious activity.
+  - **Verify application context:**
+    Confirm the process that generated the script file by examining Process Creation Events (Security Event ID 4688 or Sysmon Event ID 1). Check if the parent process is one of the listed applications (e.g., AcroRd32.exe). If the parent process is legitimate, this may indicate benign usage.
 
-  - **Cross-reference hash values:** Validate hash values of the dropping executables against known good baselines or threat intelligence feeds; unexpected values tied to applications like `AcroRd32.exe` might indicate potential misuse.
+  - **Analyze script content:**
+    Inspect the content of the created script files using a text editor. Look for suspicious commands or PowerShell scripts that exhibit signs of scripting for malicious purposes, such as network connections or file downloads.
 
-  - **Monitor user behavior:** Assess recent user actions or scheduled tasks that could legitimately utilize applications like `wordpad.exe` or `mshta.exe` for script writing; common benign use cases may include script generation for automation tasks executed by a trusted user.
+  - **Identify high-confidence malicious indicators:**
+    Compare the identified script files against known malicious script hashes or patterns. Use threat intelligence feeds to lookup any indicators of compromise (IOCs) correlated with script activity stemming from these applications.
 
-  - **Log collection validation:** Ensure that the Security Event logs (Event IDs 4663, 4661) and Sysmon configuration are appropriately set to capture the necessary file creation events, as missing logs might result in undetected malicious activities.
+  - **Review related file operations:**
+    Investigate if further activities follow the script creation, such as execution events (Security Event ID 4688) for scripts running immediately after files were dropped. Identify whether this activity correlates with unusual outbound network connections.
+
+  - **Assess legitimate activity:**
+    Understand if there are known business processes or developer tools that might cause these applications to legitimately create scripts. Document any relevant business unit processes that might explain the behavior without malicious intent.
 
   ### Prioritization
 
-  This alert should be prioritized as **high severity** due to the potential impact of unauthorized execution of scripts. The likelihood of being weaponized is significant, as attackers often adopt tactics involving trusted applications to bypass security measures.
+  This alert should be treated with high priority due to the potential for an affected system's compromise and the likelihood of malicious activity within the enterprise. The tools detected are commonly weaponized in attacks, making timely investigations crucial for organizational security.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include possible evasion techniques, such as attackers renaming or modifying benign applications to mask their behavior. Additionally, required log sources like file event logs must be properly configured. Legitimate activities, such as automation scripts generated by system administrators, may also trigger the alert. Strengthening detection capabilities with companion alerts for abusive access patterns (e.g., unusual PowerShell usage) can enhance overall coverage against evasive tactics.
+  Detection may be limited by variations in application behavior across different environments; specific applications may create scripts in legitimate contexts depending on usage. Ensure comprehensive logging is enabled for file events and process creation to support reliable detection. Beware of legitimate activities like software updates or user-driven processes that could result in similar alarms, which necessitate a thorough review of context. A related detection to consider is monitoring PowerShell execution history, which can provide complementary insights into script executions following dropped files.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

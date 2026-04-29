@@ -9,7 +9,7 @@ author: 'Pawel Mazur'
 date: 2021-09-06
 modified: 2025-06-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1564.001
 logsource:
   product: linux
@@ -33,28 +33,28 @@ level: low
 note: |
   ### Technical Context
 
-  This rule detects the creation of hidden files or directories on a Linux system by identifying file or directory names that begin with a dot (e.g., `.hiddenfile`). An attacker might use this technique to hide malicious files from users or security monitoring tools, aiming to maintain persistence or evade detection. The relevant MITRE ATT&CK tactic is Defense Evasion (T1564.001).
+  This Sigma rule detects the creation of hidden files or directories on Linux systems, specifically those starting with a dot (.) character. This behavior is often employed by attackers to conceal malicious artifacts, thereby evading detection and making it harder for defenders to spot ongoing compromise. The likely attacker objective is to hide backdoors, scripts, or other malicious files that facilitate continued access or data exfiltration.
 
-  The primary telemetry source is the Linux audit daemon (auditd), which logs activities related to system calls. The security impact of malicious activity, such as hidden malware, can be significant, as it facilitates ongoing exploitation while remaining undetected. However, this detection does NOT confirm the intent behind the file or directory creation, as legitimate applications may also create hidden files for valid purposes.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion**, with the technique identified as **T1564.001: Hiding Files and Directories**. The primary telemetry source for this detection is the Linux audit daemon (auditd), capturing EXECVE system calls that include commands like `mkdir`, `nano`, `touch`, `vi`, or `vim` that create hidden files or directories. If malicious, such behavior could indicate an active compromise, potentially leading to further exploitation or data loss. However, this detection does NOT confirm malicious intent on its own; it merely indicates that a hidden file or directory was created.
 
   ### Investigation Steps
 
-  - **Check audit logs for hidden files:** Review auditd logs (e.g., at `/var/log/audit/audit.log`) for EXECVE events with `Event ID  execve` that include commands like `mkdir`, `nano`, or `touch` with matching arguments (a1 or a2) indicating a leading dot in the file or directory name.
+  - **Review audit logs for suspicious creations:** Check auditd logs (typically `/var/log/audit/audit.log`) for Event IDs related to `EXECVE` involving commands like `mkdir` with `a1` or `a2` fields matching `(^|\/)\.[^.\/]`. Look for timestamps that correlate with known suspicious activities.
 
-  - **Identify the command context:** Assess the command context of the detected EXECVE. Review fields such as the `pid`, `user`, and `exe` to determine if the command was executed by a suspicious user or process (e.g., indicative of a high-privilege process creating hidden files unexpectedly).
+  - **Identify legitimate usage patterns:** Confirm if legitimate users or processes are executing commands that create hidden files, particularly system maintenance or development processes. For example, developers may create hidden configuration files on servers.
 
-  - **Review process lifecycle:** Cross-reference the logged process IDs with process monitoring tools (e.g., ps, top) to determine if the parent process exhibits malicious behavior or is tied to known legitimate applications that may create hidden files under normal circumstances (e.g., `.git` directories).
+  - **Correlate with user behavior:** Examine the user context associated with the command by reviewing the `uid` and `pid` fields in the audit logs. Verify whether the user has a legitimate reason for creating these hidden files, such as a system administrator or application service account.
 
-  - **Audit changes in the file system:** Validate any new hidden files/directories with filesystem monitoring (e.g., `ls -la` on the affected paths). Legitimate administrative activities, such as creating `.ssh` directories for user configuration, should be accounted for and distinguished from potential threats.
+  - **Extract potential malicious indicators:** Investigate the paths where hidden files were created. High-confidence malicious indicators include names that resemble common system files or scripts, such as `.bash_profile`, `.ssh/authorized_keys`, or files with executable permissions in suspicious directories.
 
-  - **Dismiss benign scenarios:** Document known legitimate scenarios, such as developers creating configuration files or hidden directories for version control systems. Ensure any team members create a baseline for expected hidden file creation in their workflows.
+  - **Check for traces of lateral movement or persistence:** Look for any other suspicious commands executed around the same time as the creation of the hidden file or directory. Cross-reference this with logs from correlating services (e.g., SSH logs for unauthorized remote access attempts).
 
   ### Prioritization
 
-  This alert has low severity due to the potential for both benign and malicious activity. While the impact can be significant if used for malicious purposes (e.g., evading detection), the likelihood of abuse is moderate since hidden files can also arise from routine system configuration or development processes.
+  This alert carries a **low severity** rating in a mature enterprise context; however, it can escalate if it occurs on critical systems or is associated with known malicious behavior. The likelihood of malicious abuse is moderate, though the creation of hidden files is a common tactic in post-exploitation scenarios.
 
   ### Blind Spots and Assumptions
 
-  This rule may miss hidden file creations that do not invoke the specified commands, like using an alternative file manipulation method (e.g., Python scripts). Additionally, comprehensive logging via auditd is required for reliable detection. Legitimate user interactions with applications like editors or version control can trigger this alert, potentially leading to false positives. Cross-reference with similar detections, such as file permissions changes via Sysmon (Event ID 10), which may provide context on potentially hidden files or directories being altered.
+  Detection is limited by the configurational state of auditd, as improper setup could lead to missing events. Evasion techniques may involve using alternative methods to create hidden files, such as using scripts or non-standard tools. Legitimate activities like temporary file storage by applications can trigger the alert, underscoring the need for context around each event. Companion detections, such as monitoring for unusual EXECVE patterns or analyzing file access logs, would strengthen overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

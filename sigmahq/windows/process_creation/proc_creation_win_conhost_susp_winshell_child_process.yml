@@ -12,8 +12,8 @@ references:
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2025-02-05
 tags:
+- attack.stealth
 - attack.t1202
-- attack.defense-evasion
 - attack.t1218
 logsource:
   category: process_creation
@@ -48,26 +48,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the spawning of potentially suspicious child processes from `conhost.exe`, a system process that acts as a console host for Windows command-line interfaces. The likely attacker objective is to leverage trusted system components to execute malicious commands or scripts without raising immediate suspicion. This behavior aligns with the MITRE ATT&CK technique for command and scripting interpreter execution (T1202) and defense evasion (T1218). The primary telemetry source for this detection involves Windows process creation events, specifically Event ID 4688 or Sysmon Event ID 1, which capture process relationships and command-line arguments. If found to be malicious, this activity could lead to unauthorized system access or lateral movement within the network. However, this detection does NOT confirm that the activity is malicious on its own; further investigation is necessary to determine intent.
+  This rule detects suspicious child processes spawned by `conhost.exe`, indicating potential misuse of trusted Windows components for executing malicious commands or scripts. Attackers may leverage this behavior to obfuscate their actions, often aiming to execute payloads, maintain persistence, or perform lateral movement. The relevant MITRE ATT&CK technique is T1202 (Command and Scripting Interpreter) and T1218 (Signed Binary Proxy Execution).
+
+  Primary telemetry sources include Process Creation logs (Security Event ID 4688) and Sysmon Event ID 1. If the detected behavior is malicious, it poses a significant security risk by enabling the execution of unauthorized commands or scripts, which can lead to data exfiltration, system compromise, or other malicious outcomes. This detection does NOT confirm the actual execution of malicious activity; it only highlights a suspicious combination of parent and child processes.
 
   ### Investigation Steps
 
-  - **Review parent and child process relationships:** Identify the parent process (`conhost.exe`) and its spawned child processes by extracting Windows Security Event ID 4688 logs. Check the `ProcessId`, `ParentProcessId`, and `Image` fields to confirm the hierarchy. Legitimate activities may include administrative tasks but should be limited to known administrative tools.
+  - **Review process creation logs:** Examine Security Event ID 4688 and Sysmon Event ID 1 for `conhost.exe` (ParentImage) spawning child processes such as `powershell.exe` or `cmd.exe`. Look for logged command lines (CommandLine field) that appear encoded, obfuscated, or excessively lengthy, which may indicate malicious intent.
 
-  - **Analyze command-line arguments of child processes:** Look at the `CommandLine` field in Event ID 4688 for unusual or encoded parameters in child processes like `powershell.exe`, `regsvr32.exe`, or `mshta.exe`. For example, any suspicious flags or arguments (e.g., `-EncodedCommand`) increase the likelihood of malicious intent.
+  - **Identify legitimate usage patterns:** Confirm normal use cases for `conhost.exe`, such as administrative scripts or scheduled tasks, that invoke `cmd.exe` or `powershell.exe` without extensive command-line arguments. Log sources like Task Scheduler or Windows Event Logs might also provide context about scheduled executions.
 
-  - **Verify path integrity of spawned processes:** Confirm that the child processes originate from legitimate paths by comparing the `NewProcessName` field against known system directories. Unauthorized or non-standard paths may indicate compromise.
+  - **Check for known malicious indicators:** Look for specific child process images associated with known threats, like `mshta.exe` or `regsvr32.exe`. Validate their Origin/Path against threat intelligence to determine if they are recognized as malicious, focusing on unusual locations outside typical system paths.
 
-  - **Identify execution timestamps and frequency:** Review the timestamps associated with the detected processes to identify patterns or unusual spikes in execution that deviate from normal operational behavior. Unscheduled and frequent execution might suggest exploitation efforts.
+  - **Evaluate command lines for suspicious parameters:** Analyze the CommandLine field of relevant events to identify unusual flags or script URLs, such as `http://` or `https://`. Malicious command executions often contain such indicators as part of their arguments.
 
-  - **Assess host role and criticality:** Determine what role the host plays within the environment (e.g., Domain Controller, application server) and evaluate the severity of the alert accordingly, as higher-impact hosts could pose more significant risks if compromised.
+  - **Assess host role and activity context:** Determine the role of the affected host (e.g., workstation, server, domain controller) to understand the impact of suspicious activity. For instance, if a domain controller is executing commands via `powershell.exe`, this activity warrants immediate escalation.
+
+  - **Search for signs of lateral movement or persistence:** Investigate subsequent events following the identified process creations for further indicators, like unusual service installations or registry modifications. Sysmon Event ID 10 (Process Access) can reveal additional interactions with the detected processes.
 
   ### Prioritization
 
-  This alert is considered high severity due to the possibility of executing malicious payloads through trusted system utilities. The exploitation of `conhost.exe` is a recognized technique among adversaries to evade detection, and thus, there is a high likelihood of malicious abuse in environments where such behavior is not common.
+  This alert should be considered high severity due to the sensitive nature of processes involved and their potential for enabling further malicious actions. The operational impact can be significant, especially if successful execution leads to command execution or the deployment of additional payloads. Furthermore, the misuse of legitimate system binaries is common in various attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logging is not adequately configured, particularly for process creation events or command-line details. Legitimate administrative tasks or automated scripts may trigger the alert, complicating the investigation. It is critical to ensure visibility into both the command-line arguments and parent-child relationships of processes. Companion detections such as user behavior anomalies or PowerShell script activity can further strengthen coverage against potential threats.
+  Detection is limited by potential evasion tactics, such as attackers using alternative, less suspicious parent processes for execution or digitally signed binary spoofing. Accurate log configuration is required to capture all relevant process creation events effectively. Legitimate administrative tasks could inadvertently trigger this rule, especially automated scripts running via `powershell.exe`. A companion detection rule that focuses on unexpected command line arguments for PowerShell (T1059.001) could enhance overall detection efficacy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

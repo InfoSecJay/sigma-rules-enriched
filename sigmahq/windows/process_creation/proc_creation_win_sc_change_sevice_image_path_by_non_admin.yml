@@ -11,8 +11,9 @@ date: 2019-10-26
 modified: 2024-12-01
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 logsource:
   category: process_creation
@@ -38,30 +39,25 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `sc.exe` utility by users with a Medium integrity level attempting to change service settings, specifically the `ImagePath` or `FailureCommand`. This behavior is associated with privilege escalation attempts where an attacker seeks to manipulate services to execute malicious payloads or gain unauthorized access. The relevant MITRE ATT&CK tactics and techniques include "Persistence" (TA0003) and "Privilege Escalation" (TA0004) under the technique "Service Permissions Weakness" (T1574.011).
+  This Sigma rule detects the execution of the Windows service control manager utility (`sc.exe`) by a user operating at a Medium integrity level, attempting to alter service configurations, specifically `ImagePath` or `FailureCommand`. The most likely objective of this behavior is to escalate privileges or maintain persistence by leveraging weak service permissions. The relevant MITRE ATT&CK tactics and techniques include Persistence (TA0003), Privilege Escalation (TA0004), and the specific technique of Service Registry Permissions Weakness (T1574.011).
 
-  The primary telemetry source involves process creation logs from Windows, specifically Security Event ID 4688. If this behavior is malicious, it could lead to persistent backdoors or unauthorized system access. However, this detection alone does not confirm malicious intent; legitimate system administrators can also execute similar commands as part of normal operations.
+  The primary telemetry sources are Windows process creation logs, with a focus on Event ID 4688 for process launch details. If malicious, this behavior could allow an attacker to gain unauthorized control over services, potentially compromising the host system. However, this detection does NOT confirm that the activity was malicious; it only highlights that a non-admin user is attempting to modify service properties.
 
   ### Investigation Steps
 
-  - **Review the Command Line: ** Check the `CommandLine` field in Security Event ID 4688 for `sc.exe` invocations containing 'config' and 'binPath' keywords for changes to service paths. Legitimate use would typically involve predefined service settings management by authorized personnel.
-
-  - **Identify Integrity Level: ** Examine the `IntegrityLevel` field for the process. A Medium integrity level indicates that the command was run by a standard user without administrative privileges. Elevated privileges without justification should be viewed as suspicious.
-
-  - **Check Modification Details: ** Investigate the details in the `ImagePath` or `FailureCommand` fields in the service modification logs (Service Control Manager logs) to identify if system services are being redirected or modified to unexpected paths, indicating potential malicious behavior.
-
-  - **Cross-Reference User Activity: ** Correlate the user running `sc.exe` against standard operational roles within the organization. Unapproved users executing service modifications should raise red flags.
-
-  - **Review Service Account Permissions: ** Analyze permissions of the affected service accounts using `Get-Service` and identify any unusual configurations that could suggest weak permissions or potential exploitation.
-
-  - **Inspect for Related Artifacts: ** Look for evidence of file creation or execution in directory paths associated with modified services. This may include log files, binaries, or network connections that were established following the modification, indicating potential exfiltration or lateral movement.
+  - **Check process creation logs:** Review Windows Security Event ID 4688 for instances of `sc.exe` execution by users with Medium integrity (`S-1-16-8192`). Look for anomalies in user accounts attempting service changes.
+  - **Assess command line parameters:** Investigate Event ID 4688's `CommandLine` field for instances containing both `config` and `binPath` or `failure` and `command`. Analyze if these correspond to expected service modifications or indicate potential misuse.
+  - **Verify service permissions:** Use PowerShell to check service permissions via `Get-Service`. Ensure the user’s account attempting the modification does not have elevated permissions on critical services. Legitimate modifications should come from authorized personnel with high-level privileges.
+  - **Identify executed commands:** Cross-reference the commands executed with `sc.exe` against known benign maintenance activities. Authorized admins may execute similar commands, particularly for service restarts or configuration validation.
+  - **Analyze service impact:** Identify the services being modified and their criticality to business operations. For example, changes to `Windows Update` or `Remote Desktop Services` pose higher risks and should be prioritized for deeper investigation.
+  - **Evaluate additional sysmon logs:** If Sysmon is deployed, review Event ID 1 (Process Create) for detailed correlating information regarding the parent process, timestamps, and additional metrics about the environment from which `sc.exe` was spawned.
 
   ### Prioritization
 
-  Given the potential impact on system integrity and the likelihood of privilege escalation, alerts from this detection are rated high severity. The behavior outlined in this detection is often used by adversaries to achieve persistence and may indicate a compromised system if executed by unauthorized users.
+  This alert is high severity due to the potential impact on critical systems when a non-admin user attempts to change service configurations, which can lead to privilege escalation. The likelihood of malicious abuse is significant, particularly if the organization has a history of privileged escalation attempts. This behavior is commonly targeted by attackers looking to exploit misconfigurations in system services.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques could include legitimate administrative activities that could trigger false positives, such as scheduled tasks or system updates. Reliable detection requires continuous monitoring of process creation logs and service configuration data. Additionally, misconfigured delegation settings might permit malformed service configurations, leading to legitimate alerts. Companion detections regarding unusual user activity (e.g., using `net user` commands or accessing high-risk services) will strengthen overall security coverage.
+  Detection may be limited if log sources like Windows Security Event logs or Sysmon are not properly configured to capture relevant events. Attackers may employ evasion techniques by using legitimate administrative accounts or running their own tools disguised as `sc.exe`. Additionally, authorized users performing legitimate service maintenance may trigger this alert, requiring contextual analysis of user behavior. Related detections, such as monitoring for unexpected changes in service configurations or user account activities, can strengthen overall coverage against this tactic.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

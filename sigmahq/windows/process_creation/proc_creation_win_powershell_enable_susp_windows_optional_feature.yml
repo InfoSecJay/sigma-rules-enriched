@@ -14,7 +14,7 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-12-29
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -40,30 +40,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the PowerShell cmdlet `Enable-WindowsOptionalFeature` with specific feature names typically associated with potential security risks, such as legacy protocols and services that could be exploited by attackers. The likely attacker objective is to enable deprecated or vulnerable features on Windows systems to facilitate lateral movement, persistence, or exploitability of security weaknesses.
+  This rule detects the execution of the PowerShell cmdlet `Enable-WindowsOptionalFeature`, which is often used to configure Windows features, including potentially insecure features like Telnet or SMBv1. Attackers may utilize this cmdlet to enable unwanted features that can create backdoors or weaken system security as part of their lateral movement tactics. This behavior aligns with MITRE ATT&CK technique "T1491: Kernel Object Manipulation".
 
-  Relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0005) and techniques such as **Indicator Removal on Host** (T1070) and **Modify System Image** (T1601). Primary telemetry sources include Windows process creation logs and PowerShell logs, specifically the fields related to the `CommandLine` arguments used. If malicious, the enabling of these features could expose the system to various attacks. It’s important to note that this detection does NOT confirm malicious intent on its own, as legitimate administrative actions can trigger it.
+  The primary telemetry sources include Windows Security logs (Event ID 4688 for process creation) and PowerShell logs documenting command execution. If exploited, enabling certain features could lead to unauthorized access or disclosure of sensitive information. This detection does NOT confirm the malicious intent; legitimate administrative actions could trigger this alert.
 
   ### Investigation Steps
 
-  - **Review process creation logs for the PowerShell command:** Check Event ID 4688 or Sysmon Event ID 1 for instances of `Enable-WindowsOptionalFeature` being executed. Look for the full command line in the `CommandLine` field. This command can indicate potential malicious activity if used on unauthorized systems.
+  - **Review execution context: Investigate Event ID 4688** for the process creation of the PowerShell cmdlet. Look for the specific command line: `Enable-WindowsOptionalFeature -Online -FeatureName <feature>`. Ensure the user context is appropriate for your environment.
 
-  - **Validate specific feature names being enabled:** Cross-reference the command execution with known benign features in your environment. If `TelnetServer`, `Internet-Explorer-Optional-amd64`, or `SMB1Protocol` is present in the command line, assess the appropriateness of enabling these features as these are generally unnecessary and insecure.
+  - **Correlate with PowerShell logs** to examine additional command activity. Focus on command IDs that include `Enable-WindowsOptionalFeature`. Look for patterns typical in malware, such as unusual feature names or excessive feature modifications.
 
-  - **Identify the context of execution:** Determine which user executed the command by analyzing the `UserName` field in the process creation logs. A non-admin user executing these commands may indicate suspicious behavior, while a legitimate admin performing regular maintenance might be benign.
+  - **Identify known legitimate uses** of Windows features in your organization. Document legitimate use cases, like enabling WSL, and compare against recent alerting events to assess whether the employed feature is common in your environment.
 
-  - **Check for concurrent suspicious activities:** Investigate other processes that ran around the same time, especially those that could have leveraged the newly enabled features, such as network connections related to `telnet` or `SMB`. Review Event ID 5156 in Windows Firewall logs as an adjunct step.
+  - **Check for signs of malicious intent** by reviewing the CommandLine for suspicious or insecure feature names like 'TelnetServer' or 'SMB1Protocol'. Any recent commands executing these features could indicate a security risk.
 
-  - **Document legitimate organizational contexts:** Gather evidence from IT or operations teams regarding expected usage of the detected features to establish normal baseline activity. Use this information to differentiate between benign and malicious uses of the command.
-
-  - **Assess asset criticality:** Consider the role of the system in your environment (e.g., production, test, or development) and the sensitivity of data it handles. Systems in a production environment enabling insecure features represent higher risk than testing environments.
+  - **Validate file creation or modification artifacts** by checking the directory for file changes associated with the enabled features. For example, searching for logs or binaries under the Windows feature directories that correspond with the feature name in the command line.
 
   ### Prioritization
 
-  This alert is of medium severity as enabling high-risk features on critical systems increases the likelihood of successful exploitation by adversaries. The potential for malicious abuse is elevated when these features are activated by unauthorized personnel or on sensitive systems. The common weaponization of deprecated protocols like SMB1 enhances the urgency of review.
+  The alert severity is medium, primarily due to the potential security implications on critical systems that could be exploited via insecure features. The likelihood of malicious abuse exists, especially if attackers seek to establish persistence or facilitate further attacks. While this usage is not typically weaponized, its context within a larger attack can increase urgency.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by the absence of comprehensive auditing of PowerShell execution, particularly if logging settings are misconfigured. There may be legitimate scenarios, such as systems administration or application deployment, that trigger this alert. Companions detections like those for unusual network traffic (e.g., SMB or Telnet activity) can provide additional context to strengthen coverage against potential exploitation following this behavior.
+  Detection may be limited by the absence of complete logging configurations; specifically, if PowerShell script block logging is not enabled, some commands may evade detection. Legitimate administrative activity, such as server maintenance or feature testing, could also trigger this alert. A related detection includes monitoring for subsequent abnormal network connections or processes stemming from any enabled features, providing broader coverage of potential exploit paths.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

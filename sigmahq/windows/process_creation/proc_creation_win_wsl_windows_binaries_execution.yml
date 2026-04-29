@@ -10,7 +10,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-02-14
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 - attack.t1202
 logsource:
   category: process_creation
@@ -26,28 +26,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of Windows binaries from within a Windows Subsystem for Linux (WSL) instance. The behavior suggests an attacker may be trying to evade detection by obfuscating the parent-child process relationship, potentially executing malicious binaries in a Linux environment while still leveraging Windows system capabilities. The relevant MITRE ATT&CK tactics and techniques include Execution (TA0002) and Command and Scripting Interpreter (T1202).
+  This rule detects the execution of Windows binaries from within a Windows Subsystem for Linux (WSL) instance, indicating potential abuse of WSL for stealthy execution of malicious software. An attacker may aim to evade traditional defenses by running malware in a UNIX-like environment while leveraging Windows binary capabilities, thereby misleading detection mechanisms.
 
-  Primary telemetry sources include process creation logs, specifically Security Event ID 4688 and/or Sysmon Event ID 1, capturing the creation of processes and their command-line arguments. If the behavior is malicious, it could enable unauthorized access or control over the system, leading to further exploitation. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate applications may also use this behavior for valid purposes.
+  The relevant MITRE ATT&CK tactic is **Execution**, specifically technique **T1202: Command and Scripting Interpreter**. The primary telemetry sources for this detection are process creation logs, which include Security Event ID 4688 and Sysmon Event ID 1. If confirmed malicious, this behavior can compromise the host by deploying and executing harmful payloads, potentially allowing lateral movement within the network. Notably, this detection does not confirm a malicious intent on its own, as benign processes can also execute binaries from WSL under normal operations.
 
   ### Investigation Steps
 
-  - **Validate the execution context:** Review the process creation logs for Security Event ID 4688 or Sysmon Event ID 1. Check fields like `NewProcessName`, `CommandLine`, and `ParentProcessName` to confirm that the binary was indeed executed from a WSL environment.
+  - **Identify the process execution: **Review Security Event ID 4688 or Sysmon Event ID 1 for entries with `Image` paths matching the regex ‘[a-zA-Z]:\\’ and `CurrentDirectory` containing '\\\\wsl.localhost'. Look for anomalous parent-child process relationships indicating unexpected behavior.
 
-  - **Identify known malicious binaries:** Look for the execution of known malicious tools or scripts like PowerShell, Cobalt Strike, or any other unapproved software in conjunction with WSL. Indicators include unusual command-line arguments or paths leading to user directories.
+  - **Evaluate parent process relationships: **Check the parent process of the detected binary execution. Legitimate processes like `bash.exe` or `wsl.exe` could indicate normal usage, while binaries being executed directly without a clear Linux parent process should be regarded with suspicion.
 
-  - **Assess legitimate WSL usage:** Investigate whether the execution was part of a legitimate workflow. For instance, if a user is known to leverage WSL for development or testing, their process patterns may include the execution of Windows binaries (e.g., `notepad.exe` or `powershell.exe`).
+  - **Confirm path legitimacy: **Cross-reference the binary path against known safe or legitimate applications installed on the host. An unexpected executable path (e.g., from suspicious or newly installed software) should raise flags.
 
-  - **Cross-reference user activity:** Check the user account associated with the process creation. Review user behaviors across the last 24 hours for previously flagged abnormal activities that could correlate with the binary execution.
+  - **Examine for common malicious indicators: **Look for execution of known malicious executables such as `cmd.exe`, `PowerShell.exe`, or tools known for exploitation in WSL environments. Presence of these in process creation logs can indicate a higher likelihood of malicious intent.
 
-  - **Correlate with network activity:** If possible, analyze network activity logs around the time of execution using firewall log types or proxy logs. Look for outbound connections that correlate with the timing of the process to assess for possible exfiltration.
+  - **Correlate with user activity: **Check user access logs to understand whether the user context in which the binary ran is consistent with known operational behavior. Anomalies here could indicate user impersonation or unauthorized access.
+
+  - **Review scheduled tasks and scripts: **Investigate Windows Task Scheduler logs (Event ID 4698) for tasks configured to execute from WSL, which may indicate pre-planned malicious activity.
 
   ### Prioritization
 
-  This alert is of medium severity as it indicates potentially malicious behavior that could be used for exploitation. The likelihood of malicious use is moderate, since leveraging WSL for executing Windows binaries is becoming a known method for evasion in advanced persistent threat (APT) scenarios. While this behavior is notable, it is not universally indicative of compromise without further context.
+  This alert is of medium severity, as Windows devices executing binaries from WSL have a moderate potential for compromise depending on the criticality of the affected system. If used maliciously, such behavior can facilitate stealthy attacks that are less likely to be detected. However, this activity can also be part of legitimate software development or operations.
 
   ### Blind Spots and Assumptions
 
-  The main limitation of this detection is the potential for legitimate applications to trigger the alert, such as users executing valid software through WSL. Additionally, the alert relies on accurate logging of process creation events, which requires appropriate configuration on the endpoint. Certain logging mechanisms may need to be enabled, such as Sysmon, for comprehensive coverage. A related detection mechanism could involve monitoring for unusual parent-child relationships in process creation, which could strengthen the coverage for sophisticated evasion techniques.
+  Detection may be limited by the evasion technique where attackers use obscured paths or customized binaries that do not conform to typical naming conventions. It assumes that the necessary process creation logging is enabled on all systems, which may not always be the case in less monitored environments. Legitimate developer activities, such as running testing tools in WSL, may often trigger this alert. A related detection for further monitoring could be the execution of suspicious commands within WSL, which would provide additional context for the alert.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

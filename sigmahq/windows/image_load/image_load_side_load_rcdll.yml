@@ -9,8 +9,9 @@ date: 2023-03-13
 modified: 2023-03-15
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -29,28 +30,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the loading of the `rcdll.dll` file from potentially unsafe paths that do not correspond to known safe directories associated with Microsoft Visual Studio or Windows SDKs. The likely attacker objective is to achieve persistence or privilege escalation by loading a malicious DLL masquerading as a legitimate system component. This behavior fits within the MITRE ATT&CK tactics of Persistence (T1547) and Defense Evasion (T1574.001).
+  This Sigma rule detects potential sideloading of the malicious `rcdll.dll` file in a Windows environment. An attacker may use DLL sideloading to execute malicious code by placing a malicious DLL alongside a legitimate application, exploiting trust in the application's directory. This activity typically aligns with the MITRE ATT&CK tactic of Persistence (TA0003), specifically technique T1574.001 (DLL Side-Loading).
 
-  The primary telemetry sources include Windows Event Logs related to image loading (specifically ImageLoad events). If malicious, the impact could involve unauthorized access to system resources and potential system compromise. It is critical to note that this detection does NOT confirm that the loaded DLL is malicious on its own; further investigation is required to assess the context fully.
+  The primary telemetry source is Windows image load events, specifically monitoring for processes loading the `rcdll.dll` file outside of designated directories. If successful, this behavior could lead to unauthorized execution of code, privilege escalation, and potential control over the affected system. Notably, this detection does NOT confirm that the loaded DLL is malicious on its own; further investigation is necessary.
 
   ### Investigation Steps
 
-  - **Check loaded images: ** Investigate Event ID 4688 (process creation) and correlate with Sysmon Event ID 7 (Image Load) to identify the complete process chain for `rcdll.dll`. Look for abnormal parent processes that differ from typical development tools or applications.
+  - **Check the execution context:** Verify the parent process of the image load. Investigate if a legitimate program like `VS.exe` or `Windows Kits` initiated the load. Use Security Event ID 4688 for process creation details.
 
-  - **Identify process origin: ** Examine the process loading `rcdll.dll` to determine if it originated from known safe paths. Investigate potential anomalies in the Image Load events, prioritizing instances not initiated from directories like `C:\Program Files (x86)\Microsoft Visual Studio\`.
+  - **Identify the path of the DLL:** Review the full file path associated with the `rcdll.dll`. Legitimate loads would be from specific Microsoft directories (e.g., `C:\Program Files (x86)\Microsoft Visual Studio\`). Any loads from other locations (e.g., `C:\Users\Public\`) could indicate malicious activity.
 
-  - **Assess digital signatures: ** Validate the digital signature of `rcdll.dll` by checking the file properties and content in the file system. Legitimate loads from Microsoft should show valid signatures from known Microsoft entities.
+  - **Extract file attributes:** Perform a file analysis on `rcdll.dll` using tools like Sysinternals’ `Sigcheck` or PowerShell to inspect the file signature, hash, and created date. Malicious DLLs often lack valid signatures or have suspicious metadata.
 
-  - **Review process activity: ** Monitor for related suspicious behavior from the process that loaded the DLL, such as unusual network connections (e.g., outbound connections to uncommon IPs or domains) or attempts to access sensitive resources.
+  - **Correlate with network activity:** Check for related outbound connections using network logs. Monitor for unusual traffic patterns or connections that may indicate data exfiltration tied to the process invoking the DLL.
 
-  - **Correlate with known threats:** Check against threat intelligence sources to see if `rcdll.dll` or related indicators have been reported in the context of active threats or known exploits.
+  - **Examine system changes:** Look for modifications in system configurations or other file manipulations that correspond with the DLL loading event. Relevant logs include Windows Event ID 5140 for file share access or any file creation events in critical directories.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the implications of potential DLL sideloading. Given that this technique is often weaponized in attacks targeting persistence and evasion, it signals a credible risk, especially if triggered on an endpoint with sensitive information or critical functions.
+  This alert is high-severity due to the potential impact on system integrity and the likelihood of exploit in environments where trusted applications are present. DLL sideloading is a well-documented method for initial access and persistence used by various adversaries, making it a significant vector for compromise.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by obfuscation techniques employed by attackers to mask the loading of malicious DLLs. Required log sources include comprehensive logging of ImageLoad events, necessitating Sysmon installation. Legitimate applications, especially custom or development tools, may trigger this alert if they utilize `rcdll.dll` or similar names. A companion detection rule focusing on unusual parent processes or a combination of API calls related to DLL loading could enhance overall visibility and context around this potential threat.
+  The detection may miss sophisticated evasion techniques such as renaming the DLL or altering the loading path. Reliable detection requires proper logging configurations for image load events, which might not always be enabled. False positives could arise from legitimate development scenarios where valid DLLs are loaded. A related detection to consider is monitoring for process injection attempts, which can indicate attempts to manipulate already running processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

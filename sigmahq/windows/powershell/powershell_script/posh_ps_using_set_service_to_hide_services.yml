@@ -14,8 +14,9 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-17
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 logsource:
   product: windows
@@ -37,30 +38,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the usage of the PowerShell `Set-Service` cmdlet to modify the Security Descriptor of a Windows service, specifically to hide the service from standard service enumeration tools like `sc.exe` and `Get-Service`. The objective of this behavior is often tied to persistence and evasion, as attackers may seek to conceal malicious services after establishing initial access. This activity relates to the MITRE ATT&CK technique T1574.011 (Hide Services).
+  This rule detects the use of the PowerShell cmdlet `Set-Service` to alter a service’s `SecurityDescriptor`, enabling it to be hidden from standard service management utilities like `sc.exe` and `Get-Service`. This tactic is often utilized by attackers to create stealthy persistence mechanisms on compromised systems. The MITRE ATT&CK framework tactic involved here is **Persistence** (TA0003), particularly the technique **Hide Services** (T1574.011).
 
-  The primary telemetry source involves PowerShell script block logging, which must be enabled to capture necessary details from the executed scripts. The security impact of this behavior can be severe, as it may indicate an attempt by an attacker to persist presence while avoiding detection by security tools. Detection of this command alone does not confirm malicious intent, as it may also occur in rare legitimate scenarios, such as administrative tasks involving hidden services.
+  The primary telemetry sources are Windows PowerShell script logs, specifically Script Block logging, which needs to be enabled to capture detailed command execution. If malicious intent is behind this activity, it could lead to an undetected foothold on the target system, possibly facilitating further exploitation or lateral movement. However, this detection alone does not confirm that the service manipulation is malicious, as there may be legitimate use cases for hiding services.
 
   ### Investigation Steps
 
-  - **Review PowerShell Logs for Suspicious Commands:** Check for PowerShell Script Block logs (Event ID 4104) containing `Set-Service` along with `-SecurityDescriptorSddl` or `-sd`. Focus on the context of execution—uncommon source users or scripts warrant deeper investigation.
+  - **Verify the command execution context:** Review PowerShell logs for Event ID 4104 showing execution of the `Set-Service` command. Check for unusual user accounts, timings, or associated processes that are not part of regular admin activity.
 
-  - **Identify the Target Service:** Determine which service is being modified by capturing the parameters passed to `Set-Service`. Look for unusual service names or services that are not regularly associated with standard system operations.
+  - **Identify the specifics of the SecurityDescriptor modification:** Analyze the parameters used in the `Set-Service` command, particularly the `-SecurityDescriptorSddl` flag within the captured ScriptBlockText to determine if a standard SDDL was altered in an unusual manner.
 
-  - **Assess Service Enumeration Indicators:** Validate whether the affected service is indeed hidden from tools like `Get-Service` or `sc.exe`. This can confirm if the modification was successful. A legitimate background service would not need modifications that hide its presence.
+  - **Check for legitimate service visibility:** Confirm if the services being hidden are typically visible through other management tools (e.g., `Get-Service`). If they are standard services (like Windows Update or Security Center), this activity may be suspicious.
 
-  - **Look for Other Malicious Indicators:** Identify any co-occurring PowerShell commands or actions that suggest a malicious context, such as service creation (Event ID 4697) or unusual file modifications in directories related to the affected service.
+  - **Correlate with other system logs:** Cross-reference with Event ID 7045 (Service Created) to see if any new services were created around the same time as the `Set-Service` command execution, which could indicate an active attempt to hide a malicious service.
 
-  - **Correlate User Activity:** Review logs for the identity of the user who executed the PowerShell command. Check for anomalous login times or behaviors, particularly if the user is not typically involved with service management or PowerShell scripting.
+  - **Investigate related alerts:** Leverage the companion detection rule that identifies `New Service Creation` (ID: 514e4c3a-c77d-4cde-a00f-046425e2301e) to reduce false positives and enhance the investigation’s context by looking for service creation in conjunction with modifications to existing ones.
 
-  - **Identify Impacted Assets:** Determine the role and criticality of the affected system. A hidden service on a domain controller or a mission-critical server carries higher risk compared to less important endpoints.
+  - **Monitor for known malicious patterns:** Check against threat intelligence feeds for any indicators associated with service hiding by known malware families or threat actors, focusing on common SDDL patterns that would indicate evasion techniques.
 
   ### Prioritization
 
-  This alert should be treated as high priority due to its potential impact on systems where critical services may be hidden by malicious actors. The likelihood of abuse is significant, especially since hiding services is a common evasion technique among advanced persistent threats. Such behavior is not typical for legitimate user actions, warranting immediate investigation.
+  This alert is of **high severity** within an enterprise context due to the potential impact on system visibility and control. Given that stealth tactics like hiding services are frequently seen in advanced adversarial behavior, the likelihood of malicious abuse is significant, especially in compromised environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if script block logging is not enabled, allowing evasion through disabled logging or misleading benign scripts that utilize similar cmdlets. Legitimate activities may occasionally trigger this alert, such as system administrators configuring services for specific purposes. A related detection to consider includes monitoring for service creation or deletion events (Event ID 4697) to identify potential chaining of malicious activities.
+  Detection may be limited by the requirement for Script Block logging to be enabled; without it, this behavior may not be visible. Legitimate activities may involve rare use cases for hiding services, leading to potential false positives. It's critical to also consider other stealth tactics that might not rely on `Set-Service`, such as DLL side-loading or other privilege escalation techniques, as companion detections to strengthen overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

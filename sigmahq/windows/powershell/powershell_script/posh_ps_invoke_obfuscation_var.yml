@@ -9,7 +9,7 @@ author: Jonathan Cheong, oscd.community
 date: 2020-10-15
 modified: 2024-04-05
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1027
 - attack.execution
 - attack.t1059.001
@@ -27,26 +27,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the obfuscated use of environment variables in PowerShell commands, specifically through the invocation of `cmd.exe` to execute a command that sets variables. Attackers typically leverage such techniques to evade detection mechanisms while executing malicious scripts. The relevant MITRE ATT&CK tactics involved include Defense Evasion (T1560) and Execution (T1059.001). The primary telemetry source required for this detection is Windows PowerShell logs with script block logging enabled, particularly focusing on log entries from Event ID 4104. If malicious, the security impact could involve executing payloads that may lead to system compromise. However, this detection does NOT confirm malicious intent on its own, as legitimate administrative tasks may also use similar PowerShell constructs.
+  The rule detects the obfuscated execution of PowerShell scripts that utilize environment variables through a command pattern resembling `cmd.exe` calls. Attackers may employ this technique to execute malicious payloads while evading detection, attempting to confuse security tools and analysts. The likely objective is to execute unapproved code, such as payloads for lateral movement or data exfiltration.
+
+  This behavior is linked to the MITRE ATT&CK technique for "Obfuscated Files or Information" (T1027) and "Command and Scripting Interpreter: Windows Powershell" (T1059.001). The primary telemetry source required is PowerShell script block logging, specifically focusing on events captured under Windows Event ID 4104. If malicious, this behavior may lead to data breaches or system compromise. Importantly, this detection does NOT confirm outright malicious activity without further context, such as additional indicators of compromise or abnormal behavior patterns.
 
   ### Investigation Steps
 
-  - **Check the specifics of the PowerShell command: ** Review Event ID 4104 for instances of `cmd` or environment setting commands in ScriptBlockText; legitimate usage may involve standard system administration tasks without obfuscation.
+  - **Review PowerShell Event Logs:** Check Windows Event ID 4104 for instances of script block logging capturing the specific obfuscation pattern (e.g., `cmd.{0,5}(?:/c|/r)(?:\s|)"set\s[a-zA-Z]{3,6}.*(?:\{\d\}){1,}\\"\s+?-f(...)`). Look for unusually high frequencies of these events which may indicate an ongoing attack.
 
-  - **Correlate with execution history: ** Investigate recent PowerShell command logs (Event ID 400) to determine the context of the execution; legitimate power users or administrators may have expected execution patterns that should be noted.
+  - **Correlate with Process Creation:** Cross-reference the script block log with Windows Event ID 4688 to identify the parent process invoking PowerShell. A legitimate PowerShell execution typically originates from known administrative tools or scheduled tasks, whereas unexpected sources (e.g., user desktops) could indicate malicious activity.
 
-  - **Identify user context: ** Validate the user account involved in executing the command. High-confidence malicious indicators include execution by non-administrator accounts or unusual users at odd hours.
+  - **Inspect Related Network Activity:** Analyze network logs for any outbound connections initiated by the PowerShell process. Collect relevant data from firewall or proxy logs that show unusual communication patterns (e.g., unexpected IPs or domains) following the execution of the script.
 
-  - **Assess for known malware signatures: ** Utilize endpoint antivirus or EDR solutions to check for malware signatures or indicators of compromise associated with known obfuscation techniques or payloads.
+  - **Validate Environment Variables Usage:** Examine the affected system's environment variables using `Get-ChildItem Env:` in PowerShell to assess any anomalies or modifications that appear unusual. Malicious scripts often manipulate environment variables, which should remain consistent with organizational standards.
 
-  - **Validate environment variable usage: ** Analyze the script for what environment variables are being set and whether they match known benign patterns, such as standard application deployments or admin tasks.
+  - **Identify Escalated Permissions:** Investigate if there are any user accounts with escalated privileges executing these commands. Use Windows logs (Event ID 4624) to check for logons from service accounts or admin users around the time of the obfuscation alerts.
+
+  - **Assess File System Changes:** Check the file system for any newly created or modified scripts in locations commonly associated with malicious activity. Filenames that are unusually obfuscated or placed in temporary directories may indicate underlying malicious intent.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on the enterprise, especially if it occurs on critical systems. The obfuscation technique is commonly utilized by adversaries to avoid detection, making the likelihood of malicious abuse significant. While not all occurrences indicate malicious behavior, the context must be closely examined.
+  This alert carries a high severity due to the potential for significant impact on system integrity and data security. The likelihood of malicious abuse is notable given that obfuscation techniques are routinely used in exploitation scenarios by advanced adversaries. Such behavior is often weaponized in targeted attacks to establish persistence or move laterally within a network.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate administrative use triggering this alert, especially in a skilled operations environment. Additionally, reliance on PowerShell script block logging must be ensured, as disabled logging would compromise detection efficacy. Related detections, such as monitor alerts for direct PowerShell command invocations (e.g., Event ID 4103), can enhance coverage and context for observed activities.
+  The detection may have limitations due to possible evasion tactics, such as direct PowerShell execution without obfuscation, which may escape detection. Reliability of this alert is dependent on the enablement of script block logging. Legitimate software updates or administrative scripts may inadvertently trigger this alert, necessitating contextual understanding. A related detection, such as monitoring for “PowerShell Script Execution” (T1059.001), can provide enhanced coverage of potentially dangerous PowerShell activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

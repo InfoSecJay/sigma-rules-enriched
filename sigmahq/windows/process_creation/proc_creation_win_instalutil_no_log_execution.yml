@@ -10,7 +10,7 @@ author: frack113
 date: 2022-01-23
 modified: 2022-02-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -28,30 +28,32 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of `InstallUtil.exe`, a .NET utility typically used to install and uninstall Windows services and components, executed without the creation of log files, which is unusual behavior for legitimate use. The likely attacker objective is to install malicious software or services stealthily, evading detection or analysis by omitting log creation. This behavior relates to the MITRE ATT&CK tactic of Defense Evasion (TA0005) and specifically targets the technique of Indicator Removal on Host (T1089).
+  This rule detects the execution of the .NET InstallUtil.exe application, specifically targeting instances where it is invoked without logging enabled. Typically, attackers exploit InstallUtil.exe to execute potentially malicious code while avoiding typical logging mechanisms, making the behavior suspicious. The likely objective is to install an executable or deploy a payload covertly while minimizing detection.
 
-  The primary telemetry source for this detection is the Windows Process Creation logs, identified by Event ID 4688, and potentially Sysmon Event ID 1 if Sysmon is deployed. If malicious, the security impact could involve the introduction of unauthorized software or persistence mechanisms within the environment, allowing further malicious activity. It is crucial to note that this detection does NOT confirm that any malicious activity occurred on its own; it highlights suspicious usage that warrants further investigation.
+  This behavior is aligned with the MITRE ATT&CK tactic of Defense Evasion (T1203) and the technique of Opaque External Command Execution (T1059.001). The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process execution details, including command-line arguments. If the activity were malicious, it could facilitate unauthorized changes to the system or deployment of malware without detection.
+
+  It is crucial to note that this detection does NOT confirm compromise on its own; further context and investigation are required to determine the intent and legitimacy of the execution.
 
   ### Investigation Steps
 
-  - **Check for related process behavior:** Investigate for any preceding or subsequent process events linked to `InstallUtil.exe` using Event ID 4688 and correlate with Event ID 4672 (Special Privileges Assigned to New Logon) to identify if elevated permissions were used, which may indicate malicious intent.
+  - **Review process creation events**: Check for Windows Security Event ID 4688 or Sysmon Event ID 1 that show InstallUtil.exe execution. Look for `CommandLine` fields indicating the use of `/logfile=` and `/LogToConsole=false` to assess if logging mechanisms were deliberately bypassed.
 
-  - **Examine command line arguments:** Analyze the command line arguments in Event ID 4688 for any unusual or unique strings beyond the specified arguments (e.g., `/logfile= ` and `/LogToConsole=false`), as legitimate calls typically include specific log file paths or exhibit standard usage patterns.
+  - **Analyze the parent process**: Identify the parent process of InstallUtil.exe within the telemetry (Event ID 4688). A legitimate parent process is typically the installer for .NET applications. Investigate any suspicious progenitors like Powershell or cmd.exe.
 
-  - **Review corresponding Sysmon events:** If Sysmon is deployed, look for an Event ID 1 corresponding to `InstallUtil.exe` that would provide additional context on the parent process that invoked it, helping establish whether it was spawned from a legitimate application or another suspicious process.
+  - **Correlate to recent software changes**: Review if the alert coincides with ongoing software installations or updates in your environment. Check Installer logs (e.g., MSI logs) for matching timestamps to rule out expected deployments.
 
-  - **Identify installation artifacts:** Verify whether any known malicious payload or service has been created or modified by checking for newly created services (Event ID 7045) or corresponding file artifacts in locations such as `C:\Program Files\` or any unusual directories. Significant changes in these areas might indicate a successful compromise.
+  - **Identify malicious command line usage**: Specifically validate command lines which include paths to suspicious executables or scripts (e.g., unusual directories or `.exe` files) used with InstallUtil.exe. This may indicate an attempt to execute malicious payloads.
 
-  - **Evaluate user context:** Determine the user context under which `InstallUtil.exe` was executed. Use Event ID 4624 (Successful Logon) to assess whether the user has a legitimate reason to install software or if the execution appears out of the ordinary for their role.
+  - **Look for unusual network activity**: If possible, correlate the execution with subsequent network activity (e.g., outbound connections or file transfers) to identify any data exfiltration attempts or callbacks to command and control servers.
 
-  - **Look for timing patterns:** Correlate this activity with any network activity or other system events (e.g., failed login attempts, unusual outbound connections) that may indicate lateral movement or exfiltration attempts taking place around the same timeframe.
+  - **Validate legitimate usage**: Typical, benign usage of InstallUtil.exe includes proper application installations with valid log files. Ensure that any installations stem from trusted sources or SHA signatures that reflect corporate software inventory.
 
   ### Prioritization
 
-  This alert is of medium severity due to the potential risk introduced to the environment by executing `InstallUtil.exe` in a suspicious manner. Given that this utility is often exploited for defense evasion, the likelihood of malicious intent is elevated, particularly in environments where monitoring is not stringent.
+  The severity of this alert is medium due to the potential for malicious abuse of InstallUtil.exe to execute stealthy payloads. The impact can be significant if the system is critical or hosts sensitive data. Such behaviors are not only possible but have been weaponized in various attacks, making it a noteworthy alert for immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded by attackers utilizing legitimate executables with benign command-line arguments or by properly logging InstallUtil usages. The detection relies on having Windows Process Creation logging enabled (Event ID 4688) as well as any Sysmon configurations capturing detailed process creation events. Legitimate activities such as system administrators performing updates or installations could falsely trigger this alert. A related detection to strengthen coverage could focus on monitoring unusual service installations or modifications through Event ID 7045, further illuminating service-level anomalies.
+  Detection limitations include the potential for attackers to rename processes or use other utilities to evade detection. Ensure that process creation logging via Sysmon is configured correctly to capture all relevant data. Legitimate administrative activities, such as deployments via legitimate installers, may also trigger this alert. A related detection to consider is monitoring for other executables loaded through legitimate services or during scheduled tasks, which may complement coverage against stealthy execution patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

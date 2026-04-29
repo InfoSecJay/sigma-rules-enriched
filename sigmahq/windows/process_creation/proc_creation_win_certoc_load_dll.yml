@@ -14,7 +14,7 @@ author: Austin Songer @austinsonger
 date: 2021-10-23
 modified: 2024-03-05
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -32,30 +32,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the loading of DLL files via the `CertOC.exe` utility, which is often used for certificate management. Attackers may leverage this behavior to execute malicious code by disguising it as legitimate certificate operations, thereby maintaining persistence or evading detection. The relevant MITRE ATT&CK tactic is **Defense Evasion**, specifically the technique **T1218: Signed Binary Proxy Execution**.
+  This Sigma rule detects instances where the CertOC.exe tool is used to load a Dynamic Link Library (DLL) file, indicative of an attempt to install a certificate. This behavior may be leveraged by an adversary aiming to establish persistence or to execute malicious code without raising immediate suspicion. The relevant MITRE ATT&CK tactic is **Execution** (T1203) and the technique is **User Execution** (T1203).
 
-  The primary telemetry sources for this detection are Windows process creation logs, specifically focusing on Event ID 4688 (Process Creation) which captures details about process executions. If the process is initiated with suspicious command line arguments, it may indicate an attempt to load a malicious DLL, highlighting a significant security concern if executed by an unauthorized user. However, this detection does NOT confirm malicious intent or guarantee that the loaded DLL is inherently harmful.
+  The primary telemetry sources required for this detection include Windows process creation logs, specifically looking for Security Event ID 4688 and Sysmon Event ID 1, which capture the execution of processes along with their command-line arguments. If malicious, this behavior can lead to unauthorized changes in system trust and potentially allows an attacker to circumvent security protocols. It is important to note that this detection does NOT independently confirm malicious intent, as legitimate administrative actions may invoke the same command.
 
   ### Investigation Steps
 
-  - **Verify process execution context**: Check the process creation log for CertOC.exe using Event ID 4688. Look for the "Creator Process ID" and "User" fields to identify if the process was initiated by an authorized user or legitimate process (e.g., SYSTEM or administrators) versus unauthorized user accounts.
+  - **Check process creation events:** Review Security Event ID 4688 and Sysmon Event ID 1 for instances where CertOC.exe is executed. Note the time and user context to establish if the execution ties to typical administrative tasks or unusual behavior.
 
-  - **Analyze command line arguments**: Examine the command line used when CertOC.exe was executed for the presence of the `-LoadDLL` argument. An unexpected or unknown DLL path significantly elevates suspicion, especially if it is not a known system library.
+  - **Validate command line arguments:** Look for the command-line argument **-LoadDLL** in the recorded events. A log entry like `CertOC.exe -LoadDLL <suspicious DLL file>` is a strong indicator of potential abuse.
 
-  - **Inspect DLL path and signature**: Cross-reference the loaded DLL's file path (if applicable) and check file properties to confirm digital signatures. Legitimate system DLLs typically reside in system directories (e.g., C:\Windows\System32). Any occurrence outside of these paths warrants further scrutiny.
+  - **Identify loaded DLLs:** If possible, cross-check the DLLs loaded by CertOC.exe using Sysinternals tools like Sysmon or Process Explorer to analyze if any loaded DLLs are known to be malicious or unusual.
 
-  - **Correlate with recent changes**: Review system and application event logs around the same time as the alert (Event ID 5145 for File Share Access, for example) to see if any unauthorized changes or potential indicators of compromise occurred, such as file creations or alterations.
+  - **Analyze user behavior:** Review the user account that executed CertOC.exe. If it is a standard user without administrative privileges, this might indicate malicious activity. Compare against typical behavior for that user account.
 
-  - **Identify remediation actions**: If the investigation confirms malicious behavior, document the process ID and command line, and check for any network activity (Event ID 5156 for Windows Filtering Platform) that correlates with the time of DLL loading, which may indicate exfiltration or lateral movement.
+  - **Look for precedent activities:** Search for other related alerts or logs where CertOC.exe is executed or DLLs were loaded by different means around the same time. This may indicate a broader attack campaign.
 
-  - **Baseline expected behavior**: In normal operations, CertOC.exe is typically not used directly by users but rather by automated systems or scripts. Any direct invocation under a standard user account should be considered suspicious and not typical in enterprise contexts.
+  - **Assess legitimate usage:** Validate if the execution of CertOC.exe aligns with known trusted administrative activities or if the environment has any known policies for legitimate use of this tool.
 
   ### Prioritization
 
-  This alert should be prioritized as medium severity. While the direct impact may vary, the potential for abuse exists as attackers commonly exploit legitimate system tools like CertOC.exe to execute code covertly. The likelihood of being weaponized is moderate, particularly in environments with lower security postures or insufficient logging configurations.
+  This alert is of medium severity because it indicates a potential compromise on systems with administrative access, which could lead to deeper infiltration. The likelihood of malicious abuse is moderate, as attackers often use benign-looking tools like CertOC.exe for nefarious purposes, though legitimate uses do occur.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss instances where attackers use alternate legitimate tools for similar DLL loading actions or where CertOC.exe is run with different benign parameters. Continuous monitoring and ensuring comprehensive logging (including process creation and file access logs) are vital for reliable detection. Legitimate certificate management operations performed by administrators can trigger this alert. A related detection could include monitoring for unauthorized executions of `signtool.exe`, which also may initiate certificate-related processes without appropriate oversight.
+  Detection may be limited if logs for process creation are not enabled or if Sysmon is not configured properly. Additionally, an adversary may attempt to evade detection by using other legitimate command-line tools that could mimic this behavior. Legitimate software installations or administrative tasks involving certificate management may also inadvertently trigger this alert. A related detection to strengthen coverage would be monitoring for unusual registry modifications (e.g., registry keys associated with certificate stores) after CertOC.exe is invoked, connecting this behavior with potential persistence mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -12,7 +12,6 @@ modified: 2022-10-09
 tags:
 - attack.lateral-movement
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.t1548
 - attack.t1550
 - attack.t1550.001
@@ -33,40 +32,32 @@ falsepositives:
   be exempted from the rule.
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the suspicious invocation of the `GetSessionToken` API call within AWS, which allows for the generation of temporary security credentials. Attackers may exploit this functionality to acquire session tokens that facilitate lateral movement within the environment or escalate privileges by assuming roles with broader access than their current IAM permissions. Relevant MITRE ATT&CK tactics include Lateral Movement (TA0008), Privilege Escalation (TA0004), and Defense Evasion (TA0005), specifically techniques T1548 (Abuse Elevation Control Mechanism) and T1550 (Use Alternate Authentication Material).
+  This Sigma rule detects unauthorized or unusual usage of the AWS STS GetSessionToken API call, which can be exploited by attackers to obtain temporary security credentials. The likely attacker objective is to facilitate lateral movement or escalate privileges within an AWS environment by acquiring tokens that allow access to additional resources. This behavior corresponds with the MITRE ATT&CK tactics for Lateral Movement (T1075) and Privilege Escalation (T1548).
 
-  The primary telemetry sources for this detection are CloudTrail logs. Specifically, the log type related to AWS API calls must capture details such as user identity, event source, and event name associated with the `GetSessionToken` call. If malicious, this behavior could lead to unauthorized access to sensitive resources. It's important to note that this detection does NOT confirm malicious behavior on its own, as the `GetSessionToken` API can also be legitimately invoked by authorized administrators or services.
-
-  ---
+  The primary telemetry source is AWS CloudTrail logs, specifically monitoring the "GetSessionToken" events from the STS service. If malicious, this could lead to unauthorized access to sensitive resources or accounts within the cloud infrastructure. It’s important to note that this detection alone does not confirm malicious intent; the context of the user and environment must be examined.
 
   ### Investigation Steps
 
-  - **Analyze user identity and source:** Review the `userIdentity` field from CloudTrail logs (Event Name: `GetSessionToken`). Legitimate administrative users typically have elevated permissions and frequently engage in such activities. In contrast, unfamiliar IAM users or internal accounts should raise flags.
+  - **Validate user identity context:** Check the user identity against IAM policies using AWS IAM Console or API. Confirm if the user account has legitimate reasons to call GetSessionToken. Unfamiliar users or misconfigured IAM roles may indicate potential compromise.
 
-  - **Verify the context of token requests:** Check the `userAgent` and `sourceIpAddress` fields associated with the API call. Activity from non-standard IP ranges or unusual user agents compared to documented organizational behavior should prompt deeper analysis.
+  - **Review CloudTrail logs for event details:** Filter CloudTrail logs for "eventSource" equal to "sts.amazonaws.com" and "eventName" equal to "GetSessionToken." Check the "userAgent" field to look for abnormal patterns or known malicious software agents.
 
-  - **Assess IAM Role permissions:** Cross-reference the role assumed via this token (if applicable) against established access policies. If the role grants access beyond standard verification levels for the user, this may indicate a potential compromise.
+  - **Correlate with other account activity:** Examine CloudTrail “ConsoleLogin” events or API activity associated with the same user identity within a relevant time frame to detect suspicious patterns. Legitimate admins may invoke GetSessionToken sporadically; a sudden spike can indicate malicious activity.
 
-  - **Identify session token usage:** Examine subsequent CloudTrail logs following the `GetSessionToken` call to detect if the token was used to perform additional actions (e.g., EC2 `RunInstances`, S3 `PutObject`) beyond the expected administrative behavior. Artifacts from unauthorized actions could indicate a compromised environment.
+  - **Check IP address and geographic location:** Analyze the source IP addresses making the STS calls; compare them against known locations for your organization. An alert for login attempts from unfamiliar geographies should raise concern.
 
-  - **Document expected behaviors:** Compare the detected activity against expected patterns for authorized tasks within your environment. For instance, scheduled tasks executed by recognized automation tools should not invoke `GetSessionToken` unless explicitly required for AWS resource management.
+  - **Assess IAM role permissions:** Review the IAM roles and policies that correspond with the user invoking GetSessionToken. Weak or overly permissive roles could increase the risk of privilege escalation.
 
-  ---
+  - **Investigate for potential credential theft artifacts:** Look for other indicators of compromise in conjunction with this event, such as unexpected IAM policy changes in CloudTrail logs or indications of credentials being leaked (e.g., exposed in public repositories).
 
   ### Prioritization
 
-  The alert severity is low due to its potential legitimate uses, primarily by system administrators. However, the likelihood of abuse exists, particularly if the request originates from unrecognized users or sources. This behavior can be exploited by attackers as part of a broader strategy for lateral movement and privilege escalation, making investigation essential.
-
-  ---
+  The alert severity is low due to the potential for legitimate users such as admins to invoke GetSessionToken routinely, but it can escalate if done by unauthorized users. The likelihood of malicious abuse increases if the user identity appears anomalous or if associated with other suspicious behaviors.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate broad usage of `GetSessionToken` in combination with IAM user permissions. Ensure that CloudTrail is enabled for all regions to capture relevant events reliably. Activities such as routine administrative token requests by legitimate staff can trigger this alert, necessitating careful context evaluation. Companion detections, such as monitoring AWS IAM role changes (Event Name: `UpdateAssumeRolePolicy`), can enhance security oversight and mitigate blind spots around privilege escalation risks.
-
-  ---
+  This alert may miss legitimate administrative actions, as system or network administrators may invoke GetSessionToken without malicious intent. Reliable detection requires comprehensive CloudTrail logging enabled, with sufficient retention policies in place. Additionally, the behavior can be confused with legitimate DevOps activities if developers are granted wide permissions. Related detections include unusual IAM policy changes or escalated privilege requests, which can enhance context in identifying potential misuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,7 +9,7 @@ author: Florian Roth (Nextron Systems)
 date: 2022-03-14
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 - attack.t1059.004
 - attack.t1036
 logsource:
@@ -37,28 +37,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of uncommon child processes under an interactive `bash` shell (ParentCommandLine: 'bash -i'), which can be indicative of potential malicious activity, such as command and control (C2) communications or lateral movement. The attacker's likely objective is to execute unexpected commands or manipulate system configurations stealthily, leveraging the interactive shell environment to evade detection. This aligns with the MITRE ATT&CK tactics of Execution (T1203) and Defense Evasion (T1036).
+  This Sigma rule detects instances where an interactive Bash shell (`bash -i`) serves as a parent process to potentially malicious child processes that are not commonly executed in standard environments, such as `whoami`, `iptables`, or various netcat binaries. The likely objective of an attacker using this method is to perform system reconnaissance or establish remote access through command execution, indicative of techniques in the MITRE ATT&CK framework, specifically "Command and Control" (T1071) and "Command-Line Interface" (T1059.004).
 
-  Primary telemetry sources include Linux process creation logs that capture command line arguments and executed binaries. If malicious, this behavior can lead to unauthorized command execution or system compromise. Importantly, this detection does NOT confirm that a compromise has occurred; it merely highlights potentially suspicious activity that warrants further investigation.
+  The primary telemetry source for this alert is from Linux process creation logs, capturing details on command execution and parent-child relationships of processes. If the alert is confirmed maliciously, the security impact may involve unauthorized access, data exfiltration, or environment compromise. Notably, this detection does NOT definitively confirm malicious intent without additional context, as legitimate software may exhibit similar behavior.
 
   ### Investigation Steps
 
-  - **Check parent process details:** Review process logs for Event IDs related to process creation (Linux logs) to identify whether 'bash -i' is indeed the parent process. Look for anomalous child processes like `whoami`, `iptables`, or `nc` that might indicate exploitation attempts.
+  - **Verify parent process legitimacy**: Check for legitimate applications that may spawn an interactive Bash session. Look for common Bash usage patterns in `/var/log/auth.log` (e.g., legitimate SSH access) to compare against Event IDs and user activity.
 
-  - **Validate command history:** Examine the shell history (typically found in `~/.bash_history` or captured via logging tools) to determine if the command execution aligns with regular user activity. Unexpected or unusual commands executed shortly after the detection may indicate malicious intent.
+  - **Investigate child processes**: Identify any child processes spawned by the interactive Bash instance by examining `/proc/[PID]/task/[TASK_ID]/children`. Malicious child processes may exhibit unusual command flags (e.g., `-c import` or base64 encoding) not typical for routine administrative tasks.
 
-  - **Assess legitimate usage:** Identify expected processes that commonly use `bash -i` for legitimate purposes (e.g., interactive scripts run by administrators). If observed processes do not match this pattern or involve non-typical binaries, it could indicate malicious activity.
+  - **Correlate with network activity**: Review outbound network connections in `netstat` or use `ss` to identify any connections initiated by suspicious child processes (like netcat). Inspect connection attempts to unfamiliar IP addresses or domains for anomalies.
 
-  - **Correlate with other logs:** Cross-reference findings with threat intelligence feeds and incident response tools to check if known malicious command patterns or indicators of compromise are present.
+  - **Analyze execution context**: Evaluate the command and control effectiveness by reviewing user session details in `/var/log/wtmp` or `last`. This may reveal unauthorized account usage or unusual login behaviors.
 
-  - **Review user behavior:** Analyze user account activity and compare it against baseline behavior metrics considering the role of the user account and any associated risks. Unusual activity from accounts that typically do not use interactive `bash` could be concerning.
+  - **Check for artifacts of persistence**: Search for newly created scripts or binaries in `/usr/local/bin/`, `/tmp`, or user home directories. Confirm file creation times and paths to validate against known legitimate applications.
 
   ### Prioritization
 
-  This alert should be treated as medium severity due to its potential impact on critical systems and the relatively high likelihood of malicious activity exploiting these patterns. While the presence of an interactive bash can indicate benign administrative actions, it is also a common method used by attackers to execute further commands, increasing its importance in triage processes.
+  This alert should be treated with medium severity due to the potential for significant compromise on critical systems. The likelihood of malicious abuse is moderate, as attackers prefer stealthy methods for avoiding detection, especially using interactive Bash for command execution is increasingly common in attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection may be circumvented by adversaries using obfuscated command execution or alternative shells that are not captured by this rule. Reliable detection requires adequate logging configurations on all Linux servers to ensure process creation telemetry is captured completely. Additionally, legitimate software may trigger this alert, such as system administration tools or scripts that utilize `bash -i`. A complementary detection to consider includes monitoring for unusual network connections initiated by these child processes, enhancing overall visibility into potential exploitation activities.
+  Detection may be limited by environmental noise from legitimate applications that utilize similar command patterns, potentially leading to false positives. Ensure comprehensive logging configurations on Linux systems to capture all relevant process creation events. Additionally, common benign activities that may trigger these alerts include system administration tasks that involve network configurations or user verifications. A related detection that enhances coverage would include monitoring for unusual Bash scripts being created or executed, which could help in identifying combined attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

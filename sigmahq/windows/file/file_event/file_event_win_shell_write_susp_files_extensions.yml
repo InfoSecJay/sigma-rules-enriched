@@ -12,7 +12,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-12
 modified: 2025-10-07
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036
 logsource:
   category: file_event
@@ -85,28 +85,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the behavior of Windows executables (like `csrss.exe`, `lsass.exe`, `svchost.exe`) creating files with suspicious extensions (such as `.ps1`, `.bat`, `.dll`). Attackers often aim to execute malicious scripts or payloads via these extensions, potentially exploiting system processes to bypass security controls.
+  This Sigma rule detects Windows executable processes that create or write files with extensions commonly associated with scripting or executable content, such as `.bat`, `.dll`, `.exe`, and `.ps1`. The likely objective of the attacker is to use seemingly benign processes (e.g., `csrss.exe`, `lsass.exe`) to execute scripts or payloads as part of lateral movement, reconnaissance, or initial compromise efforts. This behavior relates to the MITRE ATT&CK tactic of “Defense Evasion” (ID: T1036) where attackers may disguise their malicious activity to evade defenses.
 
-  Relevant MITRE ATT&CK tactics and techniques include **Defense Evasion** (T1036). Primary telemetry sources are Windows File Event logs, specifically targeting write actions to file paths. If malicious, this activity may facilitate unauthorized code execution or lead to persistence mechanisms. Notably, this detection does NOT confirm that all file creations by the specified executables are malicious; legitimate software behavior may also trigger this alert.
+  The primary telemetry sources are Windows filesystem event logs that capture file events, specifically Process Creation events (Security Event ID 4688 and Sysmon Event ID 1). If malicious, this activity could lead to significant security incidents, including data breaches or escalation of privileges. However, this detection does NOT confirm malicious activity on its own; legitimate applications may also create files with these extensions.
 
   ### Investigation Steps
 
-  - **Examine the process responsible for file creation:** Review Event ID 4688 (Process Creation) for any instances of `csrss.exe`, `lsass.exe`, `svchost.exe`, or other reported executables. Track the command line arguments used at execution to uncover any suspicious patterns.
+  - **Review Process Creation:** Check for Security Event ID 4688 or Sysmon Event ID 1 to verify the full command line and parent processes of the detected executables. Look for unusual or obfuscated command line arguments that might indicate malicious intent.
 
-  - **Identify suspicious file writes:** Check for created files using Event ID 4663 (File Creation). Focus on filenames and paths that end with extensions like `.ps1`, `.bat`, or `.dll`, particularly in non-standard locations (e.g., `C:\Users\<username>\AppData\Local\Temp\`).
+  - **Identify Suspicious File Creation:** Search Windows Event logs or Sysmon logs for Event ID 11 (file creation) where the `TargetFilename` matches any of the specified extensions identified in the Sigma rule. Pay close attention to files being written in unusual directories, like temporary or user folders.
 
-  - **Validate legitimate behaviors:** Cross-reference the write activity against known benign applications. For instance, `svchost.exe` might legitimately create `.bat` or `.ps1` files as part of system tasks or scheduled scripts in the `C:\Windows\System32\GroupPolicy\` structure.
+  - **Assess Context of Process Behavior:** Examine the behavior of the initiating processes (`csrss.exe`, `lsass.exe` etc.) and determine if they were executing legitimate tasks. Typical behavior may involve standard operations consistent with system functions and known applications.
 
-  - **Highlight high-confidence malicious indicators:** Pay close attention to any file creation events where the creating process is `svchost.exe` targeting script execution in `C:\Program Files (x86)\WindowsApps\Microsoft.PowerShellPreview` or any use of `rundll32.exe` to execute scripts, as these scenarios are often linked to malware activities.
+  - **Correlate with User Activity:** Look at user activity logs associated with the timestamps of file creation to identify whether the activity correlates with any authorized actions or scripts being executed by users or administrators.
 
-  - **Monitor for repeat occurrences:** Analyze if the process on an identified machine consistently creates suspicious files, particularly examining for patterns concerning execution times, user accounts involved, and whether the same user is creating multiple files within a short timeframe.
+  - **Forensic Check on Suspicious Files:** If suspicious files are created, gather additional information from their properties (timestamps, file hashes). Query Antivirus or EDR solutions to see if these files are known to be malicious.
+
+  - **Cross-reference with AppLocker Policies:** If AppLocker policies are in place, check for any violation logs to determine if the detected behavior is consistent with allowed application behavior, especially for PowerShell scripts being executed in restricted contexts.
 
   ### Prioritization
 
-  This alert carries a **high severity** given its potential impact on critical systems and the likelihood of malicious exploitation, especially as the behavior detected can be indicative of attempted script-based attacks or persistence mechanisms, which are commonly weaponized techniques.
+  This alert is of high severity as it indicates potentially malicious behavior from critical system processes that, if compromised, could lead to escalated privileges or deployment of malware. The likelihood of abuse is significant, given that scripting extensions are commonly weaponized in attacks for executing payloads or performing lateral movements within the environment.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss instances where attackers use alternative processes or modify extensions. Reliable detection requires comprehensive logging settings to capture File Access events and may be obstructed by legitimate administrative behaviors, such as configuration scripts run via system-managed process accounts. Companion detections based on abnormal PowerShell usage or unauthorized access to AppData locations can strengthen overall coverage.
+  Limitations include the potential for legitimate administrative scripts to trigger this alert inadvertently, especially in complex environments using automation tools. The alert relies heavily on filesystem event logging, meaning any misconfigurations or absence of these logs could hinder detection. Additionally, processes such as `PowerShell` or `cmd.exe` executed via legitimate tasks may overlap with the conditional paths leading to false positives. A companion detection to consider is monitoring for unusual command line arguments in PowerShell scripts (related detection ID: 1277f594-a7d1-4f28-a2d3-73af5cbeab43) to enhance overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

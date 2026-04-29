@@ -15,7 +15,7 @@ date: 2022-03-01
 modified: 2023-04-06
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 - attack.t1059.001
 - attack.t1027
 logsource:
@@ -55,26 +55,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of obfuscated and base64 encoded strings associated with the "LOAD" function in .NET applications. The likely attacker objective is to manipulate the .NET framework's reflection capabilities to execute malicious code without detection. This behavior aligns with the MITRE ATT&CK technique "Command and Scripting Interpreter: Windows Command Shell" (T1059.001) and "Obfuscated Files or Information" (T1027). The primary telemetry source is Windows process creation logs, specifically looking for command line arguments containing obfuscation patterns. If confirmed malicious, this could indicate a serious compromise affecting system integrity and security. However, this detection does NOT confirm that the run is definitively malicious without additional context regarding the execution environment and the nature of the loaded assemblies.
+  This rule detects suspicious behavior involving Base64 encoded strings and obfuscated calls to the .NET `AppDomain.Load` functionality, which can indicate attempts to execute malicious code hidden within otherwise benign applications. The likely objective of an adversary leveraging this technique is to load and execute a payload in a stealthy manner, evading detection by security solutions. This behavior aligns with MITRE ATT&CK tactics, specifically Execution (T1203: Exploitation for Client Execution) and Stealth (T1027: Obfuscation).
+
+  The primary telemetry source is Windows process creation logs, specifically focusing on command line arguments that contain encoded references to "load." If successful, this method can allow an attacker to run arbitrary code with the privileges of the compromised application. It is critical to note that this detection alone does not confirm malicious activity; legitimate applications may utilize similar patterns under specific contexts.
 
   ### Investigation Steps
 
-  - **Review command line arguments:** Check for occurrences of encoded strings in process creation events using Event ID 4688. Look for arguments containing base64 strings as specified in the detection logic. Malicious indicators include any commands invoking reflection with obfuscation, while benign instances may appear structured and not encoded.
+  - **Examine Command Line Arguments:** Review process creation events for the detected command lines using Security Event ID 4688. Look for `CommandLine` containing Base64 encoded strings that reference “load” in suspicious contexts.
 
-  - **Examine parent-child process relationships:** Investigate the process tree for the executable that triggered this alert, ensuring no suspicious parent processes (e.g., PowerShell or other scripts) initiated it. Use Sysmon Event ID 10 to confirm the legitimacy of the process origin.
+  - **Verify Process Context:** Identify the parent process of the suspicious command line invocation. Legitimate behavior may include known system processes or well-defined applications (e.g., Microsoft Office). Security Event ID 4688 will provide the `ParentProcessId` field to assist in this analysis.
 
-  - **Cross-reference with known good behavior:** Identify expected usage of reflection in your environment by checking for legitimate applications performing assembly loads. This can often be seen in software updates or trusted applications, which typically do not utilize obfuscation techniques.
+  - **Assess Execution Context:** Investigate the user context under which the suspicious command ran. Analyze Event ID 4624 (Successful Logon) for the user account that executed the command. Comparisons with historical activity can differentiate between normal user behavior and potential misuse.
 
-  - **Inspect file creation/modification timestamps:** Validate if any suspicious files (e.g., .NET DLLs) were created or modified within a relevant timeframe. Use Sysmon Event ID 11 to discover any potential file write activities correlating with the encoded loading.
+  - **Identifying Malicious Artifacts:** Review for any newly created or modified files in the application directory corresponding to the executing process. Check for unusual file creation timestamps and names that could indicate malicious payloads, correlating with Sysmon Event ID 11 (File Creation Time).
 
-  - **Look for network communications:** Assess any outbound connections from the suspicious process using Firewall logs (Event ID 5156) to observe if there's unusual data transfer, especially to known bad domains or IPs, indicating potential data exfiltration.
+  - **Correlate with Threat Intelligence:** Reference threat intelligence sources to identify any known malicious activities involving encoded calls to `AppDomain.Load`. This may reveal broader patterns or campaign intelligence related to encoded payloads.
 
   ### Prioritization
 
-  This alert carries high severity because it involves potentially critical systems where the loaded code could permit unauthorized actions. The likelihood of malicious use is notable given the obfuscation techniques frequently employed by attackers to evade detection. Additionally, such behaviors have been weaponized in known threats, making it crucial for prompt investigation.
+  This alert should be treated with high priority due to the potential for significant impact if an attacker is able to successfully execute obfuscated code on a critical system. The obfuscation techniques used in this detection are not only commonly weaponized but also can lead to further compromise within the network, if left unchecked.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited in scenarios where legitimate applications use similar obfuscation techniques, leading to false positives. Additionally, the proper configuration of Windows logs and Sysmon is required to ensure comprehensive visibility. Legitimate administrative scripts for automation could potentially trigger this alert as well. A related companion detection to strengthen coverage could be monitoring for anomalous usage of PowerShell (T1059.001) that may leverage similar obfuscation techniques.
+  Detection may be limited by adversary evasion techniques, such as further obfuscation or usage of alternative methods to invoke code execution that may not be captured by this rule. It relies heavily on monitoring for specific command line patterns, which may overlook legitimate obfuscation in benign applications. It is advisable to cross-reference with companion detections, such as anomalous network traffic or suspicious file downloads, to strengthen overall coverage and detection confidence.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

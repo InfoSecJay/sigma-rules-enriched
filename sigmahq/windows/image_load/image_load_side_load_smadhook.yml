@@ -10,8 +10,9 @@ author: X__Junior (Nextron Systems)
 date: 2023-06-01
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -37,28 +38,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading of "SmadHook.dll," which is associated with SmadAV antivirus, potentially implicating malicious activity by loading this DLL from unexpected locations. The likely attacker objective is to evade detection by leveraging trusted processes while executing malicious code, which aligns with the MITRE ATT&CK techniques of "DLL Search Order Hijacking" (T1574.001) and "Persistence" tactics. The primary telemetry source is Windows Image Load Logs, specifically focusing on the occurrence of unexpected DLL loading in conjunction with specific legitimate executable paths. If successful, this could lead to privilege escalation and further network compromise. Importantly, this detection does NOT confirm malicious activity on its own without further context or correlation with other indicators.
+  This rule detects the loading of the `SmadHook.dll`—a DLL associated with the SmadAV antivirus software—under suspicious circumstances. Potentially, an attacker may seek to leverage this DLL through malcrafted execution or via DLL sideloading techniques to achieve persistence or escalate privileges. The relevant MITRE ATT&CK tactic is **Persistence** (T1574.001) and technique is **DLL Side-Loading**.
+
+  Primary telemetry sources include Windows Event Logs related to image loads, specifically looking for Image Load events (Event ID 4624 from security logs and Sysmon Event ID 10). A successful malicious execution of this behavior can allow unauthorized code to run with potentially higher privileges. However, this detection alone does not confirm malicious activity without additional context, as legitimate software can also load this DLL.
 
   ### Investigation Steps
 
-  - **Verify DLL loading correlation:** Check for instances of `SmadHook32c.dll` or `SmadHook64c.dll` being loaded through Windows Event Logs, specifically reviewing Event ID 4663 or Sysmon Event ID 10 for unauthorized paths outside the legitimate paths specified (`C:\Program Files (x86)\SMADAV\`, etc.).
+  - **Check event logs for image load events**: Review Windows Security Event ID 4624 (Logon) and Sysmon Event ID 10 for any references to `SmadHook.dll` being loaded by processes that are not part of the usual SMADAV execution paths.
 
-  - **Identify path legitimacy:** Confirm if the executable launching the DLL loading (`SmadavProtect32.exe` or `SmadavProtect64.exe`) is being executed from one of the approved directories. Legitimate executions should correspond with process creations logged in Event ID 4688 or Sysmon Event ID 1.
+  - **Identify the process spawning `SmadHook.dll`**: Investigate the parent process of the loaded DLL to confirm if it's a legitimate instance of the SmadAV executable located in `C:\Program Files (x86)\SMADAV\` or `C:\Program Files\SMADAV\`. Malicious loading may stem from unusual executables such as cmd.exe or powershell.exe.
 
-  - **Assess process activity:** Review the process tree for the parent process of `SmadHook.dll` using Sysmon's Event ID 10 or Windows Event ID 4688 to identify any anomalous parent-child relationships that could indicate an exploit.
+  - **Assess the behavior of the parent process**: If identified as a legitimate SMADAV process, verify its integrity and execution path. Legitimate activity typically involves `SmadavProtect32.exe` or `SmadavProtect64.exe` as the parent process.
 
-  - **Look for known malicious behaviors:** Utilize endpoint detection tools or threat intelligence feeds to check if the loaded DLL or its parent processes are associated with known malicious indicators. Validate against threat intelligence signatures for SmadHook.dll.
+  - **Examine the system for persistence mechanisms**: Look for alterations in startup locations such as the registry (e.g., `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`) for entries related to SMADAV or unusual task scheduler modifications tied to the loading of `SmadHook.dll`.
 
-  - **Monitor system changes:** Record file creation timestamps and modification logs related to `SmadHook*.dll` in directories other than the legitimate paths. Investigate any recent changes (e.g., creation/deletion/modification) in directories that might indicate suspicious activity around the file.
+  - **Correlate with other alerts**: Review for any previous alerts or logs in the last 24-48 hours indicating unauthorized access attempts, abnormal process launches, or other suspicious activity tied to the same host or user account as this DLL loading activity.
 
-  - **Contextualize user activity:** Determine if any user actions corresponded with the loaded DLL. Review related user login events (Security Event IDs 4624 and 4625) within the time window to identify if unusual logins or access patterns coincided with the DLL loading events.
+  - **Document known benign executables**: Maintain awareness of legitimate use cases for `SmadHook.dll`, as it may be triggered by normal operational usage of SMADAV. Review timestamps to correlate with regular operations, such as updates or scheduled scanning.
 
   ### Prioritization
 
-  Given the high severity level, this alert indicates a potentially serious threat to enterprise systems, especially if the affected machine has critical functions or handles sensitive data. The likelihood of malicious abuse is significant, particularly if the loading of `SmadHook.dll` occurs from non-standard paths, implying malicious intent. This behavior has been weaponized in other campaigns, necessitating immediate investigation.
+  The alert is of high severity due to the criticality of Windows systems where security applications operate. The likelihood of exploiting DLL sideloading for malicious purposes is recognized as a prevalent tactic used by adversaries. If confirmed, unauthorized DLL execution may lead to a serious compromise of the system's integrity and security posture.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate variations in application behavior, especially if similar applications exist that legitimately use `SmadHook.dll` in authorized ways. It is also important that appropriate logging for Image Load Events is configured properly to ensure coverage. Some legitimate activities, such as applications using similar DLL names for valid operations, may inadvertently trigger this alert. Companion detections to strengthen coverage include monitoring for anomalous process creation events and tracking known benign processes used within the corporate environment to better distinguish false positives.
+  This detection may be evaded by legitimate application updates or benign software interactions that involve `SmadHook.dll`. It relies on consistent logging from Sysmon and security event logs; ensure Sysmon is deployed and configured correctly. Legitimate application behaviors, such as software updates or manual scans by users, may trigger this alert. A companion detection to consider is monitoring for suspicious process creation related to `Smadav` in the broader detection framework to enhance context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

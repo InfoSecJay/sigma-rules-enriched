@@ -13,9 +13,10 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-14
 modified: 2025-12-03
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -514,42 +515,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects DLL sideloading by monitoring the loading of specific DLL files from non-standard directories, indicating that an attacker may be attempting to execute malicious payloads masquerading as legitimate Windows components. The likely attacker objective is to gain unauthorized code execution or escalate privileges while avoiding detection by utilizing trusted system libraries. This behavior aligns with the MITRE ATT&CK tactic “Defense Evasion” (T1203) and the technique “Sideloading” (T1574.001).
+  This rule detects attempts to load specific dynamic link libraries (DLLs) from non-standard locations, potentially indicating DLL sideloading—a technique typically used to execute malicious payloads disguised as legitimate DLLs. The likely attacker objective is to gain persistence or escalate privileges by leveraging trusted DLLs such as `iphlpapi.dll` to execute malicious code within an application's process context. This behavior fits into the MITRE ATT&CK framework under the tactic of **Persistence** (T1546) and the technique of **DLL Search Order Hijacking** (T1574.001).
 
-  The primary telemetry source for this detection is Windows Image Load logs, which track the loading of DLL files. Logs can include Event IDs from process creation (e.g., Event ID 4688) or Sysmon Event ID 7 for DLL loading. If the behavior is malicious, it may lead to unauthorized access, increased attack surface, or lateral movement within the environment. Importantly, this detection does NOT confirm malicious activity on its own; further investigation is required to ascertain context and intent.
-
-  ---
+  The primary telemetry sources for this detection include Windows image load events, specifically captured in the Sysmon logs (Event ID 7) or native Windows Event Viewer logs related to DLL loading. If this behavior is malicious, it could provide attackers with persistent access or further footholds within the environment. However, it is important to note that this detection alone does NOT confirm malicious activity, as legitimate applications may also load these DLLs from non-standard locations without malicious intent.
 
   ### Investigation Steps
 
-  - **Review the DLL path:**
-    Analyze the source path of the loaded DLL. Look for DLLs loaded from directories like "C:\ProgramData\", which may indicate sideloading activity. Legitimate applications typically load DLLs from "C:\Windows\System32\" or "C:\Windows\SysWOW64\".
+  - **Identify the process context**: Examine the parent process of the image load events using Sysmon Event ID 7. Look for abnormal or suspicious parent processes that may indicate exploitation or malice (e.g., unexpected or uncommon apps launching known DLLs).
 
-  - **Check process creation logs:**
-    Cross-reference Sysmon Event ID 1 (Process Creation) to identify parent processes associated with the loaded DLL. A high-confidence malicious indicator would be if a suspicious process (e.g., `cmd.exe` or `powershell.exe`) executed the loading.
+  - **Examine the load paths**: Correlate the loaded DLL paths recorded in Sysmon with the expected locations. DLLs like `iphlpapi.dll` or `windowscodecs.dll` loading from directories outside of standard system locations (e.g., `C:\ProgramData\` or user profile directories) should raise immediate suspicion.
 
-  - **Inspect command-line arguments:**
-    For process creation logs (Event ID 4688 or Sysmon Event ID 1), examine command-line arguments for clues of malicious behavior, such as obfuscation or command chaining, which may indicate intent to obscure the execution context.
+  - **Review legitimate behavior**: In cases where DLLs load from the `C:\Windows\System32` directory, verify whether they are invoked by known applications and assess their typical behavior to establish a baseline and differentiate between benign and malicious activity.
 
-  - **Identify related network activity:**
-    Utilize network logs to see if there are any outbound connections initiated by the process that loaded the DLL. For example, look at DNS queries or connections to known malicious IPs, especially related to lateral movement.
+  - **Check for known malicious files**: Validate if the loaded DLL matches known malicious hashes from threat intelligence sources or reference databases (e.g., hybrid-analysis.com, VirusTotal) for `iphlpapi.dll`, `windowscodecs.dll`, etc.
 
-  - **Assess user context:**
-    Review the user account associated with the process. If the process is running under a privileged account without appropriate justification, that could indicate malicious activity.
-
-  - **Baseline legitimate applications:**
-    Compile baseline information on legitimate applications in your enterprise that may use the mentioned DLLs. This helps distinguish between benign and potentially malicious activity related to DLL loading.
-
-  ---
+  - **Monitor for subsequent malicious activity**: After identifying potentially malicious DLL loads, check for other related activity within the logs, such as process creation events (Event ID 4688) that could indicate further exploitation attempts stemming from the initial DLL sideloading.
 
   ### Prioritization
 
-  This alert is of high severity due to the critical role DLLs play in the Windows operating system and the likelihood of exposure to privilege escalation or remote code execution if this technique is exploited. Attackers frequently use DLL sideloading as a means of bypassing defenses, making this behavior commonly weaponized.
-
-  ---
+  This alert has a **high severity** level due to the potential impact on critical system components and because DLL sideloading techniques are frequently utilized by attackers for persistence and privilege escalation. Given the common weaponization of these techniques, swift investigation and remediation are warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion by threat actors who may use legitimate applications for loading dodgy DLLs without triggering this alert. Reliable detection requires consistent logging configurations for Windows Image Load and detailed process creation logs. Legitimate scenarios such as third-party applications loading their own versions of DLLs may trigger this alert. A related detection worth considering is monitoring for unusual reactionary commands or scripts executed post-DLL load from known legitimate paths, providing additional context to the behavior observed.
+  Detection may be limited by legitimate applications that also load DLLs from uncommon locations, which could lead to false positives if not carefully analyzed. It is crucial to maintain comprehensive logging and telemetry capture capabilities (Sysmon logs, File Integrity Monitoring) to reliably detect this behavior. Additionally, monitoring tools need a baseline to distinguish between normal operational behavior and attempts at malicious DLL sideloading. Companion detections in the environment for process injection (e.g., Sysmon Event ID 10) can provide further context and help confirm malicious intent.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

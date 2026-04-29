@@ -10,7 +10,7 @@ author: Austin Songer (@austinsonger)
 date: 2021-10-21
 modified: 2022-12-25
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -33,26 +33,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the invocation of system management tools (schtasks.exe, systeminfo.exe, and fltmc.exe) by stordiag.exe, a known utility exploited by adversaries to perform unwanted actions. The likely attacker objective is to execute system commands or gather system information stealthily. This behavior aligns with the MITRE ATT&CK technique for "User Execution" (T1218) and can also relate to "Defense Evasion" (T1203). The primary telemetry source is Windows process creation logs, specifically Monitoring Event ID 4688 or Sysmon Event ID 1. If malicious, this could lead to unauthorized system modifications or information leakage. This detection alone does NOT confirm malicious intent since stordiag.exe could be used legitimately.
+  This Sigma rule detects the execution of `schtasks.exe`, `systeminfo.exe`, and `fltmc.exe` with `stordiag.exe` as the parent process. This behavior indicates potentially malicious activity, as `stordiag.exe` is often used for reconnaissance and is not a standard tool in many enterprise environments. The likely attacker objective is to gather system information or manipulate scheduled tasks stealthily, leveraging a less-commonly monitored executable.
+
+  This behavior aligns with the MITRE ATT&CK tactic of "Execution" (T1203) and technique "Execution via sibling process" (T1218). The primary telemetry sources are Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, an attacker could utilize this technique to escalate privileges or pivot within the environment. Importantly, this detection does not confirm an active compromise on its own; further investigation is required to establish intent and continued access.
 
   ### Investigation Steps
 
-  - **Validate process lineage:** Review the creation of Event ID 4688 where `ParentImage` is `stordiag.exe`. Look for the `Image` field showing schtasks.exe, systeminfo.exe, or fltmc.exe. A direct invocation by known tools typically indicates benign activity.
+  - **Review Process Creation Events**: Check Security Event ID 4688 or Sysmon Event ID 1 logs for instances where `stordiag.exe` is the parent process of `schtasks.exe`, `systeminfo.exe`, or `fltmc.exe`. Look for unusual execution patterns or times that deviate from normal operational hours.
 
-  - **Correlate timings of executions:** Check for the execution times of the detected processes relative to other system activity captured in Windows Event Logs (IDs 4624 for logon events, 4672 for special privileges assigned). Look for suspicious timeframes or patterns aligning with threat actor behavior.
+  - **Analyze Parent Process Path**: Validate that the parent process `stordiag.exe` is executing from `C:\Windows\System32\` or `C:\Windows\SysWOW64\`. Any execution from non-standard paths could indicate malicious modifications.
 
-  - **Investigate command line parameters:** Assess the command line used in the Event ID 4688 entries for the detected processes. Malicious indicators include unusual flags or arguments that deviate from standard operations, like a cron job or inactivity period.
+  - **Investigate Activity Frequency**: Identify how often `stordiag.exe` launches these child processes. Frequent executions in a short time frame or executions occurring outside typical usage patterns may indicate suspicious activity.
 
-  - **Identify known good usage:** Compare detection instances against documented legitimate uses of stordiag.exe in the environment. Seek thresholds or historical logs that indicate standard operational parameters to distinguish benign executions.
+  - **Identify Legitimate Usage**: Assess logs for known legitimate use-cases of `stordiag.exe` within your environment. Document typical process parent-child relationships and user accounts associated with those executions.
 
-  - **Scan for related artifacts:** Look for recent file modifications or creations in `C:\Windows\System32\` or `C:\Windows\SysWOW64\` relevant to stordiag.exe or scanned command outputs. File paths, created timestamps, and file signatures can provide insight into escalation.
+  - **Extract System Information**: For any identified executions, capture system information logs (Event ID 7036 or similar) that may indicate what system changes or scheduled tasks were affected. Look for abnormal tasks or system commands being modified.
+
+  - **Correlate with Known Threat Intelligence**: Reference threat intelligence sources regarding `stordiag.exe` to identify documented malicious behavior or variants associated with the tool. This can aid in determining if observed activity matches known attack patterns.
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential impact on critical systems and the likelihood of malicious activity exploiting commonly trusted system tools. The utilization of stordiag.exe for executing such commands is often weaponized in attack scenarios, warranting prompt investigation.
+  This alert is high priority due to the nature of the detected processes and the context provided by `stordiag.exe`. The affected systems may be critical infrastructure components, and the likelihood of malicious abuse is significant, especially when executing tools that could provide system insights or alter task scheduling. Such behavior is commonly weaponized in exploitation scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection effectiveness can be limited by evasion techniques, such as using alternate execution paths or renaming legitimate tools. Reliable detection requires precise configurations of logging, including ensuring Sysmon is correctly deployed and configured to capture detailed process creation events. Legitimate IT maintenance or scripting activity may trigger this alert. Companion detections related to unusual process chains or lateral movement (e.g., using `PsExec` or similar tools) would provide stronger overall security posture.
+  The detection may miss sophisticated evasion attempts, such as renaming or modifying legitimate tools. Reliable detection requires capturing detailed process creation logs across all endpoints, ensuring no relevant telemetry (such as Sysmon configurations) is omitted. Legitimate IT administration or troubleshooting activities could trigger this alert, particularly in environments where `stordiag.exe` is expected. A related detection for scheduled tasks being modified or created unexpectedly could provide greater context to this potential alert.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

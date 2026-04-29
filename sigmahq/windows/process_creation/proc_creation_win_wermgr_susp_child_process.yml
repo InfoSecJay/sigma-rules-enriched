@@ -14,8 +14,8 @@ author: Florian Roth (Nextron Systems)
 date: 2022-10-14
 modified: 2024-08-29
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1055
 - attack.t1036
 logsource:
@@ -56,32 +56,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious child processes spawned by the Windows Error Reporting manager (wermgr.exe), particularly when wermgr.exe is leveraged to launch potential malicious executables such as cmd.exe, powershell.exe, and rundll32.exe. Attackers may exploit wermgr.exe to conceal their actions, invoking these processes to manipulate system behaviors, escalate privileges, or exfiltrate data with obfuscation.
+  This Sigma rule detects the creation of suspicious child processes by `wermgr.exe`, which is primarily associated with the Windows Error Reporting framework. Attackers may leverage this legitimate process to spawn malicious executables (e.g., PowerShell, cmd.exe) in an effort to maintain persistence, escalate privileges, or exfiltrate data under the guise of normal error reporting behavior. This behavior falls under the MITRE ATT&CK tactics of Privilege Escalation (T1068) and Defense Evasion (T1027).
 
-  The relevant MITRE ATT&CK techniques include Defense Evasion (T1083), Privilege Escalation (T1055), and Process Injection (T1036). The primary telemetry comes from process creation events, specifically Windows Event ID 4688. If the alert is confirmed as malicious, there is a significant risk of further exploitation of the affected system, potential data breaches, or lateral movement within the network.
-
-  This detection does NOT confirm malicious activity on its own; it must be correlated with additional context to ascertain intent and impact.
+  The primary telemetry source is Windows Process Creation logs, specifically Security Event ID 4688. If malicious, this behavior could lead to unauthorized system changes, data leakage, or further compromise of the system. It is crucial to note that this detection does not confirm that malicious activity has occurred; benign processes could also replicate similar behaviors.
 
   ### Investigation Steps
 
-  - **Review Process Creation Events**: Check Windows Security Event ID 4688 for the parent process (wermgr.exe) and its child processes. Filter for suspicious command lines indicating potential exploitation (e.g., flags with rundll32 or script execution).
+  - **Review process creation logs:** Check Security Event ID 4688 for entries where the parent process is `wermgr.exe`. Look for child processes like `cmd.exe`, `powershell.exe`, or `rundll32.exe` as indicators of potential malicious activity.
 
-  - **Analyze Command Line Arguments**: Validate command line arguments associated with child processes (e.g., `-queuereporting`, `-responsepester`). Legitimate usage of wermgr.exe typically does not include such parameters.
+  - **Analyze command lines:** For any identified instances of `rundll32.exe`, validate command lines containing `C:\Windows\system32\WerConCpl.dll` and flags like `-queuereporting`. Such command lines may indicate attempts to manipulate the Error Reporting service.
 
-  - **Correlate with Known Indicators**: Cross-reference other telemetry sources, such as Sysmon logs (Event ID 1), to identify any known malicious command executions linked to this behavior, especially in the context of recent threat actor TTPs.
+  - **Investigate parent-child relationships:** Use Sysinternals Process Explorer or similar tools to visualize the hierarchy of the processes. If you see suspicious child processes spawned from `wermgr.exe`, it increases the likelihood of an attack scenario.
 
-  - **Identify Expected Behaviors**: Determine if the process was spawned in response to a known system event (e.g., a legitimate Windows error report) to distinguish between benign and malicious activity.
+  - **Identify legitimate behavior:** Note that `wermgr.exe` may legitimately invoke tools like `mshta.exe` for updates. Analyze the context and timestamp of the invocation, as legitimate processes often occur during system updates or user-initiated operations.
 
-  - **Check Process Hierarchy**: Review the parent-child process relationship via Sysmon or Windows Event logs to establish context. Legitimate child processes should maintain common usage patterns instead of launching obfuscated scripts or networks commands unexpectedly.
+  - **Check for known indicators of compromise (IOCs):** Look for patterns or hashes associated with known malware that may utilize `wermgr.exe` as a parent process. Reference external intelligence sources for any recent reported campaigns linked to this behavior.
 
-  - **Look for Additional Artifacts**: Search for file creations related to these processes, such as unusual outputs generated from cmd.exe or PowerShell. Unexpected script executions or downloads may indicate an ongoing attack.
+  - **Assess asset criticality:** Determine the role of the affected host. If it’s a critical infrastructure component, prioritize further investigation and remediation actions to prevent more significant risks.
 
   ### Prioritization
 
-  This alert holds a high severity due to the sensitive nature of the Windows Error Reporting system being misused to execute potentially harmful processes. The likelihood of this behavior being weaponized is notable, given recent trends in adversary tactics to employ system tools for malicious purposes. Effective containment and investigation are necessary to mitigate possible impacts on critical assets.
+  This alert warrants high priority due to its association with privilege escalation and potential to conceal malicious activity. The impact of a compromised system can be severe, especially if sensitive data is involved. Given the typical usage of `wermgr.exe` in exploitation techniques, timely investigation is crucial.
 
   ### Blind Spots and Assumptions
 
-  The detection may be bypassed if an adversary is able to execute approved scripts or tools, rendering benign processes indistinguishable from malicious ones. Reliable detection necessitates comprehensive logging, particularly for PowerShell activity and script executions, to identify context adequately. Legitimate activities, such as troubleshooting or automated system recovery functions, might trigger this alert. A related detection could include monitoring for unusual parent-child relationships among other system-level processes, strengthening coverage against potential abuse.
+  Detection may be evaded through the use of legitimate system processes or if an attacker uses custom-named executables or changes process properties. Ensure logging for process creation is enabled and configured accurately, as this is essential for reliable detection. Legitimate automated error reporting or diagnostic processes may also trigger this rule, and companion detections such as user account changes during the time of process creation can enhance context and coverage for investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

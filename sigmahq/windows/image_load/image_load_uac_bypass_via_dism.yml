@@ -9,8 +9,9 @@ date: 2020-10-06
 modified: 2022-12-25
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1548.002
 - attack.t1574.001
 logsource:
@@ -29,36 +30,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects attempts to load a malicious DLL (`dismcore.dll`) following a process execution of `dism.exe`, indicative of potential User Account Control (UAC) bypass techniques commonly seen in privilege escalation attempts. The likely objective of the attacker is to execute unauthorized code with elevated privileges to gain control over the system or to perform system-level changes. This behavior aligns with the MITRE ATT&CK tactic of **Privilege Escalation** and the technique **T1548.002: Abuse Elevation Control Mechanism: Bypass User Account Control**.
+  This rule detects the attempt to load a malicious DLL (`dismcore.dll`) following the execution of a legitimate Windows process (`dism.exe`). The behavior indicates a potential UAC (User Account Control) bypass, where an attacker aims to escalate privileges by replacing a legitimate DLL with a malicious one. This aligns with the MITRE ATT&CK techniques for Privilege Escalation (T1548.002) and Execution (T1574.001). The primary telemetry source is image load events, specifically focusing on Windows event logs related to process execution and DLL loading.
 
-  The primary telemetry sources for this detection are Windows Event logs related to image load events, specifically looking at the process creation events from Sysmon (Event ID 1) and the image load events which indicate when executables and DLLs are loaded into memory. If this rule is triggered, it signifies that a process attempted to load a non-standard or unexpected DLL, which is indicative of a potentially malicious activity, leading to concerns about unauthorized system access. However, this detection does NOT confirm that the operation was malicious on its own, as it may also be triggered by benign uses of the `dism.exe` utility.
+  If this detection alerts, it is indicative of attempted privilege escalation, which can lead to significant security impacts if successfully executed. However, this detection does NOT confirm that the DLL executed successfully or was initiated by a malicious actor, as it may also be triggered by benign processes or applications misusing the DLL.
 
   ### Investigation Steps
 
-  - **Verify process creation details:**
-    Check Sysmon Event ID 1 for the creation of `dism.exe`. Confirm if the parent process is legitimate (e.g., system applications) or unusual (e.g., unknown scripts or executables).
+  - **Identify endpoint context:** Review the host role and ensure it aligns with appropriate usage of `dism.exe`. Focus on Windows systems where administrative tasks are performed.
 
-  - **Inspect DLL loading events:**
-    Review Sysmon Event ID 7 for the loading of `dismcore.dll`. Verify that the loading source is only from legitimate paths (e.g., `C:\Windows\System32\Dism\`) and not from temporary or suspicious directories.
+  - **Correlate with process creation logs:** Check Security Event ID 4688 for process creation details around the alert time. Look for `dism.exe` execution, including the parent process to identify how it was initiated.
 
-  - **Identify unusual command-line arguments:**
-    Look for suspicious command-line parameters associated with `dism.exe` in Event ID 4688. Legitimate usages should generally have standard switches (e.g., `/Image`, `/Online`) and should not call for unauthorized operations.
+  - **Analyze image load events:** Review Windows Event ID 165 (from Sysmon) or relevant logs capturing DLL loads to confirm the presence of `dismcore.dll`. Validate the file path is as detected, as abnormal paths indicate malicious behavior.
 
-  - **Check for indicators of persistence:**
-    Investigate for any scheduled tasks or registry modifications adding persistence related to `dismcore.dll`. Cross-reference with Windows Event ID 4801 (registry key modification) to understand any changes made.
+  - **Evaluate execution of dismcore.dll:** Assess the capabilities and behaviors of `dismcore.dll` through process monitoring tools or static analysis. If the file does not match known good hashes, it further indicates a threat.
 
-  - **Assess the affected system's role:**
-    Identify if the affected host is a critical asset (e.g., a domain controller or a server hosting sensitive data). Systems with elevated privilege roles must be prioritized for response.
-
-  - **Look for related file creation:**
-    Correlate the activity with potential file creation events by checking Windows Event ID 4663, looking for access to `C:\Windows\System32\Dism\dismcore.dll` to confirm if it was indeed created or modified as part of malicious actions.
+  - **Investigate for false positives:** Confirm whether a legitimate application or service is attempting to load `dismcore.dll`. Check documentation for any telnet or administrative tasks using the DLL to rule out benign activity.
 
   ### Prioritization
 
-  This alert is of high severity because it is associated with privilege escalation, which could allow an adversary to gain control over sensitive systems or data. The likelihood of abuse is significant, as this specific behavior has been weaponized in various attacks targeting Windows environments.
+  This alert is high priority due to the potential impact on the affected system, specifically with respect to privilege escalation capabilities. The likelihood of malicious abuse is significant, as techniques for UAC bypass are commonly weaponized by adversaries to gain elevated permissions.
 
   ### Blind Spots and Assumptions
 
-  Detection may have limitations due to potential evasion tactics like renaming the DLL or using a different file path for injection that would not trigger the rule. Ensure that telemetry from Sysmon is properly configured and capturing all necessary image loads; without this, detection will be incomplete. Legitimate processes, such as software updates or automated scripts, may inadvertently trigger this alert. Companion detections, such as monitoring for other DLL injection techniques (e.g., T1574: Hijacking, T1203: Exploitation of Client Execution), can enhance detection coverage for similar threats.
+  The detection may not catch attempts if the DLL is renamed or if alternative methods for execution are utilized. Ensure that all relevant Windows image load logs are configured to avoid missing this alert. Legitimate actions, such as those performed by authorized administrative tools or scripts, may trigger this detection. A related detection to monitor is the execution of unusual DLLs or processes alongside `dism.exe` to build a better context for alerts in this area.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

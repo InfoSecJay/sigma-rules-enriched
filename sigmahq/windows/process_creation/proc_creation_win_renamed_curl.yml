@@ -10,8 +10,8 @@ date: 2023-09-11
 modified: 2023-10-12
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059
-- attack.defense-evasion
 - attack.t1202
 logsource:
   category: process_creation
@@ -31,30 +31,34 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This rule detects the execution of a renamed `CURL.EXE` binary by analyzing the original file name and description fields in the process creation events. Attackers often use renamed utilities like CURL to exfiltrate data or interact with command-and-control (C2) servers. This behavior aligns with the MITRE ATT&CK technique "Command-Line Interface" (T1059) and "Scheduled Task" (T1202), where attackers leverage command-line tools for malicious activities.
-
-  The primary telemetry source is Windows process creation logs, specifically capturing processes launched with original file names indicating CURL. If malicious, such execution could facilitate data exfiltration or remote system manipulation. This detection does NOT confirm that an illicit action was completed; it only indicates potentially suspicious execution of a renamed system utility.
+  This Sigma rule detects the execution of a renamed version of the common command-line tool `CURL.exe` by analyzing specific PE metadata fields. Attackers often rename this legitimate tool to bypass security controls and use it for data exfiltration or command-and-control (C2) communications. The behavior falls under the MITRE ATT&CK tactics of Execution (T1202) and Defense Evasion (T1059). The primary telemetry source is Windows Process Creation events, specifically focusing on fields such as `OriginalFileName` and `Description`. If malicious, this activity may indicate exploitation of systems for unauthorized data access or manipulation. However, this detection does NOT confirm that the execution is indeed malicious; legitimate uses of `CURL` for valid network requests are also common.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Query Windows Event ID 4688 for processes where `OriginalFileName` equals `curl.exe` and `Description` includes `The curl executable`. Look for unusual parent processes that could indicate malicious activity, such as scripts or executables launched by non-administrative users.
+  - **Check Process Creation Logs:**
+    Review Windows Security Event ID 4688 for new process creation involving `curl.exe`. Focus on the `New_Process_Name` field to verify the invocation path and ensure the binary has not been legitimately renamed by a trusted application.
 
-  - **Validate file paths:** Analyze the `Image` field in the Event ID 4688 entries. Legitimate CURL usage typically exists in typical installation paths like `C:\Windows\System32\curl.exe`. Be cautious of paths containing temp directories or user profile directories suggesting evasion tactics.
+  - **Analyze Process Metadata:**
+    Examine PE metadata for the running process using Sysinternals tools (like Process Explorer). Check that `OriginalFileName` indeed shows 'curl.exe' and `Description` contains 'The curl executable', confirming alignment with typical `CURL` binaries.
 
-  - **Review command-line arguments:** Examine the `CommandLine` field for unusual switches or URLs directed at suspicious domains. Legitimate CURL commands do not typically invoke external connections to obscure or untrusted IP addresses.
+  - **Identify Contextual Usage:**
+    Assess the command-line arguments used when `CURL` was executed by reviewing the `CommandLine` field within Event ID 4688. Legitimate usage often includes specific flags of known services (e.g., requesting APIs), while arguments for unusual network endpoints or encoded payloads are suspicious.
 
-  - **Identify benign usage:** Look for known legitimate use cases of CURL in your organization, such as internal scripts or scheduled tasks that are part of normal operations. Cross-reference these with the user accounts and systems associated with the `CURL.EXE` executions.
+  - **Correlate Network Activity:**
+    Investigate associated network connections via Windows Firewall logs (Event ID 5156). Look for suspicious outbound IP addresses or domains, as misused `CURL` executes network requests to external entities, indicative of potential exfiltration.
 
-  - **Correlate with network activity:** If possible, analyze recent outbound connections in firewall logs or network traffic, particularly for connections made by the process identified in Event ID 4688. Malicious indicators may include connections to known malicious IP addresses.
+  - **Review User Context:**
+    Analyze the `SubjectUserName` and `SubjectDomainName` in Event ID 4688. If `CURL` was executed by a user account with administrative privileges, consider this a higher risk; benign users typically do not invoke `CURL` unless explicitly performing development tasks.
 
-  - **Check for known IOCs:** Review any related intelligence on CURL usage for malicious purposes that may be relevant to your environment. Cross-cross-reference against sources like threat intelligence platforms that document recent CURL exploitation patterns.
+  - **Validate File Artifacts:**
+    Check for any potential files created or modified during the same time frame, particularly in directories where `CURL` is expected to operate. Look for anomalous file creations that could indicate downloaded payloads or exfiltrated data due to misuse.
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential impact of a compromised system using CURL for data exfiltration or control. While the likelihood of malicious usage is moderate and this technique is weaponized in various attacks, it is also possible that legitimate activities may trigger this alert.
+  This alert should be treated with medium severity, particularly in enterprise environments where sensitive data resides. The presence of a renamed `CURL.exe` could indicate intentions to exfiltrate data or perform network reconnaissance. Such behaviors are known to be weaponized by various threat actor groups.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of renamed binaries being utilized efficiently by attackers to bypass detection. Required log sources must include comprehensive process creation logging as well as proper configuration for capturing relevant command-line arguments. Legitimate development or administrative tasks may also generate this alert, such as use in automation scripts. A related detection to consider is the monitoring of process anomaly detection within your environment to identify unusual binaries executed by standard user accounts.
+  Detection may be limited by potential evasion techniques, such as further renaming or obfuscating `CURL`. Ensure that logging for both process creation and network activity is enabled across all hosts for reliable detection. Legitimate instances might trigger this alert, such as software deployments that include `CURL`, requiring context-based analysis. A related detection that strengthens coverage would involve monitoring for abnormal command-and-control patterns and other potentially malicious CLI execution patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

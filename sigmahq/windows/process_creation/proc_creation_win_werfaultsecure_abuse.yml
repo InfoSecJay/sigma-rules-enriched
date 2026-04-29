@@ -22,8 +22,8 @@ author: Jason (https://github.com/0xbcf)
 date: 2025-09-23
 modified: 2025-11-23
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 - attack.credential-access
 - attack.t1003.001
 logsource:
@@ -51,30 +51,34 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This rule detects potential misuse of the `WerFaultSecure.exe` process to manipulate Protected Process Light (PPL) processes, such as LSASS, or to disrupt security solutions like EDRs and antivirus software. Attackers may use tools like EDR-Freeze and WSASS, which exploit `WerFaultSecure.exe` to gain access to sensitive process memory or disable protective measures. This activity is related to the MITRE ATT&CK tactic of defense evasion (T1562.001) and credential access (T1003.001). The primary telemetry sources include Windows process creation logs and relevant fields detailing command line arguments.
-
-  If this detection is confirmed as malicious, the impact could be significant, providing an attacker unfettered access to sensitive information and compromising the security posture of the affected system. However, it's important to note that this detection does NOT confirm malicious activity on its own, as legitimate debugging operations may also generate similar command lines.
+  This Sigma rule detects the misuse of `WerFaultSecure.exe` to manipulate Protected Process Light (PPL) processes, such as LSASS, or to hinder security tools like EDRs and antivirus solutions. The likely objective of this behavior is to compromise security layers for credential harvesting or to prevent detection of malicious activities. This aligns with the MITRE ATT&CK tactics of Defense Evasion (T1562.001) and Credential Access (T1003.001). The primary telemetry sources for this detection are Windows Process Creation logs, with key fields including `CommandLine`, `Image`, and `OriginalFileName`. A successful execution of this technique can lead to significant security incidents, including credential theft and potential full system compromise. Importantly, this detection does not confirm actual compromise; it only flags potential misuse of a legitimate file.
 
   ### Investigation Steps
 
-  - **Identify command line patterns:** Check for command lines associated with `WerFaultSecure.exe` that include flags such as `/h`, `/pid`, `/tid`, `/encfile`, `/cancel`, `/type`, and the specific identifier `268310`. Malicious events often stem from suspicious parental processes like `WSASS.exe` or `EDR-Freeze_[version].exe`.
+  - **Check Process Creation Logs:**
+    Review Windows Event ID 4688, filtering for `Image` equal to `\WerFaultSecure.exe`. Confirm details such as `ParentCommandLine` for known patterns like "WSASS.exe WerFaultSecure.exe [PID]" or "EDR-Freeze_[version].exe [PID] [timeout]".
 
-  - **Check Event ID 4688:** Review Windows Security Event ID 4688 for new process creation details and look for any processes that utilize `WerFaultSecure.exe`. Focus particularly on the `ParentCommandLine` field to distinguish benign from malicious parent processes.
+  - **Identify Malicious Patterns:**
+    Look for specific `CommandLine` arguments present in the logs, especially: `"/h"`, `"/pid"`, and `"/encfile"`. If these arguments are found associated with `WerFaultSecure.exe`, treat it as a high-confidence malicious indicator.
 
-  - **Validate host context:** Determine the role and criticality of the host running `WerFaultSecure.exe`. Legitimate usage is rare in most environments, and any instance should prompt a deeper investigation, particularly if it concerns critical assets.
+  - **Examine File Access Behavior:**
+    Check for unusual access patterns to protected files like `LSASS`. Look at logs for file read/write operations in Event ID 4663 to see if there was an attempt to access sensitive memory.
 
-  - **Examine EDR/AV logs:** If applicable, analyze logs from security solutions to identify abnormal behavior or alerts that indicate interactions with `WerFaultSecure.exe`. Look for any alarms raised around the same time as the detected command line activity.
+  - **Assess Legitimate Usage:**
+    Investigate whether there have been any legitimate debugging sessions using `WerFaultSecure.exe`. Typically, these should be rare in production environments, particularly in relation to third-party software components.
 
-  - **Review for file artifacts:** Investigate any artifact creation, such as dumps or log files created during this process manipulation. Look for evidence of file creations or modifications in locations commonly monitored for dumps, such as the Temp directory.
+  - **Analyze Endpoint Security Logs:**
+    Review EDR or antivirus logs to determine if they were stopped or disabled concurrently with the detection. Verify alert timestamps against the identified command executions to cross-reference security events.
 
-  - **Analyze process memory activity:** Conduct memory analysis of the affected process to determine whether a dump was performed and if any sensitive information (like credentials) was accessed. This provides insight into the impact of the activity.
+  - **Check Host Roles:**
+    Analyze the host role and criticality of the affected system. EDR or antivirus tools should be operational on sensitive systems (e.g., domain controllers), and any detection of this activity should be classified as a high priority for response.
 
   ### Prioritization
 
-  This alert is categorized with high severity due to the potential significant impact of exploiting PPL processes and the likely intent to disable critical security solutions. The likelihood of this technique being weaponized is increasing, especially given its use in contemporary attack tools.
+  This alert is considered high severity due to the impact on critical systems that this behavior typically targets, such as LSASS, and the likelihood of malicious abuse in evading detection mechanisms. The malicious use of `WerFaultSecure.exe` is not only threatening but is associated with known attack tools and techniques.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the legitimate use of `WerFaultSecure.exe` for debugging, which may trigger false positives. Ensure logging is fully enabled for process creation, as incomplete configurations might miss relevant events. Additionally, benign debugging tools may run under similar patterns in rare cases, further complicating detection. Companion detections, such as monitoring for abnormal processes interacting with the LSASS, can reinforce coverage and improve the fidelity of alerts.
+  There are limitations in detection as legitimate debugging processes may also trigger this alert. Ensure that proper logging for process creation, such as via Sysmon, is enabled to enhance detection capabilities. Activities involving legitimate uses of `WerFaultSecure.exe`, although rare, could still generate alerts. A companion detection to strengthen coverage would be monitoring for direct memory access attempts to LSASS, specifically looking for Event ID 4663 related to sensitive file access.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

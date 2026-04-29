@@ -13,8 +13,8 @@ author: Markus Neis, @Kostastsale
 date: 2018-08-17
 modified: 2023-02-03
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   category: process_creation
   product: windows
@@ -32,40 +32,30 @@ falsepositives:
 - Unlikely
 level: high
 note: |
-  ---
-
   ### Technical Context
 
-  The Sigma rule detects attempts to exploit the Antimalware Scan Interface (AMSI) by accessing the "amsiInitFailed" method via .NET Reflection. This behavior typically indicates an intention to disable AMSI scanning, which is a defensive measure that monitors scripts and executables for malicious content. The relevant MITRE ATT&CK tactic is Defense Evasion (T1562.001). The primary telemetry sources include Windows process creation events (Event ID 4688) that log command-line arguments. If successful, this type of attack could lead to malware execution without detection by security solutions that rely on AMSI. However, this detection does NOT confirm malicious activity on its own; legitimate usage of reflection and AMSI-related commands can occur in administrative scripting and software development contexts.
+  This Sigma rule detects attempts to bypass the Antimalware Scan Interface (AMSI) by searching for the method `AmsiUtils.amsiInitFailed` and specific reflection techniques in .NET, which may indicate malicious intent to disable AMSI scanning. The likely attacker objective is to evade detection mechanisms that monitor script executions, allowing for the execution of malicious payloads that would otherwise be flagged. This behavior maps to the MITRE ATT&CK tactic "Defense Evasion" (ID: T1562) and technique "Impair Defenses" (ID: T1685).
 
-  ---
+  The primary telemetry sources for this detection are process creation logs on Windows systems, specifically focusing on CommandLine parameters within Security Event ID 4688. If successful, this technique could allow an attacker to execute payloads undetected, significantly increasing the security impact of the attack. Importantly, this detection does not confirm that a successful compromise occurred; it merely suggests a possible attempt to evade defenses.
 
   ### Investigation Steps
 
-  - **Review command-line arguments:** Check Event ID 4688 for any process creation logs containing 'System.Management.Automation.AmsiUtils' and 'amsiInitFailed'. Flag any occurrences as suspicious and requiring further analysis.
+  - **Check the Command Line Arguments:** Review Security Event ID 4688 for suspicious process creation logs that include `System.Management.Automation.AmsiUtils` and `amsiInitFailed`. Malicious indicators include exact matches of these terms, while benign activity typically does not include AMSI modification calls.
 
-  - **Identify process parentage:** Trace the parent process for the identified command line to determine its legitimacy. If the parent process is a known administrator tool or legitimate PowerShell session (e.g., User Shell), it could indicate benign activity.
+  - **Validate Reflective Method Calls:** Inspect the creation of processes with arguments containing `[Ref].Assembly.GetType` and `SetValue($null,$true)`. These strings are suspect if seen together, and their presence is a high-confidence indicator of malicious activity leveraging reflection techniques.
 
-  - **Search for related unusual activities:** Look for a cascade of suspicious process executions (Event ID 4688) that might indicate a script being run, especially any invoking PowerShell scripts in close succession with AMSI disablement attempts.
+  - **Audit Parent Process:** Identify the parent process of suspicious executions. If the parent process is a legitimate script or tool (e.g., PowerShell or MSHTA), it may indicate benign activity. Conversely, unexpected parent processes (e.g., cmd.exe launching PowerShell) may warrant further investigation.
 
-  - **Examine file artifacts:** Validate the presence of unusual executables or scripts created around the alert time, particularly looking for files created or modified via PowerShell. Check common script directories (e.g., C:\Users\*\Documents\WindowsPowerShell\Scripts).
+  - **Cross-check with Threat Intelligence:** Consult threat intelligence feeds for any known indicators or signatures associated with AMSI bypass attempts. This includes malware behavior associated with disabling AMSI that can inform the severity of the event.
 
-  - **Conduct a user behavior analysis:** Evaluate the user account associated with the detected command. If it's a high-risk account (admin or service account), additional scrutiny is warranted. Look for historical log behavior to identify any deviations or patterns.
-
-  - **Cross-reference with Endpoint Detection & Response (EDR):** If an EDR solution is present, use it to monitor for lateral movement or additional suspicious command executions that align with bypassing AMSI as a broader tactic.
-
-  ---
+  - **Assess File Integrity and Creation:** Check for the creation of any files or scripts associated with the command line arguments specified. Ensure that no unexpected files were created during the time window of the suspicious process execution.
 
   ### Prioritization
 
-  This alert is of high severity due to the significant impact on the enterprise's security posture if AMSI is successfully bypassed, allowing malware to execute undetected. The likelihood of such techniques being used by adversaries is high, as they commonly seek to evade defenses during malware deployment.
-
-  ---
+  This alert is high-severity given that it targets a critical security mechanism (AMSI) commonly weaponized by sophisticated attackers. The likelihood of malicious abuse is moderate, as many advanced threats utilize AMSI bypass techniques to evade detection methodologies present in enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the use of various PowerShell logging configurations or script execution settings that do not capture all relevant activity. Legitimate administrative scripts might also trigger the alert when they involve monitoring or modifying AMSI behaviors. A related detection that strengthens coverage is monitoring for suspicious PowerShell usage patterns (T1059.001), which can include other obfuscation techniques and privileges escalation maneuvers.
-
-  ---
+  Detection may be limited by the absence of appropriate logging configurations or due to process obfuscation techniques that minimize traceability for legitimate processes. Additionally, legitimate users may invoke similar AMSI bypassing techniques in custom scripts. Related detections, such as monitoring for abnormal PowerShell command execution patterns, can enhance the coverage of this threat vector.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -13,8 +13,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-09-02
 modified: 2024-03-19
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   category: process_creation
   product: windows
@@ -37,26 +37,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of the Windows `reg.exe` command to add or copy registry keys specifically targeting the Safe Boot configuration. By manipulating Safe Boot, attackers can ensure that ransomware and malware can operate in a mode where typical security measures may be bypassed or disabled. This behavior aligns with the MITRE ATT&CK technique for Defense Evasion (T1562.001). The primary telemetry source is Windows process creation logs, specifically Event ID 4688, which captures details of executed processes, including the command line used. If detected, this behavior potentially indicates active attempts to disable or circumvent security controls, which could lead to a successful ransom or system compromise. However, this detection does NOT confirm that malicious activity has occurred on its own, as benign administrative activity can also involve similar commands.
+  This rule detects the execution of the `reg.exe` utility with commands that manipulate Safe Boot registry keys, specifically using the "add" or "copy" flags. This behavior is often leveraged by attackers, particularly ransomware groups, to configure the system to boot into Safe Mode, circumventing security products that may not run in this mode. The relevant MITRE ATT&CK tactic is Defense Evasion (TA0005) and the technique is T1685, which pertains to the modification of boot settings.
+
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which log process creation events. If the execution of these commands is malicious, it may indicate an attempt to disable or bypass security controls, thereby elevating risk to the organization's systems and data. It is important to note that this detection alone does not confirm malicious intent without context; legitimate administrative activities can also result in similar log entries.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Event ID 4688 that references `reg.exe`, specifically focusing on command lines containing `\SYSTEM\CurrentControlSet\Control\SafeBoot` with the flags `add` or `copy`. Filter logs by the user context to identify if it's a legitimate administrative user or a suspicious account.
+  - **Review Process Creation Events:** Check for the execution of `reg.exe` with CommandLine containing `\SYSTEM\CurrentControlSet\Control\SafeBoot` in Windows Security Event ID 4688 or Sysmon Event ID 1. Look for parent process information which may indicate legitimate administrative tasks.
 
-  - **Identify user context:** Verify the user account executing `reg.exe`. High-risk accounts (like those with administrative privileges) performing this action might indicate a malicious intent, whereas expected behavior may show service accounts or well-documented admin users engaging in legitimate configuration changes.
+  - **Assess Command Arguments:** Analyze the CommandLine for keywords "copy" or "add" to identify potential malicious activity. If found in conjunction with Safe Boot keys, it significantly increases suspicion.
 
-  - **Analyze related registry modifications:** Cross-reference this activity with the Windows Registry for any changes under `HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot`. Document any newly added keys, especially those not aligned with known organizational practices.
+  - **Inspect Event Logs for Context:** Cross-reference the detected command with Windows Event Logs for preceding events (e.g., Event ID 4624 for logons, Event ID 4740 for account lockouts) to contextualize the behavior. Look for unusual login sources or times.
 
-  - **Check for execution environment:** Assess if this command was executed during off-hours or from unusual geographic locations. Legitimate administrative tasks typically occur during business hours, and deviations may suggest potential compromise.
+  - **Validate Host Role and Criticality:** Determine the role of the affected host (e.g., server vs. workstation). Increased scrutiny is warranted if the device has high criticality (such as a domain controller or data server) since the impact of malicious changes would be more severe.
 
-  - **Verify device role and criticality:** Identify if the affected host is critical (e.g., a domain controller or file server) and if it's part of a sensitive operational environment (like finance or HR), as these systems would attract higher scrutiny for such activities.
+  - **Identify Legitimate Use Cases:** Note that legitimate system administrators may use `reg.exe` for routine maintenance or troubleshooting. If recent changes to system configurations align with normal administrative tasks, it may indicate benign activity.
+
+  - **Flag for Exfiltration Artifacts:** Investigate any creation of or changes to critical registry keys or documents, which may suggest data preparation for exfiltration. Look for file creation events or network logs indicating data being sent out post-registry modification.
 
   ### Prioritization
 
-  This alert should be treated as high severity due to its potential impact on critical systems; if malicious, it can enable ransomware to operate undetected. The likelihood of abuse is high, as actors frequently employ such tactics to evade security controls during attacks, particularly in ransomware scenarios that exploit Safe Boot.
+  The alert is high-severity, especially on critical systems where ransomware may seek to disable security measures. The risk of malicious exploitation is significant given the known methods used by adversaries to commandeer systems via Safe Mode. This detection behavior is known to be weaponized in recent ransomware attacks, warranting prompt analysis.
 
   ### Blind Spots and Assumptions
 
-  The detection may be ineffective if logging for process creation is not appropriately configured across all endpoints. Legitimate administrative actions, such as system maintenance and software installs, might inadvertently trigger this alert. A related detection for routine registry access or modification (e.g., abnormal patterns in Event ID 4663) could enhance monitoring around sensitive registry operations and improve overall coverage.
+  Limitations include potential evasion techniques where attackers may obfuscate or rename tools to blend in with legitimate processes. Comprehensive logging must be enabled for process creation and command execution to ensure reliable detection. Legitimate administrative tasks, such as system configuration changes during maintenance windows, may frequently trigger this alert. Companion detections to strengthen coverage include monitoring for unusual file creations in system directories or anomalous script executions immediately following registry changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

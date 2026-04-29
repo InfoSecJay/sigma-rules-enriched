@@ -12,10 +12,9 @@ date: 2018-03-20
 modified: 2022-10-09
 tags:
 - attack.persistence
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 - attack.t1112
-# Windows Security Eventlog: Process Creation with Full Command Line
 logsource:
   product: windows
   service: security
@@ -38,28 +37,32 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to certain registry values related to NTLM authentication, specifically targeting NetNTLM downgrade attacks. In this attack, adversaries attempt to manipulate the client's NTLM settings so they can exploit weaker authentication protocols, allowing them to intercept and misuse credentials. This behavior aligns with the MITRE ATT&CK techniques T1562.001 (Impair Defenses: Disable or Alter Tools) and T1112 (Modify Registry).
+  This rule detects attempts to modify registry settings associated with NTLM authentication protocol, specifically targeting the modification of `LmCompatibilityLevel`, `NtlmMinClientSec`, and `RestrictSendingNTLMTraffic`. These alterations can enable a downgrade attack, allowing attackers to coerce systems to use weaker NTLM authentication methods, facilitating credential theft and replay attacks.
 
-  The primary telemetry sources are Windows Security Event Log, specifically Event ID 4657 related to registry modifications. If the behavior is malicious, it poses a significant security risk as it may enable unauthorized authentication and access, undermining credential security. It is important to understand that this detection does NOT confirm successful credential theft; it only indicates a change to the registry which could facilitate such an outcome.
+  The likely attacker objective is to disable or weaken security mechanisms in Windows systems to exploit vulnerabilities in the NTLM protocol, achieving persistent unauthorized access. This behavior aligns with MITRE ATT&CK tactics for Persistence (T1547) and Defense Evasion (T1203). The primary telemetry source is Windows Security Event logs, particularly Event ID 4657, which captures Object Name and Object Value changes in the registry concerning NTLM settings.
+
+  If these modifications are confirmed malicious, it could lead to increased risk of credential theft or exploitation of sensitive systems. However, the detection alone does NOT confirm that the attempt was successful or that exploitation has occurred.
 
   ### Investigation Steps
 
-  - **Review Event ID 4657:** Examine logs for Event ID 4657 from Windows Security, focusing on ObjectName containing '\REGISTRY\MACHINE\SYSTEM' and ObjectValueName for 'LmCompatibilityLevel', 'NtlmMinClientSec', or 'RestrictSendingNTLMTraffic'. Confirm whether these changes correspond to unauthorized activities.
+  - **Review Event IDs 4657 for registry changes**: Look for entries with `ObjectName` containing `\REGISTRY\MACHINE\SYSTEM\ControlSet\Control\Lsa` and `ObjectValueName` being `LmCompatibilityLevel`, `NtlmMinClientSec`, or `RestrictSendingNTLMTraffic`. Note any recent modifications made.
 
-  - **Identify Meanings of Registry Changes:** Determine the values set for 'LmCompatibilityLevel' and 'NtlmMinClientSec'. Values indicating a downgrade (like '0' or '1') could suggest malicious intent. Legitimate settings typically enforce higher security levels (like '3' or '5').
+  - **Validate recent changes against policy standards**: Compare the detected registry values with your organization's security policy. Legitimate settings for `LmCompatibilityLevel` typically should be set to a value that enforces strong NTLM security (e.g., 3 or 4).
 
-  - **Analyze the Source of Changes:** Investigate the associated user or process that made the modification. Check for unusual administrative logins or service account activity that may indicate insider threats or compromised accounts.
+  - **Cross-reference with user activity logs**: Check for user actions around the time of the registry change using Security Event ID 4720 (user account creation) or 4726 (user account deletion) to see if unauthorized accounts were involved in iterating these settings.
 
-  - **Check for Other Malicious Indicators:** Look for related artifacts, such as failed authentication attempts and successful NTLM logins around the same time frame as the registry changes, from Security Event ID 4625 and 4624 respectively.
+  - **Identify high-confidence malicious indicators**: Investigate if changes were made by accounts that are not typically involved in administrative activities, especially look for processes with unexpected user context in Event ID 4688 (process creation) that correspond with the event.
 
-  - **Correlate with Related Alerts:** Cross-reference this event with related detection rules focused on credential dumping or lateral movement activities, utilizing companion rules such as the one related to AKM attacks (id: d67572a0-e2ec-45d6-b8db-c100d14b8ef2).
+  - **Determine asset criticality**: Assess if the affected system is a domain controller or a host that processes sensitive NTLM traffic, heightening the impact of a potential compromise.
+
+  - **Search for related suspicious network traffic**: Review network logs for unusual NTLM authentication requests or responses that might indicate exploitation attempts, using Sysmon Event ID 2 (Network Connections).
 
   ### Prioritization
 
-  This alert is of high severity due to its potential impact on system security. The modification of NTLM settings indicates a high likelihood of malicious intent, as such behavior is often exploited by adversaries aiming to weaken authentication mechanisms for lateral movement or credential theft. Review of historical data shows this behavior is commonly weaponized in targeted attacks.
+  This alert is of high severity due to the direct impact on the integrity of authentication systems. The likelihood of malicious abuse is elevated, given that NTLM downgrade attacks are a common vector for exploitation. Such changes are frequently weaponized by attackers to enable further access to enterprise resources.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by potential evasion techniques like using legitimate administrative privileges to alter registry settings. It requires proper logging configurations of the Windows Security Event Log to ensure reliable capture of all relevant events. Legitimate administrative changes or updates may inadvertently trigger this alert. A related detection focused on credential dumping activities may enhance overall coverage and context around potential exploitation.
+  Potential evasion techniques include manipulation of timestamps to mask changes or altering values directly by privileged users, which may bypass standard monitoring. Ensure that logging is configured correctly for auditing registry changes. Legitimate administrative activities or misconfigurations might trigger the alert when system updates are performed. A related detection for enhanced coverage is monitoring for Regular NTLM authentication failures, which can indicate ongoing exploitation attempts linked with these registry modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

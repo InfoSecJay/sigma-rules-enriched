@@ -20,7 +20,7 @@ author: Micah Babinski, @micahbabinski, Swachchhanda Shrawan Poudel (Nextron
 date: 2023-02-15
 modified: 2026-03-20
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.002
 logsource:
   category: process_creation
@@ -42,25 +42,36 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This rule detects the use of the Right-to-Left Override (RTLO) character (Unicode U+202E) within command lines associated with process creation. The use of RTLO can help adversaries obfuscate file names or commands, tricking users into executing harmful actions. The likely attacker objective is to bypass user scrutiny, making malicious files or commands appear innocuous.
+  This detection rule identifies the use of the Right-to-Left Override (RTLO) character (Unicode U+202E) within command-line inputs. Attackers leverage this character to manipulate the display of file names, tricking users into executing harmful files that may appear benign. This behavior fits into the MITRE ATT&CK framework under the tactic of **Defense Evasion** and the technique **Obfuscated Files or Information (T1027.002)**.
 
-  Relevant MITRE ATT&CK tactics include Defense Evasion (T1203) and Obfuscated Files or Information (T1036.002). Primary telemetry sources include Windows security logs, specifically focused on process creation events (Event ID 4688) that capture command-line arguments. If malicious, this behavior could lead to executable files being run that result in data theft, system compromise, or further malicious activity. This detection does NOT confirm malicious intent or execution on its own; benign uses of the RTLO character do exist.
+  The primary telemetry source is process creation logs from Windows (Event ID 4688 or Sysmon Event ID 1), which will indicate the command lines used to spawn processes. If this activity is confirmed malicious, it could lead to unauthorized access or execution of malware. Importantly, the detection does not confirm an active compromise by itself; further analysis is necessary to confirm intent and impact.
 
   ### Investigation Steps
 
-  - **Check process creation logs**: Review Windows Security Event ID 4688 logs for process creation. Look for command lines containing the U+202E character or its representations ('\u202e', '[U+202E]', '‮').
-  - **Identify malicious executions**: Correlate flagged command lines with known malicious software or ISO files for a high-confidence indicator of compromise. Check against threat intelligence sources for known RTLO attacks.
-  - **Evaluate legitimate usage**: Understand context around similar command lines from internal processes. If command lines are part of legitimate operations (e.g., software related to Arabic or Hebrew text processing), document them as benign.
-  - **Review asset criticality**: Investigate the affected system’s role within the organization (e.g., domain controller, file server) to assess the impact of potential compromise. Higher criticality systems should be prioritized for deeper inspection.
-  - **Validate user access and permissions**: Check the user account associated with the process creation. Unusual accounts or lack of proper permissions when executing such commands could indicate malicious activity.
-  - **Examine file creation or download artifacts**: If applicable, validate if a file associated with the RTLO has been created or downloaded suspiciously. Look for unexpected file types or suspicious locations (e.g., temp folders).
+  - **Check command line details:**
+    Review command line arguments for instances of `\u202e` or related representations in Event ID 4688 logs (Windows Security logs) or Sysmon Event ID 1. Malicious indicators often include unusual file types (e.g., `.exe`, `.scr`) disguised by obfuscation.
+
+  - **Analyze process parent/child relationships:**
+    Seek out the process tree stemming from suspicious parent processes. Use Sysmon Event ID 10 (Process Access) to trace execution paths and establish context on how the suspicious command was initiated, identifying potential prior infection vectors.
+
+  - **Validate against legitimate use cases:**
+    Identify any occurrences where the RTLO character is used legitimately. For example, certain scripts, especially those dealing with non-Latin scripts or documentation, may use this character legitimately without malicious intent.
+
+  - **Investigate network activity:**
+    Examine network logs for outgoing connections (e.g., DNS queries) initiated by processes with the RTLO character in their command line. Use logs from solutions like Windows Firewall or proxy logs to pinpoint if any connections correspond to known malicious domains or IPs.
+
+  - **Review user behavior:**
+    Gather contextual information from logs to assess the user’s activity around the alert. Investigate if users have been executing known benign scripts that utilize right-to-left characters, as false positives can occur.
+
+  - **Correlate with file system changes:**
+    Check for file creations or modifications around the time the alert was triggered using Sysmon Event ID 11 (FileCreate) to see if any obfuscated filenames were created or accessed, which could indicate malware execution.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential for significant impact if an attacker successfully executes obfuscated commands on critical systems. The likelihood of malicious use is notable, as RTLO techniques are increasingly weaponized in phishing and malware distribution campaigns.
+  This alert is considered high severity due to the potential for immediate and significant impact from successfully executed malicious files. The likelihood of exploitation is notable, as RTLO is a recognized tactic for obfuscating malicious activity in enterprise environments. Given historical usage in phishing and file deception, this behavior is often weaponized by adversaries.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments that do not log all process creation events or where logging is not configured properly. Legitimate applications, particularly those used in multilingual contexts, may trigger these alerts inadvertently. Related detections, such as those identifying unusual process execution patterns or file creation in sensitive directories, can enhance coverage and understanding of potential threats.
+  Detection may be limited by the presence of benign uses of the RTLO character, particularly in legitimate communications or documentation in non-Latin scripts, which could lead to false positives. This detection relies heavily on adequately configured logging from Windows and Sysmon; incomplete log data may hinder detection. A companion detection that strengthens coverage could involve monitoring for abnormal parent-child process relationships that lead to unusual outbound network connections.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

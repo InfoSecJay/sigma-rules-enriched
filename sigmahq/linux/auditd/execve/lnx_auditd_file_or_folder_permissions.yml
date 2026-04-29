@@ -8,7 +8,7 @@ author: Jakob Weinzettl, oscd.community
 date: 2019-09-23
 modified: 2021-11-27
 tags:
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1222.002
 logsource:
   product: linux
@@ -26,26 +26,30 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects unauthorized file or folder permission changes on Linux systems. Such alterations may indicate an attacker attempting to escalate privileges or obscure their access within the system. The likely attacker objective is to gain control over sensitive files, prevent detection of malicious activities, or establish persistence. This behavior aligns with the MITRE ATT&CK technique T1222.002 (File and Folder Permissions Modification). The primary telemetry source is auditd logs that capture system calls, particularly monitoring the EXECVE type for commands such as `chmod` and `chown`. If malicious, these actions could compromise the integrity and confidentiality of important data. Importantly, this detection does NOT confirm malicious intent on its own; legitimate user actions may trigger the same alerts.
+  This Sigma rule detects changes to file or folder permissions on Linux systems, specifically through the use of `chmod` and `chown` commands, which can indicate an attempt by an attacker to manipulate access controls. The likely attacker objective is to weaken security by granting unauthorized access to sensitive files or directories, facilitating data exfiltration or system persistence. This behavior aligns with the MITRE ATT&CK tactic "Defense Evasion" and technique "Modify File Permission" (T1222.002).
+
+  The primary telemetry source for this detection is the Linux audit daemon (auditd), capturing event data about system calls, particularly EXECVE events related to permission changes. If malicious, this behavior can lead to significant security risks, such as unauthorized access to sensitive data or system configurations. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative activities may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Verify recent permission changes**: Check audit logs for Event IDs related to `chmod` and `chown`. Look for timestamped entries in `/var/log/audit/audit.log` and the relevant fields (e.g., `exe`, `a0`, `uid`, `gid`) associated with the user making the change.
+  - **Identify the command executed:** Review audit logs for Event Type: EXECVE, focusing on commands using `chmod` or `chown` (e.g., auditd logs). Look for `a0` field values that contain `chmod` or `chown`. Determine if the command was executed by an authorized user or service.
 
-  - **Identify the user and their intent**: Investigate the user account involved in the permission change. Check for unusual activity or patterns in Bash history (e.g., `/home/user/.bash_history`) that may suggest malicious behavior.
+  - **Check the target file or folder:** Cross-reference the target file or directory specified in the command with known sensitive directories or files (e.g., `/etc/passwd`, `/var/www/html`). Investigate if the modified object shows unexpected access changes.
 
-  - **Determine if the file is sensitive**: Cross-reference the affected files against a list of critical directories or sensitive files. Look for changes in files within `/etc/`, home directories, or other sensitive locations that may indicate an evasion tactic.
+  - **Review user context:** Analyze the effective user ID (euid) and the user that executed the command. If the euid indicates a system user or unexpected account (e.g., a service account during off-hours), mark it as suspicious.
 
-  - **Assess the frequency of changes**: Look for multiple permission changes in a short time frame. Frequent use of `chmod` or `chown` commands can indicate suspicious activity, especially if used in common folders like `/tmp` or `/var/log`.
+  - **Analyze permissions set before and after the change:** Use file system monitoring tools or logs to inspect permissions of modified files or directories before and after the change. Legitimate permission modifications typically involve administrative users adjusting permissions during maintenance windows.
 
-  - **Review legitimate activity context**: Consider the normal operational procedures in your environment. If the user account typically changes permissions as part of their role (e.g., system administrators), corroborate this with scheduled maintenance or documented processes.
+  - **Investigate prior activity:** Review user activity logs for related suspicious commands or elevated privilege actions (using audit logs or syslog). Identify patterns indicating potential compromise, such as repeated permission changes or access by a user with a history of irregular behavior.
+
+  - **Validate unusual activity:** Search for unusual patterns such as frequent or bulk permission changes (within the same time frame) across different system areas. High-confidence malicious indicators may include multiple changes affecting sensitive directories by unexpected users or automated scripts.
 
   ### Prioritization
 
-  The severity of this alert is low given the commonality of legitimate permission changes by users, especially administrators. However, the sensitivity of the affected system and the potential for malicious abuse necessitate timely review. This behavior can be weaponized by adversaries to obscure actions or maintain access, requiring attention but with caution used to weed out false positives.
+  The alert should be considered medium severity, as unauthorized permission changes can lead to potential exploitation of sensitive assets. The likelihood of malicious abuse is moderate given the frequency of these commands in administrative tasks, yet such behavior is commonly weaponized to facilitate further attacks or data breaches.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss subtle privileges escalation attempts if they occur via less monitored methods or scripts that obfuscate command usage. Reliable detection requires auditd configuration to ensure comprehensive logging is enabled. Legitimate activities, such as routine maintenance by system admins, may frequently trigger this alert. A related detection to enhance coverage is monitoring unexpected file execution events (e.g., using Sysmon for file creation and changes in executable states).
+  Evasion techniques may include legitimate administrative actions taken under routine maintenance, which could trigger the same alert. Reliability of detection relies on proper configuration of auditd to capture EXECVE events accurately. False positives may occur from regular permission changes by system administrators during updates or restructuring. Companion detections include monitoring for unusual user activity or unauthorized access attempts immediately following permission changes to bolster threat context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

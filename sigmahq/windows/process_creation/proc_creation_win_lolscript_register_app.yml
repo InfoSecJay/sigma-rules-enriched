@@ -12,7 +12,7 @@ author: Austin Songer @austinsonger
 date: 2021-11-05
 modified: 2022-07-07
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -34,30 +34,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `register_app.vbs` script, which is part of the Windows SDK and can be used to register new VSS/VDS Providers as COM+ applications. Attackers may exploit this functionality to install malicious DLLs, facilitating persistence and execution of their payloads on the system. The relevant MITRE ATT&CK techniques are Defense Evasion (T1218) as adversaries attempt to bypass detection mechanisms.
-
-  The primary telemetry sources for this detection are process creation events, specifically looking for instances of `cscript.exe` or `wscript.exe` along with command line parameters that contain `.vbs -register`. If malicious, this activity can lead to significant impacts, including unauthorized data access and system compromise. Importantly, this detection does NOT confirm malicious activity on its own, as it could be part of regular administrative functions or legitimate script execution.
+  This Sigma rule detects the execution of VBScript files via Windows scripting engines (cscript.exe or wscript.exe) with command line parameters indicating the potential registration of a new volume shadow copy or disk shadow service (VSS/VDS) provider. The likely objective of an attacker leveraging this technique is to establish persistence by registering malicious DLLs as COM+ applications through the use of "register_app.vbs." This behavior fits within the MITRE ATT&CK framework under the Tactic: Execution; Technique: Scripting (T1218). Primary telemetry sources include process creation logs, specifically Windows Security Event ID 4688 or Sysmon Event ID 1, highlighting process execution details. If malicious, the impact could be significant as it enables potential undetected persistence mechanisms within the system. It is important to note that this detection does not confirm malicious intent on its own, as legitimate administrative scripts may utilize similar commands.
 
   ### Investigation Steps
 
-  - **Identify the process responsible for the alert**: Check for Security Event ID 4688 or Sysmon Event ID 1 to detect the execution of `cscript.exe` or `wscript.exe`. Validate whether the process was initiated with command line arguments indicating the use of `register_app.vbs`.
+  - **Check the command line arguments**: Review the command line for process executions associated with cscript.exe or wscript.exe (Event ID 4688 or Sysmon Event ID 1). Look for entries containing ".vbs -register". Legitimate administrative tasks may use cscript or wscript for various functions, but be wary if seen on endpoints where such scripts are uncommonly executed.
 
-  - **Review the command line arguments**: Look for CommandLine entries containing `.vbs -register` in events related to the identified process. Compare this against known benign scripts used in configuration management.
+  - **Inspect the originating script**: Locate the script file execution path and content for any instances of "register_app.vbs." Valid scripts will typically reside in development environments or known locations; check the hash against known benign scripts or the GitHub repository provided in the reference.
 
-  - **Correlate with system activity**: Examine related logs in the same time frame (Event ID 5145 for file access logs) for any changes made to system files or registration of new COM+ applications, focusing on the specific DLLs associated with `register_app.vbs`.
+  - **Monitor for suspicious file creation**: Use file system logs to identify any newly created DLL files (e.g., Event ID 4663 for file creation) in conjunction with the execution of potentially malicious VBS scripts. Look for abnormal file names or locations outside of trusted directories.
 
-  - **Check for benign script usage**: Investigate instances of legitimate usage by confirming if the executed script is part of a known administrative task and correlating it with approved change control records.
+  - **Cross-reference user context**: Analyze user information associated with the executed command (Event ID 4688) to determine if the process was initiated by a system account, administrator, or a compromised user account. Malicious activity may often involve standard user accounts executing administrative-like scripts.
 
-  - **Identify high-confidence indicators**: Look for unusual DLL registrations that result from executing the script, using Windows Event ID 7045 to identify the addition of new service or DLL entries that are not documented.
+  - **Assess impact of affected systems**: Evaluate the criticality of the host systems where the alert is triggered. Assets with high sensitivity or critical business functions should receive heightened scrutiny to ensure there is no ongoing malicious operation.
 
-  - **Validate for file persistence**: Check if new files were created or existing files modified in directories associated with application execution (`C:\Windows\System32\`) during the time of the event. Use file system logs to monitor for newly registered DLLs.
+  - **Investigate historical usage**: Compare against logs of previous executions of the same VBS script by the same processes. If seen without a legitimate context earlier, it raises the likelihood of illegitimate intent.
 
   ### Prioritization
 
-  This alert is of medium severity due to the potential impact on affected systems that could allow adversaries to establish persistence. While the likelihood of such a method being malicious is moderate, it is notable that attackers commonly weaponize script-based solutions for lateral movement and exploitation.
+  This alert carries medium severity due to the operational impact on critical systems that could be exploited for persistence. The likelihood of malicious abuse is moderate, given that attackers often exploit such administrative scripts for stealthy persistence mechanisms. The technique is not uncommon among adversaries, suggesting a cautious approach to triage.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of evasion through legitimate use of the script by administrators for benign purposes. Reliable detection requires complete logging of process creation events and command line usage. Legitimate activities that may trigger this alert include authorized system updates or administrative script runs. A related detection to enhance coverage is monitoring for abnormal COM+ registrations or changes utilizing Event ID 7001 from the Event Viewer under Component Services.
+  Potential evasion techniques may include attackers executing similar scripts with altered command-line arguments, minimizing detection. Proper log configurations must be ensured for process creation on endpoints; without them, detection becomes unreliable. Legitimate administrative activities, such as system backups or maintenance scripts, can trigger this alert. A related detection to consider is abnormal scheduling of task runs via Task Scheduler logs (Event ID 106), which may complement the coverage against persistence techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

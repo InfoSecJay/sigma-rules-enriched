@@ -13,7 +13,8 @@ date: 2022-12-30
 tags:
 - attack.privilege-escalation
 - attack.persistence
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: linux
@@ -35,28 +36,30 @@ level: low
 note: |
   ### Technical Context
 
-  This rule detects attempts to access hidden files or directories on Linux systems, particularly those hiding behind a leading dot (e.g., `.hiddenfile`). The likely attacker objective is to evades detection by utilizing hidden paths for data storage, malware execution, or configuration manipulation, falling under MITRE ATT&CK's privilege escalation (T1574.001) and defense evasion tactics.
+  This Sigma rule detects attempts to access hidden files or directories in Unix-like systems, specifically targeting file paths that contain a dot prefix (e.g., "/.cache/", "/.config/"). This behavior is often associated with adversary objectives like maintaining persistence or executing malicious code while evading detection. According to MITRE ATT&CK, this corresponds with the tactic of *Persistence* (TA0003) and the technique *Hidden Files and Directories* (T1564.001).
 
-  Primary telemetry sources include Linux audit logs provided by `auditd`, capturing events related to file access. If malicious, this behavior could indicate a compromised system or an attacker attempting to maintain persistence. However, this detection alone does NOT confirm malicious intent; legitimate system processes may also access hidden files.
+  The primary telemetry source for this alert is the Linux audit daemon (auditd), specifically monitoring file access events. If malicious, this behavior could signify an attempt to manipulate stealthy configurations or execute threats without user awareness. However, this detection alone does not confirm malicious intent, as legitimate processes may also interact with these hidden files.
 
   ### Investigation Steps
 
-  - **Review auditd logs for relevant events**: Check for `EXE_CMD` and `SYSCALL` events in audit logs (e.g., `/var/log/audit/audit.log`) that indicate access to hidden files, looking for exact entries where `name` contains `/.`.
+  - **Review alert details:** Confirm the file path involved, looking for accesses to common hidden directories such as "/.cache/" and "/.config/". Note if any known benign applications use these paths.
 
-  - **Correlate with user behavior**: Validate if the access aligns with expected user activity. For example, developers may access hidden directories for configuration, such as `.config/`. Match accesses with user roles, ensuring legitimate use cases.
+  - **Check audit logs for Event IDs:** Inspect the relevant auditd logs for *syscall=open or syscall=read* events. Pay attention to the *path* field indicating hidden files. Legitimate access is typically tied to software dependencies or user profiles.
 
-  - **Identify unusual access patterns**: Analyze for rapid successive access attempts to hidden files or directories, indicating automated scripts or tools, particularly if the user is not known to leverage these paths.
+  - **Analyze process execution context:** Cross-reference the process IDs capturing the hidden file access with */proc/<PID>/cmdline* or */proc/<PID>/environ*. Legitimate process behavior involves predictable names linked to known services or user applications.
 
-  - **Check for creation of hidden files**: Validate the presence of new hidden files (e.g., starting with `.`) by reviewing filesystem changes within `/home/<username>`. New hidden files not created by authorized users can be a high-confidence indicator of malicious behavior.
+  - **Identify high-confidence malicious indicators:** Look for patterns or oddities in access times, such as anomalies in typical business hours or access attempts from non-standard user accounts. Unusual scripts or binaries in the command line arguments may indicate abuse.
 
-  - **Review system configurations**: Assess whether logging for hidden files or directories is appropriately configured in `auditd`. Ensure that filters do not exclude pertinent entries; such exclusions might lead to missed detection of malicious activity.
+  - **Validate file modifications or exfiltration:** If the suspicious access alters a file, ensure to check for changes in timestamps or file sizes in paths like "/.config/". Investigate if associated files are sent to external IPs or if any unauthorized scripts are created.
+
+  - **Review for companion detections:** Look for related alerts involving process injection or unauthorized system configuration changes in similar timeline windows. Correlating these can highlight potential coordinated attacks.
 
   ### Prioritization
 
-  The alert is of low severity in an enterprise context, as access to hidden files can occur in benign scenarios, particularly among development teams or in automated processes. However, the presence of hidden file access attempts raises a flag for potential misuse, warranting further investigation especially if correlated with other suspicious activity.
+  This alert is categorized as low severity due to the potential impact on non-critical systems. The likelihood of malicious abuse exists, particularly in environments where persistence mechanisms are exploited. However, this behavior is not frequently weaponized, often presenting legitimate use cases in development environments or user configurations.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by user permissions that prevent capturing all relevant access logs, particularly in environments with restrictive `auditd` configurations. Legitimate activities, such as software installations or configuration changes by authorized users, may trigger this alert. A related detection for regular access to system paths (e.g., non-hidden files) could help contextualize behavior and strengthen security posture.
+  Detection limitations include the possibility of malicious actors using evasion techniques, such as encoding file paths or using alternative methods of hiding interactions. The reliability of this detection is contingent upon correct auditd configuration to capture file access events. Legitimate application behavior, particularly from software development tools, may also trigger alerts. A related detection to consider is *Suspicious Process Creation* (T1059), which strengthens coverage of potentially malicious activities initiated after hidden file access.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -14,7 +14,8 @@ modified: 2021-11-27
 tags:
 - attack.privilege-escalation
 - attack.persistence
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1574.006
 logsource:
   product: linux
@@ -30,28 +31,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects modifications to the `/etc/ld.so.preload` file, which is commonly targeted for shared object injection by attackers. By manipulating this file, an adversary can introduce malicious shared libraries into running processes, potentially leading to privilege escalation or evading security mechanisms. This behavior is linked to the MITRE ATT&CK technique T1574.006 (DLL Search Order Hijacking).
+  This rule detects modifications made to the `ld.so.preload` file, a critical configuration file in Linux environments that controls dynamic linker behavior. By altering this file, an attacker can instruct the system to load malicious shared libraries into legitimate processes, facilitating code execution, privilege escalation, or evasion of security controls. The likely attacker objective here is to inject arbitrary code into running processes, enabling a range of malicious activities from data exfiltration to system compromise.
 
-  The primary telemetry source involves audit logs from the Linux `auditd` service, particularly focusing on changes to sensitive system files. If exploited, this technique could allow an attacker to execute arbitrary code in the context of high-privilege processes, leading to significant security risks. Importantly, this detection alone does not confirm an active compromise; it only indicates that a modification was made, which may also occur during legitimate system administration.
+  This activity fits into the MITRE ATT&CK framework under **Persistence** (T1574.006). The primary telemetry sources include audit logs collected by `auditd`, specifically monitoring for access or modifications to the `/etc/ld.so.preload` file. If such malicious actions were confirmed, the security impact could be severe, potentially leading to unauthorized actions on the affected system. However, this detection alone does NOT confirm that an intrusion has occurred; it only indicates a potentially malicious modification.
 
   ### Investigation Steps
 
-  - **Verify the audit log entry:** Check the `auditd` logs for Event ID 140 (which denotes file modifications) targeting the path `/etc/ld.so.preload`. Focus on the `a2` field to examine the user who made the change; a non-admin user may indicate malicious activity.
+  - **Check the audit log for modifications**: Review `auditd` logs (Event ID 132, with `execve` or `open` syscall) for changes to `/etc/ld.so.preload`. Look for entries that indicate commands modifying the file and note the user and time of change.
 
-  - **Correlate timestamps with other activity:** Evaluate other related `auditd` entries around the same timestamp to see if there are any unusual or unauthorized access patterns that may suggest a broader compromise.
+  - **Identify the process utilizing the modified library**: Use `lsof` to list open files and check if any running processes are using libraries defined in the modified `ld.so.preload`. Legitimate processes typically point to system libraries, while unexpected entries may indicate malicious usage.
 
-  - **Review legitimate activities:** Determine if there was scheduled maintenance or legitimate software installation activity around the time of modification. This involves checking change management records or IT support tickets that may have authorized changes.
+  - **Correlate with user behavior**: Examine user login logs (e.g., `/var/log/auth.log` or `/var/log/secure`) to validate if the user associated with the modification had an intention (e.g., recent escalated privileges) or if it was part of a legitimate maintenance task.
 
-  - **Identify high-confidence malicious indicators:** Investigate for any additional unexpected loading of shared libraries by checking processes in runtime using `lsmod` or `lsof` commands to see if non-standard libraries are involved, which can indicate exploitation.
+  - **Search for known malicious payloads**: Conduct searches in `/usr/lib` and `/usr/local/lib` for unusual .so files that match common signatures of known malware (e.g., `libmalicious.so`). Identify if these were loaded through the modified file.
 
-  - **Analyze system integrity:** Use tools like `Debsums` or `AIDE` to check for any other unexpected modifications to critical system files which can signify a larger compromise, especially considering a potential persistence mechanism.
+  - **Review system integrity reports**: If available, check integrity monitoring systems (e.g., Tripwire) for alerts or discrepancies on the integrity status of the `/etc/ld.so.preload` and other critical system files.
 
   ### Prioritization
 
-  This alert is of high severity as it indicates a potential compromise of system integrity at a strategic level. Given the ability to load arbitrary code into processes, this behavior is often weaponized in various attack scenarios, making it critical for timely investigation.
+  This alert should be treated as high severity due to the potential for significant impact on the affected system. The ability to inject code into processes is a common tactic used by adversaries in sophisticated attacks. This behavior is also frequently weaponized in real-world attack scenarios, making rapid investigation imperative.
 
   ### Blind Spots and Assumptions
 
-  Detection may be circumvented if the auditd logging configuration is not correctly set up or if the modifications happen via non-captured methods, such as in a containerized environment without proper logging. Legitimate activities, such as system upgrades or software installations, could also trigger this alert. Complementary detections to consider include monitoring for unusual shared library loading (`LD_PRELOAD` environment variable use), which may indicate attempts to exploit this vulnerability further.
+  Detection may be limited by insufficient `auditd` configurations to monitor all necessary syscalls. Attackers might employ methods to revert changes post-injection, obscuring traces of malicious activity. Additionally, legitimate administrative actions, such as system updates or software configuration changes, might trigger this alert. Implementing companion detections around monitoring for anomalous process executions or unusual file access patterns can enhance overall detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

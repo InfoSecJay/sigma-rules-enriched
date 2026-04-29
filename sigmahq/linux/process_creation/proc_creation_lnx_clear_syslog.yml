@@ -11,8 +11,8 @@ author: Max Altgelt (Nextron Systems), Roberto Rodriguez (Cyb3rWard0g), OTR
 date: 2021-10-15
 modified: 2025-10-15
 tags:
-- attack.defense-evasion
-- attack.t1070.002
+- attack.defense-impairment
+- attack.t1685.006
 logsource:
   product: linux
   category: process_creation
@@ -90,26 +90,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious activities that attempt to clear or remove system logs, particularly the syslog file in Linux environments. Adversaries may engage in this behavior to cover their tracks after executing malicious actions, aligning with their goal of obfuscating evidence of compromise. The relevant MITRE ATT&CK technique for this activity is T1070.002: Indicator Removal on Host - File Deletion. Primary telemetry sources include Linux process creation logs, specifically Event IDs that register command execution and system behaviors. If the activities flagged by this detection are malicious, it could indicate a severe compromise. However, this detection does NOT confirm malicious intent on its own without additional context such as previous suspicious activity or system misconfigurations.
+  This Sigma rule detects behaviors related to clearing or removing syslog files using various commands in Linux. The likely attacker objective is to erase evidence of unauthorized activity or facilitate further malicious actions without detection. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1070.002). The primary telemetry source is Linux process creation logs, primarily focused on commands executed related to the syslog. If malicious, this activity can severely compromise system integrity and forensics. This detection does NOT confirm that malicious activity has occurred; legitimate log rotation or maintenance tasks can trigger false positives.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check Linux process creation logs (e.g., audit logs or `proc` filesystem) for relevant entries indicating suspicious command executions, particularly involving commands like `rm`, `truncate`, or `journalctl`. Look for Event ID 242 which captures command executions.
+  - **Review command structures used:** Examine Process Creation logs (e.g., Syslog Event IDs for Linux) for commands containing `rm`, `truncate`, or `journalctl --vacuum` targeting `/var/log/syslog`. Malicious use often involves combinations of `-f`, `-r`, or redirection operators (`>`).
 
-  - **Check command parameters**: Investigate the command lines in the logs for suspicious parameters (e.g., `-f`, `--size`, and `/dev/null`) to identify specifically crafted commands that target `/var/log/syslog`. Legitimate activities may show regular log rotation configurations without high-risk flags.
+  - **Identify high-confidence malicious indicators:** Check for command executions that utilize `unlink`, `mv`, or `ln` targeting the syslog file. For example, execution of `ln -sfn /dev/null /var/log/syslog` indicates potential malicious intent of hiding logs.
 
-  - **Correlate with user activities**: Validate the user executing the commands against expected roles for that host. Administrative users performing expected maintenance activities might trigger these alerts, while non-administrative accounts executing such commands should raise immediate suspicion.
+  - **Correlate with user behavior:** Validate the context of the command. Legitimate rotation or log cleanup typically occurs during scheduled maintenance and involves standard logging utilities like `logrotate`, not direct manipulation of syslog logs.
 
-  - **Analyze log retention configuration**: Inspect log retention settings to ascertain if legitimate log rotation or cleaning tasks are in place. Compare timestamps of the alerts with configured maintenance windows to distinguish benign activity from potential malicious attempts.
+  - **Check for additional telemetry:** Look for signs of abnormal log behavior in the `/var/log/` directory. This includes review of file timestamps (examine `ls -l /var/log` output) for recent edits or deletions that align with suspicious command usage to determine if logs were cleared.
 
-  - **Look for additional log types**: Ensure that systemd journal logs are also scrutinized for the presence of commands such as `journalctl --vacuum` and `journalctl --rotate` that might be used to manipulate the log rotation process, indicating potential circumvention of normal logging mechanisms.
+  - **Validate against critical assets:** Determine if the affected system role is classified as critical (e.g., a server housing sensitive data). Higher impact from such actions warrants escalation to appropriate security personnel.
+
+  - **Investigate historical context:** For ongoing incidents, analyze historical logs leading up to the command execution to identify prior suspicious activities or anomalies, focusing on user accounts executing these commands.
 
   ### Prioritization
 
-  This alert is high severity because it indicates possible active measures taken by an attacker to remove traces of their activities, especially on critical systems. The likelihood of malicious abuse is elevated since log clearing is a common tactic used by adversaries to evade detection after exploitation, making it a significant indicator of compromise.
+  This alert should be treated as high severity due to the potential impact on system integrity and the likelihood of malicious abuse. The ability to manipulate log files is commonly weaponized in adversary operations to evade detection and maintain persistence.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative actions like scheduled log rotation or maintenance scripts that can generate similar command patterns. To ensure reliable detection, log sources such as syslog, audit logs, and systemd journal logs should be properly configured and retained for analysis. Additionally, benign activities from privileged users could trigger the alert and may need contextual understanding, while related detections around process execution anomalies would enhance threat coverage and awareness.
+  Detection limitations include the possibility of legitimate system maintenance activities that could trigger this alert, such as scheduled log rotations. The SOC must ensure comprehensive logging from all applicable systems to maintain reliable detection. Additionally, tools like `logrotate` may clear logs in a benign manner, thus prompting the need for further correlation. A related detection that strengthens coverage is any KQL/SPL rule that flags anomalous authentication events related to the processes in question.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -16,7 +16,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-09-05
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -33,30 +33,36 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects changes to Internet Explorer's ZoneMap configuration, specifically the reassignment of the "HTTP" protocol to the "My Computer" zone. This misconfiguration allows malicious files downloaded from the internet to be treated with the same trust level as local files, potentially leading to malware execution and other security compromises. The likely attacker objective is to exploit this setting to execute undesirable code on targeted systems.
+  This rule detects modifications to Internet Explorer's ZoneMap configuration that downgrade the security settings for the "HTTP" and "HTTPS" protocols, allowing web content to be treated with the same trust level as local files. The likely attacker objective is to facilitate the execution of malicious scripts or the installation of malware by bypassing the default security checks that normally prevent potentially harmful content from being executed as trusted. This behavior aligns with the MITRE ATT&CK tactic of **Execution** (TA0002) and the technique **Command and Scripting Interpreter** (T1059).
 
-  This behavior aligns with the **MITRE ATT&CK** tactic of **Execution** (T1203). The primary telemetry sources include Windows process creation logs (Event ID 4688) that show command-line activity. If malicious, this could lead to data exfiltration, system compromise, or lateral movement within the network. Importantly, this detection does not confirm successful execution of malicious code by itself; further investigation is required to determine the impact.
+  The primary telemetry sources involved are Windows process creation logs (Event ID 4688 or Sysmon Event ID 1), which can capture command line activities. The potential security impact is significant; if successfully exploited, it could allow an attacker to execute arbitrary code or install malware without proper security restrictions. However, this detection alone does not confirm an active attack or malicious intent, as legitimate administrative tasks might also modify these settings.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Windows Security Event ID 4688 to identify commands executed on the affected system. Look for specific command lines containing `\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\ProtocolDefaults`, `http`, and `0`.
+  - **Review command line arguments:**
+    Check for Event ID 4688 or Sysmon Event ID 1 where the **CommandLine** contains `\Microsoft\Windows\CurrentVersion\Internet Settings\ZoneMap\ProtocolDefaults`, `http`, and `0`. Analyze the context of the process making the change (e.g., user account, execution context).
 
-  - **Correlate with user activity:** Determine if the user associated with the alert has legitimate business justification for modifying Internet Explorer settings. Look for recent user activity in Windows Event ID 4624 (Logon) to validate normal user behavior.
+  - **Identify the user:**
+    Determine the user account associated with the process. If the account is a known administrative or legitimate account performing routine maintenance, this could indicate benign activity.
 
-  - **Identify malicious indicators:** Look for processes initiated via the command line that potentially indicate compromise, such as known malware hashes. Any command involving ZoneMap configurations without justification should be flagged as suspicious.
+  - **Correlate with other logs:**
+    Cross-reference this change with Group Policy logs (Event ID 51468) or security logs to confirm if this was part of a broader configuration management task.
 
-  - **Check group policy settings:** Validate if there are any Group Policy Objects (GPOs) enforcing Internet Explorer configurations. Legitimate changes might occur during system updates or IT policy enforcement, seen in logs of relevant GPO applications (Event ID 4101 or 5136).
+  - **Look for high-confidence malicious indicators:**
+    Investigate if the process triggering this change is preceded by known Indicators of Compromise (IoCs) such as unusual process hierarchies, unexpected parent processes leading to this command execution, or usage of scripting tools like PowerShell or WScript.
 
-  - **Investigate network telemetry:** If available, check DNS logs or proxy logs for unusual outbound HTTP/HTTPS requests following the configuration change. This may signal attempted exploitation or data exfiltration.
+  - **Check for legitimate use cases:**
+    Identify if any maintenance operations or legitimate administrative user actions recently modified the security settings. For example, regular maintenance might include guided use of scripts attempting to reconfigure settings.
 
-  - **Assess host criticality:** Determine the role of the affected system (e.g., server, endpoint) to prioritize follow-up actions. Compromised endpoints can lead to lateral movement, especially on critical infrastructure.
+  - **Monitor for related activities:**
+    Look for subsequent HTTP/S traffic generated by modified settings, especially downloads from external URLs being executed (e.g., using network logs, web proxy logs, or DNS queries).
 
   ### Prioritization
 
-  This alert is of high severity due to the potential for significant impact if exploited. Given that this misconfiguration allows a classified security risk, the likelihood of malicious abuse by attackers is elevated. Additionally, tactics that modify security zone settings are weaponized in targeted attacks.
+  The alert severity is high due to the potential for significant impact on the compromised system, where altered security settings can lead to widespread malware deployment. The likelihood of malicious use is also elevated as this technique is a known method for bypassing security measures, and similar misconfigurations are commonly weaponized in attacks.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded by users with administrative privileges who can restore configurations after a change is detected. Reliable detection requires that process creation logs are properly collected and configured. Legitimate activities such as administrative updates or software installations may trigger the alert inadvertently. It is advisable to implement additional monitoring rules for related Registry changes around IE security settings to strengthen coverage on this exploit vector.
+  Detection limitations exist if command line logging is not properly configured or if the security settings modify without generating associated process creation logs. Evasion techniques may include attackers using legitimate administrative tools to make changes without raising suspicion. Furthermore, legitimate software installations or administrative configurations can trigger this alert, such as an IT team changing settings for valid use cases. A related detection to consider is monitoring for unexpected HTTP/S traffic patterns, which could indicate exploitation attempts following ZoneMap modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,7 +9,7 @@ author: Tim Shelton, Florian Roth (Nextron Systems), Yassine Oukessou
 date: 2022-01-13
 modified: 2024-04-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.011
 logsource:
   category: process_creation
@@ -64,48 +64,32 @@ falsepositives:
 - Unknown
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects executions of `rundll32.exe` with command line arguments that do not contain common dynamic-link library (DLL) extensions. This behavior is usually indicative of potentially malicious activities since attackers may use atypical extensions or formats to load and execute malicious code. The likely attacker objective is to execute arbitrary code or evade detection by exploiting Windows' legitimate mechanisms for loading DLLs.
+  This Sigma rule detects the execution of the `rundll32.exe` process with command lines that do not include common file extensions like `.dll`, `.cpl`, or `.inf`, which are typically associated with legitimate use cases. The likely objective of an attacker using this technique is to run malicious code that is disguised as legitimate DLL invocations. This behavior fits into the MITRE ATT&CK framework under the tactic of Execution (T1203) and technique of DLL Search Order Hijacking (T1218.011).
 
-  The relevant MITRE ATT&CK technique is "Signed Binary Proxy Execution" (T1218.011). Primary telemetry sources include Windows Security Event ID 4688 (Process Creation) and Sysmon Event ID 1 (Process Creation), which should show process creation events and detailed command line variations. If malicious, this behavior can lead to system compromise or unauthorized data access. Importantly, this detection does NOT confirm malicious intent solely based on the invocation of `rundll32.exe`; further investigation is needed to determine the legitimacy of the action.
-
-  ---
+  Primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688, which provides information about processes launched on the system. If the detected behavior is malicious, it could indicate an attempt to execute payloads stealthily. Importantly, this detection alone does not confirm that the execution is malicious; it merely highlights unusual command line usage with `rundll32.exe`.
 
   ### Investigation Steps
 
-  - **Review the command line arguments:**
-    Examine the command line used with `rundll32.exe` in Event ID 4688. Look for uncommon or suspicious string patterns lacking standard extensions (e.g., `.dll`, `.cpl`, `.inf`). Legitimate usage typically involves standard extensions.
+  - **Check event logs for the process creation:** Review Security Event ID 4688 for `rundll32.exe` execution details, including the command line supplied during execution. Look for non-standard extensions or obfuscation in command lines.
 
-  - **Check parent process details:**
-    For the detected `rundll32.exe` process, analyze the ParentProcessID and ParentImage from Sysmon Event ID 1. Legitimate processes will generally be parented by trusted system processes like `explorer.exe` or `svchost.exe`. An anomalous parent, especially one related to installation or malicious software, is a key indicator of potential compromise.
+  - **Verify parent process relationships:** Identify the parent process using the `ParentProcessId` field in the Security Event logs. Legitimate use is often initiated from system processes, such as software installers or trusted applications like `msiexec.exe`.
 
-  - **Verify user context:**
-    Identify the user account associated with the process creation via Event ID 4688. If the account is a system account or related to administrative activities, this may indicate normal functionality. Unprivileged or unexpected user accounts executing `rundll32.exe` raise suspicion.
+  - **Cross-validate file legitimacy:** Confirm if the executed command elicits any legitimate behavior. For example, `rundll32.exe` called by legitimate installers typically use common extensions and predefined arguments.
 
-  - **Monitor for unexpected file creations:**
-    Check for file creation in `%TEMP%` or other locations by reviewing Sysmon Event ID 11 and Event ID 10 (File Creation and File Creation Time) around the same timestamp as the process creation. Malicious executions may involve temporary or nonsensical file names with uncommon extensions during this process.
+  - **Identify high-confidence malicious indicators:** Look for command lines that utilize unusual arguments or non-standard file paths, particularly those including unusual extensions or temporary file paths (e.g., paths containing `.tmp`).
 
-  - **Assess execution frequency:**
-    Analyze the historical execution of `rundll32.exe` on the affected host using event trend data. Frequent executions with non-standard arguments within a short timeframe, particularly in a non-administrative context, are a strong indicator of malicious behavior.
+  - **Correlate with threat intelligence:** Check for known malicious `rundll32.exe` behaviors in threat intelligence feeds or internal logs that could correlate with the command line patterns observed.
 
-  - **Consult threat intelligence databases:**
-    Look up any unusual arguments observed in conjunction with `rundll32.exe` against threat intelligence feeds and resources like VirusTotal. Known malicious command line patterns may correlate directly with observed behavior.
-
-  ---
+  - **Evaluate host behavior:** Analyze additional artifacts from the host, such as creating or modifying files associated with the execution. Investigate for newly created files in the `%TEMP%` directory or other suspicious locations that may not match standard application behavior.
 
   ### Prioritization
 
-  This alert has a medium severity level due to the potential for significant security impact, especially if `rundll32.exe` is used to execute malicious payloads. The likelihood of malicious abuse is considerable, given that attackers frequently leverage common Windows utilities. This tactic is known to be weaponized in various malware campaigns.
-
-  ---
+  The severity of this alert is medium as it indicates potential misuse of a common Windows utility, which could be misused for executing malicious payloads. The effect on an enterprise system can vary significantly based on the criticality of the host system and its role within the environment. This behavior can be weaponized in various attack scenarios, warranting further investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by improperly configured logging that does not capture all events (e.g., Sysmon not fully implemented). Attackers may employ obfuscation techniques to use legitimate DLLs or disguise command lines. Legitimate activities triggering this alert may include software installations or application updates that call legitimate or benign DLLs incorrectly. A related detection, such as monitoring for anomalous usage of `msiexec.exe`, can enhance coverage by identifying potential abuse of Windows Installer mechanisms.
-
-  ---
+  Detection limitations exist as sophisticated attackers may rename executables or use other evasion techniques to bypass detection. The rule relies on proper logging configurations; without adequate event logging for process creations, missed detections may occur. Additionally, legitimate administrative tasks or installer processes may trigger this alert if they utilize unexpected command structures or extensions. Companion detections related to Windows Script Host execution or PowerShell activity may strengthen detection reliability against broader attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

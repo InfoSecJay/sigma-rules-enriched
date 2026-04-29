@@ -16,9 +16,9 @@ references:
 date: 2025-08-13
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.execution
+- attack.defense-impairment
 - attack.t1112
 - attack.t1059.005
 logsource:
@@ -37,28 +37,32 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to modify the Windows registry using VBScript's CreateObject method to instantiate a WScript.Shell object combined with RegWrite commands. The likely attacker objective is to establish persistence by manipulating the registry without triggering traditional detection mechanisms associated with tools like regedit.exe or reg.exe. This behavior aligns with MITRE ATT&CK tactics, specifically "Defense Evasion" (T1562) and "Persistence" (T1112), as well as "Execution" through scripting (T1059.005).
+  This Sigma rule detects attempts to modify the Windows registry through VBScript, specifically using methods like `CreateObject("Wscript.shell")` and `RegWrite`. This behavior often indicates an attacker’s effort to establish persistence on a compromised system while bypassing detection mechanisms typically focused on traditional registry modification tools, such as `regedit.exe`.
 
-  The primary telemetry source for this detection is process creation logs, specifically focusing on command line arguments. If successful, this attack could lead to the alteration of registry entries that can autonomously execute malicious payloads upon system startup. It is crucial to note that the detection of this behavior does NOT confirm the malicious intent on its own; further context is required to determine the legitimacy of the action.
+  The likely attacker objective is to ensure that malicious software is executed upon system startup or user logon by modifying registry keys without raising alarms from standard security protocols. The relevant MITRE ATT&CK tactics include Persistence (T1547) and Execution (T1059.005). The primary telemetry source is process creation logs, with key Event IDs being 4688 for Windows Security and Sysmon Event ID 1 for detailed process creation data.
+
+  If successfully executed, this type of modification can lead to persistent malware residing in the system, which is a significant security threat. However, this detection does NOT confirm that malicious activity has occurred, as legitimate administrative actions using VBScript might trigger similar alerts.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check Windows Security Event ID 4688 and Sysmon Event ID 1 for processes with command line arguments containing 'CreateObject', 'Wscript.shell', and '.RegWrite'. Note instances where these terms are present in legitimate user scripts.
+  - **Examine the Process Creation Log:** Look for Security Event ID 4688 or Sysmon Event ID 1. Check command line details for the presence of `CreateObject`, `Wscript.shell`, and `.RegWrite`. Confirm if these commands originate from uncommon or suspicious parent processes.
 
-  - **Identify high-confidence malicious indicators:** Look for execution patterns of common LOLBINs (Living Off the Land Binaries) such as 'wscript.exe' or 'cscript.exe'. Cross-reference process parents for suspicious execution contexts or unexpected parent processes.
+  - **Identify High-Confidence Malicious Indicators:** If the command line arguments include attempts to modify sensitive registry branches (e.g., `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`), correlate with known malware signatures. Investigate any base64 or obfuscated scripts indicative of advanced threats.
 
-  - **Assess registry modifications:** Use tools like Regedit or command line checks (e.g., `reg query`) to review any recent modifications to key registry locations (e.g., HKCU\Software\Microsoft\Windows\CurrentVersion\Run). Document any anomalous entries that may correspond with the detected behavior.
+  - **Review Solutions for Benign Activity:** Validate if the user executing the script is a legitimate IT administrator performing system configurations. Review typical behavior, such as scheduled tasks created via trusted management tools rather than VBS.
 
-  - **Compare against known good configurations:** Establish a baseline of typical registry entries and creation times. Look for deviations in timestamps or entries correlated with the alert. Legitimate applications like automated update scripts may create similar registry entries.
+  - **Correlate Against Other Logs:** Analyze script execution frequency and associated logins to identify patterns. Use PowerShell logs (Event ID 4104) to find if related scripts have been executed that could indicate a coordinated attack.
 
-  - **Review user activity:** Investigate user actions related to the triggering system, including recent logged activities or scheduled tasks, to contextualize the use of scripts. Identify any previous instances when the user executed scripts involving WScript.
+  - **Check for File Artifacts:** Validate the presence or modification timestamps of script files in the user profile, particularly in directories such as `C:\Users\[Username]\AppData\Local\Temp` or startup folders. Document any unusual file creation that coincides with the detected event.
+
+  - **Evaluate Asset Criticality:** Consider the role of the affected host (e.g., domain controllers, workstations) to prioritize the response. High-value targets may warrant immediate isolation and a deeper forensic investigation.
 
   ### Prioritization
 
-  This alert carries medium severity due to its potential impact on system integrity if malicious. The likelihood of abuse is elevated, given that the behavior is characteristic of persistence mechanisms commonly employed by attackers. While this specific script invocation may not be highly weaponized, it is indicative of recon activity preceding likely exploitation.
+  The severity of this alert is medium, as registry modifications can have significant impacts on the affected system's security posture. The likelihood of malicious exploitation is moderate, given that this method can be used by both attackers and legitimate administrators, but the behavior is often associated with persistent threats in the enterprise environment.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by evasion techniques utilizing obfuscation or alternative scripting languages. The reliability of detection hinges on logging configurations for processes, specifically ensuring that CommandLine details are captured. Legitimate administrative tasks or trusted applications may legitimately trigger this alert, necessitating careful review of user intent. A related detection to reinforce coverage involves monitoring for direct registry modifications via traditional methods, such as Event ID 4657 (Registry Value Modified).
+  The detection may miss sophisticated attempts where custom or modified scripts are used that do not clearly invoke `Wscript.shell`. Misconfigured event logging may also lead to gaps in visibility; ensure that both process creation and script execution logs are fully enabled. Additionally, legitimate administrative activities may falsely flag this detection, such as scheduled tasks or legitimate automation scripts using VBScript. A companion detection for anomalous PowerShell script executions could strengthen this rule's coverage against a broader range of attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

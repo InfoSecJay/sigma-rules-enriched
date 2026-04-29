@@ -15,7 +15,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-12-15
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   product: windows
@@ -31,36 +31,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to the Windows registry, specifically changes to the "NoLMHash" value, enabling the storage of LAN Manager (LM) hashes. Attackers may exploit this to facilitate credential harvesting or lateral movement by allowing weak password hashes to be stored, thus weakening the environment's security posture. This behavior fits within the MITRE ATT&CK framework under the Persistence tactic (TA0003) and Defense Evasion technique (T1112).
+  This Sigma rule detects changes to the "NoLMHash" registry value, specifically targeting modifications that allow Windows to store LAN Manager (LM) hashes for user passwords. The likely attacker objective is to exploit weaker password hashing mechanisms to compromise user accounts, facilitating unauthorized access. This behavior aligns with the MITRE ATT&CK framework under the tactic of Persistence (TA0003) and the technique of Credential Dumping (T1112).
 
-  Primary telemetry sources include Windows Registry logs, specifically monitoring registry modifications targeting `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\NoLMHash`. If an attacker modifies this setting, they may compromise the integrity of hashed credentials, increasing the risk of credential-based attacks. Importantly, this detection does not confirm malicious intent on its own; legitimate administrative actions could also trigger this alert.
+  The primary telemetry sources are Windows registry changes, specifically events related to registry modifications (Event ID 4657). These detections are critical because allowing LM hashes poses a high security risk, potentially enabling attackers to crack weak passwords using brute-force methods. Importantly, this detection does NOT confirm the existence of a security breach on its own; further investigation is needed to establish intent and impact.
 
   ### Investigation Steps
 
-  - **Check registry modification details:**
-    Inspect the Windows Registry Event logs for Event ID 4663, focusing on changes made to the `NoLMHash` registry value. Check who made the change (SubjectUserName) and when (ObjectTime). Legitimate changes are often performed by system administrators or through system-level updates.
+  - **Identify registry modification details:** Review Windows Security Event ID 4657 for changes to the target registry key `System\CurrentControlSet\Control\Lsa\NoLMHash`. Look for a change that sets this value to `0`. A legitimate environment will typically have this value set to `1`.
 
-  - **Review user account activity:**
-    Analyze security logs, especially Event ID 4624, to identify logon attempts by accounts around the time of the registry change. Look for suspicious accounts (e.g., service accounts with unusual logon times) that may correlate with the modification.
+  - **Assess the context of the change:** Identify the user account associated with the registry change using the Event ID 4657. If the user is a standard account with no administrative privileges, this could indicate unauthorized privilege escalation attempts.
 
-  - **Correlate with process creation events:**
-    Use Sysmon logs (Event ID 1) to analyze processes that executed around the same time as the registry modification. Identify if any unusual command-line arguments or parent-child process relationships indicate a potentially malicious workflow.
+  - **Review process creation logs:** Check for related process creation events (Security Event ID 4688) around the time of the registry change to see if any suspicious processes, particularly those associated with credential dumping tools (e.g., Mimikatz), were executed.
 
-  - **Assess asset criticality:**
-    Determine affected system roles by reviewing asset classification and criticality. Systems storing sensitive or administrative credentials are high-risk if this setting is modified.
+  - **Examine local group policies:** Use Windows Group Policy logs (Event ID 4905) to verify if any policies were altered that may influence password storage settings. Legitimate administrators would not typically change these settings without organizational approval.
 
-  - **Identify high-confidence indicators of compromise:**
-    Check for entries in Event ID 5145 that correspond to unauthorized access to sensitive files immediately following the registry change. Look for access patterns from unusual accounts (e.g., unexpected domain users).
-
-  - **Validate against known legitimate behavior:**
-    Review documentation or change management records alongside telemetry to confirm expected changes by authorized personnel. Legitimate activity typically involves documented administrative tasks performed by known IT staff.
+  - **Correlate with lateral movement:** Investigate other agents or systems for simultaneous NoLMHash changes as this may indicate malicious lateral movement or a coordinated attack targeting multiple systems.
 
   ### Prioritization
 
-  This alert is high severity due to the potential to compromise passwords and credential data on critical systems. Given the high likelihood of exploitation, especially in an enterprise context where LM hashes can be cracked, it presents a clear avenue for attackers to increase foothold or pivot across the network. This modification of the NoLMHash value is known to be weaponized in various attacks.
+  The alert severity is high due to the potential impact on sensitive systems and users if LM hashing is enabled. This behavior can significantly increase the risk of credential theft, particularly in environments with weak password policies. Furthermore, such modifications are often indicative of malicious activity, as they leverage known vulnerabilities in Windows authentication mechanisms that are frequently exploited by attackers.
 
   ### Blind Spots and Assumptions
 
-  Detection relies entirely on capturing registry modifications; if logging configurations are inadequate, this event may remain undetected. Adversaries might suppress logging or use legitimate administrative accounts to modify this registry setting without raising alerts. Additionally, legitimate software installations or updates can alter the `NoLMHash` value. Related detections, such as monitoring for the use of weak passwords via the credential dumping technique (T1003), can strengthen overall security posture and detection coverage.
+  This detection may be evaded if attackers modify this registry value via legitimate administrative tools that do not generate alerts. Reliable detection requires that auditing is enabled for registry changes, and the environment must maintain continuous monitoring of privileged accounts. Legitimate activities that could trigger this alert include administrative tasks performed during system hardening or configuration changes. A related detection to strengthen coverage would be monitoring for suspicious user account activity correlated with registry changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -10,8 +10,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-04-17
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.stealth
 logsource:
   product: windows
   category: registry_set
@@ -27,28 +27,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects modifications to the Windows AppInstaller policy that enable local manifest installations using the `winget` tool. The behavior being tracked is the activation of a setting that allows users to install software via custom manifests, potentially altering approved software installation processes. The likely attacker objective is to inject malicious software through these custom manifests, leading to unauthorized persistence or execution of harmful payloads.
+  This Sigma rule detects changes to the Windows registry setting related to the AppInstaller (winget) policy, specifically the activation of local manifest installations. By enabling this setting, an attacker can potentially install unauthorized packages via custom manifests, bypassing typical security controls. The likely attacker objective may include gaining persistence on the system or deploying malicious software stealthily.
 
-  This detection maps to the MITRE ATT&CK technique of "Software Deployment Tools" (T1203) and "Local File Inclusion" (LFI) (T1189). The primary telemetry source is Windows Registry logs, specifically focusing on registry changes related to the AppInstaller service. If exploited maliciously, this capability could compromise system integrity and enable further persistence mechanisms. However, this detection does NOT confirm that a malicious action has occurred without further context, as legitimate administrative actions commonly trigger it.
+  This behavior aligns with the MITRE ATT&CK tactic of Persistence (T1547) and the technique of Install Util (T1218.011). The primary telemetry source for this detection is Windows Registry changes, specifically monitoring actions related to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppInstaller\EnableLocalManifestFiles`. If this change is malicious, it can lead to unauthorized software installation and potential system compromise. Importantly, this detection does not confirm that an installation occurred or that the package in use is inherently malicious without additional context.
 
   ### Investigation Steps
 
-  - **Review Registry Changes: ** Check for registry modifications under `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\AppInstaller` with a focus on the `EnableLocalManifestFiles` value. This should be a DWORD set to `1` to trigger the alert.
+  - **Examine registry changes:** Review Windows Registry Event log (Event ID 4657) to confirm that the `EnableLocalManifestFiles` entry has been set to `1`. Note the timestamp and the account that made the change.
 
-  - **Identify Recent Activity: ** Correlate the timing of the registry change with user activity logs (Security Event ID 4624 for logon events). This helps determine if the modification was done by an authorized administrator or potentially malicious actor.
+  - **Verify legitimate usage:** Check for historical registry state by using a trusted image or baseline to identify if this setting was previously disabled (`0`). Normal environments typically have this setting deactivated for security.
 
-  - **Examine Installed Packages: ** Use `winget list` and check for any recent installations that were initiated using local manifests. Look for unusual or unexpected packages that align with the timing of the registry change.
+  - **Identify running packages:** Look at the logs under Windows Event ID 4100 related to AppInstaller activity to track recent package installations initiated post-registry change. Correlate these with known good software signatures to determine legitimacy.
 
-  - **Validate Legitimate Use Cases: ** Determine if any known administrators or developers initiated the enablement of local manifest files for testing or development purposes. Ensure proper documentation supports the legitimacy of their actions.
+  - **Evaluate user permissions:** Investigate the account making the registry change. Look for accounts with administrative privileges (check the membership of local admin groups) to assess if the action aligns with expected user behavior.
 
-  - **Detect Anomalous Patterns: ** Review the application of `winget` commands in conjunction with the change. Look for execution logs in `Event ID 4688` for process creation that indicates installation of software immediately following the registry change.
+  - **Review installed applications:** Use PowerShell or similar tools to list currently installed applications (`Get-Package` cmdlet) post-registry change. Identify any newly added packages that correspond to suspicious activity or are not typically used in your environment.
+
+  - **Investigate system and security events:** Cross-check Windows Security Event logs (Event ID 4688) for any process creations related to the installation tools used (e.g., winget.exe or msiexec.exe) around the time of the registry change for unauthorized installation attempts.
 
   ### Prioritization
 
-  The alert is medium severity due to the potential for critical impact if an untrusted user gains the ability to install malicious software via local manifests. The likelihood of malicious abuse is moderate, particularly if a threat actor seeks to exploit trusted installation vectors. While this behavior is technically weaponizable, it requires specific circumstances and additional maneuvers to be effectively exploited.
+  This alert has medium severity due to the potential for unauthorized installations if the setting is maliciously enabled. The likelihood of abuse is high, as enabling local manifest installations can easily be leveraged for delivering unapproved software. This behavior is not typically weaponized, but may still facilitate other attack vectors if exploited.
 
   ### Blind Spots and Assumptions
 
-  This detection relies on accurate monitoring of registry changes; if logging is not configured to capture these events, crucial data may be missing. Evasion techniques might include disabling logging or delegating permissions to trusted users who are unaware of unsafe practices. The alert can also be triggered by legitimate administrative actions, such as installations for internal applications or testing. A related detection could focus on `Event ID 4688` to monitor for suspicious process creation involving `winget`, enhancing visibility into potential exploitation attempts through this tool.
+  The detection is limited by potential evasion techniques such as direct registry modifications by privileged users without logging. Reliable detection requires that auditing for registry changes be enabled on the target systems. Legitimate activities, such as a developer enabling this capability for internal application testing, may also trigger the alert. A related detection would include monitoring for unusual software installation events, which can provide additional context around the registry change.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -10,7 +10,7 @@ author: frack113
 date: 2022-05-16
 modified: 2023-06-14
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   product: windows
@@ -32,28 +32,30 @@ level: medium
 note: |
   ### Technical Context
 
-  The Sigma rule detects the execution of `gpscript.exe`, a legitimate Windows utility often used to run logon or startup scripts defined in Group Policy. Attackers may leverage this tool to execute malicious scripts stealthily as part of their infiltration or persistence strategy, utilizing the normal Windows environment to evade detection. This behavior aligns with the MITRE ATT&CK tactic for Defense Evasion and the specific technique ID T1218 (Signed Binary Proxy Execution).
+  This Sigma rule detects the execution of the legitimate binary `gpscript.exe`, a Windows utility that processes Group Policy scripts for logon and startup purposes. Attackers may exploit this process to execute malicious scripts under the guise of legitimate logon activities, intending to gain persistence or execute payloads within a user context. This behavior is categorized within the MITRE ATT&CK framework under the tactic "Execution" (TA0002) and the technique "Command and Scripting Interpreter" (T1218).
 
-  The primary telemetry sources include Windows Process Creation logs, specifically Event ID 4688 for process creation events. If malicious, the execution of `gpscript.exe` can lead to unauthorized actions initiated through these scripts. However, this detection does NOT confirm malicious intent by itself, as it can also result from legitimate administrative actions regarding Group Policy.
+  The primary telemetry source for this detection is Windows process creation logs, specifically utilizing Security Event ID 4688 or Sysmon Event ID 1. If executed maliciously, this activity could lead to unauthorized system access or malware execution during system startup and user logins. It is important to note that this detection alone does not confirm malicious activity, as legitimate uses of `gpscript.exe` for Group Policy can trigger false positives.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Windows Security Event ID 4688 for `gpscript.exe` execution instances. Note the parent process; legitimate executions typically originate from `svchost.exe` with the command line containing the `/logon` or `/startup` arguments.
+  - **Review process execution history**: Check Security Event ID 4688 or Sysmon Event ID 1 for instances of `gpscript.exe` being executed. Look for the associated `ParentProcessId` and `ParentCommandLine` to verify the execution context.
 
-  - **Analyze command line arguments:** Investigate if the command line arguments contain suspicious paths or script names. Malicious use may involve non-standard or obfuscated script paths.
+  - **Validate command-line parameters**: Inspect the command-line parameters under the 'CommandLine' field for Event ID 4688. Legitimate instances typically use `/logon` or `/startup`. Check if the execution aligns with the expected parameters or contains additional suspicious arguments.
 
-  - **Identify the user context:** Verify the user account under which `gpscript.exe` was executed. Legitimate administrator accounts running logon scripts are expected, while executions from local SYSTEM or non-administrative accounts may warrant further scrutiny.
+  - **Analyze parent process context**: Confirm that `gpscript.exe` was spawned by the legitimate service `svchost.exe` with the corresponding arguments (e.g., `C:\windows\system32\svchost.exe -k netsvcs -p -s gpsvc`). Execution that does not align with this context may suggest the use of a hijacked or alternative parent process.
 
-  - **Correlate with Group Policy changes:** Cross-reference with Group Policy Object (GPO) logs to identify if a recent change corresponding to the execution of `gpscript.exe` has been made, which might indicate either a legitimate update or malicious tampering.
+  - **Identify known malicious indicators**: Investigate any instances of `gpscript.exe` referred from unusual paths or with modified timestamps. Pay special attention to associated file hashes against known malware signatures for heightened confidence of malicious intent.
 
-  - **Inspect script content:** If possible, extract and examine the script executed by `gpscript.exe`. Look for any signs of malicious payloads or commands that deviate from normal administrative scripts.
+  - **Identify asset criticality**: If the host is a critical system, escalate the investigation. Look for corresponding user activity and network communications originating from the device during the time of the script execution to rule out exfiltration or lateral movement scenarios.
+
+  - **Correlate with Group Policy changes**: Review Group Policy change logs (Event ID 4702) to assess if recent updates introduced new scripts. Unexpected alterations in GPOs may indicate a malicious motive behind the execution of `gpscript.exe`.
 
   ### Prioritization
 
-  This alert has medium severity due to the potential impact if the execution of `gpscript.exe` is aligned with malicious script execution. Given that this tool is often misused for evasion techniques, the likelihood of abuse is moderate, especially in environments where GPO modifications are frequent or laxly monitored.
+  This alert is of medium severity due to the potential for exploitation of `gpscript.exe` in an enterprise environment. It may facilitate unauthorized executions during user logons, greatly impacting system integrity. While the likelihood of abuse exists, the behavior can also be part of legitimate administrative practices, necessitating further analysis.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the legitimate usage of `gpscript.exe` for administrative tasks, potentially leading to false positives. Reliable detection requires comprehensive logging configurations to monitor process commands and relevant group policy changes. Legitimate activities like setting up new logon scripts might trigger the alert as well. A companion detection for file creation or modification in script paths could enhance overall detection capability for potential malicious activity.
+  Detection may be limited by the presence of legitimate usage in environments that actively utilize Group Policy Logon scripts, potentially masking malicious activity. Ensure Sysmon is deployed for enhanced visibility into process creation. Review Group Policy auditing practices as they may either restrict or allow usage that aligns with this detection. A related detection for command-line execution activities (such as those capturing the use of PowerShell or WMI calls) would further strengthen coverage against evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

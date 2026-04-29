@@ -9,7 +9,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-06-20
 modified: 2023-02-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -35,28 +35,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of `dsacls.exe` with commands that grant potentially excessive permissions to users or groups in a Windows environment. It indicates an intent to modify access controls on Active Directory objects, which may be exploited by an adversary seeking to elevate privileges or maintain persistence. The relevant MITRE ATT&CK tactic is **Defense Evasion (T1218)**. The primary telemetry source is process creation logs which capture details about command-line executions, specifically targeting `dsacls.exe` interactions with permission grants.
+  This Sigma rule detects the execution of `dsacls.exe` with command-line arguments that imply the granting of overly permissive access rights to Active Directory objects. The likely attacker objective is to escalate privileges or gain unauthorized access to sensitive resources within the domain by manipulating access control lists (ACLs). This behavior aligns with the MITRE ATT&CK technique **T1218 (Signed Binary Proxy Execution)**, which covers the use of legitimate binaries for malicious purposes.
 
-  If permissions are granted maliciously, attackers can gain unauthorized access to sensitive resources or maintain control over accounts. However, this detection does NOT confirm that malicious behavior occurred; legitimate administrative tasks may trigger this alert if a system administrator improperly configures permissions.
+  The primary telemetry source for this detection is process creation logs, specifically Windows Security Event ID 4688, which captures new process creation events. Additionally, monitoring for command-line arguments via Sysmon Event ID 1 can provide further context to the permissions being granted. If not addressed, such actions could allow an adversary to have widespread access to sensitive resources, leading to data breaches or lateral movement within the network. Importantly, this detection does NOT confirm malicious intent on its own; legitimate administrative actions may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Review Event Logs for Process Creation:** Check Security Event ID 4688 or Sysmon Event ID 1 for the execution of `dsacls.exe`. Correlate timestamps with alert triggers to identify any contextual activity around the time of execution.
+  - **Review process creation logs:** Check for Windows Security Event ID 4688 to identify the execution of `dsacls.exe`. Analyze the associated command line for any parameters indicating permission changes, such as `/G` in conjunction with specific rights.
 
-  - **Analyze Command-Line Parameters:** Inspect the command-line parameters associated with the `dsacls.exe` process to determine if any of the following flags were used: `/G`, `GR`, `GE`, `GW`, `GA`, `WP`, `WD`. If legitimate admin activities are present, they may include granting expected permissions (such as `GR` for read access) to authorized users.
+  - **Validate command-line arguments:** Analyze Sysmon Event ID 1 for `dsacls.exe`. Look for command-line strings that include permission flags like `GR`, `GE`, `GW`, `GA`, `WP`, or `WD`, indicating potentially excessive permissions were granted.
 
-  - **Identify Changes in Permission Levels:** Look for specific changes in permissions to sensitive Active Directory objects by reviewing the corresponding object’s access control list (ACL) using tools like `Get-Acl` in PowerShell. Document any changes that seem inconsistent with organizational policy.
+  - **Assess user roles:** Determine the role and authority level of the user executing the command. Confirm if the user is a legitimate administrator or has necessary permissions to modify ACLs. Benign actions may involve simply adjusting permissions for users who require them for their roles.
 
-  - **Validate User and Group Permissions:** Cross-reference the users or groups receiving permissions with an organizational chart or user authorization policy to determine if the modifications align with legitimate business needs. Flag accounts that received increasing permissions without verification.
+  - **Investigate affected resources:** Identify and review the Active Directory objects impacted by the command. Check their current ACLs before and after the execution. Significant deviations or an overly permissive configuration could indicate malicious intent.
 
-  - **Review for Prior Alerts or Patterns:** If similar alerts were triggered recently, analyze any patterns of behavior for the same accounts using `dsacls`. Look for repeated amendments or changes to permissions which may indicate malicious activity.
+  - **Look for abnormal scheduling:** Cross-reference with Scheduled Task logs (Event ID 4698) or similar to see if `dsacls.exe` is scheduled to run irregularly or outside typical administrative hours, suggesting a possible automated malicious workflow.
+
+  - **Evaluate for contextual signs of compromise:** Review recent activity and authentication logs around the time of the execution. Look for patterns indicating uncharacteristic behavior such as access from unusual locations or previously inactive accounts.
 
   ### Prioritization
 
-  This alert should be treated with medium severity. Excessive permissions can pose significant risks if exploited, particularly in sensitive systems. The likelihood of malicious use is moderate, as attackers often seek to manipulate permissions to gain foothold within specific environments, making this behavior commonly weaponized.
+  This alert should be considered medium severity due to the potential risk if a non-administrative user inadvertently or maliciously modifies permissions on sensitive Active Directory objects. While this behavior can be weaponized for privilege escalation, it may also result from legitimate administrative tasks by authorized users.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by insufficient logging configurations; ensure that process creation and command-line logging are enabled across relevant endpoints. Legitimate administrative activities can trigger these alerts when users inadvertently over-permission accounts. A related detection to consider is alerting on modifications made through other Active Directory management tools, such as `ntdsutil` or `dsmod`, to comprehensively monitor permission changes.
+  Detection may be limited if proper logging is not enabled, such as not capturing all command-line arguments or missing process creation logs. Legitimate scenarios include system administrators using the tool to adjust permissions; this may create false positives. A companion detection would be monitoring for unusual permission changes in Active Directory through event log telemetry related to Directory Service events (Event ID 4662), bolstering coverage and context of permission modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

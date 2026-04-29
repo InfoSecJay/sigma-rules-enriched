@@ -8,7 +8,7 @@ author: frack113
 date: 2021-11-26
 modified: 2022-12-30
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1564.004
 logsource:
   category: process_creation
@@ -26,28 +26,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `extrac32.exe`, specifically targeting scenarios where data is extracted from a CAB file and hidden within an alternate data stream (ADS). The likely attacker objective is to evade detection and persistence through the use of ADS to conceal malicious files. This behavior aligns with MITRE ATT&CK technique **T1564.004: Alternate Data Streams** under the **Defense Evasion** tactic.
+  This Sigma rule detects the execution of `extrac32.exe`, a tool used to extract files from cabinet (.cab) files and store them in an Alternate Data Stream (ADS). The likely objective of using this tool is for stealthy data extraction, potentially leading to data exfiltration or evasion of security controls. The relevant MITRE ATT&CK tactic is **Defense Evasion**, with technique **T1564.004** specifically focusing on Alternate Data Streams.
 
-  The primary telemetry sources for this detection are Windows process creation logs, particularly Event ID 4688, which captures command-line arguments of executed processes. If malicious, the impact could be severe as it indicates a technique that adversaries may leverage to hide malware or other artifacts from standard file listings and antivirus monitoring. This detection alone does NOT confirm malicious intent; benign use of extrac32 for legitimate data handling can also trigger alerts.
+  The primary telemetry sources for this detection are Windows process creation logs, particularly focusing on Event ID 4688, which captures process initiation details. If malicious, successful execution could result in undetected data exfiltration or unauthorized access to sensitive files. This detection does NOT confirm that malicious actions are occurring; it only indicates suspicious behavior that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Verify process invocation:** Check for Event ID 4688 to find instances of `extrac32.exe`, noting the command-line arguments for the presence of `.cab` files and alternate data stream syntax. Look for non-standard usage patterns that imply potential abuse.
+  - **Verify process execution details:** Review Windows Security Event ID 4688 logs to confirm that `extrac32.exe` was used. Check the `NewProcessName` field for the presence of this executable and look for related parent processes that may indicate a legitimate context, such as known applications.
 
-  - **Inspect alternate data streams:** Use the command `ads /s C:\path\to\extracted\files` or similar tools to list alternate data streams associated with the directory where the `.cab` file was extracted. Legitimate activities would typically not include hidden data streams.
+  - **Analyze command line parameters:** Examine the command line in the process creation log entry to identify file paths and ADS usage. The command line should include `.cab` as well as an ADS path indicated by `:`, which is a red flag. Verify if the `.cab` file is from a legitimate source.
 
-  - **Correlate user activity:** Review the account activity surrounding the time of `extrac32.exe` execution (Event ID 4624 for logons) to determine if the user is authorized and has a business need to handle CAB files. Benign users would typically not engage in frequent manipulation of such files.
+  - **Identify related process activity:** Investigate further Process IDs (PIDs) tied to the `extrac32.exe` execution. Track any subsequent processes created in the same session that could indicate malicious behavior, like `cmd.exe` or `powershell.exe` execution related to the extraction.
 
-  - **Identify suspicious output:** Investigate created files using Sysmon Event ID 11 and correlate with identified ADS for any unusual file sizes or types that are not common for normal user activities, indicating possible exfiltration or persistence mechanisms.
+  - **Check for legitimate ADS usage:** Determine if the logged activity corresponds with known system operations or application behaviors (e.g., software updates). This might include reviewing other processes related to the application that could have triggered the `extrac32.exe` execution.
 
-  - **Examine related activities:** Cross-reference your findings with other tools such as Windows Event Logs for file creation events under Security Event ID 4663 to track outputs from `extrac32.exe` that could indicate data extraction or egress.
+  - **Investigate file activity:** Look into any file operations associated with the alternate data stream, specifically focusing on file creation events (Event ID 4663). Check the `ObjectType` and `ObjectName` to confirm that files or folders are being accessed or modified.
+
+  - **Correlate with network activity:** If applicable, inspect network traffic that may correlate with this behavior using NetFlow and proxy logs. Unusual outbound connections after `extrac32.exe` execution may indicate data exfiltration attempts.
 
   ### Prioritization
 
-  This alert warrants medium severity due to the potential for substantial impact if an affected system is exposed to malicious activities. The likelihood of malicious abuse is moderate since while `extrac32.exe` has legitimate uses, its application for creating hidden data streams is not common, indicating potential weaponization by adversaries.
+  This alert carries medium severity due to its potential impact on the security of the environment. Execution of tools like `extrac32.exe` could indicate an advanced adversary’s technique to evade detection. While not definitive proof of a compromise, the behavior is often weaponized in targeted attacks for data exfiltration via any means necessary.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by the absence of enhanced logging configurations; if alternate data stream events are not logged or if auditing is not configured correctly, it could result in missed detection opportunities. Legitimate applications of CAB files and data manipulation that adhere to standard operating procedures might falsely trigger the rule. A companion detection to consider includes monitoring for unusual file access patterns using Sysmon's File Create events (Event ID 11) to increase visibility on anomalous behavior.
+  Detection may be circumvented if the adversary uses a different tool or a legitimate tool with similar capabilities. This detection relies heavily on enabled process creation logging which may not be enabled across all systems, leading to gaps in visibility. Legitimate applications that use tools for compressed file extraction could inadvertently trigger this alert. A related detection to consider is monitoring for Windows Command Line proliferation, which can help capture malicious script execution post-extraction.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

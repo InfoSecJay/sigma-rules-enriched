@@ -10,8 +10,8 @@ tags:
 - attack.privilege-escalation
 - attack.execution
 - attack.persistence
-- attack.defense-evasion
 - attack.initial-access
+- attack.stealth
 - attack.t1059.009
 - attack.t1078.004
 logsource:
@@ -31,26 +31,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of AWS IAM users or access keys via the S3 Browser utility, specifically looking for entries in CloudTrail that originate from this user agent. The likely attacker objective is to establish unauthorized access to AWS resources, enabling further exploitation or persistence. This behavior aligns with the MITRE ATT&CK tactics of **Persistence (T1078.004)** and **Initial Access (T1078)**, as attackers may leverage compromised IAM credentials to gain foothold in the environment. The primary telemetry source for this detection is AWS CloudTrail logs, capturing event data related to IAM actions. If this behavior is malicious, it can lead to unauthorized cloud resource access and potential data breaches. However, this detection does NOT confirm that the created user or access key has been actively exploited or used in malicious activity.
+  This rule detects the creation of IAM users or access keys via the S3 Browser utility, indicating potential abuse of permissions. The likely attacker objective is to gain persistent access to AWS resources, enabling data theft or infrastructure manipulation. This behavior aligns with MITRE ATT&CK techniques for Privilege Escalation (T1078: Valid Accounts) and Initial Access (T1059.009: Command and Scripting Interpreter - Powershell).
+
+  The primary telemetry source is AWS CloudTrail, specifically logs that capture IAM events. A successful detection indicates a potential security breach, as an unauthorized or suspicious account creation can facilitate lateral movement or data exfiltration within the AWS environment. Importantly, this detection does NOT confirm malicious intent on its own; it requires further investigation to determine the legitimacy of the S3 Browser usage.
 
   ### Investigation Steps
 
-  - **Review CloudTrail events for IAM actions:** Search CloudTrail logs for Event Names `CreateUser` and `CreateAccessKey` with the source IP and user agent `S3 Browser`. Focus on Event IDs: `AWS::IAM::User` and `AWS::IAM::AccessKey`. Track the creation time and context of the entries.
+  - **Review CloudTrail logs for user activity**: Check for CloudTrail Event Name `CreateUser` and/or `CreateAccessKey` associated with the user agent containing 'S3 Browser'. Pay attention to the `userIdentity` field to determine who initiated the action and if it aligns with expected user roles.
 
-  - **Correlate IAM actions with user context:** Check if the user initiating the action has a legitimate business reason for creating IAM users or access keys. Document the expected actions taken during that time to compare against the alert.
+  - **Analyze IAM permissions of the new user**: Investigate the IAM policies attached to the newly created user by correlating the `userIdentity` information with IAM Policy ARNs. Determine if they have excessive permissions, especially for sensitive actions such as `s3:*` or `iam:*`.
 
-  - **Investigate creation origin and role:** Identify the AWS region and account that contains the created IAM user or access key. Validate if this account typically utilizes the S3 Browser tool. Investigate asset criticality if the activity occurs in a production environment.
+  - **Look for previous legitimate S3 Browser activity**: Validate expected use cases by identifying historical usages of "S3 Browser" under the same user. Legitimate activity should show consistent patterns with regular AWS operations rather than anomalous spikes or one-off actions.
 
-  - **Confirm surrounding IAM activities:** Look for other IAM-related activities such as policy changes or additional user creations within a 24-hour window (Event ID: `CreateGroup`, `AttachUserPolicy`). This can indicate a campaign of malicious activity.
+  - **Cross-reference with security alerts**: Investigate for any interactive sessions that precede this event, such as login attempts or failed authentications. Attacks may exhibit failed login events (e.g., Event Name: `ConsoleLogin` or `GetSessionToken`) before successful user or access key creation.
 
-  - **Identify known malicious patterns:** Examine the AWS access keys created for unusual permissions or high-risk actions that deviate from normal user operations. Check for usage of those keys across CloudTrail logs for signs of potential data exfiltration or privilege escalation.
+  - **Check for associated logs on other services**: If the IAM user subsequently exhibits suspicious behavior (e.g., access to sensitive data stored in S3), validate logs from S3 buckets via the `s3:ListBucket`, `s3:GetObject` events in CloudTrail for unauthorized access post-creation.
 
   ### Prioritization
 
-  This alert is of **high severity** as it indicates potential unauthorized administrative access to AWS resources. The likelihood of malicious abuse is significant since the S3 Browser is typically not used for routine operations, making its presence indicative of possible compromise. This behavior is weaponized by adversaries to exploit AWS environments.
+  This alert is high-severity due to the critical roles that IAM users and access keys play in AWS security. If misused, they can lead to severe data breaches or resource manipulation. Given the prevalence of abuse surrounding user creation in AWS environments, immediate investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of relevant CloudTrail configurations, which might lead to incomplete data collection. Legitimate instances of S3 Browser use for creating IAM users could trigger false positives if not reviewed carefully. Additionally, this detection should be complemented by monitoring for abnormal API calls made with the newly created IAM entities to strengthen coverage against misuse.
+  Detection may be limited by scenarios where S3 Browser is legitimately used in the organization, potentially leading to false positives. Proper CloudTrail configuration is crucial for comprehensive visibility, and missing logs might obscure detection. Additionally, legitimate automation scripts that create users or access keys could trigger the alert, necessitating contextual inquiry. A related detection to consider is unusual IAM permissions modification (e.g., T1080: Abuse Elevation Control Mechanism) following such events.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

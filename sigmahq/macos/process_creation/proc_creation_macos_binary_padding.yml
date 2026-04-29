@@ -12,7 +12,7 @@ author: 'Igor Fits, Mikhail Larin, oscd.community'
 date: 2020-10-19
 modified: 2023-02-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1027.001
 logsource:
   product: macos
@@ -34,28 +34,26 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of binary padding techniques via the `dd` and `truncate` commands on macOS, a method adversaries may use to alter the on-disk representation of malicious files. The likely attacker objective is to obfuscate malicious code or manipulate file sizes to evade detection by security software. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (Tactic ID: TA0040) and the technique of Binary Padding (Technique ID: T1027.001). Primary telemetry sources include macOS process creation logs, specifically focusing on command-line arguments associated with these two tools. If malicious, this activity could facilitate malware execution that bypasses traditional security mechanisms. Importantly, this detection does NOT confirm that malicious activity is occurring without further analysis.
+  This rule detects the use of binary padding techniques by observing the invocation of commands such as `dd` and `truncate`. Adversaries may exploit this method to insert junk data into files, altering their on-disk representation to evade detection or analysis. The likely objective is to obfuscate malware signatures, making it harder for security solutions to identify malicious files. This behavior aligns with the MITRE ATT&CK technique T1027.001 (Obfuscated Files or Information). The primary telemetry source is MacOS process creation logs, specifically targeting process execution events. If malicious, this can lead to undetected malware persistence on the system. However, this detection does not confirm that the observed activity is malicious, as legitimate administrative tasks may trigger similar command executions.
 
   ### Investigation Steps
 
-  - **Check the command line used for process creation:** Review the logs for process creation events (Event ID: 4688) associated with `truncate` or `dd`. Look specifically for command lines containing `-s +` for `truncate` or `if=/dev/zero`, `if=/dev/random`, or `if=/dev/urandom` for `dd`. Malicious indicators include unusual or unexpected file targets.
+  - **Verify process creation events**: Review MacOS system logs for Security Event ID 100 (process creation) to confirm the invocation of `truncate` or `dd` commands. Look for suspicious command lines that contain `-s +` (truncate) or use `/dev/zero`, `/dev/random`, or `/dev/urandom` (dd).
 
-  - **Identify the context of the execution:** Determine the user context that executed the command by checking the `User` field in the macOS logs. Legitimate use may include system administrators performing routine file operations, while unknown user accounts executing these commands may be suspicious.
+  - **Identify legitimate usage patterns**: Assess the command history (using `history` or shell logs) for normal `dd` or `truncate` usage patterns by system administrators or scripts, especially in scripts for data manipulation or backups to rule out benign activity.
 
-  - **Analyze the affected files:** Investigate the files that were targeted by `truncate` or modified by `dd`. If the timestamp indicates recent activity and the file is executable in nature, it could indicate an attempt to manipulate executables or scripts.
+  - **Review related process trees**: Analyze parent processes of the `dd` or `truncate` commands. Malicious usage is often preceded by a download or extraction of a suspicious file, observed via processes like `curl`, `wget`, or `unzip`.
 
-  - **Look for related filesystem activity:** Review `/var/log/system.log` or use `fsusage` to identify concurrent file modifications or access patterns around the time of the process creation. Legitimate user activity may show predictable patterns, whereas random timings can point to malicious behavior.
+  - **Examine file attributes post-execution**: Check the file modification times and sizes of affected files for anomalies. Look for newly modified files with padding that have creation dates coinciding with the detection time, using `ls -l` or similar commands.
 
-  - **Cross-examine with file integrity monitoring logs:** Determine if file integrity monitoring alarms or logs from tools like OSSEC or FIM services were triggered during the time of the command execution. This may indicate suspicious changes to critical system files.
-
-  - **Consider asset criticality:** If the affected system is a production server or hosts sensitive data, prioritize the investigation due to its higher security impact.
+  - **Correlate with known malicious indicators**: Cross-reference any identified files with known malware hashes using threat intelligence platforms or internal repositories to determine if the files are recognized as malicious.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on critical systems and the likelihood of malicious abuse through file obfuscation or manipulation techniques. Binary padding techniques are commonly weaponized in advanced persistent threat (APT) scenarios, making prompt investigation crucial.
+  This alert carries a high severity due to its potential impact on compromised systems. The use of binary padding is a common tactic among advanced adversaries to bypass detection mechanisms. If malware is confirmed, it may facilitate unauthorized access and other malicious actions, warranting immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the availability of log sources or configurations, as standard logs may not capture every instance of `dd` or `truncate` usage without proper monitoring in place. Additionally, legitimate activities such as routine system maintenance or application updates might trigger the alert. A related detection to strengthen coverage could include monitoring for creation or modification of executable files, as this behavior often accompanies binary padding activities.
+  Detection limitations exist as legitimate administrative tasks can produce similar command invocations and may lead to false positives, like routine system maintenance or scripting. Continuous monitoring from process creation logs is essential, and incomplete logging configurations may yield gaps in detection. Companion detections include monitoring for known malicious file hashes or anomalous network traffic coinciding with the execution of such commands to enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

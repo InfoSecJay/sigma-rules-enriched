@@ -16,7 +16,7 @@ date: 2023-01-13
 modified: 2024-08-23
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   product: windows
@@ -31,28 +31,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects changes to the `DisableRestrictedAdmin` registry value, which is part of the Windows security settings that control the use of Remote Desktop Protocol (RDP) and the transmission of credentials. By enabling or disabling this setting, an attacker may attempt to facilitate credential theft by bypassing protections against sending credentials to potentially compromised remote machines. This behavior aligns with the MITRE ATT&CK tactic "Persistence" and the technique "Modify Registry" (T1112).
+  This rule detects modifications to the "DisableRestrictedAdmin" registry value, a setting that controls RestrictedAdmin mode for Remote Desktop connections. By toggling this registry key, an attacker can enable or disable the protection against credential theft during RDP sessions, thereby facilitating easier access to sensitive systems. The likely attacker objective is to exploit Remote Desktop Protocol (RDP) for unauthorized access, particularly in environments where credentials can be captured by an adversary.
 
-  The primary telemetry sources required for this detection are Windows Registry change logs, specifically those related to registry modifications. If the malicious behavior is confirmed, it can lead to unauthorized access to systems and potential lateral movement within the network. However, this detection does NOT confirm that an attack has occurred; it only indicates a change in a security setting that could be malicious.
+  The relevant MITRE ATT&CK tactic is **Persistence** (TA0003), and the technique is **T1112 - Modify Registry**. The primary telemetry source for this detection is Windows registry change logs, specifically registry set events. The security impact of this change is significant, potentially allowing attackers to capture credentials and gain unauthorized access to sensitive systems. Note that this detection does NOT confirm malicious intent on its own; further investigation is necessary to prove an attack has taken place.
 
   ### Investigation Steps
 
-  - **Check Registry Change History**: Review the Windows Registry change logs for Event ID 4657, specifically for the path `System\CurrentControlSet\Control\Lsa\DisableRestrictedAdmin`. Confirm if changes were made recently. Typical benign changes may occur during system updates or administrative actions.
+  - **Confirm Registry Change Activity**: Check for Security Event ID 4657 or Sysmon Event ID 13 (Registry modifications) to validate that the "DisableRestrictedAdmin" value was changed. Look for a change made by non-administrative accounts during off-hours.
 
-  - **Identify Process Owner**: Use Sysmon Event ID 13 on the host to identify which process modified the registry value. Analyze the process owner; look for processes owned by `SYSTEM` or administrative users, which could indicate legitimate activity, whereas unexpected user accounts suggest potential tampering.
+  - **Investigate User Account Behavior**: Cross-reference user activity with Event ID 4624 (Logon) and Event ID 4625 (Logon Failure) for accounts that demonstrate unusual logon patterns, especially logons from remote locations or unfamiliar IP addresses.
 
-  - **Review User Account Activity**: Examine Security Event ID 4624 for logon events before and after the registry change. A sudden logon from a non-administrative account immediately before the registry change could indicate unauthorized access or compromise.
+  - **Identify Malicious Timing**: Assess the timing of the registry modification against known attack patterns. Frequent changes during off-hours or just before a successful RDP connection can indicate malicious intent.
 
-  - **Cross-check Authorized Configuration Changes**: Validate against documented system administration activities to identify if the changes to the `DisableRestrictedAdmin` value were approved. This can highlight legitimate admin actions versus potential malicious modifications.
+  - **Review RDP Configuration**: Determine if RDP is enabled on the host by checking for Event ID 338 at the local security policy level. Ensure that RDP settings are compliant with enterprise security policies.
 
-  - **Assess Related Remote Desktop Activity**: Look at remote access logs (Event ID 4776) to identify successful or failed RDP connection attempts surrounding the time of the registry change. Legitimate RDP sessions may confirm expected activity; anomalous sources or outcomes could indicate malicious intent.
+  - **Evaluate Expected Behavior**: Identify any legitimate reasons for the registry change. For example, if the change coincides with routine maintenance or updates by IT staff, this may not indicate malicious intent.
+
+  - **Cross-Reference with Companion Alerts**: Investigate for related alerts such as those involving abnormal process creation (similar Sigma rule ID 28ac00d6-22d9-4a3c-927f-bbd770104573) that could indicate an elevated privilege process attempting to exploit Remote Desktop.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential impact on credential security and the ease with which attackers can exploit modifications to RDP configurations. The likelihood of malicious abuse is significant, especially in environments where Remote Desktop is heavily utilized, which makes the behavior well-suited for exploitation in targeted attacks.
+  This alert carries high severity due to the potential risk of credential harvesting and unauthorized access to critical systems. The ability to toggle secure settings in RDP commonly aligns with malicious behavior, particularly in enterprise environments where RDP is frequently targeted by adversaries.
 
   ### Blind Spots and Assumptions
 
-  Limitations of this detection include the potential for attackers to modify the registry without generating observable logs, particularly if they have elevated privileges. Reliable detection requires proper log collection configurations for registry changes. Legitimate administrative activities, such as configuration changes during system maintenance, could trigger this alert. A companion detection on process creation (Event ID 4688) could enhance coverage by correlating registry changes with suspicious executable launches, identifying the point of entry or exploitation method.
+  Detection may be limited if logging is not properly configured to capture all registry changes, or if legitimate administrative actions routinely modify this key. Some legitimate applications or system updates may trigger this alert. Companion detections like process creation rules enhance visibility into the actor's behavior surrounding the registry change and should be monitored in conjunction to strengthen overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

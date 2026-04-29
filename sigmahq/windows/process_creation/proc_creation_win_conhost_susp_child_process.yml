@@ -12,7 +12,7 @@ author: omkar72
 date: 2020-10-25
 modified: 2023-12-11
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1202
 logsource:
   category: process_creation
@@ -35,30 +35,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of uncommon child processes under the `conhost.exe` parent process, which may indicate potential misuse of the Windows Console Host as a living-off-the-land binary (LOLBIN) or possible process injection. Attackers may leverage `conhost.exe` to execute malicious commands or spawn unwanted processes while evading conventional security measures. The relevant MITRE ATT&CK technique is "Process Injection" (T1202), which focuses on the injection of code into legitimate processes.
+  This Sigma rule detects the creation of uncommon child processes from `conhost.exe`, which could indicate use of `conhost.exe` as a Living-Off-The-Land Binary (LOLBIN) or potential process injection attempts. The likely attacker objective is to execute malicious code while hiding execution details within a legitimate Windows process. This behavior maps to the MITRE ATT&CK technique for Process Injection (T1202) under the Execution tactic.
 
-  The primary telemetry source for this detection is the process creation log, specifically Windows events linked to process execution (e.g., Event ID 4688). If malicious, this could lead to unauthorized access, data exfiltration, or lateral movement within the network. This detection does NOT confirm that an attack is occurring solely based on the act of spawning a child process from `conhost.exe`, as benign applications could also exhibit similar behavior.
+  The primary telemetry source for this detection is Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, which provide details about process execution. If malicious, the impact could be significant, leading to further compromise of the system or lateral movement within the network. However, this detection alone does not confirm malicious intent or activity without additional context and corroborating evidence.
 
   ### Investigation Steps
 
-  - **Identify the parent process:** Check for `conhost.exe` as the parent process using Security Event ID 4688 logs. This will include fields such as `ParentProcessId`, `Image`, and `CommandLine`. Malicious indicators may involve unusual child process names or unexpected command line arguments.
+  - **Check parent-child process relationship:** Review the parent process of the detected child process using Security Event ID 4688 logs (specifically the `NewProcessName` and `ProcessId` fields). Legitimate child processes of `conhost.exe` are usually `cmd.exe` or `powershell.exe`. Consider deviations as potential indicators of compromise.
 
-  - **Analyze child processes:** Look for uncommon child processes of `conhost.exe` such as `powershell.exe`, `cmd.exe`, or other scripting engines. The absence of normal processes indicates potential malicious activity.
+  - **Validate process creation details:** Inspect Sysmon Event ID 1 logs for the suspicious child process. Focus on fields such as `Image` and `CommandLine` for anomalies. Look for unusual command-line arguments that may indicate non-standard usage, such as obfuscated scripts or unusual flags typically not used in benign scenarios.
 
-  - **Verify timing and execution context:** Cross-reference the creation time of the child process with other activities on the host, including Event ID 60000 for Process Startup and other relevant logs, to confirm any correlation with known legitimate activities.
+  - **Analyze SystemTraceProvider events for anomalies:** Check for entries where `Provider_Name` is `SystemTraceProvider-Process` in event logs or related telemetry. Look for missing fields that could indicate a race condition around process creation, leading to incomplete data. Discrepancies may suggest malicious activity.
 
-  - **Check for legitimate applications:** Establish a baseline for expected child processes spawned from `conhost.exe` in your environment. Common examples would be administrative utilities or scripts executed by system administrators.
+  - **Correlate with existing threat intelligence:** Use threat intelligence platforms to investigate the identified child process. Compare the `Image` paths and command lines against known malicious hashes or behaviors associated with `conhost.exe` exploitation.
 
-  - **Correlate with additional telemetry:** Investigate relevant Sysmon logs, particularly Sysmon Event ID 1, to gain insight into the command line parameters and user context of the processes. High-confidence malicious indicators may include suspicious command line arguments involving file deletions or network calls from the child processes.
-
-  - **Review the user account context:** Determine the user account associated with the process creation. Malicious activities often occur under unexpected user accounts or SYSTEM context, especially if the activity appears to escalate privileges.
+  - **Identify legitimate usage patterns:** For baseline comparison, review normal operational logs of `conhost.exe` from systems in the same environment. Confirm legitimate processes and their flags, noting how often they invoke child processes and under which circumstances (e.g., user actions, system updates).
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the misusage of a legitimate Windows process that could facilitate evasive malicious activity. The likelihood of abuse exists, as the tactic of process injection is commonly weaponized by adversaries, particularly in post-exploitation phases.
+  This alert carries a medium severity in an enterprise context. The impact is dependent on the affected system's role, such as if it's a user machine versus a server. While the likelihood of malicious abuse exists, this behavior is not commonly weaponized without additional context, making further investigation essential.
 
   ### Blind Spots and Assumptions
 
-  This detection has limitations in identifying false positives stemming from legitimate administrative tasks that may create child processes under `conhost.exe`. Reliable detection requires comprehensive logging configurations to ensure complete visibility into process creation events. Legitimate tools often utilize `conhost.exe`, including various terminal emulators or scripts executed in a standard operational environment. Related detections include monitoring for parent-child process relationships indicative of process injection, which would enhance coverage and detection confidence.
+  Detection limitations may include legitimate scenarios where `conhost.exe` is used for standard operations, potentially generating false positives. Ensure that logging for process creation is enabled and correctly configured on all endpoints for effective detection. Additionally, consider companion detections such as monitoring unusual command-line execution (linked to MITRE ATT&CK T1059) to strengthen coverage against related attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

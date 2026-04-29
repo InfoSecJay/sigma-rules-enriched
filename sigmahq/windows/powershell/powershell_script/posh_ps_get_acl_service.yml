@@ -12,8 +12,9 @@ author: frack113
 date: 2021-12-30
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 - stp.2a
 logsource:
@@ -32,28 +33,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to exploit weaknesses in registry service permissions by using the `get-acl` PowerShell command targeting registry paths associated with Windows services. Attackers may seek to redirect service execution from a legitimate executable to one they control, thus executing their payloads at service startup. This behavior fits within the MITRE ATT&CK framework under the tactic of **Privilege Escalation** (T1074) and technique **Service Registry Permissions Weakness** (T1574.011).
+  This Sigma rule detects the use of PowerShell scripts that query the access control list (ACL) of Windows Service Registry keys, specifically under the path `HKLM\SYSTEM\CurrentControlSet\Services`. The likely attacker objective is to identify weaknesses in service configuration, allowing them to hijack service execution by modifying registry entries to point to malicious payloads. This behavior aligns with the MITRE ATT&CK tactics of Privilege Escalation (TA0004) and Persistence (TA0003), specifically under technique T1574.011, which focuses on Service Registry Permissions Weakness.
 
-  The primary telemetry source is PowerShell script block logging, specifically looking for the use of `get-acl` commands that focus on the registry service paths: **HKLM\SYSTEM\CurrentControlSet\Services**. If successful, this attack could lead to unauthorized privilege escalation or arbitrary code execution with the security context of the affected service. It is crucial to note that this detection does NOT confirm malicious intent on its own; legitimate administrative activities may also use similar commands.
+  Primary telemetry sources for this detection include Windows Security Event Logs (Event ID 4104 for PowerShell scripts), which capture executed PowerShell commands. If malicious, this behavior can lead to unauthorized code execution during service startups, potentially compromising system integrity and availability. It is important to clarify that this detection does NOT confirm an actual compromise or that a successful attack has occurred; it merely identifies an attempt to assess permissions that may lead to exploitation.
 
   ### Investigation Steps
 
-  - **Check script block logs:** Review PowerShell script block logs (Event ID 4104) for any instances of `get-acl` accessing **HKLM\SYSTEM\CurrentControlSet\Services**. Look for attempts by non-administrative users or during unusual times that could indicate malicious intent.
+  - **Review the triggering PowerShell command:** Examine Event ID 4104 in the Windows Security logs for the complete command text. Look for `get-acl 'REGISTRY::HKLM\SYSTEM\CurrentControlSet\Services\'`. If the command was issued by a known administrative user, it may be benign.
 
-  - **Assess user context:** Verify the user context that executed the command by checking the Event ID 4688 (Process Creation). Look for processes initiated by accounts that usually do not perform administrative functions, such as service accounts or standard users.
+  - **Check the script execution context:** Verify the user and session context associated with the Event ID 4104 logs. Admins should have logged activity; however, unexpected users executing such commands may indicate malicious intent.
 
-  - **Identify modifications to service configurations:** Examine the Windows Event Logs (System logs) for any changes or modifications recorded (Event ID 7045 for service installation) in proximity to the detected command. Compare these changes to known legitimate administrative scripts and standard change management processes.
+  - **Inspect the Registry permissions:** Use the PowerShell command `Get-Acl 'HKLM\SYSTEM\CurrentControlSet\Services\'` to assess ACL entries. Legitimate services typically have controlled permissions; excessive or non-standard write access could signify a potential security risk.
 
-  - **Review registry permissions:** Validate the permissions of the targeted service registry keys using the command line or PowerShell commands such as `Get-Acl`. Confirm whether the permissions have been altered in ways that deviate from your organization’s baseline configurations.
+  - **Identify recent modifications to service entries:** Check for any changes in registry values using `reg query HKLM\SYSTEM\CurrentControlSet\Services\`. Look for unexpected executable paths or recent modifications that align with unauthorized commands.
 
-  - **Document legitimate usage patterns:** Document legitimate administrative tasks involving `get-acl` on service registry paths by, for example, noting regular administrative scripts executed by IT staff. Understanding normal behavior will help tune false positives in this detection.
+  - **Evaluate asset criticality:** Consider the role of the affected system. If it hosts high-value services (e.g., domain controllers, application servers), prioritize the investigation, as these may be prime targets for privilege escalation.
+
+  - **Audit other automation scripts:** Investigate other scripts or scheduled tasks that may reference service registry areas, particularly for the use of `get-acl` or similar commands. Automation by admins may be legitimate, but patterns of repetitive access could suggest malicious behavior.
 
   ### Prioritization
 
-  The alert has medium priority due to the potential impact on system integrity and security if exploited, particularly on critical services. The likelihood of this technique being weaponized is moderate given the known weaknesses in service permissions in Windows environments, which makes it a feasible approach for stealthy persistence or privilege escalation.
+  This alert should be treated with medium priority due to the potential for privilege escalation and persistence. The ability to modify service execution can lead to significant compromise if exploited. Although the likelihood of malicious use exists, such behavior may also result from legitimate administrative tasks, necessitating thorough verification.
 
   ### Blind Spots and Assumptions
 
-  This detection may have limitations, as sophisticated adversaries could use obfuscation techniques to manipulate PowerShell commands, such as encoding or other PowerShell command alternatives, which might bypass detection. The success of this detection requires PowerShell script block logging to be enabled across all relevant endpoints. Legitimate administrative activities, such as routine permission audits or adjustments performed by IT staff, may trigger this alert. A related detection could focus on monitoring for unexpected service installation or modification events (Event ID 7045), providing additional context and coverage.
+  Detection limitations include potential evasion by malicious actors who may execute similar commands through other means (e.g., disguised scripts). The effectiveness of detection relies on having PowerShell script block logging enabled; without this, critical query activities might go unrecorded. Additionally, legitimate administrative activity, like periodic security assessments, can trigger this alert and should be considered in the context of user roles and behaviors. A related detection that strengthens coverage could include monitoring for unauthorized registry modifications, providing a comprehensive view of potential exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

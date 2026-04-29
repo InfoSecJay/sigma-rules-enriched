@@ -14,9 +14,9 @@ references:
 author: Florian Roth (Nextron Systems), Markus Neis, Tim Shelton (HAWK.IO), 
   Nasreddine Bencherchali (Nextron Systems)
 date: 2020-07-03
-modified: 2025-11-27
+modified: 2026-03-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.003
 logsource:
   category: process_creation
@@ -42,7 +42,7 @@ detection:
     - 'robocopy.exe'
     - 'XCOPY.EXE'
   selection_target:
-    CommandLine|re|i: \s['"]?C:\\Windows\\(System32|SysWOW64|WinSxS)
+    CommandLine|re|i: \s['"]?C:\\Windows\\(?:System32|SysWOW64|WinSxS)
   filter_optional_avira:
     Image|endswith: '\cmd.exe'
     CommandLine|contains|all:
@@ -64,30 +64,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious copy operations involving Windows system directories (System32, SysWOW64, WinSxS) using commands or scripts like `copy`, `copy-item`, `robocopy`, or `xcopy`. The likely attacker objective is to relocate known malicious binaries—often referred to as LOLBINs (Living Off the Land Binaries)—to evade security detections associated with their original paths. Relevant MITRE ATT&CK techniques include Defense Evasion (T1036.003).
-
-  Primary telemetry sources include Windows Process Creation logs (Event ID 4688) that detail command line activities, specifically any instances of these commands targeting system directories. If malicious, such actions could lead to unauthorized access or execution of malware. However, this detection does NOT confirm that the identified copy operation is inherently malicious—it may also reflect benign administrative tasks.
+  This Sigma rule detects suspicious copy operations where an executable or related file is copied from system directories (e.g., System32, SysWOW64, WinSxS) to another location on disk. Attackers may aim to move legitimate low-risk binaries, often referred to as LOLBINs (Living off the Land Binaries), to obscure their presence and evade detection. This behavior typically aligns with the MITRE ATT&CK technique for "Steal or Copy Data" (TA0030) and more specifically, with "Command-Line Interface" (T1059). The primary telemetry source is Windows process creation logs, specifically monitoring actions captured by Event ID 4688. If malicious, this behavior may facilitate further exploitation or lateral movement within the network. It is important to note that this detection does NOT on its own confirm malicious intent; additional corroborating evidence is necessary.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Windows Security Event ID 4688 for occurrences of `cmd.exe`, `powershell.exe`, `robocopy.exe`, or `xcopy.exe` commands that include `copy`, `cpi`, and `cp` targeting directories such as `C:\Windows\System32`. This identification is crucial to understand the source and intent of the command.
+  - **Verify process creation events:** Review Windows Security Event ID 4688 to observe the process creation details. Look for `cmd.exe`, `powershell.exe`, or other related executables in the event log, along with command lines containing 'copy' or similar parameters.
 
-  - **Identify command line context:** Look for high-confidence malicious indicators by checking the full command line for unusual targets like system directories paired with execution paths of known LOLBINs. Any attempts to copy executables like `certutil.exe` would raise suspicion.
+  - **Analyze command line specifics:** Investigate the command line fields for the process creation events. Specifically, check for commands that include paths to `C:\Windows\System32`, `C:\Windows\SysWOW64`, or `C:\Windows\WinSxS`. Look for base filenames commonly abused, such as `certutil.exe` or `desktopimgdownldr.exe`.
 
-  - **Validate legitimate administrative tasks:** Cross-reference identified command entries with internal administration scripts or tools documented in the environment (e.g., SCCM batch files). Ensure any legitimate copy commands are authorized and produce expected outcomes without targeting system directories.
+  - **Determine legitimate administrative usage:** Establish baseline behavior by reviewing documented administrative scripts/processes known to copy files from these system directories (e.g., maintenance scripts). Compare the timestamps and parameters against the suspicious events.
 
-  - **Check logs for user context:** Verify the user or process context from which the command originated (Event ID 4688, fields like `New_Process_Name`, `Creator_Process_Id`, and `Subject.User_Name`). Administrators performing maintenance should show clear patterns of expected usage that don’t include suspicious copy actions.
+  - **Identify high-confidence malicious indicators:** Look for unusual command sequences or destination paths in Event ID 4688 logs. If any command tries to copy executables to non-standard directories (e.g., user folders or Temp directories), this may indicate malicious activity.
 
-  - **Monitor for post-copy activity:** Assess if any file creation or modification events occur post-copy in unusual locations that might indicate further malicious actions. Use file auditing measures or check for file creation events (typically from Event ID 4663) within directories known for storing malicious payloads.
+  - **Assess file creation in temporary directories:** Cross-reference with file creation events from Sysmon (Event ID 11) to determine if the copies resulted in new executables appearing in Temp folders or user locations, which could indicate a persistence mechanism.
 
-  - **Analyze associated alerts:** Investigate companion detections related to common LOLBIN usage or configurations that move files in unusual ways. Awareness of other detection rules can help corroborate findings and identify if this behavior is part of a larger attack pattern.
+  - **Evaluate process origins and digital signatures:** Check for the valid digital signatures of the executables involved and their paths. Any unsigned binaries or those from atypical locations could reinforce the suspicion of a malicious action.
 
   ### Prioritization
 
-  The severity of this alert is medium due to its potential impact if executed on critical systems. The likelihood of malicious exploitation is non-negligible, as attackers frequently employ similar techniques for evading detection during lateral movement or payload delivery. This behavior is weaponized and should be treated with caution.
+  This alert should be considered medium severity due to the potential impact of system files being manipulated and the increased likelihood of malicious abuse. The extraction or relocation of executable files from system directories is a known tactic among adversaries, making this behavior a reasonable cause for concern. Prompt investigation is warranted to assess the legitimacy of the activity.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded through obfuscation techniques such as renaming executables or using alternative command streams that do not specifically invoke `cmd.exe`. Reliability relies on proper monitoring configurations for all Windows process creation logs. Legitimate administrative tasks may trigger this alert, particularly those involving popular administrative scripts or utilities. Related detections, such as those monitoring for unusual execution of LOLBINs (e.g., the use of `certutil.exe`), can enhance overall detection coverage and reduce false positives.
+  Detection may be limited by scripts and administrative tools commonly in use, which can lead to benign triggers of this alert. Required configurations for reliable detection include ensuring comprehensive logging for process creation and maintaining visibility into administrative activities in production. Legitimate activities that may trigger this alert include maintenance scripts copying system files during patching or system updates. A related detection of process command line arguments associated with application whitelisting changes could enhance overall coverage against malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

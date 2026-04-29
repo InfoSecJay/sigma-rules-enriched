@@ -10,9 +10,9 @@ date: 2022-12-09
 modified: 2023-08-17
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
-- attack.t1562
+- attack.t1685
 logsource:
   product: windows
   category: registry_set
@@ -30,26 +30,30 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to the Windows registry key "ExtErrorInformation" associated with `rpcrt4.dll`, indicating an attempt to disable ETW (Event Tracing for Windows) logging. An adversary might pursue this objective to evade detection by eliminating the logging of crucial events related to RPC (Remote Procedure Call) processes, thereby obscuring their actions and maintaining persistence. The relevant MITRE ATT&CK techniques are Defense Evasion (T1562) and Persistence (T1112). The primary telemetry source for this detection is Windows registry events, specifically monitoring the registry change event types. If malicious, disabling ETW logging can significantly impair forensic investigations and alert capabilities. Importantly, this detection does NOT confirm that an actual exploit or malicious activity has occurred; it merely indicates a potential evasion tactic.
+  This rule detects modifications to the "ExtErrorInformation" registry key associated with `rpcrt4.dll`, specifically when these changes are made to disable Event Tracing for Windows (ETW) logging. Such behavior could indicate an attacker attempting to evade detection during a persistence mechanism or other malicious activity. The likely attacker objective is to suppress logging capabilities that could reveal their actions, fitting within the MITRE ATT&CK framework under the tactic of Defense Evasion (TA0005) and technique T1112 (Modify Registry).
+
+  The primary telemetry sources for identifying this behavior include Windows registry logs and audit logs for changes to registry values. If successfully exploited, the impact includes potential undetected malicious persistence or lateral movement within the network. This detection does NOT conclusively indicate malicious activity but highlights a change that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Review registry modification events:** Query Security Event ID 5145 to confirm changes to the registry key at `HKEY_LOCAL_MACHINE\Microsoft\Windows NT\Rpc\ExtErrorInformation`. Look for unauthorized modifications or unexpected DWORD values indicating logging has been disabled.
+  - **Check Registry Change Details:** Review Security Event ID 4657 for the 'ExtErrorInformation' key under `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\Rpc`. Confirm modifications and note the user or process that initiated the change.
 
-  - **Identify the context of the change:** Determine the user account and process responsible for the registry change by extracting `Security ID` and `Process ID` from the event logs. This can help identify if the change was made by an unauthorized user or suspicious process.
+  - **Identify User and Process Context:** Correlate the registry change time with Security Event ID 4688 to identify the process creating the change. Check for any abnormal process names or timestamps that don’t match established baselines.
 
-  - **Assess the host's role:** Cross-reference the affected system with its role within the network. For example, check if the system is a server critical for RPC communications (e.g., domain controllers or application servers) which could be targeted more frequently.
+  - **Review System Role and Expected Behavior:** For systems that typically utilize RPC (e.g., domain controllers), verify normal operations. Legitimate use of `rpcrt4.dll` should include common services such as remote procedure calls for Active Directory or DCOM. Any unauthorized changes in non-administrative accounts should be scrutinized.
 
-  - **Look for concurrent suspicious activities:** Examine associated logs for unusual behavior or high-risk activities occurring around the time of the registry change, such as suspicious logins or process creations (Event ID 4688 or Sysmon Event ID 1).
+  - **Evaluate Recent Software Installations or Updates:** Check application logs or Event ID 1033 in the Windows Installer logs to see if any legitimate software updates could explain the change. Pay attention to updates that might modify persistence mechanisms.
 
-  - **Validate ETW logging status:** Investigate the current state of ETW logging for `rpcrt4.dll` via PowerShell using `Get-WinEvent` and confirm if logging is indeed disabled as indicated by the registry change.
+  - **Assess for Additional Evasion Techniques:** Search for the presence of any other modifications in the registry that could indicate evasion, such as settings that alter Event Log settings (Event IDs 1102 & 1104).
+
+  - **Identify High-Confidence Indicators of Compromise:** Look for prior alerts or patterns linked to known malicious tools that interact with `rpcrt4.dll`, such as Cobalt Strike or mimikatz, against the same system or user account.
 
   ### Prioritization
 
-  The alert's severity is low because while it indicates a change to registry settings, its impact depends on the context of the affected system. The likelihood of malicious abuse increases in high-value targets or systems with significant RPC activity, where the disabling of ETW may mask further malicious actions. However, this behavior is less commonly weaponized compared to more direct execution or exploitation techniques.
+  This alert is of low severity, primarily due to the nature of the system change and the context in which it occurs. However, if the affected host is critical (like a domain controller) and particularly if it has a history of similar behavior, the likelihood of malicious exploitation increases. Disabling ETW logging is a common tactic among sophisticated adversaries to hide their activities.
 
   ### Blind Spots and Assumptions
 
-  One limitation of this detection is that legitimate applications or configurations might also modify ETW settings for valid reasons, leading to potential false positives. Furthermore, a comprehensive monitoring strategy should ensure that extensive logging is enabled on all critical systems to detect similar evasion techniques. Related detection that strengthens coverage could include monitoring for unusual process behaviors or the execution of scripts that modify registry settings (e.g., via Sysmon Event ID 10 which logs registry value changes).
+  Detection may be limited as attackers can mimic legitimate behavior or use other registry modifications to suppress logging further. Enterprise environments require comprehensive auditing of registry changes and proper log retention for effective detection. Legitimate activities, such as software installations or system configuration changes, could trigger this alert. Companion detections, such as monitoring for abnormal process creations (Event ID 4688) or network traffic anomalies, can strengthen overall coverage against potential adversaries.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

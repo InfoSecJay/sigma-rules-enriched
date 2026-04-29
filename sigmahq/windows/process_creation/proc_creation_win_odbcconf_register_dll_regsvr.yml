@@ -18,7 +18,7 @@ author: Kirill Kiryanov, Beyu Denis, Daniil Yugoslavskiy, oscd.community,
   Nasreddine Bencherchali (Nextron Systems)
 date: 2023-05-22
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.008
 logsource:
   category: process_creation
@@ -41,32 +41,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of `odbcconf.exe` with the `REGSVR` command, indicating an attempt to register a new DLL. This behavior may be exploited by attackers to install malicious DLLs for persistence or functionality within an environment. The likely attacker objective is to use DLL injection techniques to gain further control or exfiltrate data.
+  This Sigma rule detects the execution of `odbcconf.exe` with the `REGSVR` command, which is used to register a new Dynamic-Link Library (DLL). Attackers may exploit this functionality to deploy malicious DLLs, aiming to execute arbitrary code, modify system behavior, or maintain persistence. The relevant MITRE ATT&CK technique is “Regsvr32 Abuse” (T1218.008).
 
-  The relevant MITRE ATT&CK tactic is “Defense Evasion” and the technique ID is T1218.008. The primary telemetry source includes Windows process creation events, specifically monitoring process execution logs with critical Event ID 4688. If malicious, this type of DLL registration could lead to additional compromises, lateral movement, or persistence mechanisms.
-
-  Importantly, this detection does NOT automatically confirm that malicious activity has occurred, as legitimate applications may also use `odbcconf.exe` to register DLLs.
+  The primary telemetry source for this detection is Windows process creation logs, specifically looking for `Event ID 4688` which provides detailed information about process creation events, including the command line invoked. If the behavior is malicious, it could lead to violations of system integrity and potential data breaches. Importantly, this detection does NOT confirm malicious activity on its own; legitimate applications may also use `odbcconf.exe` for benign purposes.
 
   ### Investigation Steps
 
-  - **Validate the command execution context:** Check Event ID 4688 for the instance of `odbcconf.exe` being executed. Confirm the account used and if it aligns with normal operational patterns for that user or service.
+  - **Review process creation logs:** Check for `Event ID 4688` with `Image` ending in `\odbcconf.exe` and `CommandLine` containing `REGSVR` and `.dll`. This will identify any instances of DLL registration that are being flagged by this rule.
 
-  - **Verify the DLL being registered:** Investigate the command line parameters for the specific DLL being registered. Minor deviations from expected DLL names or paths may indicate malicious intent.
+  - **Assess command line context:** Analyze the full `CommandLine` field in the process creation logs for parameters that follow the `REGSVR` command. Look for unexpected DLL names or paths indicative of potential malicious behavior, such as those directing to temporary or unusual paths.
 
-  - **Check for known benign DLLs:** Review the registered DLL path against a whitelist or inventory of authorized DLLs. If the DLL is not recognized, escalate for further analysis.
+  - **Examine the DLL file path:** Investigate the path of the DLL being registered. Legitimate entries often reside in trusted directories, while suspicious ones may appear in temporary folders or user profile directories. Frequent locations for unauthorized DLLs include `C:\Users\Public\` or the `%TEMP%` folder.
 
-  - **Analyze the behavior of the registered DLL:** If suspicious, analyze the newly registered DLL’s origin and behavior. Employ tools like Sysinternals or a static analysis tool to assess its functionality and identify any malicious characteristics.
+  - **Cross-check with known files:** Identify and verify the content of the DLL file using `sigcheck` or similar tools from Sysinternals. Compare the file's hash against known bad file hashes. A mismatch indicates potential malicious intent.
 
-  - **Identify execution frequency:** Review the historical execution of `odbcconf.exe` in conjunction with its usage patterns in the environment. High-frequency or sudden usage spikes may indicate malicious actions.
+  - **Analyze user context and privileges:** Determine the user context under which `odbcconf.exe` was executed. Look for high-privileged accounts or unusual access patterns. Legitimate administrative tasks typically occur under service accounts or IT personnel notification.
 
-  - **Assess system impact:** Determine whether the affected system has critical business functions. Prioritize the response based on system relevance and potential for exploitation.
+  - **Identify related alerts or anomalies:** Correlate this detection with other alerts in the environment. Check if there are concurrent alerts related to suspicious file creations or other anomalies linked to the same user or system.
 
   ### Prioritization
 
-  This alert should be regarded with medium-high severity due to the potential for active exploitation and the nature of DLL registration, which can facilitate persistence or data exfiltration. Additionally, `odbcconf.exe` being a legitimate tool can create confusion, making monitoring essential to prevent misuse.
+  This alert is of medium severity, considering that `odbcconf.exe` is a legitimate tool, yet its misuse for DLL registration is a recognized tactic among adversaries. The impact on critical systems can be significant if a malware DLL is deployed, and such behavior is increasingly weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logging levels are not configured properly; ensure complete process creation logging is enabled. Attackers may employ similar legitimate tools or scripts, leading to potential false positives. Legitimate applications might also utilize `odbcconf.exe` for registering custom DLLs without malicious intent. A related detection for further coverage could be monitoring the execution of other sibling commands such as `regsvr32.exe`, which is often used simultaneously for similar purposes.
+  Detection may be limited by environments using custom or benign applications that legitimately register DLLs via `odbcconf.exe`, potentially leading to false positives. Ensure that process creation logs for `Event ID 4688` are configured to capture detailed command line arguments consistently. Legitimate activities such as ODBC driver updates may legitimately trigger this alert. To enhance coverage, monitor for other `Regsvr32` abuse patterns across different execution contexts or related tools like `rundll32.exe`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

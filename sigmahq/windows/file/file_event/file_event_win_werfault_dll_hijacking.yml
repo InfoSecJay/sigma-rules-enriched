@@ -11,7 +11,8 @@ modified: 2025-12-03
 tags:
 - attack.privilege-escalation
 - attack.persistence
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: windows
@@ -35,36 +36,26 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of files named "WerFault.exe" or "wer.dll" in locations that are not typical for Windows system files. This behavior may indicate that an attacker is attempting to hijack the native Windows Error Reporting tool (WerFault) for malicious purposes. Common attacker objectives include elevating privileges, maintaining persistence, or evading detection by obscuring malicious activity within legitimate processes.
-
-  The relevant MITRE ATT&CK tactics and techniques are Privilege Escalation (T1068) and Defense Evasion (T1574.001), as the behavior directly aims to manipulate a system process to execute unauthorized actions. The primary telemetry sources are Windows file events, specifically monitoring the creation of files (Event ID 4663) in process execution contexts. If malicious, this detection could lead to unauthorized access or damage to the system integrity. Notably, this rule alone does not confirm malicious intent; legitimate applications may create these files in unconventional locations during specific conditions.
-
-  ---
+  This rule detects the creation of the "WerFault.exe" or "wer.dll" files in folders other than their standard locations (e.g., System32, SoftwareDistribution). This behavior can indicate attempts to exploit DLL hijacking techniques, where an attacker places malicious versions of legitimate binaries in unexpected directories to facilitate privilege escalation or persistence. The relevant MITRE ATT&CK tactic is "Privilege Escalation" (TA0004) and the technique is "DLL Search Order Hijacking" (T1574.001). The primary telemetry sources are Windows file event logs, specifically monitoring for file creation events. If malicious, such activity could lead to unauthorized execution of arbitrary code with elevated privileges. However, detection of this activity alone does not confirm malicious intent, as it could stem from legitimate software updates or misconfigurations.
 
   ### Investigation Steps
 
-  - **Verify the creation location:** Check for the full path of the newly created file using Security Event ID 4663. Legitimate instances of WerFault.exe and wer.dll should reside in `C:\Windows\System32` or other common directories. Uncommon folder paths warrant further investigation.
+  - **Review creation event details:** Check File Event logs (Windows Security Event ID 4663) to confirm the creation time, user context, and process ID associated with the creation of WerFault.exe or wer.dll.
 
-  - **Correlate file creation with process execution:** Review Sysmon Event ID 1 for process creation details around the same timestamp as the file creation. Look for unusual parent processes that created WerFault.exe or wer.dll, such as unexpected scripts or executables not typically associated with Windows Error Reporting.
+  - **Investigate the directory context:** Examine the folder path where the file was created. Legitimate instances will typically occur in C:\Windows\SoftwareDistribution\ or C:\Windows\System32\. Anything outside these paths warrants further scrutiny.
 
-  - **Assess file characteristics:** Examine the file properties using tools like PowerShell or Sysinternals’ AccessChk to confirm legitimate file signatures and attributes. Validate if the file has unusual metadata indicating manipulation or does not match hash signatures of legitimate files.
+  - **Correlate process parentage:** Use Sysmon Event ID 1 to analyze the parent process of the file creation. A legitimate Windows process (e.g., WerFault as an error reporting tool) should typically spawn these binaries, while anomalous parent processes indicate potential malicious activity.
 
-  - **Investigate system behavior at the time of creation:** Utilize Windows Event ID 4688 to track other process activity on the host at the time of the alert. Identify if there was a series of process creations or modifications that suggest a coordinated attack.
+  - **Examine user access patterns:** Look for patterns in the logon events (Windows Security Event ID 4624) to identify whether the user who triggered the creation of these files has a history of creating such executables or is associated with system administration roles.
 
-  - **Identify online threat intelligence:** Search for the hashed values of the detected files in threat intelligence services to determine if the created files match known malware signatures or campaigns.
-
-  - **Review recent software installations or updates:** Analyze logs for any recent changes or installations that may explain the legitimate creation of these files. Confirm these updates are part of approved processes to rule out malware camouflage.
-
-  ---
+  - **Check for unusual file attributes:** Validate created file attributes using PowerShell or Windows Explorer to assess timestamps, digital signatures, and version details. Authentic Microsoft files will have expected signatures from trusted Microsoft sources.
 
   ### Prioritization
 
-  This alert should be treated with medium severity. The presence of these files in unusual locations can indicate potential privilege escalation or persistence mechanisms, causing significant risk if exploited. While such behavior may not be frequent, the range of tactics exploiting trusted system processes makes this a relevant concern for security teams.
-
-  ---
+  This alert is medium severity due to the potential for privilege escalation if exploited, particularly on critical systems where elevated control could lead to significant compromise. The likelihood of this behavior being malicious is moderately high as it employs stealthy techniques to hide malware. This type of DLL hijacking is a recognized method among adversaries for executing code without detection.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by scenarios where legitimate applications may also create these files in unconventional locations, leading to potential false positives. Comprehensive logging must be enabled for file creation events (Event ID 4663) and process execution (Event ID 4688) to ensure reliable detection. Additionally, legitimate administrative tools or updates may trigger the alert, making context critical. Monitoring companion detections, such as suspicious process creation or uncommon file access patterns, can strengthen overall detection coverage.
+  Detection may be limited if file event logs are improperly configured or events are not being collected consistently from all endpoints. Evasion techniques could involve placing the executable in legitimate software update folders or using standard OS tools to create logs that appear benign. Legitimate activities such as software updates or application errors could also trigger this alert. A related detection is monitoring for anomalous PowerShell or Windows scripting activity that may accompany file creation events, helping to corroborate potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

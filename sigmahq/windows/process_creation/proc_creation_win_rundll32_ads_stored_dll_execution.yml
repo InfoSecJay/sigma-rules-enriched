@@ -7,9 +7,9 @@ references:
 - https://lolbas-project.github.io/lolbas/Binaries/Rundll32
 author: Harjot Singh, '@cyb3rjy0t'
 date: 2023-01-21
-modified: 2023-02-08
+modified: 2026-03-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1564.004
 logsource:
   category: process_creation
@@ -22,7 +22,7 @@ detection:
         # Example:
         #   rundll32 "C:\ads\file.txt:ADSDLL.dll",DllMain
         # Note: This doesn't cover the use case where a full path for the DLL isn't used. As it requires a more expensive regex
-    CommandLine|re: '[Rr][Uu][Nn][Dd][Ll][Ll]32(\.[Ee][Xx][Ee])? \S+?\w:\S+?:'
+    CommandLine|re: '[Rr][Uu][Nn][Dd][Ll][Ll]32(?:\.[Ee][Xx][Ee])? \S+?\w:\S+?:'
   condition: all of selection_*
 falsepositives:
 - Unknown
@@ -30,28 +30,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of `rundll32.exe` with a dynamic link library (DLL) that is stored in an Alternate Data Stream (ADS). This behavior is often associated with tactics employed to evade detection, as using ADS can hide malicious files from standard file system searches. The likely objective of the attacker is to execute code in a way that circumvents traditional security measures, potentially leading to privilege escalation or lateral movement within the environment.
+  This Sigma rule detects the execution of `rundll32.exe` where the DLL being invoked is stored in an Alternate Data Stream (ADS). Such behavior is often leveraged by attackers to hide malicious payloads, thereby evading traditional detection mechanisms and maintaining persistence. The likely attacker objective is to execute malicious code discreetly, circumventing security controls that might monitor standard file execution paths.
 
-  The relevant MITRE ATT&CK tactics and techniques include Defense Evasion (T1564.004) and Execution (T1203). Primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process creation events. If confirmed malicious, this activity could lead to a significant compromise of the affected system. It’s crucial to note that this detection alone does not confirm a security breach; it merely indicates unusual execution patterns that warrant further investigation.
+  This detection correlates to the MITRE ATT&CK technique **"Hidden Files and Directories" (T1564.004)** under the tactic of **"Defense Evasion."** The primary telemetry source is Windows process creation logs, specifically monitoring event IDs 4688 (Security Event), which captures process execution details.
+
+  While alerts from this detection indicate the potential for malicious activity, they do not confirm that the execution was indeed malicious, as legitimate applications may also invoke `rundll32` with DLLs stored in ADS for valid purposes.
 
   ### Investigation Steps
 
-  - **Check Event IDs for process creation:** Review Security Event ID 4688 and Sysmon Event ID 1 to identify any executions of `rundll32.exe` with the command line indicating the presence of an ADS (e.g., "rundll32 'C:\ads\file.txt:ADSDLL.dll',DllMain").
+  - **Examine the process creation log**: Review Security Event ID 4688 for process details, including the `CommandLine` field. Look specifically for command lines containing `rundll32` and references to paths with `:` indicating ADS usage, such as `C:\ads\file.txt:ADSDLL.dll`.
 
-  - **Review command line arguments:** Look for command lines that follow the pattern `"[Rr][Uu][Nn][Dd][Ll][Ll]32(\.[Ee][Xx][Ee])? \S+?\w:\S+?:". Investigate further if the command includes unusual DLL names or paths.
+  - **Identify the DLL path**: Verify the source of the DLL in the command line. If it points to a non-standard location or is an unknown file (e.g., not part of a known application), this could indicate malicious activity.
 
-  - **Identify high-confidence malicious indicators:** Cross-reference the identified DLL call with known malicious DLL signatures or hashes from threat intelligence feeds. Investigate further if the DLL is unrecognized or comes from a suspicious path.
+  - **Check file properties**: Utilize Sysinternals tools like `streams.exe` or PowerShell to inspect the ADS of the file specified in the command line. Legitimate ADS usage is rare; a file with an ADS should be scrutinized for malicious code or unusual behaviors.
 
-  - **Validate legitimate behavior:** Ensure no business-critical applications use `rundll32.exe` with ADS during your investigation. Typical benign use includes administrative scripts or applications invoking legitimate system functions.
+  - **Validate against known software**: Assess if the `rundll32.exe` command ties back to legitimate software. Cross-reference the file’s hash against reputable sources or antivirus databases to look for any known malicious signatures.
 
-  - **Examine for additional artifacts:** Look for file creation events in the same ADS path using Windows file system logs. Track any `file.txt:ADSDLL.dll` creation or modification that suggests malicious intent.
+  - **Audit host behavior**: Investigate other processes initiated within a short time frame before or after the `rundll32` invocation. Evaluate for unusual network connections (Event ID 5156 for Windows Filtering Platform), especially to external IP addresses, which may signal data exfiltration or command-and-control communications.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on critical systems. The use of ADS for executing code with `rundll32.exe` is a known tactic among threat actors, marking this behavior as a significant risk. As such, it should be prioritized for immediate investigation.
+  This alert should be treated with high severity due to the potential security impact on the host system and the likelihood of exploitation. `Rundll32.exe` is a commonly abused tool by adversaries for evasion, making this behavior a critical area for investigation in a mature enterprise environment.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logs are not properly configured to capture command line arguments or if ADS usage is legitimate in the environment. Additionally, some administrative tools may use similar techniques, leading to false positives. Monitoring for companion detections, such as file access patterns in directories related to ADS, can strengthen coverage against these attacks.
+  The detection capabilities are limited by the logging configuration of the relevant systems; a lack of adequate process creation logging could hinder visibility. Legitimate applications may use `rundll32` with ADS for benign purposes, such as loading configurations or plugins, complicating investigation. A companion detection rule monitoring other suspicious behaviors around the same timeframe, such as file modification or network anomalies, would enhance overall detection efficacy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

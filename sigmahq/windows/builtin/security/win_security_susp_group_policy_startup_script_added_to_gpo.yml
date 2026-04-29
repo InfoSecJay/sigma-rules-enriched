@@ -9,8 +9,8 @@ author: Elastic, Josh Nickels, Marius Rothenbücher
 date: 2024-09-06
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.defense-impairment
 - attack.t1484.001
 - attack.t1547
 logsource:
@@ -46,28 +46,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the modification of Group Policy Objects (GPO) to add startup or logon scripts for user or computer objects. The likely attacker objective may include establishing persistence within the environment, allowing execution of malicious scripts during user logon. This behavior aligns with MITRE ATT&CK tactics such as Persistence (TA0003), specifically the technique "Create or Modify System Process: Windows Service" (T1547) and "Group Policy Modification" (T1484.001).
+  This rule detects modifications to Group Policy Objects (GPOs) that introduce startup or logon scripts for user or computer objects, specifically looking for changes to attributes that indicate the addition of such scripts. The likely attacker objective is to establish persistence on a compromised system, executing malicious code at user logon. This behavior relates to the MITRE ATT&CK tactics of Persistence (T1547) and Privilege Escalation (T1484.001).
 
-  The primary telemetry sources are Windows Security Event logs, particularly Event IDs 5136 (Directory Service Changes) and 5145 (File Share Access). If malicious, this modification can lead to unauthorized execution of code or scripts that may facilitate further exploitation or lateral movement. Importantly, this detection does NOT confirm the intent behind the modification; it indicates only that a change was made to GPOs.
+  The primary telemetry sources include Windows Security Auditing logs, specifically Event IDs 5136 (Directory Service Changes) and 5145 (File Share Access). The potential security impact is significant; malicious logon scripts could facilitate data exfiltration or create backdoors. However, this detection does NOT confirm that the change is malicious on its own—legitimate administrative actions can result in similar GPO modifications.
 
   ### Investigation Steps
 
-  - **Check Event IDs 5136 and 5145 for changes:** Review security logs for Event ID 5136, which indicates modifications to GPOs, and Event ID 5145 for access to the SYSVOL share. Look for changes aligned with the attributes containing 'gPCMachineExtensionNames' or 'gPCUserExtensionNames'.
+  - **Review Event ID 5136:** Check logs for Event ID 5136 in the Security Event log. Look for changes to the 'gPCMachineExtensionNames' or 'gPCUserExtensionNames' attributes that include the identifiers '42B5FAAE-6536-11D2-AE5A-0000F87571E3'. Compare timestamps with known maintenance windows for legitimate admin changes.
 
-  - **Evaluate the script path and file names:** Analyze the given share name ending with `\SYSVOL`, and confirm associated file paths for scripts in GPOs, specifically those containing 'scripts.ini' or 'psscripts.ini'. Confirm legitimacy based on known administrator practices.
+  - **Examine Event ID 5145:** Investigate Event ID 5145 logs for access to the '\SYSVOL' share. Verify user accounts making the changes; expected behavior includes changes made by domain administrators, typically during business hours.
 
-  - **Identify who modified the GPO:** Look at the `securityIdentifier` field in Event ID 5136. Cross-reference this with user roles to ascertain whether the modification was made by authorized system administrators or potentially by an unauthorized user.
+  - **Analyze Share Name Changes:** Check for modifications where the ShareName ends with '\SYSVOL' and the RelativeTargetName includes '\scripts.ini' or '\psscripts.ini'. Any additions of unexpected scripts should be flagged for further analysis.
 
-  - **Verify context of the modification:** Consider the time of the modification. Legitimate changes are often documented in a change management system. If this modification coincides with unusual user activity, more investigation is warranted.
+  - **Identify Malicious Indicators:** Flag any changes that include access list entries with '%%4417', indicating a write-access modification to a crucial resource. If detected outside of expected admin activity, correlate with other suspicious behaviors.
 
-  - **Review access list for unauthorized changes:** Investigate the modification’s access list for occurrence of '%%4417', which would indicate an unauthorized script execution privilege. Validate that those listed possess the necessary permissions.
+  - **Validate Expected Behavior:** Cross-reference GPO changes with documented organizational practices. Legitimate changes would typically involve defined standard operating procedures (SOP) by IT staff and are generally logged with appropriate justifications.
+
+  - **Assess Organizational Asset Impact:** Determine the role of the affected object (user or computer) and its criticality. Modifications on high-privilege accounts or key infrastructure components pose a more significant risk.
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential for an attacker to exploit it for persistent access. The impact depends on the criticality of the affected systems, particularly if they are domain controllers or user environment configurations. This technique is weaponized in various environments, making it essential to assess potential malicious intentions behind the change.
+  This alert is of medium severity. If malicious, it can compromise user environments and create long-term access for adversaries. The likelihood of abuse is elevated given that this technique is weaponized in various attack frameworks, particularly in organizations with inadequate GPO monitoring.
 
   ### Blind Spots and Assumptions
 
-  Detection relies on the comprehensive configuration of Windows auditing to capture all relevant modifications. If auditing settings for GPO changes are disabled, this will limit detection efficacy. Legitimate administrative changes may frequently trigger this alert; therefore, contextual investigation is essential. Companion detections would include monitoring for unusual file creating or modifying activities in SYSVOL that further correlates with GPO modifications, reinforcing comprehensive monitoring.
+  Detection may be limited by potential logging gaps if auditing policies are not correctly configured or if relevant logs are overwritten. Administrative changes for legitimate purposes may inadvertently trigger this alert, complicating investigations. A related detection to consider is monitoring for unusual process creation from scripts associated with these changes, such as via Sysmon (Event ID 1) or PowerShell logging (Event IDs 4103, 4104).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -17,8 +17,8 @@ references:
 author: Matt Anderson (Huntress)
 date: 2025-07-09
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   category: process_creation
   product: windows
@@ -43,28 +43,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the disabling of the Windows Defender Event Tracing for Windows (ETW) Autologger sessions via `reg.exe`. An adversary may use this technique to stop logging crucial security events, which facilitates their ability to execute malicious activities undetected. This behavior fits into the MITRE ATT&CK framework under the tactic "Defense Evasion" and the technique ID T1562.001 (Disable or Modify Tools).
+  This Sigma rule detects the use of `reg.exe` to disable Windows Defender's WMI Autologger sessions for Defender API and Audit events. The likely attacker objective is to evade security monitoring by stopping the logging of critical security events, thus obfuscating their malicious activities. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0005) and specifically the technique of Event Triggering (T1685).
 
-  The primary telemetry source for this rule is process creation logs from Windows, particularly tracking commands invoking `reg.exe` with specific parameters. If this activity is indeed malicious, it indicates a significant risk to system integrity and security monitoring capabilities. It is essential to note that this detection alone does not confirm malicious intent, as there could be legitimate administrative or configuration changes that lead to similar command usage.
+  The primary telemetry source is process creation logs, specifically looking for `Image` and `CommandLine` fields that indicate the invocation of the `reg.exe` utility to manipulate WMI autologger sessions. If exploited successfully, this could lead to undetected malicious behavior, undermining the effectiveness of the enterprise’s security posture. It is essential to note that this detection does NOT confirm malicious activity on its own; it may be a legitimate administrative action if performed in the context of authorized system configurations.
 
   ### Investigation Steps
 
-  - **Identify the process creation event:** Check for Security Event ID 4688 (process creation) or Sysmon Event ID 1 to locate instances where `reg.exe` was executed. Review the `CommandLine` field for any suspicious arguments.
+  - **Review Process Creation Events:** Check for Event ID 4688 (Windows Security) or Sysmon Event ID 1 related to `reg.exe`, looking specifically at the `CommandLine` field for the presence of path `\Control\WMI\Autologger\DefenderApiLogger\Start`.
 
-  - **Review command arguments:** Look for the exact command-line arguments used, specifically those targeting the paths `\Control\WMI\Autologger\DefenderApiLogger\Start` or `\Control\WMI\Autologger\DefenderAuditLogger\Start`. Malicious indicators would include `add` with a value of '0' indicating that the logging is disabled.
+  - **Identify Malicious CommandLine Use:** Analyze commands containing both `add` and `0` in the `CommandLine`. This indicates an attempt to disable logging, which is a strong indicator of malicious intent when seen in conjunction with the other context.
 
-  - **Compare against legitimate usage:** Assess if this command execution correlates with legitimate system maintenance tasks. Common benign activities would be associated with automated updates or expected configuration changes by IT staff.
+  - **Assess Host Role:** Understand the affected host's role—if it's a production server or part of the SOC, prioritize investigation due to the heightened risk of critical system evasion.
 
-  - **Examine supplementary logs:** Investigate Windows Event Logs (specifically the System logs for ETW events) for any related entries surrounding the time this command was executed. Look for indications of alterations to Windows Defender settings or unusual service behavior.
+  - **Compare to Legitimate Behaviors:** Investigate recent administrative tasks on the system. Legitimate configurations might include enabling or managing logging settings; verify if recent `reg.exe` usage aligns with authorized administrative actions by checking user accounts and timestamps.
 
-  - **Cross-reference with other detections:** Verify if related detections in your SIEM (such as those identifying unauthorized modifications to security logging features) have triggered around the same time for a more comprehensive investigation.
+  - **Confirm Logging Configuration:** Ensure that WMI logging configurations are correctly set, including expected autologger session states. Missing logs can indicate a more significant issue.
+
+  - **Investigate Compromise Indicators:** Check for other signs of compromise on the host, such as unusual network traffic or processes. High confidence indicators such as known malware hashes or connections to suspicious IP addresses should be prioritized.
 
   ### Prioritization
 
-  This alert is considered high severity due to the criticality of the affected system – Windows Defender serves as a primary line of defense on endpoints. The likelihood of a malicious actor using this disabling technique is high, particularly in sophisticated attack scenarios where stealth is required. Disabling security logging is a known tactic among adversaries looking to evade detection.
+  This alert is rated as high severity due to its potential impact on monitoring capabilities and incident response. The disabling of logging mechanisms can often be weaponized by attackers to evade detection during malicious activities. Given the sensitivity of the affected systems, swift verification and remediation actions are crucial.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited in scenarios where `reg.exe` is executed in a legitimate context by authorized administrators, potentially leading to false positives. Comprehensive log source configurations are required, ensuring both process creation and relevant ETW logs are enabled for effective detection. Additionally, administrative tools or scripts may trigger similar commands that are legitimate, which highlights the need for context in investigation. Companion detections, such as monitoring of ETW modifications or changes in Windows Defender settings, can bolster detection coverage in this area.
+  Detection may be limited due to legitimate administrative activities that might also disable logging for maintenance purposes. Ensure that WMI event logging is correctly configured to detect similar attempts reliably. Additionally, a companion detection might include monitoring for WMI event queries to catch potentially malicious filtering or other modifications to WMI processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

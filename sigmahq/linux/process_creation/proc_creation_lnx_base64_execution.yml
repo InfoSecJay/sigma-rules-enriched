@@ -10,7 +10,7 @@ author: pH-T (Nextron Systems)
 date: 2022-07-26
 modified: 2023-06-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1140
 logsource:
   product: linux
@@ -36,28 +36,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of shell commands that use base64 encoded payloads piped to a shell interpreter, which is a common behavior associated with obfuscation techniques used by attackers to evade detection. The likely objective behind this behavior is to execute malicious scripts or commands while masking the actual content from security monitoring tools. This activity maps to the MITRE ATT&CK tactic for Defense Evasion, specifically Technique T1140 (Obfuscated Files or Information).
+  This Sigma rule detects the execution of processes in Linux that utilize base64 encoded input piped to shell commands like `bash` or `sh`. This behavior is often indicative of attempts to obfuscate malicious payloads, as attackers may use base64 encoding to disguise command execution. The likely objective of the attacker is to execute arbitrary commands or payloads, potentially leading to further system compromise or lateral movement.
 
-  The primary telemetry sources for this detection are Linux process creation logs, specifically monitoring the CommandLine fields in process creation events. The security impact of such activity could be significant, as code execution via obfuscated commands can lead to system compromises, data exfiltration, or lateral movement within the network. However, it is essential to note that this detection does not confirm that the command executed was malicious; it merely indicates that an obfuscated command was initiated.
+  The relevant MITRE ATT&CK tactics include **Execution** (TA0002) and specifically the technique **Command and Scripting Interpreter: Unix Shell** (T1059.004). Primary telemetry sources include Linux process creation logs that display command line arguments, specifically those containing the `CommandLine` field. If exploited maliciously, this type of activity could lead to complete system takeover. However, it’s important to note that this detection does NOT confirm malicious intent on its own, as legitimate system administration tasks may utilize similar techniques for valid purposes.
 
   ### Investigation Steps
 
-  - **Examine the process command line:** Refer to the `/proc/[PID]/cmdline` or search for matching processes via `ps -aux | grep [process name]`. Check for base64 encoded strings and how they are piped to `bash` or `sh`.
+  - **Review process command line arguments:** Check for Event IDs related to process creation, specifically `auditd` logs or `/var/log/secure`. Look for any instances of `base64` together with `bash` or `sh`. Malicious examples will often contain suspicious domain names or scripts that are not standard operations.
 
-  - **Review historical process execution data:** Use Syslog or audit logs (e.g., `auditd` logs) for Event ID 121. Look for similar patterns of encoded command executions occurring around the same time to identify any repeat offenders or patterns.
+  - **Verify the parent process:** Cross-reference the `ppid` (parent process ID) from the process creation logs. Legitimate commands are often spawned from known processes (e.g., admin user ID, `ssh`). Any unusual parent processes can indicate an attack.
 
-  - **Identify legitimate usage patterns:** Investigate common administrative tasks on this system. If the command execution involves known scripts or administrative activities using base64 encoding for legitimate configurations, note this as benign.
+  - **Assess user account activity:** Look at authentication logs (`/var/log/auth.log` or relevant `auditd` logs) for any suspicious user accounts executing these commands. Activities from non-administrative privilege accounts can indicate compromise.
 
-  - **Corroborate with network activity:** Check for related outbound connections or suspicious payload delivery using network logs (e.g., `iptables` logs, `tcpdump`). Look for anomalies, such as unexpected external destinations following the detected command execution.
+  - **Identify base64 payload length and content:** Review the base64 encoded payload. Check for unusually long strings or strings that decode to known malicious commands or scripts. This can be done by decoding the input and analyzing the output.
 
-  - **Check for known indicators of compromise:** Compare hashes of the downloaded scripts (if available) against threat intelligence databases to identify known malicious signatures.
+  - **Check for scheduled tasks or persistence mechanisms:** Investigate if any cron jobs or systemd units have been modified to include malicious payloads. Look for entries in `/etc/crontab`, `/var/spool/cron/`, or systemd service definitions that reference shell commands with base64 content.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential impact on the affected Linux system, where compromise could lead to data breaches or further malware propagation. The likelihood of malicious use is heightened as such techniques are common among adversaries focusing on evading detection while executing payloads.
+  This alert should be considered of medium priority due to the potential impact on system integrity and the likelihood of being used by attackers for malicious objectives. While it does not confirm compromise on its own, the usage of obfuscated command execution patterns is commonly weaponized in real-world attacks and warrants swift investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the encoding methods used (e.g., different encoding techniques may not be captured). Necessary log sources include comprehensive process creation logging and adequate auditing configurations across Linux systems for effective behavior detection. Legitimate system administration or automation routines, which might legitimately use base64 encoding, could falsely trigger this alert. A related detection to enhance coverage is monitoring for suspicious network activity associated with known command and control (C2) behavior.
+  This detection can be limited by evasion techniques such as the use of non-standard encoding methods or alternative shell execution methods that do not utilize piping. Reliable detection requires comprehensive logging configurations, such as enabling `auditd` for process creations. Legitimate administrative tasks may trigger this alert, especially during script execution. It is advisable to enhance coverage with additional detection for suspicious command-line activities or unusual network connections initiated from processes invoking base64 commands to strengthen context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

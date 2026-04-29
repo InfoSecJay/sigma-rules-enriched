@@ -10,7 +10,7 @@ author: frack113
 date: 2022-04-04
 modified: 2025-10-22
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1564.001
 logsource:
   category: registry_set
@@ -57,30 +57,28 @@ simulation:
 note: |
   ### Technical Context
 
-  This rule detects modifications to the Windows registry aimed at allowing a driver or service to be loaded during Safe Mode using the `\Control\SafeBoot\Minimal\` or `\Control\SafeBoot\Network\` paths. Attackers might employ this technique to maintain persistence even under a minimal startup environment, enabling them to execute malicious payloads or maintain control over compromised systems. This behavior aligns with the MITRE ATT&CK technique T1564.001: “Service Registry Permissions Weakness.”
+  This rule detects modifications to the Windows Registry aimed at ensuring that specific services are loaded in Safe Mode, which attackers may implement to maintain persistence on compromised systems. The likely attacker objective is to evade detection while maintaining control over the system during troubleshooting or incident response activities. This behavior aligns with the MITRE ATT&CK tactic of Persistence (TA0003) and specifically targets Windows Registry modifications for safe mode entry (T1112).
 
-  The primary telemetry source for this detection is Windows registry event logs, specifically focusing on changes to registry paths associated with Safe Mode service persistence. If malicious, this could lead to situations where attackers bypass defenses and establish long-lasting footholds in the environment. Importantly, this detection does not confirm malicious intent on its own, as legitimate applications may also modify these registry keys.
+  The primary telemetry sources include Windows Registry logs that capture changes to the Registry paths associated with Safe Mode services, particularly those targeting `\Control\SafeBoot\`. The potential security impact if malicious includes unauthorized persistence mechanisms remaining active during system recovery or incident response. Notably, this detection does NOT confirm that the behavior is malicious without additional context or corroborating evidence.
 
   ### Investigation Steps
 
-  - **Review registry changes:** Examine Windows Registry Event ID 4657 logs for changes to `HKEY_LOCAL_MACHINE\ControlSet001\Control\SafeBoot\Minimal\` and `HKEY_LOCAL_MACHINE\ControlSet001\Control\SafeBoot\Network\` for timestamps and context of the modification.
+  - **Check registry changes:** Review Registry Event logs (Security Event ID 4657) for modifications to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\SafeBoot\Minimal\` and `\Control\SafeBoot\Network\`. Look for entries that add non-standard services without known administrative changes.
 
-  - **Identify process origin:** Check for the originating process of the registry change by reviewing Security Event ID 4688 logs. Look for processes like `msiexec.exe`, `MBAMInstallerService.exe`, or `%Path%\HexnodeAgent.exe` to see if they match expected behaviors for legitimate applications.
+  - **Correlate with recent activity:** Identify any unusual process creation events (Security Event ID 4688 or Sysmon Event ID 1) related to `msiexec.exe`, `MBAMInstallerService.exe`, or `HexnodeAgent.exe` around the time of the Registry modification. Malicious indicators include unexpected execution of these images by non-administrative users.
 
-  - **Compare against known services:** Validate modifications against existing services on the system by referencing the `Services` management console (`services.msc`). Ensure that no unauthorized services are set to start in Safe Mode.
+  - **Analyze affected services:** Investigate the services listed under `\Control\SafeBoot\Minimal\` and `\Control\SafeBoot\Network\` for names found in the alert. Confirm their legitimacy and operational necessity against a baseline of expected service configurations within the enterprise.
 
-  - **Check for evasion attempts:** Review System Event ID 7045 logs for other service-related anomalies to determine if additional persistence mechanisms are being deployed alongside the registry modification.
+  - **Identify legitimate use cases:** Cross-reference with authorized operational changes, such as scheduled maintenance or updates to known security applications that might temporarily adjust service load paths. Legitimate configurations typically do not include custom or non-standard entries for services not installed enterprise-wide.
 
-  - **Analyze endpoint roles and criticality:** If modifications are found on critical endpoints (e.g., Domain Controllers or Servers), initiate an immediate investigation to understand the context of the changes and assess potential security risks.
-
-  - **Determine benign behavior:** Investigate if similar registry modifications match known safe applications in your environment, especially those associated with security software or legitimate management tools.
+  - **Investigate user accounts:** Review user account authentication logs (Windows Event IDs 4624 and 4625) to determine if any unauthorized accounts have manipulated the Registry entries associated with Safe Mode, indicating a potential compromise.
 
   ### Prioritization
 
-  This alert is assessed as high priority due to the potential impact on critical systems if an attacker maintains persistence through registry modifications. The likelihood of malicious abuse is significant, as servicing in Safe Mode is often weaponized to evade detection. Prompt analysis is required to mitigate risks.
+  This alert is high severity due to the critical role that Safe Mode plays in system recovery and incident response. The likelihood that attackers may exploit this persistence technique is significantly high, as manipulating safe mode is a common tactic utilized to maintain control over systems during recovery scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the presence of legitimate activities that could inadvertently create similar registry changes, such as updates from trusted software. Reliable detection depends on having comprehensive logging configured for registry changes and the associated processes. Similar alerts based on known malicious registry path modifications, like other Safe Mode persistence techniques, can strengthen coverage against this attack vector.
+  Detection may be limited if the necessary Windows Registry logging is not properly configured or enabled. Adversaries may use techniques to obfuscate their changes or cleverly disguise legitimate services to mask their malicious modifications. Common legitimate activities that could trigger the alert include system updates performed by IT admins or legitimate changes made by scheduled tasks. A related detection to strengthen coverage would be monitoring for process drops associated with system-critical processes (e.g., leveraging Sysmon to track process creation and termination events).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

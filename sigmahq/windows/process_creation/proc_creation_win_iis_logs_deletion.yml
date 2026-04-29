@@ -12,7 +12,7 @@ references:
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2025-09-02
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070
 logsource:
   category: process_creation
@@ -49,30 +49,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to delete IIS log files via command-line utilities, which is a common method attackers use to erase traces of their activities. By removing these log files, malicious actors seek to evade detection after compromising web applications hosted on IIS servers, typically aiming to conduct further malicious activity without raising alerts.
+  This Sigma rule detects command-line attempts to delete IIS log files, a common behavior exhibited by attackers attempting to obfuscate their actions after compromising a system. The primary objective of the attacker is to erase their footsteps, making it difficult for defenders to trace malicious activity and correlate events leading to data breaches or unauthorized access. This behavior aligns with the MITRE ATT&CK framework under the tactic "Defense Evasion" (TA0005) and the technique "Indicator Removal on Host" (T1070).
 
-  The key relevant MITRE ATT&CK tactic is **Defense Evasion (TA0005)**, specifically the technique **Indicator Removal on Host (T1070)**. Primary telemetry sources include Windows process creation logs (Event ID 4688 and Sysmon Event ID 1) that capture command-line activities. If successful, the deletion of IIS logs significantly impacts forensic analysis and incident response, as it can obscure evidence of unauthorized access or data theft. However, this detection does NOT confirm that the deletion was malicious on its own; legitimate maintenance tasks may also trigger this alert.
+  The primary telemetry sources for this detection include Windows process creation logs, specifically monitoring processes like `cmd.exe` and `powershell.exe`, with an emphasis on command line arguments that reference the IIS log directory located at `\inetpub\logs\`. If successfully executed, this behavior could significantly impair the organization’s ability to understand the scope of an incident or previous attack activities. Importantly, this detection does NOT confirm malicious intent by itself, as legitimate log deletion can occur during routine maintenance.
 
   ### Investigation Steps
 
-  - **Verify the process origin**: Check the parent process ID (PPID) for any suspicious parent processes in Event ID 4688. Legitimate deletion tasks usually originate from scheduled tasks or administrative tools like IIS Manager.
+  - **Check process creation logs:** Review Security Event ID 4688 for command-line invocations of `cmd.exe`, `powershell.exe`, or `powershell_ise.exe` that contain delete commands targeting `\inetpub\logs\`. Look for combinations like `del`, `erase`, or `remove-item` along with the full path to the log directory.
 
-  - **Review command-line arguments**: Inspect the CommandLine field in Event ID 4688 for keywords such as 'del', 'erase', or commands specific to IIS logs. Look for commands involving `\inetpub\logs\`; repeated or unusual entries may indicate malicious intent.
+  - **Identify high-confidence malicious commands:** Specifically search for command lines that include patterns like `del \inetpub\logs\*` or similar delete commands. This could indicate an explicit attempt to clear logs without legitimate reason, such as during an attack.
 
-  - **Analyze the frequency of deletions**: Compare the timestamp of the deletion events against normal log retention policies. Consistent deletion of recent log files (within retention policy limits) may indicate an attacker trying to cover their tracks.
+  - **Inspect scheduled tasks and scripts:** Determine if the deletion of logs coincides with any legitimate scheduled tasks or maintenance scripts. Cross-reference with Task Scheduler logs (Event ID 106) to verify if there are any pre-existing cleanup tasks that would explain the activity.
 
-  - **Identify legitimate log retention processes**: Determine if regular maintenance tasks or scripts are scheduled that may include log cleanup. If such tasks are identified, they may explain benign command-line deletions.
+  - **Evaluate log retention policies:** Review organizational policies regarding IIS log retention and deletion to discern if there is a legitimate case for the deletion. Check standard maintenance windows and procedures that may align with the timestamps of the alert.
 
-  - **Correlate with other alerts**: Check for correlated alerts or unusual user behavior in the days leading up to the deletion event. Cross-reference with security incidents or unapproved access logs that may suggest a wider compromise.
-
-  - **Detect file system changes**: Validate whether `iis logs` subdirectory files are consistently missing using file system auditing or Sysmon FileCreate events (Event ID 11). Missing recent log entries after suspicious deletions can confirm malicious activity.
+  - **Examine related user behavior:** Look into the user account associated with the execution context of the command. Determine if this behavior is unusual for that user and review user activity for any previous anomalies or unrelated access.
 
   ### Prioritization
 
-  This alert should be considered of medium severance due to the potential impact of the affected IIS web servers, which can host critical enterprise applications. The likelihood of malicious abuse is moderate, as attackers frequently aim to conceal activities post-initial compromise. Deletion of IIS logs is a known method employed in targeted attacks.
+  This alert should be considered medium severity. An affected IIS server is critical to an organization's operations, and there is a reasonable likelihood that malicious actors will exploit the ability to manipulate log files to cover their tracks. This behavior is commonly weaponized during the later stages of an attack lifecycle.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss cases where attackers use alternative means for log deletion or employ specialized tools that do not rely on standard command-line interfaces. Reliable detection requires monitoring command-line activity across all IIS-hosting servers and ensuring that audit logging is configured appropriately. Legitimate periodic log cleaning tasks may also trigger this alert, such as scheduled maintenance scripts. A related detection rule could encompass unauthorized access attempts to log directories to strengthen coverage on typically exploited systems.
+  Detection may be limited by the absence of thorough logging configurations. If command-line logging is not enabled, actions may go unreported. Additionally, legitimate activities such as routine log file maintenance or automated clean-ups may unintentionally trigger this alert. Monitoring for similar techniques, such as modification of log settings or file access events within the log directory (`Event ID 4663`), can provide enhanced context for the alert and strengthen detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

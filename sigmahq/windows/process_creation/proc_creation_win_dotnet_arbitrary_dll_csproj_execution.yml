@@ -11,7 +11,7 @@ author: Beyu Denis, oscd.community
 date: 2020-10-18
 modified: 2025-10-08
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -43,30 +43,26 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of arbitrary DLLs or unsigned code via `.csproj` files using `dotnet.exe`. Attackers may leverage this behavior to execute malicious scripts or payloads without detection, typically aiming to take control of the system, deploy additional malware, or exfiltrate data. This activity aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0005), specifically the technique for Executing CLI Commands (T1218).
-
-  The primary telemetry source is Windows process creation events, particularly Event ID 4688 from the Security log, as well as Sysmon Event ID 1. If malicious, successful execution may lead to deeper persistence or lateral movement within the environment. Notably, this detection does NOT confirm malicious intent on its own; legitimate use of `dotnet.exe` for valid applications or developer work may trigger the rule.
+  This Sigma rule detects executions of arbitrary DLLs or unsigned code initiated by `dotnet.exe` using `.csproj` projects or DLL files. The likely attacker objective is to execute malicious code under the guise of a legitimate .NET application, commonly used for bypassing security controls. The relevant MITRE ATT&CK technique is "Executable File Execution" (T1203) and "Code Signing" (T1218). The primary telemetry sources include Windows process creation logs with particular significance on Event ID 4688 and Sysmon Event ID 1, while the detection focuses on command line parameters tied to `.csproj` and `.dll` files. Malicious success could lead to system compromise or lateral movement within the environment. This detection does not confirm malicious activity on its own; further investigation is required to understand the context of the execution.
 
   ### Investigation Steps
 
-  - **Check process creation details**: Review Security Event ID 4688 and Sysmon Event ID 1 for the `dotnet.exe` process creation. Look for command lines that end in `.csproj` or `.dll`, indicating possible malicious execution.
+  - **Review process creation logs**: Check Security Event ID 4688 and Sysmon Event ID 1 for executions of `dotnet.exe` containing ".csproj" or ".dll" in the CommandLine field. Behavior outside expected patterns may indicate malicious use.
 
-  - **Identify suspicious parent processes**: Examine the ParentImage field in Event ID 4688. Legitimate executions may originate from known development environments (e.g., Visual Studio). Anomalous parent processes should be treated as a red flag.
+  - **Identify parent process**: Inspect the ParentImage field for the presence of `notepad++.exe` in conjunction with CommandLine arguments. Legitimate executions may include administrative tasks but should not include unexpected DLL paths.
 
-  - **Scrutinize command line arguments**: Investigate any command lines containing `'-cscs_path:'` or paths leading to unusual directories such as `C:\ProgramData\CSScriptNpp\`. Malicious usage often involves obscure paths or unfamiliar DLLs.
+  - **Analyze associated file creation**: Look for file creation or modification events related to the command executed (e.g., DLLs in `C:\ProgramData\CSScriptNpp\`). Verify timestamps and file integrity to check for unauthorized changes.
 
-  - **Review potential signatures of compromise**: High-confidence malicious indicators include unusual parent processes spawning `dotnet.exe` with this command line syntax or paths not normally utilized within corporate environments (e.g., temp directories).
+  - **Correlate with user activity**: Match the execution time with user activity logs. Legitimate usage typically may occur during scheduled tasks or development activities. Look for overlaps with known administrative operations.
 
-  - **Validate expected behavior**: Cross-reference with known legitimate usage, such as software development or scripts run by authorized personnel. Authorized development activity will typically involve recognized script headers or established project paths.
-
-  - **Analyze file creation/execution artifacts**: Look for file creation events or modifications in directories involved (e.g., the directory where the script DLL resides). Check for unusual file timestamps or unexpected file types created by the execution.
+  - **Check the integrity of DLLs**: Verify signatures and hashes of executed DLLs. High-confidence malicious indicators include unsigned DLLs or those coming from untrusted sources.
 
   ### Prioritization
 
-  The alert carries medium severity due to potential impacts on critical systems, especially when execution occurs in sensitive environments like production servers. The likelihood of abuse is moderate, given that unauthorized DLL executions are a common tactic for malicious actors.
+  This alert is of medium severity due to the potential impact on compromised systems, especially those with administrative privileges. While this behavior can be used maliciously, it may also arise from legitimate administrative tasks, warranting careful review. Such execution methods are increasingly being weaponized, making detection vital.
 
   ### Blind Spots and Assumptions
 
-  This detection may have limitations around false positives from legitimate administrative or development activities targeting `.csproj` files. Reliable detection requires complete process creation logs, as incomplete logging may miss relevant events. Common legitimate activities such as routine software development or updates may trigger this alert, which should be easily distinguishable from unauthorized executions. A companion detection rule for monitoring unauthorized use of `powershell.exe` could strengthen coverage against execution paths leveraged during attacks.
+  This detection may miss exploits that utilize legitimate .NET frameworks or signed code, which could evade this rule. It requires accurate logging of process creations and appropriate filtering to avoid false positives from legitimate administrators using dotnet for development purposes. Common legitimate activities that may trigger this alert include coded app deployment or testing scenarios. A related detection to consider would be one focusing on direct invocation of .NET API calls that could signal an attempt to execute shell commands or manipulate the environment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,7 +9,7 @@ author: Jimmy Bayne (@bohops)
 date: 2024-01-02
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -29,30 +29,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of `dotnet-trace.exe` with specific command-line arguments indicative of synthetic data collection or tracing of application processes. The likely attacker objective is to execute a child process for the purpose of collecting sensitive application data or manipulating the functionality of a target application surreptitiously. This behavior correlates with the MITRE ATT&CK tactic of Execution (TA0002) and technique of Command-Line Interface (T1202).
+  This detection identifies the execution of child processes via `dotnet-trace.exe`, specifically when command-line arguments indicate data collection activities. Adversaries may use this tool to stealthily collect telemetry from .NET applications, enhancing their understanding of system behaviors or security controls as part of their reconnaissance phase. The relevant MITRE ATT&CK tactic is Execution, with the technique being T1218: Signed Binary Proxy Execution.
 
-  The primary telemetry source includes process creation logs, particularly Security Event ID 4688 on Windows environments. If malicious, this behavior may lead to unauthorized access or data exfiltration from applications. Importantly, this detection does NOT confirm that a malicious activity is occurring in isolation; the command's context and outcome must be considered.
+  Primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process execution details, including command-line arguments and parent-child process relationships. If used for malicious purposes, this activity could lead to data being collected for further exploitation or lateral movement. Importantly, this detection does NOT confirm malicious intent by itself; legitimate use cases, such as debugging applications, may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID 4688 for instances of `dotnet-trace.exe`. Analyze the account used to run it; unfamiliar or unauthorized accounts may indicate malicious intent.
+  - **Check process creation logs**: Review Security Event ID 4688 and Sysmon Event ID 1 for instances of `dotnet-trace.exe` running. Look for command-line arguments that include `-- collect`, indicating a potential malicious intent.
 
-  - **Examine command-line arguments:** Look for `-- collect` in the CommandLine field to assess if tracing was initiated. Legitimate tracing requires proper context; if seen in unusual circumstances, it may be suspicious.
+  - **Validate parent process relationships**: Investigate the parent process ID of `dotnet-trace.exe`. Legitimate processes like `dotnet.exe` are expected, whereas execution from an unusual parent (e.g., `cmd.exe` or `powershell.exe`) may indicate malicious activity.
 
-  - **Identify parent process:** Correlate the detected execution with its parent process using process tree logs. Investigate if a known or legitimate process initiated it; unexpected parent processes could indicate malicious usage.
+  - **Correlate with application activity**: Examine the targeted application being traced. If it’s a critical application or a known vulnerable service, this raises concern. Cross-reference with application logs, if available, for any unauthorized access attempts.
 
-  - **Assess timing of execution:** Compare the execution time with recent changes or incidents in the environment. If `dotnet-trace.exe` was run during an incident, it could signify an attacker’s attempt to gather information.
+  - **Identify the execution context**: Look for the user account that initiated the process. Legitimate use is often executed by developers or support personnel, while unexpected accounts may warrant further scrutiny.
 
-  - **Monitor for known malicious indicators:** Look for high-confidence patterns in command-line arguments, including suspicious flags that would not typically be associated with normal application tracing.
-
-  - **Determine legitimate use cases:** Document any recent application debugging or tracing operations by IT or development teams. Cross-reference these with timestamps of detected events to validate benign activity.
+  - **Review for increased telemetry collection**: Investigate any compiled traces or telemetry data being exported or sent externally. Check for file creation events (Security Event ID 4663) and look for unusual network behavior indicating exfiltration.
 
   ### Prioritization
 
-  This alert is of medium severity due to the potential risk of data exposure or unauthorized alterations to applications, particularly when executed on critical systems. The behavior could be leveraged by adversaries to collect sensitive information, making it a concern for security monitoring.
+  This alert is considered medium severity due to the potential impact on sensitive systems, particularly if `dotnet-trace.exe` is misused for information gathering. The likelihood of malicious abuse is moderate, as the tool can be weaponized but is also commonly used for legitimate debugging purposes.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of comprehensive logging configurations or if logging is disabled for certain accounts. Legitimate use of `dotnet-trace.exe` by developers or support teams for debugging can trigger this alert. A companion detection to consider is monitoring processes that invoke `dotnet-trace.exe`, as this adds a layer of context to flag potentially harmful usage.
+  Detection limitations include the possibility of missed execution attempts if local security logging is misconfigured or if logs are deleted post-execution. Legitimate activities like debugging by development teams may also trigger this alert. Enhanced coverage could be provided by companion detections that focus on abnormal network behavior or process spawning (e.g., unusual parent-child relationships or uncommon PowerShell script executions).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

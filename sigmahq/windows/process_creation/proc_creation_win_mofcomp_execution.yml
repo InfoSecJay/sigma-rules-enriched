@@ -13,7 +13,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-07-12
 modified: 2023-04-11
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -53,28 +53,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the "mofcomp" utility, which is known to be abused by attackers to install malicious Managed Object Format (MOF) scripts that interact with Windows Management Instrumentation (WMI). The likely attacker objective is to establish persistence or to leverage WMI for further malicious activity, such as executing code or deploying additional payloads. This detection corresponds to the MITRE ATT&CK technique T1218 (System Firmware). The primary telemetry sources include Windows process creation logs (Event ID 4688 and Sysmon Event ID 1), focusing on the command line parameters and parent process relationships. If this behavior is confirmed as malicious, it could lead to unauthorized data access or lateral movement within the environment. Importantly, this detection does NOT alone confirm that an attack is occurring; it signals suspicious activity that requires deeper investigation.
+  This rule detects the execution of `mofcomp.exe` as a child process of suspicious shells or scripts and identifies command-line arguments that may indicate malicious use. Attackers often use `mofcomp.exe`, which adds classes to the WMI repository, to execute malicious Management Object Format (MOF) scripts that can manipulate system settings or persist malware. This behavior fits within the MITRE ATT&CK framework under the tactic "Execution" (TA0002) and the technique "User Execution" (T1203) as attackers leverage this utility to execute code within the Windows environment.
+
+  The primary telemetry sources include Windows process creation logs with `Event ID 4688` and Sysmon `Event ID 1`, which track process creation details and command-line arguments. If the detected behavior is malicious, it can lead to unauthorized system configuration changes and persistence mechanisms for further exploitation. However, this detection does NOT confirm that all executions of `mofcomp.exe` are malicious, as there are legitimate uses for this utility in system administration.
 
   ### Investigation Steps
 
-  - **Review parent process details: ** Check the parent process for "mofcomp.exe" using Security Event ID 4688 and Sysmon Event ID 1. Evaluate whether it is launching from legitimate sources such as `C:\Windows\System32\` or from suspicious paths (e.g., `C:\Users\Public\`).
+  - **Analyze parent process:** Check the `ParentImage` field from `Event ID 4688`. Take note if it is `cmd.exe`, `powershell.exe`, or another suspicious shell. Legitimate uses typically occur from controlled scripts or administrative tools rather than from untrusted sources.
 
-  - **Examine command line arguments: ** Analyze the command line associated with the "mofcomp" execution for the presence of temp directory paths like `\AppData\Local\Temp\` or `\WINDOWS\Temp\`. Legitimate use may include standard operations such as device settings updates; any unusual parameters should be flagged.
+  - **Review command-line arguments:** Investigate the `CommandLine` field for the presence of temp directories or unusual paths. Indicators of malicious use include arguments containing paths like `\AppData\Local\Temp` or keywords like '%temp%'.
 
-  - **Identify malicious indicators: ** Look for indicators of compromise such as unusual file names (e.g., those with `.mof` extensions) located in the `C:\Windows\TEMP\` directory executed via non-standard parent processes such as `cmd.exe` or `powershell.exe`.
+  - **Verify for high-confidence malicious indicators:** Look for instances where `mofcomp.exe` is run with an argument pointing to a MOF file located in a temporary directory. Record any command-line instances that end with `.mof`, as this is a strong indicator of suspicious activity.
 
-  - **Check WMI repository status: ** Use the WMI command-line tool (`wmic`) to query the repository's health and verify that no suspicious MOF classes have been created. Look for unexpected or non-standard entries that could signal malicious modifications.
+  - **Assess related WMI activity:** Cross-reference `Event ID 4663` for any changes to WMI objects around the same time as the `mofcomp.exe` execution. Expected behavior would show limited changes from authorized administrative users rather than high-frequency access from scripts.
 
-  - **Cross-reference user context: ** Investigate the user account associated with this execution to determine if there are any previous alerts or anomalies related to that account in the last 30 days. Look for patterns of anomalous behavior or access rights that might indicate compromise.
-
-  - **Confirm expected behavior: ** Validate if the execution aligns with known processes or maintenance scripts run by system admins. Legitimate administrative actions would typically involve executing "mofcomp" directly associated with known management tools or scripts rather than from temporary directories.
+  - **Check for anomalies in process hierarchy:** Use Sysmon logs (Event ID 1) to observe process trees for this execution. Anomalies, such as a seemingly benign shell spawning `mofcomp.exe`, could indicate potential misuse.
 
   ### Prioritization
 
-  This alert carries a high-severity rating due to the potential impact of unauthorized changes to WMI, which could facilitate further compromise. The nature of "mofcomp.exe" being abused by various threat actors heightens its likelihood as a malicious tactic, making detection and response critical in mitigating potential threats.
+  This alert is of **high severity** due to the potential for significant impact on system security if malicious activity is confirmed. The likelihood of abuse is notable, as `mofcomp.exe` is commonly weaponized in targeted attacks to establish persistence or perform administrative tasks covertly.
 
   ### Blind Spots and Assumptions
 
-  Limitations of this detection include the possibility of missing processes if log collection for parent-child relationships is incomplete or if WMI interaction is established by other means. Legitimate administrative scripts that utilize "mofcomp" for system maintenance could inadvertently trigger this alert. A companion detection rule targeted at monitoring unusual WMI activity or monitoring for known bad MOF scripts may enhance overall security visibility and coverage against these tactics.
+  Detection is limited as legitimate administrative processes may trigger this rule, leading to potential false positives. The absence of historical logging for certain permission levels may obscure malicious actions. Additionally, some attackers may use alternative methods to avoid detection, such as crafting legitimate-looking WMI calls. Similar detections, such as those monitoring unauthorized WMI object modifications (e.g., using WinEvent 4663), can complement this detection for a clearer security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

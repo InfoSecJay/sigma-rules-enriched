@@ -15,8 +15,9 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-01-11
 modified: 2023-03-27
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1197
 logsource:
   product: windows
@@ -77,28 +78,36 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects BITS (Background Intelligent Transfer Service) transfer jobs that download files from direct IP addresses rather than domain names. This behavior could indicate an attempt by an attacker to bypass DNS filtering controls, using BITS as a method to download malicious files or payloads covertly. The likely objective of such an action is to facilitate further exploitation or data exfiltration without raising alarms.
+  This Sigma rule detects BITS (Background Intelligent Transfer Service) jobs that download files from direct IP addresses, which is atypical for legitimate operations within an enterprise environment. The likely attacker objective is to transfer malicious payloads or tools from untrusted IP addresses, often to maintain persistence or execute further attacks. This behavior primarily aligns with the MITRE ATT&CK framework under the tactics of Persistence (T1197) and Execution.
 
-  This detection relates to the MITRE ATT&CK technique T1197: BITS Administration Tool, which falls under the tactic of Defense Evasion. The primary telemetry source includes Windows Event logs, specifically Event ID 16403 signifying a BITS transfer job. If detected, the security impact could be serious, potentially leading to compromised systems or data loss. However, this detection does NOT confirm that the download is malicious without additional context and investigation.
+  The primary telemetry source for this detection is BITS client logs, specifically focusing on Event ID 16403. If malicious, this activity could lead to unauthorized access, data exfiltration, or the introduction of malware into the environment. Importantly, this detection alone does not confirm the intent of the file download—further contextual investigation is necessary to determine if the file is indeed malicious.
 
   ### Investigation Steps
 
-  - **Review Event ID 16403 details**: Check the Windows Event logs for Event ID 16403. Look for the `RemoteName` field to identify the IP address or host from which the file was downloaded. Malicious indicators include non-local IP addresses and known malicious IP ranges.
+  - **Verify BITS Job Details:**
+    Review BITS job logs, specifically Event ID 16403. Focus on the `RemoteName` field to identify the source IP address. If the IP does not belong to a known or trusted entity, it may warrant further scrutiny.
 
-  - **Investigate the downloaded files**: If the download was initiated, validate the content of the files downloaded. Use file integrity monitoring to check for unexpected file creations within critical directories (e.g., System32, User's Downloads). Legitimate BITS usage typically involves downloads from trusted domains.
+  - **Correlate Network Traffic:**
+    Check corresponding firewall logs for outbound connections made to the detected IP address during the time of the BITS job. Look for any anomalous patterns or connections that align with malicious behavior (e.g., unusual ports, spikes in traffic).
 
-  - **Cross-reference with other logs**: Examine other logs (Application logs, Sysmon Event ID 10) to cross-reference process creation and file access patterns related to the BITS service. Look for unusual executable files being run shortly after the download, which may indicate malicious execution.
+  - **Assess File Type and Content:**
+    If the BITS job completed successfully, investigate the file's type and content. Look for indicators of malicious files, such as executable formats or known malware hashes. File properties can be checked in File Explorer or via command line.
 
-  - **Validate system configuration for BITS**: Confirm if the BITS service is utilized correctly as intended for legitimate updates by reviewing group policies and deployed applications that might use BITS for updates. Common benign usage may involve Microsoft products.
+  - **Confirm Legitimate Behavior:**
+    Identify expected legitimate use cases for BITS in the organization, such as software updates or internal file transfers. Compare the detected jobs against these scenarios to classify the activity as benign or suspicious.
 
-  - **Identify historical data**: Review historical BITS transfer jobs on the system to identify any patterns or recurring suspicious activity. Any unexplained transfers outside of established operational procedures are potential red flags.
+  - **Examine Endpoint Activity:**
+    Review Sysmon logs (Event ID 1) for process creation events around the same time as the BITS transfer. Look for processes initiated by unusual or non-standard executables, which could indicate malicious activity.
+
+  - **Investigate Impacted Hosts:**
+    Determine the criticality of the host(s) involved by reviewing asset management records. Sensitive systems, such as servers or workstations with elevated access, should be prioritized for in-depth investigation due to the potential impact of a successful malicious download.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential impact on critical systems if malicious downloads are executed. The likelihood of abuse from direct IP addresses is significant, as attackers may attempt to curry favor from legitimate BITS usage to blend in with normal traffic. Downloading files from direct IPs is a known tactic employed in various attacks.
+  This alert should be treated with high severity due to its potential to indicate malicious activity that can compromise critical systems. The likelihood of exploitation is significant, as BITS can be abused to transfer malicious files without user interaction. The detection of this behavior should prompt immediate investigation given the potential implications.
 
   ### Blind Spots and Assumptions
 
-  Detection might be circumvented if the attacker uses a DNS name, as certain configurations and network conditions might not trigger the alert. Reliable detection requires full BITS logs enabled, ensuring all Event ID 16403 logs are captured and monitored. Legitimate usage might occur if an application or service needs to fetch updates from a known direct IP, impacting the number of false positives. A related detection such as monitoring for the execution of downloaded executables (e.g., via Sysmon Event ID 1) can strengthen coverage and corroborate suspicious activities linked to BITS transfers.
+  Detection may be limited by network configurations that do not log certain BITS operations or by firewall settings that could mask outbound traffic. Additionally, the alert could be triggered by legitimate BITS operations for software updates or data retrieval from internal or trusted sources. A companion detection to consider is monitoring for unusual DNS queries related to the IP addresses involved, which can further confirm intent or context around the BITS job activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

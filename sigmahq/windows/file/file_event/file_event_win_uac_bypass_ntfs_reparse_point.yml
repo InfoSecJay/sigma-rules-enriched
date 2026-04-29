@@ -9,7 +9,6 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-08-30
 modified: 2022-10-09
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -26,26 +25,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects attempts to bypass User Account Control (UAC) using an NTFS reparse point through the manipulation of a specific DLL file (`api-ms-win-core-kernel32-legacy-l1.DLL`). The likely attacker objective is to escalate privileges by leveraging the ability to execute malicious code with higher permissions on a compromised system. This activity aligns with the MITRE ATT&CK technique T1548.002 (Bypass User Access Control). The primary telemetry source for this rule is Windows file event logs, specifically monitoring file system activities in user directories. If malicious, this could allow an attacker to run unauthorized processes with elevated privileges, significantly impacting system integrity and security. However, this detection alone does not confirm that a successful privilege escalation has occurred; additional investigation is warranted.
+  This rule detects the use of NTFS reparse points to facilitate a User Account Control (UAC) bypass via DLL hijacking, specifically targeting the `wusa.exe` executable. The likely attacker objective is to escalate privileges on a Windows system by tricking the system into executing a malicious DLL while bypassing UAC protections. This behavior aligns with the MITRE ATT&CK tactic for Privilege Escalation, specifically technique T1548.002 (UAC Bypass, Reparse Point).
+
+  The primary telemetry sources include Windows File Event logs that capture file access and modification events, with a focus on paths that indicate malicious activity, specifically within the user’s local Temp directory. If successful, this attack would allow an adversary to gain elevated permissions, significantly impacting the integrity and confidentiality of the system. It’s important to note that this detection does NOT confirm exploitation on its own; further investigation is necessary to determine if the UAC bypass was successful or if the action was benign.
 
   ### Investigation Steps
 
-  - **Review file event logs:** Query Event ID 4663 and filter for `TargetFilename` that starts with `C:\Users\` and ends with `\AppData\Local\Temp\api-ms-win-core-kernel32-legacy-l1.DLL` to identify attempts to access or modify the targeted DLL file.
+  - **Identify the suspicious DLL file creation:** Examine File Event logs for any entries indicating access to or the creation of `api-ms-win-core-kernel32-legacy-l1.DLL` in `C:\Users\<username>\AppData\Local\Temp\`. Look for Event ID 4663 (Access Attempt) and focus on actions involving this specific filename.
 
-  - **Correlate with process creation events:** Check Security Event ID 4688 (Process Creation) logs around the same timestamp for suspicious process launches, particularly those involving `wusa.exe` or other known utility tools that could be misused (e.g., `cmd.exe`, `powershell.exe`).
+  - **Check for parent process correlation:** Look for any events indicating that `wusa.exe` initiated the `api-ms-win-core-kernel32-legacy-l1.DLL` file during execution. Cross-reference Event ID 4656 (Handle Access) for the parent process association, specifically `wusa.exe`.
 
-  - **Identify legitimate usage patterns:** Validate whether the user associated with the alert regularly interacts with files in the `Temp` directory or runs system updates, as legitimate users may access similar files legitimately during routine operations.
+  - **Review normal UAC behavior:** Verify legitimate usage patterns for `wusa.exe`. Common legitimate activity includes Windows Update installations, typically occurring in scheduled updates or system patches, which will not involve the creation of the aforementioned DLL.
 
-  - **Examine permissions for targeting user directories:** Review NTFS permissions on the `C:\Users\<username>\AppData\Local\Temp` directory to identify unusual granting or modification and validate normal user access.
+  - **Investigate for additional payloads:** Search for any related reparse point activity within the Temp directory, especially if other DLL files were created or modified around the same timestamp. Cross-reference against known benign files to identify potential signs of multiple payloads.
 
-  - **Look for lateral movement indicators:** Correlate log entries with network activity (Windows Event ID 5156: Windows Filtering Platform) that may indicate connections to unusual or unauthorized remote threats during the same time frame as the elevated privilege attempts.
+  - **Monitor for ongoing suspicious activity:** If a suspected DLL hijack is identified, check the system for signs of persistence via other scheduled tasks or unusual registry modifications, specifically looking at Event IDs 4697 (Service Installation) or 4688 (Process Creation) to detect further attempts at privilege escalation.
 
   ### Prioritization
 
-  This alert holds high severity due to the potential for significant impact on critical systems through unauthorized privilege escalation. The nature of UAC bypass techniques suggests a high likelihood of malicious intent, as such behaviors are commonly exploited in targeted attacks to gain higher access privileges.
+  This alert should be considered high severity due to its potential impact on elevated privileges, which can lead to significant data breaches or system compromise. The likelihood of malicious abuse is high due to the known exploitation techniques utilizing UAC bypass methods. The behavior is recognized as a common tactic used by threat actors to escalate privileges on compromised machines.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss similar UAC bypass attempts that do not utilize the specific DLL pattern identified in this rule. Consistent monitoring of file events and the inclusion of file integrity monitoring tools is necessary for robust coverage. Legitimate admin tasks, such as software installations or updates that may manipulate files in the temp directory, could trigger this alert. Enhancing coverage with companion detections for unusual command-line arguments or known persistence mechanisms may improve investigative context.
+  There may be limitations in detection based on log configurations; if Windows File Auditing is not enabled for the Temp directory, relevant activities may go unnoticed. Legitimate installer activities by trusted applications can trigger this alert, potentially leading to false positives. It is crucial to run companion detections focused on process creation and modification patterns, such as monitoring for unusual command line arguments in Event ID 4688, to enhance detection capabilities against UAC bypass methods.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

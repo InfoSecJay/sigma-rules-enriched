@@ -9,7 +9,6 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-08-30
 modified: 2022-10-09
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -26,30 +25,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects a specific method of User Account Control (UAC) bypass, specifically targeting the modification of processes using the `msconfig` GUI hack associated with the UACMe toolkit (version 55). The objective of the attacker is to escalate privileges on a compromised Windows system by manipulating the `pkgmgr.exe` process located in the local Temp folder without appropriate authorization. This behavior aligns with the MITRE ATT&CK framework under the tactic of Defense Evasion and the technique T1548.002 (Abuse Elevation Control Mechanism: Bypass User Access Control).
+  This rule detects attempts to bypass User Account Control (UAC) by modifying the token of a launched process, specifically targeting the `pkgmgr.exe` located in the user's temporary application data folder. This behavior often correlates with an attacker attempting to gain elevated privileges without user consent, using tactics such as spoofing higher privilege applications. The relevant MITRE ATT&CK tactic is "Privilege Escalation" (T1068) and the technique is "Bypass User Account Control" (T1548.002).
 
-  The primary telemetry source is Windows file event logs, particularly focusing on file creation or modifications. The detection of this behavior could indicate malicious activity that allows bypassing established security protocols and gaining elevated privileges, which, if successful, can lead to further system compromises or lateral movement within an organization. However, it's important to note that this detection does NOT confirm that an attack has been successful—it only identifies an attempt that requires further investigation.
+  The primary telemetry source is Windows file event logs that capture file system activity, particularly events involving modifications to `pkgmgr.exe`. If successful, this could allow attackers to run malicious code with elevated privileges, leading to a compromise of system integrity and confidentiality. Importantly, this detection does not confirm that the action was malicious in isolation; it may occur in legitimate scenarios, particularly if applications manage user processes without foreknowledge of such modifications.
 
   ### Investigation Steps
 
-  - **Review file event logs for `pkgmgr.exe`:** Check Windows file event logs (Event ID 4663) for modifications to `C:\Users\<username>\AppData\Local\Temp\pkgmgr.exe`, focusing on access types indicating changes to the file (e.g., `Write` or `Delete`).
+  - **Examine specific file event logs:** Review Windows file event logs for Event ID 4663 targeting `C:\Users\<username>\AppData\Local\Temp\pkgmgr.exe`. Look for unusual access or modifications in the last 48 hours.
 
-  - **Analyze parent process relationships:** Identify the parent process that initiated `pkgmgr.exe` by examining Event ID 4688 (Process Creation) to ensure it was not spawned from legitimate processes like Windows Update or a trusted application.
+  - **Identify the process hierarchy:** Use Sysmon Event ID 5 (Process Creation) to trace the parent process of `pkgmgr.exe`. Legitimate instances typically arise from trusted administrative tasks; any unexpected parent processes may indicate malicious behavior.
 
-  - **Look for evidence of privilege escalation attempts:** Review the Security Event Log (Event ID 4672) for instances where specific privileges were assigned to the account, such as "SeDebugPrivilege" or "SeTakeOwnershipPrivilege" immediately following the detected file access.
+  - **Check command line parameters:** Validate the execution path and parameters of `pkgmgr.exe` via Sysmon Event ID 1. Malicious invocations will often contain unusual arguments or no arguments compared to legitimate use cases.
 
-  - **Correlate with known software:** Check for the presence of legitimate software that may utilize or interact with `pkgmgr.exe`, such as Windows Update. Legitimate activity often involves processes like `svchost.exe` or `dwm.exe` operating in a normal pattern without unusual file modifications.
+  - **Review user account controls:** Confirm the UAC configuration in use on the host. If UAC is disabled or set to a low level, this could prompt circumvention attempts, also impacting the severity of the alert.
 
-  - **Identify indicators of compromise (IoCs):** If the `pkgmgr.exe` file has an unusually recent modification timestamp or cryptographic hash that does not match known good values, raise the severity as a high-confidence indicator of malicious activity.
-
-  - **Check for the persistence mechanism:** Investigate related auto-start extensibility points (ASEPs) to determine if a malicious actor has established persistence through such modifications. Reviewing Registry HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run may reveal entries used for such purposes.
+  - **Correlate with known malware signatures:** Check the recently created or modified files in the Temp folder using `Get-ChildItem` with a focus on suspicious PE files or known indicators of compromise (IoCs), tying them back to system integrity assessments.
 
   ### Prioritization
 
-  This alert is classified as high severity due to its direct association with privilege escalation techniques that can lead to significant breaches of sensitive data or system control. The impact on the affected system could be profound, especially if the attack is part of a larger campaign. Instances of UAC bypass are commonly weaponized by adversaries targeting Windows environments for lateral movement.
+  This alert is of high severity due to its implications for privilege escalation on critical systems often used in enterprise environments. The likelihood of malicious abuse is high, as UAC bypass methods are commonly weaponized tactics by attackers aiming to escalate their privileges and gain further control over the network.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited due to the potential for obfuscation techniques, such as renaming files or using alternative temporary locations. Compromised systems can log false negatives if logging configurations are insufficient or manipulated. Furthermore, legitimate administrative activities, such as maintenance scripts or software installations, may inadvertently trigger this alert. As a companion detection, monitoring for abnormal process creation patterns or suspicious API calls in conjunction with other tools (e.g., Sysmon) can enhance visibility into potential exploitation attempts.
+  Detection may be limited by legitimate applications that modify temporary files or trigger similar behavior for valid purposes, potentially leading to false positives. Reliable detection relies on comprehensive file event log configurations and the inclusion of Sysmon for detailed process tracking. A related detection that enhances coverage is monitoring for changes in registry keys associated with UAC settings, adding context to UAC modification attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

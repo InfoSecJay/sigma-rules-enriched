@@ -8,8 +8,8 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems), frack113
 date: 2024-05-27
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1055.011
 logsource:
   category: process_access
@@ -34,30 +34,32 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to access processes (specifically common user applications) with excessive permissions, indicated by the "PROCESS_ALL_ACCESS" flag. The likely objective of an adversary triggering this alert is to escalate privileges or manipulate these processes for malicious purposes, such as injecting code or altering behavior. This detection maps to the MITRE ATT&CK framework under the tactic of Privilege Escalation (TA0004) and the technique of Process Injection (T1055.011).
+  This Sigma rule detects process access requests to common Windows applications (e.g., calc.exe, mspaint.exe) where the requesting process is attempting to obtain `PROCESS_ALL_ACCESS` privileges. This behavior is indicative of potential privilege escalation or malicious activity by an adversary attempting to manipulate or interact with benign processes for malicious objectives such as persistence, credential harvesting, or executing further attacks.
 
-  The primary telemetry sources are Windows process access logs, specifically looking at Event ID 4656 ("A handle to an object was requested") and potentially Sysmon Event ID 10 ("ProcessAccess"). A successful malicious access could allow an attacker to manipulate or evade detection by interacting with high-privilege processes. However, it is important to note that this detection does NOT confirm malicious intent on its own; it merely indicates that an uncommon access attempt has occurred.
+  The relevant MITRE ATT&CK tactic is **Privilege Escalation** (TA0004), with the technique being **Access Token Manipulation** (T1055.011). The primary telemetry source for this detection is process access logs from Windows Event IDs, specifically looking at process access attempts. If the rule triggers, it suggests significant security implications as an unauthorized entity may be attempting to gain elevated permissions on a system.
+
+  However, this detection does NOT confirm malicious activity on its own. It should be contextualized with additional investigation to determine the intent behind the access request.
 
   ### Investigation Steps
 
-  - **Check Event IDs 4656 and 10:** Review Windows Security logs (Event ID 4656) for access requests to identified target images. Look for matches with "GrantedAccess" value '0x1FFFFF' and assess the requester's user account and the process ID involved.
+  - **Verify the requesting process:** Examine Event ID 4656 or Sysmon Event ID 10 logs to identify the process attempting access. Look for known benign processes; legitimate user applications should not request such extensive rights on unintended targets.
 
-  - **Identify the Source Process:** On the affected system, determine which process initiated the access request by cross-referencing with Event ID 4688 ("A new process has been created"). Investigate if the source process is legitimate or known for malicious activity.
+  - **Check the user context:** Review the user account associated with the access request in Event ID 4672 logs. If the initiator is a non-admin user account performing actions on system processes, it raises suspicion.
 
-  - **Correlate Access Timing:** Examine the time of the access request against other relevant logs, such as user logon events (Event ID 4624) and process creation logs (Event ID 4688) to understand the context of the activity during that period. Legitimate user activity should align with known working hours and application usage.
+  - **Correlate access pattern with common legitimate use cases:** Identify normal user behavior by reviewing typical user interaction logs for the target image (e.g., Event ID 4688 for process creation), which should show expected applications being used without privileged requests.
 
-  - **Assess User Account Anomalies:** Review user account activity for the account initiating the request. Identify any abnormal behavior, such as access outside of normal hours or a lack of user-to-application correlation, indicating possible credential theft or lateral movement attempts.
+  - **Analyze process privilege levels:** Compare the requested access level (PROCESS_ALL_ACCESS) using Sysmon Event ID 10. If the access level is disproportionately high for the process context, it may indicate an attempted escalation.
 
-  - **Validate Process Integrity:** Check for known benign instances of the identified target images running on the system. If these processes are running with excess privileges alongside unusual parent-child relationships, this could indicate potential exploitation or misuse.
+  - **Seek out exploit indicators:** Look for additional artifacts such as malware signatures or known attacks targeting the identified processes by matching hashes against threat intelligence feeds.
 
-  - **Review File System Changes:** Investigate for any simultaneous changes or temptations in sensitive directories where the target processes reside, such as Program Files or AppData. Look for artifacts that indicate file tampering or binary replacement.
+  - **Evaluate system criticality:** Assess whether the affected system runs security-sensitive applications or holds critical data. Systems with higher criticality may warrant a more cautious and expedited investigation.
 
   ### Prioritization
 
-  The alert is categorized as low severity due to the common use of these target processes in legitimate settings; however, the high permissions requested raise concerns for potential abuse. Since the behavior detected is consistent with common exploit techniques, continued investigation is advised, especially in persistent actors or high-privilege targets.
+  The severity of this alert should be treated as moderate. The presence of `PROCESS_ALL_ACCESS` requests against common applications can indicate privilege escalation attempts, which are often leveraged by adversaries. While this behavior can be benign in certain contexts, the potential impact on sensitive systems increases the urgency of investigation.
 
   ### Blind Spots and Assumptions
 
-  This detection may bypass legitimate administrative actions, like system monitoring tools that require such access for functionality. It relies on the availability of relevant logs; therefore, proper Windows auditing configurations must be enforced to capture all process access events. Furthermore, legitimate automation scripts could inadvertently trigger this alert. To strengthen coverage, consider companion detections that monitor for anomalous user activity or process creation events that may correlate with this suspicious access.
+  This detection might miss cases where attackers use less common access methods or legitimate tools that mimic benign processes. Reliable detection requires logging of all process access attempts, including Event ID 4656, to ensure comprehensive coverage. Common legitimate activities, such as software updates or administrative change management, may trigger alerts. A related detection to strengthen coverage would be monitoring for anomalous process creation (Sysmon Event ID 1), offering additional context to potential privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

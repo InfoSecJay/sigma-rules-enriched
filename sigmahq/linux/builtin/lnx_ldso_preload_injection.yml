@@ -9,9 +9,10 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-05-05
 modified: 2022-10-09
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.006
 logsource:
   product: linux
@@ -25,28 +26,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the presence of the `/etc/ld.so.preload` file, which is often used for code injection attacks by adversaries aiming to execute malicious code within the context of running processes. The attacker’s objective is likely to gain persistence, escalate privileges, or execute malicious payloads without detection. This behavior aligns with the MITRE ATT&CK tactic of **Defense Evasion** and technique **Preload (T1574.006)**.
+  This Sigma rule detects the presence of a `ld.so.preload` file, which can be used by attackers to inject malicious shared libraries into the execution environment of applications. The likely objective of an attacker utilizing this technique is to escalate privileges or persistently execute code without alerting typical defensive mechanisms. This behavior aligns with the MITRE ATT&CK tactic for Persistence and the technique T1574.006 (Loadable Kernel Module and Driver).
 
-  The primary telemetry source is the Linux filesystem, specifically the monitoring of changes to configuration files, particularly the `/etc/ld.so.preload` directory. If malicious, this could allow an attacker to control and manipulate existing processes, leading to significant compromise of the affected system. It's important to note that the detection of the `/etc/ld.so.preload` file does NOT confirm malicious intent on its own, as legitimate applications may occasionally use it due to specific library requirements.
+  The primary telemetry source for this detection is a Linux file system event log. Specifically, the presence or modification of the `/etc/ld.so.preload` file can indicate malicious intent. If exploited, this could allow an adversary to gain extensive control over the system or evade detection from security tools. It is important to note that this detection does NOT confirm malicious action on its own, as legitimate applications may temporarily create or modify this file for library configuration purposes.
 
   ### Investigation Steps
 
-  - **Check for `/etc/ld.so.preload` existence:** Review the presence of the file using commands like `cat /etc/ld.so.preload`. A valid indicator of compromise is when this file contains entries pointing to non-standard or unauthorized shared libraries, which could indicate malicious code injection.
+  - **Check the existence of `/etc/ld.so.preload`:** Use the command `ls -l /etc/ld.so.preload` to confirm the file's presence. A legitimate setup typically does not have this file, so its existence is suspicious.
 
-  - **Examine associated processes:** Use the command `ps aux | grep <suspicious_library>` where `<suspicious_library>` is a known malicious library referenced in `/etc/ld.so.preload`. Compare with normal running processes to identify initialized executables loading potentially harmful libraries.
+  - **Review the file contents:** Execute `cat /etc/ld.so.preload` to inspect any loaded library paths. Look for unusual or unrecognized library names, which may indicate malicious injections.
 
-  - **Review system logs for alterations:** Investigate `/var/log/auth.log` and `/var/log/syslog` for any sudden or unauthorized changes to system files or services around the timeframe the alert was triggered. Look for typical indicators of compromise such as failed or frequent logins preceding the event.
+  - **Observe system processes for injected libraries:** Use `lsof | grep -vE '^bash|^systemd'` to check for open files by processes. If certain processes are linked to libraries listed in `ld.so.preload`, it could indicate malicious activity.
 
-  - **Identify legitimate use cases:** Confirm if there is a known application that uses `/etc/ld.so.preload` legitimately. Document expected behavior or prior knowledge of approved applications that manipulate this file, reflecting a baseline for what normal entries should look like.
+  - **Identify recent modifications to the file:** Check modification timestamps using `stat /etc/ld.so.preload`. An anomalously recent change may indicate an unauthorized update.
 
-  - **Correlate with file integrity monitoring:** Check the file integrity status using tools like AIDE or tripwire to see if `/etc/ld.so.preload` shows unexpected modifications. Regularly monitor for alerts on changes concerning this file to detect malicious tampering.
+  - **Correlate with security events:** Review Security Event ID 4720 (Linux file system changes) to track unauthorized changes to known executable files or libraries linked to the preload mechanism.
+
+  - **Analyze host role and function:** If the affected host is a critical production server, escalate the investigation due to its potential impact on business operations.
 
   ### Prioritization
 
-  The alert carries high severity due to its potential impact on system integrity and the likelihood of enabling further unauthorized activities like privilege escalation or data exfiltration. The behavior is not only commonly weaponized but also serves as a foundational step for many advanced attacks, highlighting immediate investigation necessity.
+  This alert is considered high severity due to the potential impact on system integrity and confidentiality. If compromised, the affected system could serve as a foothold for broader exploitation across the network. The use of `ld.so.preload` for code injection is a known tactic among sophisticated adversaries.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the lack of regular monitoring for `/etc/ld.so.preload` changes, and attackers may evade detection by using encryption or obfuscation techniques to hide malicious code within legitimate libraries. It is crucial to ensure that file integrity monitoring or version control on this file is actively implemented. Legitimate activities, such as specific library configurations for application compatibility purposes, may inadvertently trigger the alert. A related detection to reinforce coverage is monitoring for modifications to the `/etc/ld.so.preload` file as well as accessing processes with elevated privileges, which may signify additional threat activity.
+  Detection may be limited if the file system logging is not enabled or if legitimate scripts erroneously create or modify the `/etc/ld.so.preload` file. Additionally, some processes might generate false positives if they genuinely rely on dynamic library configurations. Related detections include monitoring for the modification of other critical files, such as `/etc/ld.so.cache`, to strengthen coverage against similar attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

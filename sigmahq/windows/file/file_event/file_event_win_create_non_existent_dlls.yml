@@ -26,9 +26,10 @@ author: Nasreddine Bencherchali (Nextron Systems), fornotes
 date: 2022-12-01
 modified: 2026-01-24
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: windows
@@ -57,30 +58,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of specific non-existent system DLL files in Windows system directories, which are not typically present. Malicious actors may create these DLLs to employ DLL hijacking techniques, whereby the introduction of a malicious DLL with a name resembling a legitimate system component allows the attacker to execute arbitrary code when a legitimate application is launched.
+  This Sigma rule detects the creation of non-existent or suspicious DLL files, typically located in the Windows System32 directory, which are not normally present on the system. The likely attacker objective is to execute malicious code via Phantom DLL hijacking, where attackers place rogue DLLs named after legitimate system binaries to exploit the DLL loading process of applications. Associated MITRE ATT&CK tactics include "Persistence" (TA0003) and "Privilege Escalation" (TA0004) with relevant techniques being DLL hijacking (T1574.001).
 
-  The relevant MITRE ATT&CK tactics and techniques include **Defense Evasion (T1562)** and **Persistence (T1574.001)**. The primary telemetry source for this rule is file event logs indicating the creation of DLLs (specifically monitoring system directories such as `C:\Windows\System32`). If malicious, this behavior can lead to code execution and persistent control of compromised systems. Notably, this detection alone does not confirm that the created DLL is being executed or that an actual attack is occurring—it only highlights an anomalous file creation event.
+  The primary telemetry source for this detection is Windows file event logs, particularly focusing on log types that track file creation events. If such DLLs are indeed malicious, the impact could be significant, potentially leading to further exploitation or persistence in the environment. However, this detection does NOT confirm malicious intent on its own since there may be benign scenarios where these files are created, such as through legitimate third-party software.
 
   ### Investigation Steps
 
-  - **Review the created DLL path and filename**: Check for the specified DLL filenames (e.g., `axeonoffhelper.dll`, `cdpsgshims.dll`) in the `C:\Windows\System32\` directory. If found, this is a high-confidence indicator of potential malicious activity.
+  - **Review recent file creation events:** Check Windows Security Event ID 4663 for any creation attempts of the detected DLLs. Focus on timestamps that correspond with the alert; legitimate DLLs typically do not exhibit this behavior.
 
-  - **Audit process creation logs**: Investigate Windows Security Event ID **4688**. Look for the parent process that spawned the legitimate applications (e.g., `explorer.exe`, `regsvr32.exe`) that could have loaded these DLLs. Identify any anomalies indicating the potential exploitation of a DLL hijacking technique.
+  - **Correlate process activity:** Examine Sysmon Event ID 10 (Process Access) and Event ID 1 (Process Creation) for processes that accessed or created the suspicious DLL files. Investigate any unknown or unexpected processes associated with these actions.
 
-  - **Identify recent system changes**: Review the system event log for any recent installations or modifications around the time of the DLL creation. This could indicate legitimate software updates versus potential malicious changes (Event ID **104** or **6005**).
+  - **Identify legitimate software installations:** Look into installed applications (Control Panel > Programs) or check the application logs to establish a baseline of software on the host. Confirm if there’s legitimate software that can create such DLLs to rule out false positives.
 
-  - **Check for related process activity**: Use Sysmon Event ID **1** to look for process creation that occurs around the same time as the DLL creation. Correlate any suspicious parent/child process relationships with known malicious behaviors.
+  - **Check for existing system DLLs:** Validate whether the DLLs listed are indeed non-existent on the system by comparing them against the legitimate DLL directory contents. Presence of similar names without legitimate files indicates suspicious activity.
 
-  - **Assess host criticality and role**: Identify if the affected system is a critical server or endpoint within the organization. Systems with higher criticality may require immediate action to contain the potential threat.
+  - **Search for persistence mechanisms:** Investigate the Windows Task Scheduler (Event ID 4698) for any scheduled tasks that may reference the suspicious DLLs. Malicious actors often create tasks to maintain persistence through hijacked DLLs.
 
-  - **Examine file hashes**: Analyze the hashes of the created DLLs against known malware repositories using a service like VirusTotal. A match with known malicious DLLs strongly suggests an attack vector is in play.
+  - **Observe network activity:** Monitor network traffic for suspicious outbound connections made by processes tied to the newly created DLLs. Analyze for signs of data exfiltration or connection to C2 servers using logs from firewalls or EDR tools.
 
   ### Prioritization
 
-  This alert holds medium severity due to the potential impact of DLL hijacking as a method of executing arbitrary code on affected systems, which could result in significant damage or data exfiltration. The likelihood of malicious abuse is moderate, as this technique has established use cases in various exploitation strategies but may occasionally trigger due to benign applications misusing DLL names.
+  This alert has medium severity based on the criticality of affected systems, as manipulated DLL loading can significantly impact system integrity. The likelihood of malicious activities exploiting these DLLs is relatively high, given that such techniques are commonly utilized in evolving attacks like persistence and privilege escalation. Immediate investigation is recommended to mitigate potential threats.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if offensive tools are specifically designed to evade detection or if proper logging configurations (like Sysmon) are not in place. Legitimate software updates or installations may inadvertently trigger this alert when introducing expected DLL files. Companion detections, such as monitoring for elevated process creation after suspicious DLL creation, could enhance investigative coverage.
+  This detection may miss obfuscation techniques and variations of DLL names used by attackers to hide their malicious actions. Reliable detection hinges on correctly configured Windows file event logging, which must be enabled to capture these events effectively. Legitimate activities, such as software updates or installations, may trigger the alert if they create DLLs with similar names. Strengthening coverage can be achieved with companion detections for process creation activity or monitoring of scheduled tasks targeting similar DLLs, as seen in "ImageLoad" rules.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

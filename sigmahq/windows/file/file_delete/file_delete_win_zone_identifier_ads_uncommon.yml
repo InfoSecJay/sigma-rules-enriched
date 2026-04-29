@@ -14,7 +14,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-09-04
 modified: 2025-07-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070.004
 logsource:
   product: windows
@@ -50,28 +50,32 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the deletion of the "Zone.Identifier" Alternate Data Stream (ADS) by processes that are not commonly associated with this behavior. Such deletion is typically performed by attackers to evade security mechanisms that rely on ADS to flag potentially malicious files originating from untrusted sources, particularly when these files are opened in programs like Microsoft Office. The relevant MITRE ATT&CK techniques are Defense Evasion (T1070.004).
+  This rule detects the deletion of the "Zone.Identifier" Alternate Data Stream (ADS) by processes that are not commonly associated with such activity. This behavior is leveraged by attackers to bypass security measures that rely on ADS, especially in the context of downloaded files, such as those processed by Microsoft Office applications. The likely attacker objective is to hide the origin and potentially malicious nature of a file, facilitating execution without further scrutiny.
 
-  The primary telemetry sources needed for this detection are Windows file deletion logs. Specifically, we are looking for logs indicating when an ADS is removed. If flagged as malicious, this action could allow an attacker to execute malicious content or drop payloads without appropriate security warnings, thereby increasing the risk of compromise. Importantly, this detection does NOT confirm malicious intent by itself—legitimate applications can also delete Zone.Identifier ADS under certain circumstances.
+  The related MITRE ATT&CK tactic is **Defense Evasion** under technique **T1070.004: Indicator Removal on Host**. The primary telemetry sources for this detection are Windows File Delete events, specifically looking for Windows Security Event ID 4663, which indicates an attempt to delete an object (in this case, the Zone.Identifier ADS). If this behavior is confirmed to be malicious, it can result in undetected execution of malware or exploitation of vulnerabilities through compromised files.
+
+  However, simply detecting the deletion of the Zone.Identifier does NOT confirm malicious intent, as legitimate applications might perform similar actions under certain conditions.
 
   ### Investigation Steps
 
-  - **Review file deletion events: ** Check for Windows Event ID 4663 (Object Access) and Security Event ID 4660 (Object Deleted). Verify the TargetFilename for any entries ending with ':Zone.Identifier'.
+  - **Identify the process involved:** Check Security Event ID 4688 (Process Creation) for the `Image` field to determine which application initiated the deletion. Look for process names outside typical Windows applications, such as PowerShell or uncommon software.
 
-  - **Identify the initiating process: ** Assess the Image field of the deletion event to identify the executing application. Look for processes not listed in the legitimate applications such as PowerShell, Google Chrome, or Firefox, as these are flagged when uncommon processes perform the deletion.
+  - **Review the source file properties:** Validate the original file's properties (e.g., via `Get-Item` in PowerShell) to see if it has a Zone.Identifier ADS. Files downloaded from the internet should have this ADS which indicates the file's origin.
 
-  - **Consider legitimate behavior: ** Determine if any of the known browsers or PowerShell instances are part of an expected workflow that would explain the deletion of the ADS, such as user-initiated interactions with untrusted files downloaded during normal business operations.
+  - **Correlate with recent suspicious activities:** Examine logs for recent process executions related to the detected process. Check Event ID 4688 for entries that occurred prior to the deletion to identify potential malicious workflows.
 
-  - **Correlate with other activities: ** Look for associated suspicious activities from the same source process, such as unusual downloads, outbound connections, or file modifications in process logs, particularly with Event IDs 4104 (PowerShell), or HTTP request logs from proxies.
+  - **Evaluate file access patterns:** Look for unusual file access or deletion patterns in `C:\Users\<username>\Downloads\` or temporary directories. Legitimate behavior typically involves common browsers and tools, not uncommon applications for handling file deletions.
 
-  - **Flag malicious indicators: ** If the deletion is triggered by processes such as UncommonApp.exe (an uncommon name suggesting a potentially malicious application), this warrants a high-confidence assessment of malicious intent, particularly if corroborated by other suspicious behavior.
+  - **Check for alerts on similar detections:** Review for related alerts from companion detection rules such as T1070.001 (File and Directory Permissions Modification) which could indicate broader attempts to manipulate file properties and permissions.
+
+  - **Assess potential bypass attempts:** Investigate the use of tools commonly associated with file manipulation like `PowerShell`, observing for unusual commands or execution flags indicating potential abuse (e.g., `-E` for encoded scripts).
 
   ### Prioritization
 
-  This alert has medium severity due to its potential to indicate an evasion technique commonly used by attackers. While not all instances of this behavior are malicious, the risk associated with the affected systems and users' roles in the organization warrant immediate investigation.
+  Alerts generated by this detection should be treated with a medium priority due to the potential impact of hidden malicious file execution. The likelihood of this behavior being exploited by an adversary is significant, especially in environments with high reliance on downloaded content. This technique is commonly weaponized in malware distributions, intensifying the need for thorough investigation.
 
   ### Blind Spots and Assumptions
 
-  The detection may be limited by processes that do not log file deletions or by users with high privileges who might bypass standard logging. Third-party applications not listed in the rule could trigger false positives. Legitimate actions, such as manual file cleanup, could also activate this alert. A related detection could be alerts for unusual file modifications or access to a malicious file type that reinforces the need for strong monitoring of file activities.
+  This detection may miss cases where legitimate software performs similar deletions without triggering alerts, leading to false negatives. Depending on the environment, specific log sources such as detailed File System Auditing must be enabled for accurate detection. Additionally, unexpected software behaviors (like script execution from third-party applications) may trigger this alert. A companion detection for extensive behavior analysis such as T1047 (Windows Management Instrumentation) can enhance coverage and context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

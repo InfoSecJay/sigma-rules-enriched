@@ -10,9 +10,10 @@ author: Nasreddine Bencherchali (Nextron Systems), Subhash Popuri (@pbssubhash)
 date: 2022-12-16
 modified: 2022-12-19
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -33,30 +34,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading activities specifically involving the legitimate Windows dynamic-link library (DLL) `comctl32.dll` being loaded in the context of applications with altered paths, such as `logonUI.exe.local` or `werFault.exe.local`. The likely attacker objective is to escalate privileges by loading a malicious version of `comctl32.dll` while masquerading the attempt as legitimate system activity; thus maintaining stealth and persistence within the environment. This behavior aligns with the MITRE ATT&CK framework under the tactic of Defense Evasion and Persistence, specifically technique ID T1574.001.
+  This Sigma rule detects potential DLL sideloading behavior by monitoring for instances where the system attempts to load `comctl32.dll` from specific, unusual locations, indicating possible privilege escalation or execution of malicious code. The primary objective for an attacker employing this technique is to masquerade malicious DLL files as legitimate system files to gain elevated privileges without being detected. This aligns with MITRE ATT&CK tactic **Persistence** and technique **DLL Search Order Hijacking (T1574.001)**.
 
-  The primary telemetry source for this detection is Windows image load events. Relevant log types include Windows Event ID 4104 (for script blocks) and Sysmon Event ID 7 (Image Loaded) which capture the loading of DLLs. If this behavior is malicious, it can lead to system compromise and unauthorized access to sensitive data. Notably, this detection does NOT confirm malicious intent on its own; the mere presence of a DLL loading in a non-standard manner requires context-specific investigation to determine legitimacy.
+  The primary telemetry sources for this detection come from Windows image load events, specifically logging events related to DLL loading from Windows security logs (Event ID 4688) and Sysmon Event ID 7 (Image loaded). If the behavior is indeed malicious, it may compromise system integrity or escalate privileges that enable further network compromise. Importantly, this detection does NOT confirm that the loading of `comctl32.dll` is malicious on its own, as legitimate applications might also load this DLL during operation.
 
   ### Investigation Steps
 
-  - **Check image load events for anomalies**: Review Sysmon Event ID 7 for instances where `comctl32.dll` is loaded from unconventional paths (e.g., ending with `.local`). Compare against known good paths for these binaries.
+  - **Review Image Load Events:** Cross-reference Event ID 7 from Sysmon to identify instances of `comctl32.dll` being loaded from paths such as `C:\Windows\System32\logonUI.exe.local\`. Look for excessive or unusual occurrences that deviate from normal application behavior.
 
-  - **Identify command line execution**: Look for Windows Event ID 4688 to pinpoint the parent process and command line used when `comctl32.dll` was loaded. Focus on indicators suggesting non-standard executions that could hint at adversarial tactics.
+  - **Validate Legitimate Usage:** Confirm typical application behavior by identifying processes that should normally use `comctl32.dll` without loading from suspicious paths. For instance, `explorer.exe` should not reference the monitored local paths.
 
-  - **Review user permissions**: Validate if the user executing these processes has elevated privileges typical of administrative tasks, utilizing Active Directory logs or User Account Control settings.
+  - **Identify Associated Elevated Processes:** Investigate any parent processes linked with the DLL load events that could indicate escalated privileges. For example, if `consent.exe` is the parent process, examine its typical execution context for anomalies.
 
-  - **Determine legitimate processes**: Verify typical behavior for the impacted executables (`logonUI.exe`, `werFault.exe`, etc.). A legitimate execution may invoke `comctl32.dll`, but occurs from its original path and not the altered path.
+  - **Check for Known Malicious Hashes:** Compare loaded DLL hashes against known malicious signatures by leveraging threat intelligence feeds. Focus on any matches stemming from the non-standard paths noted.
 
-  - **Examine audit logs for anomalies**: Check for unusual account activity using Event IDs 4624 (Logon) and 4625 (Logon Failure) around the same time as the DLL load events to capture potential credential abuse or lateral movement.
+  - **Extract and Analyze Binary:** If a malicious load is confirmed, extract the binary of `comctl32.dll` from the unusual path and analyze it using tools such as VirusTotal or hybrid-analysis.com for additional indicators of compromise.
 
-  - **Assess file behavior post-load**: Investigate if any files were created or modified at the time of the event (e.g., using Sysmon Event ID 11 - File Create). Look for unusual file creations in temp directories which might indicate exfiltration or persistence mechanisms.
+  - **Log Configuration Verification:** Ensure that Sysmon and Windows event logging are correctly configured to capture all image load events, and validate that the log retention policy aligns with organizational reporting and investigative needs.
 
   ### Prioritization
 
-  This alert is considered high severity due to the impact of enabling unauthorized system-level access and potential control over critical systems. The likelihood of malicious misuse is high, especially since DLL sideloading is a common tactic among threat actors seeking persistent footholds within enterprise environments.
+  This alert is considered high severity due to the potential impact on critical systems if malicious DLL side-loading occurs, as it can lead to privilege escalation or execution of arbitrary code under the guise of a legitimate process. Given that this technique is frequently weaponized in sophisticated attacks, immediate investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of Sysmon logging or if DLL images are signed and unaltered from original sources. Legitimate activities such as system maintenance scripts might trigger similar loads, but should not use altered paths. Another relevant detection to consider is unauthorized access attempts (e.g., Event ID 4625) that could indicate misuse alongside potential DLL sideloading events, strengthening the overall security posture.
+  Detection might be evaded if the attacker uses legitimate paths or if the DLL is loaded in a manner that doesn't trigger the logged patterns (e.g., through custom execution techniques). Ensure that Sysmon is properly deployed on all critical systems to improve coverage. The alert may also trigger from legitimate applications that utilize custom file structures or local testing environments. Companion detection such as monitoring for unusual parent-child process relationships (Sysmon Event ID 1) can enhance coverage against similar sideloading techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

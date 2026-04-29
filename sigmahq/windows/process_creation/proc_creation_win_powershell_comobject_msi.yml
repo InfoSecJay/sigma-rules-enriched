@@ -14,7 +14,7 @@ references:
 author: Meroujan Antonyan (vx3r)
 date: 2025-05-27
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1027.010
 - attack.t1218.007
 - attack.execution
@@ -46,28 +46,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of obfuscated PowerShell commands aimed at installing MSI packages using the Windows Installer COM object. Attackers typically utilize this technique to avoid detection while executing malicious software, leveraging PowerShell's capabilities to install payloads without user interaction. The relevant MITRE ATT&CK tactics are Execution and Defense Evasion, specifically techniques T1059.001 (PowerShell) and T1218.007 (Signed Binary Proxy Execution). The primary telemetry source is process creation logs, specifically looking at processes like PowerShell, PowerShell ISE, and pwsh, with a focus on command line components. If confirmed malicious, this activity could lead to unauthorized software installation, potentially enabling further compromise. However, the detection does not confirm that the MSI package is malicious by itself, only that an obfuscated PowerShell command was executed.
+  This rule detects the execution of obfuscated PowerShell commands that utilize the Windows Installer COM object to install MSI packages. Attackers may employ these tactics to run malware payloads or drops silently, leveraging obfuscation techniques to evade detection. The likely objective is to install malicious software without user interaction, often hiding the true nature of the command executed. The detection corresponds to the MITRE ATT&CK techniques T1059.001 (PowerShell) and T1218.007 (Signed Binary Proxy Execution).
+
+  Primary telemetry sources include process creation logs (Windows Event ID 4688) which capture command-line arguments and invoked processes. The impact of this detection is significant, as successful execution can lead to malware installation on affected devices. However, this alert alone does NOT confirm malicious intent, as legitimate usage of PowerShell for administrative tasks can also produce similar behaviors.
 
   ### Investigation Steps
 
-  - **Review the PowerShell process creation logs**: Check for Event ID 4688 in Security logs or Sysmon Event ID 1 for instances of PowerShell, PowerShell ISE, or pwsh executing. Look for suspicious command lines that include `-ComObject`, `InstallProduct(`, and `.Insert(`.
+  - **Check for process origin:** Review the execution file paths of detected processes (Event ID 4688) to confirm if PowerShell was launched from unusual directories (e.g., temp folders or user profiles). Legitimate PowerShell instances typically originate from C:\Windows\System32\.
 
-  - **Examine the command line arguments**: Identify any obfuscation patterns within the command line. Malicious indicators often feature string manipulation techniques such as `Insert` methods or modified protocols like `htps://`.
+  - **Inspect command-line arguments for obfuscation:** Analyze command-line arguments (Event ID 4688 > NewProcessName) for the presence of the `-ComObject`, `InstallProduct(`, and `.Insert(` strings. Malicious instances will often exhibit highly obfuscated parameters and unusual concatenations.
 
-  - **Validate the PowerShell script context**: Compare the PowerShell commands against known benign usage. Legitimate usage often does not incorporate obfuscation or hidden UI interactions, such as a high UI level value being set to suppress user prompts.
+  - **Examine original file names:** Verify the `OriginalFileName` of the PowerShell processes against the expected values ('PowerShell.EXE', 'PowerShell_ISE.EXE', 'pwsh.dll'). Deviations may indicate malicious behavior, particularly if the original file names are not consistent with common PowerShell usage.
 
-  - **Correlate with threat intelligence**: Cross-reference observed behaviors and command line structures with threat intelligence databases and logs to identify known malware signatures or patterns similar to documented behaviors in incident reports.
+  - **Identify suppressed UI interactions:** Look for UI interactions associated with the `UILevel` property in the command-line arguments, where a value of 2 typically indicates a headless install with no user prompts. This is a strong indicator of unwanted software installation.
 
-  - **Inspect for MSI installation events**: Check for MSI-related activities or logs indicating installation, particularly around the time of the detected command execution. Look for Event ID 1033 (MSI Installer) for entries that correspond with the detected obfuscated activity.
+  - **Gather additional context from process trees:** Use Sysmon logs (Event ID 1) to identify parent-child process relationships. Look for processes spawned by suspicious parent activities, as exploitation often involves chaining from other scripts or executables.
 
-  - **Assess network activity for anomalous behavior**: Examine outbound network traffic for connections to unusual or known malicious domains that may correlate with the obfuscated script, especially those initiated around the same timestamps.
+  - **Validate the source of MSI installation attempts:** Check if the URLs specified contain anomalous or known risky domains. Evaluate whether MSI installation is occurring from unexpected external sources, particularly with obfuscation techniques evident in the URL.
 
   ### Prioritization
 
-  This alert should be treated as high severity due to the potential impact of unauthorized software installations on critical systems. The use of obfuscation techniques signals likely malicious intent, and this behavior is commonly leveraged by attackers to deploy malware or additional payloads, making it a significant threat vector.
+  Given the impact and likelihood of this behavior being used for malicious purposes, this alert should be considered high priority. The execution of obfuscated PowerShell commands related to MSI installations often suggests an active threat, which is frequently weaponized in attacks targeting enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  The detection may be limited by legitimate administrative tasks that utilize PowerShell for business purposes, potentially leading to false positives. It relies on the availability of accurate process creation logs, which must be enabled for effective monitoring. Additionally, obfuscation may change frequently, complicating detection. A related detection rule that could strengthen coverage is one monitoring unusual outbound network requests originating from process executions associated with known administrative tools.
+  Detection is limited by potential evasion techniques, such as script block logging being disabled or command-line output being suppressed through other means. It assumes that Event ID 4688 and appropriately configured Sysmon logs are consistently generated. Legitimate actions, particularly by systems administrators executing PowerShell scripts for software deployment, may trigger similar alerts. A related detection to strengthen coverage would be monitoring for unusual outbound network connections or DNS queries that align with the installed MSI package.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

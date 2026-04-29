@@ -10,9 +10,10 @@ author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and
 date: 2022-08-17
 modified: 2023-03-15
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -33,28 +34,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of the `outllib.dll` from non-standard directories within Microsoft Office installations. The likely objective of an adversary using this technique is to exploit legitimate Office processes to execute malicious payloads, circumventing security mechanisms. Relevant MITRE ATT&CK tactics and techniques associated with this detection are Defense Evasion (T1562) and Persistence through DLL sideloading (T1574.001).
+  This rule detects the loading of Microsoft Office DLL files from unauthorized directories, specifically targeting the `outllib.dll`. Attackers may utilize DLL sideloading to execute malicious code by leveraging legitimate Office programs while the library is loaded from a non-standard location. The likely objective is to maintain persistence or escalate privileges undetected, making use of trusted software to execute their payload.
 
-  The primary telemetry source is Windows Image Load events, specifically monitoring the paths from which DLLs are being loaded. The security impact can be significant, as malicious DLLs could lead to further exploitation, data exfiltration, or unauthorized privilege escalation. However, this detection does not confirm malicious intent on its own; further investigation is required to link the DLL loading to a known malicious context.
+  This behavior aligns with the MITRE ATT&CK tactic of "Persistence" and technique ID T1574.001, which describes the use of compromised DLLs to run arbitrary code within the context of a trusted application. The primary telemetry source is the Windows Event Log with a focus on image load events (via Security Event ID 4688 or Sysmon Event ID 7). If successful, this type of attack could allow the adversary to execute commands with the same privileges as the legitimate process. This detection does NOT confirm actual malicious intent or execution on its own; it indicates a potential abuse of normal software functionality.
 
   ### Investigation Steps
 
-  - **Check loading paths for `outllib.dll`:** Verify if the DLL is loaded from standard Office installation paths (`C:\Program Files\Microsoft Office\OFFICE\`, etc.). Any loading from paths outside of these indicates potential malicious activity.
+  - **Verify the loading source of the DLL:** Check the Event ID 4688 (Process Creation) logs and focus on the `New Process Name` field to identify if the application loading `outllib.dll` originates from a legitimate Microsoft Office directory or a suspicious path.
 
-  - **Correlate with Office process execution:** Review Security Event ID 4688 to confirm the parent process that initiated the DLL load. Legitimate activities typically show known Office executables (e.g., `winword.exe`, `excel.exe`) as the parent processes.
+  - **Assess the process hierarchy:** Investigate the parent process of the loading event to determine if it aligns with standard Office execution flows. Any unexpected parent processes or anomalies may indicate malicious behavior.
 
-  - **Analyze Image Load events:** Access Windows Event ID 4100 (Image Load) for full context of the loading event. Look for unusual timestamps or patterns suggesting non-standard operations.
+  - **Check for additional artifact generation:** Validate the presence of new files or changes in the directories, particularly in temporary or user directories where malicious DLLs often reside (e.g., `%APPDATA%`, `%TEMP%`). Look for NTFS Event IDs that indicate file creation or modification.
 
-  - **Investigate historical context:** Review Sysmon Event ID 7 (Image Load) for recent events related to the same Office application. Frequent anomaly patterns in history can indicate a malicious cycle.
+  - **Identify legitimate usage patterns:** Review normal business processes that utilize Microsoft Office applications in your environment. Document expected usage patterns, particularly in conjunction with `outllib.dll`, to distinguish benign activity from suspicious behavior.
 
-  - **Identify high-confidence indicators:** Look for specific hashes or signatures of known malicious DLLs that may replace or masquerade as `outllib.dll`. Use reputation services to validate any suspicious hashes identified.
+  - **Look for suspicious parameters in process arguments:** Analyze arguments passed to the Office application launching the DLL. Unusual command-line flags can signal an intent to manipulate standard application behavior (Event ID 4688).
+
+  - **Correlate with threat intelligence:** Cross-reference with known malicious indicators associated with DLL sideloading and the specific DLL in question. Utilize threat intelligence feeds that may highlight specific actors or campaigns known to exploit this technique.
 
   ### Prioritization
 
-  This alert is high severity as it involves persistent manipulation of commonly used applications. Non-standard DLL loading can be a precursor to significant compromise, particularly in enterprise environments with sensitive data. The behavior is often weaponized in targeted attacks where adversaries aim to gain a foothold.
+  This alert is considered high priority due to the potential impact on system integrity. The likelihood of malicious use is elevated, as DLL sideloading is a commonly exploited technique in advanced attacks, especially by attackers aiming to evade detection while executing code in trusted environments.
 
   ### Blind Spots and Assumptions
 
-  Some detection limitations include potential evasion tactics, such as renaming malicious DLLs to legitimate ones or loading them from standard paths using different names. Reliable detection relies on consistent logging configurations for both Image Load events and parent process tracking. Legitimate activities might include software installers or updates from trusted sources executing in a managed environment. A companion detection to strengthen coverage could include monitoring for unusual process creation associated with Office apps during non-business hours.
+  Detection is limited by the method used to obtain logs; if logging levels are not adequately configured, detection may not trigger for every relevant event. Attackers may also use obfuscation techniques to conceal the loading path or exploit legitimate software updates. Furthermore, legitimate third-party applications that interact with Microsoft Office may trigger similar alerts, adding noise to the investigation. Companion detections that could enhance coverage include monitoring of Office process creation events and DLL modification logs to track unauthorized changes in real-time.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,9 +9,10 @@ references:
 author: frack113
 date: 2022-12-14
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -28,30 +29,28 @@ level: medium
 note: |
   ### Technical Context
 
-  The Sigma rule detects potential DLL sideloading, specifically when an image loaded from the common Justsystems path attempts to load `JSESPR.dll`. This behavior may indicate an attacker trying to leverage a legitimate process to execute malicious code, as DLL sideloading is often used to bypass application whitelisting and execute payloads under the guise of a trusted application. The relevant MITRE ATT&CK tactic is **Defense Evasion** (TA0005), with technique **DLL Search Order Hijacking** (T1574.001). Primary telemetry sources include Windows Event IDs associated with image loading, specifically image load events that show unexpected DLLs being called by trusted processes. If the activity is confirmed malicious, it could lead to privilege escalation or persistence on the compromised system.
+  This Sigma rule detects potential DLL sideloading via the JustSystems Japanese word processor, specifically looking for instances where a DLL named `JSESPR.dll` is loaded from an unexpected path. This behavior is often indicative of an attacker’s intent to execute malicious code by exploiting a legitimate application to load a malicious DLL, thereby maintaining persistence and executing unauthorized actions while camouflaged as legitimate software.
 
-  This detection does NOT confirm outright that malicious activity is occurring; legitimate applications could be loaded with the same DLLs under benign circumstances.
+  The relevant MITRE ATT&CK tactic is **Persistence** (TA0003) and the technique is **DLL Search Order Hijacking** (T1574.001). Primary telemetry sources include image load logs specifically related to Windows systems, where `ImageLoaded` events are monitored to detect anomalies in the loading of DLL files. If malicious, this action can lead to privilege escalation, unauthorized access, and further compromise of the system and network. Notably, this detection does NOT confirm actual exploitation or malicious intent without further context and supporting evidence.
 
   ### Investigation Steps
 
-  - **Verify image load events**: Check Windows Event ID iert to identify the process attempting to load `JSESPR.dll` and verify the parent process. Ensure that it does not originate from an unusual location.
+  - **Identify the process loading the DLL:** Examine `Windows Security Event ID 4688` and `Sysmon Event ID 1` to find which process is triggering the loading of `JSESPR.dll`. Look for processes executed from the JustSystems installation directory; legitimate processes would commonly be `JsSchHlp.exe` or its child processes.
 
-  - **Review process execution history**: Analyze Sysmon Event ID 1 for the process loading the DLL to confirm the command line used and ensure it aligns with expected behavior for the application.
+  - **Validate DLL origin and hash:** Review the path and hash value of `JSESPR.dll` using file system logs (`FileSystem Access Audit Logs` or `Sysmon Event ID 10`). Compare hashes against known good and pivot to public repositories like VirusTotal. A hash mismatch indicates potential malicious activity.
 
-  - **Cross-reference application legitimacy**: Validate the existence and intended behavior of `JsSchHlp` as a component of the Justsystems application. Confirm it was recently updated and matches expected checksum values.
+  - **Check for contextual anomalies:** Analyze network communications associated with the process using network logs (`Firewall logs` or `Windows Event ID 5156`) to identify suspicious outbound connections. Legitimate usage would typically connect to known JustSystems services, while any unusual or encrypted traffic could signify compromise.
 
-  - **Investigate other loaded DLLs**: Look for other unusual or unexpected DLLs being loaded by the same process, specifically those not commonly associated with `JsSchHlp`, as this could indicate malicious tampering.
+  - **Monitor for abnormal execution patterns:** Look for signs of execution outside normal operation by reviewing application logs or behavior (e.g., frequent access to `JSSEPR.dll`). A high frequency of loads or access times outside expected operational windows can indicate misuse.
 
-  - **Monitor file system changes**: Check for any new or modified files within `C:\Program Files\Common Files\Justsystem\JsSchHlp\` around the time of the alert, particularly focusing on newly created files or changes to existing DLLs.
-
-  - **Understand legitimate user behavior**: Identify if there are known business processes requiring the use of `JsSchHlp`. Document how these processes work in your environment to differentiate between benign and suspicious activity.
+  - **Explore logon history and user details:** Investigate user access patterns to determine if the account associated with loading the DLL shows abnormal behavior using `Windows Security Event ID 4624`. If a high-privilege account triggers the alert, it should be treated with heightened scrutiny.
 
   ### Prioritization
 
-  This alert should be treated with medium urgency due to potential exposure within sensitive environments. The affected system may hold critical data or function as a gateway for subsequent intrusion if exploited. The likelihood of this technique being weaponized is moderate, particularly in targeted attacks aimed at obfuscating malicious activity.
+  This alert has medium severity due to the risk posed by potential DLL sideloading, which can lead to persistence and deeper system compromise if exploited. The likelihood of malicious abuse remains moderate as similar techniques are frequently weaponized by adversaries to subvert sign-on processes and elevate privileges without detection.
 
   ### Blind Spots and Assumptions
 
-  There are detection limitations such as attackers using obfuscation techniques that may bypass standard monitoring. The use of non-standard logging configurations could hinder the capture of relevant image load events needed for effective detection. Legitimate software or misconfiguration of Justsystems may trigger this alert unintentionally. A companion detection to consider is monitoring other known malicious DLLs being loaded to strengthen overall coverage against similar evasion techniques.
+  Detection limitations include the variability of DLL path configurations and the possibility of legitimate applications triggering the alert unintentionally. Required log sources must include complete image load telemetry and application-specific logs to provide context. Legitimate use cases may involve needed software updates or maintenance activity that accesses DLLs under the JustSystems path. A related detection to enhance coverage would be monitoring for unusual file modifications in the JustSystems directories, adding another layer of context to potential modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

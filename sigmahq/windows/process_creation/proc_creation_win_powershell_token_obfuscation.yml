@@ -9,9 +9,9 @@ references:
 - https://github.com/danielbohannon/Invoke-Obfuscation
 author: frack113
 date: 2022-12-27
-modified: 2024-08-11
+modified: 2026-03-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1027.009
 logsource:
   category: process_creation
@@ -22,9 +22,9 @@ detection:
         #   IN`V`o`Ke-eXp`ResSIOn (Ne`W-ob`ject Net.WebClient).DownloadString
         #   &('In'+'voke-Expressi'+'o'+'n') (.('New-Ob'+'jec'+'t') Net.WebClient).DownloadString
         #   &("{2}{3}{0}{4}{1}"-f 'e','Expression','I','nvok','-') (&("{0}{1}{2}"-f'N','ew-O','bject') Net.WebClient).DownloadString
-  - CommandLine|re: '\w+`(\w+|-|.)`[\w+|\s]'
+  - CommandLine|re: '\w+`(?:\w+|-|.)`[\w+|\s]'
         # - CommandLine|re: '\((\'(\w|-|\.)+\'\+)+\'(\w|-|\.)+\'\)' TODO: fixme
-  - CommandLine|re: '"(\{\d\})+"\s*-f'
+  - CommandLine|re: '"(?:\{\d\})+"\s*-f'
         #   ${e`Nv:pATh}
   - CommandLine|re: '(?i)\$\{`?e`?n`?v`?:`?p`?a`?t`?h`?\}'
   filter_main_envpath:
@@ -36,33 +36,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious PowerShell command-line activity indicative of token obfuscation techniques, particularly those used by adversaries to bypass detection mechanisms. The likely attacker objective is to execute embedded malicious commands while evading detection, achieving persistence or gaining unauthorized access to systems. The relevant MITRE ATT&CK techniques are Defense Evasion (T1027) and particularly the sub-technique Obfuscated Files or Information (T1027.009).
+  This rule detects the use of PowerShell token obfuscation techniques, specifically through the invocation of obfuscated command strings, which often indicates an attempt to evade detection. The likely attacker objective is to execute malicious PowerShell scripts without being easily recognizable, which suggests a sophisticated adversary trying to maintain persistence or deploy malware. This behavior aligns with the MITRE ATT&CK technique T1027.009 (Obfuscated Files or Information).
 
-  Primary telemetry sources include Windows process creation logs, focusing on Event ID 4688, which logs process creation details, including command-line arguments. The security impact could be significant, allowing attackers to run arbitrary or malicious scripts without detection. Importantly, this detection does NOT inherently confirm malicious intent; legitimate usage of obfuscated scripts for administrative tasks could yield similar command-line outputs.
+  The primary telemetry sources are Windows Process Creation logs, specifically monitoring CommandLine arguments (Event ID 4688 and Sysmon Event ID 1). If this behavior is malicious, it can lead to unauthorized access and control over the compromised system. Importantly, this detection does not confirm that a compromise has occurred; it merely highlights potentially suspicious command execution patterns that warrant further investigation.
 
   ### Investigation Steps
 
-  - **Review recent PowerShell executions:**
-    Examine Security Event ID 4688 where the CommandLine field contains suspicious patterns matching `\w+` or `${env:path}`. Legitimate PowerShell scripts typically do not use extensive obfuscation techniques.
+  - **Review the CommandLine Arguments:** Check Security Event ID 4688 or Sysmon Event ID 1 for process creation events. Focus on the CommandLine field for obfuscated PowerShell commands, particularly those fitting the regex patterns indicated in the detection (e.g., usage of backticks or unusual character structures).
 
-  - **Check for high-confidence malicious indicators:**
-    Look for command lines that include phrases like `"DownloadString"` or commands that utilize Invoke-Obfuscation-based strings. Verify if the user account initiating these commands has a history of executing scripts or if it’s anomalous.
+  - **Validate PowerShell Execution History:** Use PowerShell logs (Event ID 4104) to identify prior script executions from the same source or related processes. Look for non-standard execution flows and compare timestamps with the suspected command execution.
 
-  - **Analyze process parent-child relationships:**
-    Utilize Sysmon Event ID 10 (CreateProcess) to determine the parent process of the suspicious PowerShell execution. Malicious PowerShell commands often have unusual parent processes (e.g., cmd.exe or a direct execution through other scripting languages).
+  - **Identify known malicious indicators:** Examine the process tree surrounding the invoked command for execution patterns leading to known malicious artifacts like `powershell.exe` loading from uncommon directories or using flags that signal scripted execution (`-EncodedCommand`, `-ExecutionPolicy Bypass`).
 
-  - **Correlate with user behavior analytics:**
-    Examine whether the triggering user has a legitimate business need for PowerShell scripting access. Users who typically do not run scripts or who are operating outside normal business hours may indicate potential compromise.
+  - **Assess for Legitimate Use Cases:** Determine if the observed command patterns can be attributed to legitimate administrative activities, particularly in environments where PowerShell is used for automation or DevOps practices. Check for usual scripts or administrative commands that are common in your organization’s workflows.
 
-  - **Verify related system modifications:**
-    Investigate whether the alert comes alongside unexpected changes in system settings or user permissions. Monitor event logs for any anomalous file changes (Security Event ID 5145) or service modifications.
+  - **Correlate with Other Security Events:** Look for alerts related to lateral movement or initial access attempts that coincide with the observed PowerShell execution (e.g., Windows Event ID 4624 for logons, Event ID 4648 for credential validation). Malicious use often correlates with other event anomalies.
 
   ### Prioritization
 
-  This alert is of high severity due to its potential impact on sensitive systems and the likelihood that obfuscation techniques are commonly employed by malicious actors. The detection of these tactics suggests a probable intent to exploit vulnerabilities, leading to data breaches or lateral movement within the enterprise.
+  This alert should be considered high severity, as it may indicate a compromised system engaging in covert operations using common attack techniques. The likelihood of abuse is significant, especially given the prevalence of PowerShell as an attack vector in recent threats. Obfuscation methods are frequently used in sophisticated attacks, making this a critical alert for further investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential obfuscation not captured by the regular expressions, as sophisticated actors may employ dynamic obfuscation techniques that this rule does not detect. Additionally, extensive logging configurations must be in place to catch all necessary telemetry; logs from the Windows Event Forwarding (WEF) or Sysmon may be required for comprehensive analysis. Legitimate administrative scripts or automation frameworks in use by IT personnel could inadvertently trigger the alert. Related detections, such as PowerShell logging setups (Event ID 4104), can enhance overall protection by providing context for script behaviors.
+  This detection may be limited by various evasion techniques such as different levels of obfuscation beyond the regex patterns provided, which might escape detection. Reliable detection requires comprehensive logging settings, including PowerShell script block logging (Event ID 4104) and process creation events. Additionally, legitimate administrative tasks, particularly in scripting and automation contexts, may inadvertently trigger this alert. To enhance coverage, consider companion detections for anomalous user behavior or lateral movement alerts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

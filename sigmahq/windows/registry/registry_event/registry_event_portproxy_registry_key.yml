@@ -12,7 +12,6 @@ date: 2021-06-22
 modified: 2024-03-25
 tags:
 - attack.lateral-movement
-- attack.defense-evasion
 - attack.command-and-control
 - attack.t1090
 logsource:
@@ -31,28 +30,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the addition of new entries to the PortProxy registry key, which is commonly used to facilitate port forwarding on Windows systems. Attackers may exploit this vulnerability to create covert communication channels for lateral movement and command-and-control operations, aiming to bypass network restrictions or evade detection. Relevant MITRE ATT&CK tactics include **Lateral Movement (TA0008)** and **Command and Control (TA0011)**, specifically under **T1090: Connection Proxy**.
+  This rule detects modifications to the PortProxy registry key, specifically the configuration for port forwarding in Windows environments. Attackers may use this technique to tunnel traffic through the compromised host, facilitating lateral movement or command and control (C2) communications. The relevant MITRE ATT&CK techniques represented by this behavior include "Lateral Movement: Remote Services" (T1021) and "Command and Control: Application Layer Protocol" (T1071). Primary telemetry sources include Windows Registry events, specifically monitoring changes to the `HKLM\System\CurrentControlSet\Services\PortProxy\v4tov4\tcp\` path.
 
-  Primary telemetry sources include Windows Registry Event logs, highlighting modifications to the `HKLM\System\CurrentControlSet\Services\PortProxy\v4tov4\tcp\` key. If malicious, this could enable unauthorized remote access or data exfiltration. Importantly, this detection does not confirm active exploitation or compromise; legitimate applications could trigger similar registry modifications.
+  If successful, the security impact is significant, as it enables an adversary to redirect traffic potentially leading to exfiltration or exploitation of internal resources. It is important to note that this detection alone does not confirm malicious intent; legitimate applications and services that alter the PortProxy settings may exist.
 
   ### Investigation Steps
 
-  - **Review PortProxy registry location:** Check registry path `HKLM\System\CurrentControlSet\Services\PortProxy\v4tov4\tcp\` for new entries. Legitimate activity may show expected entries related to approved applications or services rather than unusual ports and addresses.
+  - **Check registry modifications: ** Review the Windows Security Event ID 4657 to identify the exact time and user account modifying the registry key under `HKLM\System\CurrentControlSet\Services\PortProxy\v4tov4\tcp\`. Consider legitimate scenarios like Docker or Kubernetes deployments that may trigger changes.
 
-  - **Verify event logs for registry modifications:** Analyze Security Event ID 4663 for registry key modifications linked to PortProxy. Focus on timestamps correlating with the alert and user accounts responsible.
+  - **Identify user context: ** Analyze the `SubjectUserSid` and `SubjectUserName` fields in the event logs to determine if the modification was executed by a known administrative account or a compromised user account.
 
-  - **Identify unusual ports in registry entries:** Search for unexpected or common attack ports (e.g., TCP 4444 or 8080) within registry values. Legitimate entries often align with known services, while atypical ports may indicate malicious intent.
+  - **Correlate with network activities: ** Inspect network traffic captured by firewall logs or SIEM for unusual outbound connections that correspond to the newly created port forwarding rules. Look for connections to external IP addresses on non-standard ports.
 
-  - **Cross-reference with Network Traffic:** Utilize Sysmon Event ID 3 (Network Connection) to correlate with identified PortProxy settings, checking for suspicious outbound connections on unusual ports that match discovered registry entries.
+  - **Confirm malicious indicators: ** Look for Sysmon Event ID 1 (Process Creation) that indicates suspicious child processes spawned under common PowerShell scripts or other means that manipulate the `netsh portproxy` command.
 
-  - **Check user account context:** Investigate the user account associated with the registry modification. Entries created by non-admin users or during anomalous hours may indicate potential exploitation.
+  - **Identify false positive triggers: ** Validate against any known legitimate applications that may have modified the PortProxy settings, such as WSL2 or third-party KVM software, and document these exceptions.
+
+  - **Investigate system role: ** Determine the criticality of the affected host by identifying asset roles (e.g., server vs. endpoint) and whether its exposure to outside networks poses a higher risk if compromised.
 
   ### Prioritization
 
-  This alert has medium severity due to the potential impact on network integrity and its likelihood for malicious use, especially in enabling lateral movement and evasion techniques. While modifying PortProxy settings can be part of legitimate configurations, the comparatively infrequent benign activity raises concern.
+  This alert carries medium severity due to the potential for enabling lateral movement and C2 operations within the network. The impact of the affected systems being used for port forwarding can facilitate unauthorized access to sensitive areas of the environment. Furthermore, this technique is commonly weaponized by adversaries targeting internal networks.
 
   ### Blind Spots and Assumptions
 
-  Common evasion techniques include attackers altering or removing their footprints post-exploitation, potentially leaving behind no detectable changes. Reliable detection requires focused monitoring of registry changes and ensuring full event log collection for modifications. Legitimate use cases include port forwarding set up for specific applications, such as development environments. Companion detections related to lateral movement or unusual outbound connections could strengthen coverage and context for investigations.
+  This detection may be evaded through direct modifications to the registry that bypass logging mechanisms, or by using malware designed to operate in memory without interacting with the registry. Ensure that Windows Registry auditing is enabled for reliable detection. Legitimate activities that may trigger this alert include configurations settings altered by container orchestration tools. A companion detection to strengthen coverage could involve monitoring for unusual network traffic patterns indicating potential use of the established port forwards.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -11,8 +11,8 @@ author: Tim Burrell
 date: 2020-01-02
 modified: 2023-01-30
 tags:
-- attack.defense-evasion
-- attack.t1562.002
+- attack.defense-impairment
+- attack.t1685.001
 logsource:
   category: process_access
   product: windows
@@ -35,28 +35,25 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects excessive access requests to the `svchost.exe` process, particularly those that may be indicative of attempts to manipulate or terminate essential Windows services, such as the event logging service. The primary attacker objective is likely to disable logging or cover their tracks by killing critical services that facilitate forensic analysis. Relevant MITRE ATT&CK tactics include Defense Evasion (TA0005) and specifically the technique T1562.002 (Impair Defense Mechanism).
+  This Sigma rule detects unauthorized access attempts to the `svchost.exe` process on Windows systems, particularly focusing on high-risk access rights (i.e., `0x1F3FFF`), which can indicate attempts to manipulate or terminate critical Windows services like the event logging service. This behavior generally aligns with an adversary's objective of evading detection and maintaining persistence by disrupting logging mechanisms. The relevant MITRE ATT&CK technique is T1685.001: **Defensive Evasion: Service Stop**.
 
-  The primary telemetry source for this detection is the Windows process access logs, specifically anything tracking access requests to `svchost.exe`. Malicious interactions may allow an attacker to disrupt services or obfuscate their activity, creating an increased risk for lateral movement or persistence. Importantly, this detection does NOT confirm that a compromise has occurred or that the observed activity is inherently malicious; further investigation is necessary.
+  Primary telemetry sources include Windows Process Access logs, specifically focusing on access to the process ID of `svchost.exe`. Should this activity be malicious, it could result in decreased visibility into system events and logs, potentially assisting an attacker in their operations. Importantly, this detection does NOT confirm that a successful attack has occurred; it merely indicates potentially malicious access attempts.
 
   ### Investigation Steps
 
-  - **Check process access logs:** Review Security Event ID 4672 and Sysmon Event ID 3 for any access attempts to `svchost.exe` (typically found at `C:\Windows\System32\svchost.exe`). Identify if the granted access level is `0x1F3FFF`, indicating high-level access permissions potentially used for malicious intent.
-
-  - **Evaluate the caller process:** Examine the `SourceImage` field related to access attempts. Legitimate calls should typically originate from trusted Microsoft processes (e.g., Visual Studio MSBuild) and not from unexpected or suspicious applications.
-
-  - **Review CallTrace details:** Inspect the `CallTrace` for the presence of `UNKNOWN` entries. Determine what processes or services were attempting access to `svchost.exe`, noting any inaccuracies that point to possible evasion.
-
-  - **Identify historical service status:** Use the Windows event logs to check the status of Windows services, particularly the event logging service. Relevant Event ID 1102 indicates when the audit log was cleared, which may coincide with `svchost.exe` accesses. Compare timings to find suspicious patterns.
-
-  - **Correlate with other alerts:** Look for any companion detections regarding abnormal service terminations (e.g., Event ID 7036) or similar access patterns. Such correlations can provide context on whether access behaviors have been repeated or are part of wider suspicious activities.
+  - **Check process access logs:** Review Security Event ID 4656 for access to `C:\Windows\System32\svchost.exe`. Benign behavior typically shows standard access patterns from system services or legitimately installed software.
+  - **Analyze granted access rights:** Identify if `GrantedAccess` equals `0x1F3FFF`. This specific access level is concerning and could indicate an attempt to gain full control over the svchost process.
+  - **Examine the CallTrace context:** Verify if `CallTrace` contains 'UNKNOWN'. Legitimate use cases, like the expected workload of system maintenance, will have identifiable call parameters indicating normal operational behavior.
+  - **Evaluate source of the access attempt:** Review the `SourceImage` field for involvement of `MSBuild.exe` from `C:\Program Files\Microsoft Visual Studio\`. If this is confirmed, look for anomalies in the expected usage of MSBuild.
+  - **Correlate with other activity:** Check for concurrent activity involving process creation (e.g., Event ID 4688) that might indicate the launching of suspicious executables or scripts in close temporal proximity.
+  - **Determine asset criticality:** If the affected `svchost` process is on a critical server (e.g., Domain Controllers, Database servers), escalate the findings accordingly due to higher risk implications.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential impact on critical system functions and security logging mechanisms. The likelihood of malicious abuse is significant, as attackers often target `svchost.exe` to impair system defenses. This behavior aligns closely with known adversary techniques used for evasion in real-world attacks.
+  This alert is considered high severity due to its implications on the security posture of the environment. Any malicious activity targeting svchost processes can jeopardize foundational services and might indicate an active adversary attempting to impair defenses. The likelihood of exploitation in the wild is significant, especially in environments lacking robust monitoring.
 
   ### Blind Spots and Assumptions
 
-  Limitations of this detection may arise from legitimate administrative actions or valid software development activities that necessitate high-level access to services. Ensuring comprehensive logging configurations, including Sysmon, is essential for reliable detection. Additionally, legitimate applications may trigger this alert if they improperly interact with `svchost.exe`. A related detection, such as monitoring for abnormal service status changes, could enhance coverage and context during investigations.
+  This detection may miss sophisticated evasion techniques such as directly interfacing with the Windows API without invoking normal process access pathways. Additionally, for effective detection, Windows auditing must be correctly configured to capture Process Access events. Legitimate applications may trigger this alert during debugging or benign service manipulations, particularly during software development using Visual Studio. A related detection to consider is monitoring abnormal service stop events (e.g., Event ID 7036) which could further bolster alert validation in these contexts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

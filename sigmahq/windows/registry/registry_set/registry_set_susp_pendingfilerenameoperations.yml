@@ -13,7 +13,7 @@ author: frack113
 date: 2023-01-27
 modified: 2025-10-07
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.003
 logsource:
   category: registry_set
@@ -36,30 +36,36 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects unauthorized modifications to the "PendingFileRenameOperations" registry key, specifically from suspicious image locations or via uncommon executables. The likely objective for an attacker includes masking their presence by staging files for deletion or renaming during the next system reboot. This activity falls under the MITRE ATT&CK tactic of Defense Evasion (T1070) and specifically targets technique T1036.003 for "Masquerading."
+  This Sigma rule detects modifications to the "PendingFileRenameOperations" registry key from suspicious image paths, which can indicate an attacker’s activity to rename or delete files on the next system reboot. The likely objective of this behavior is to establish persistence or to remove evidence of malicious activity by staging files for deletion upon system restart. This detection correlates with the MITRE ATT&CK technique for obfuscation and evasion, specifically T1036.003 (Masquerading: Match Legitimate Name or Location).
 
-  Primary telemetry utilized for this detection stems from Windows registry modifications, particularly the "registry_set" log source, which captures information when the registry is altered. If malicious, this behavior could allow an adversary to maintain persistence and evade detection. Notably, this detection does NOT confirm malicious intent on its own, as legitimate applications may modify this registry key as part of their standard operations.
+  The primary telemetry sources involved are Windows registry changes, specifically monitoring registry set events related to the key at `\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations`. If malicious, this behavior could lead to data loss, service disruption, or further exploitation. Importantly, this detection does NOT confirm malicious activity on its own, as similar registry modifications can occur in legitimate scenarios, such as software installations or updates.
 
   ### Investigation Steps
 
-  - **Identify the modifying executable:** Investigate the `Image` field in the registry logs (Event ID 4657) for entries indicating that `reg.exe` or `regedit.exe` were used to modify the "PendingFileRenameOperations" registry key. Any occurrence from uncommon paths (e.g., `\Users\Public\`) should be flagged for review.
+  - **Review registry modification source:**
+    Check for the source of the modification by inspecting Windows Security Event ID 4657 (Registry Value Changed). Look for information on the user account and process responsible for the modification.
 
-  - **Check for malicious indicators:** Look for signs of file renaming or deletion in the registry keys under `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations`. If the associated executable path is atypical and from a previously identified compromise, this is a high-confidence malicious indicator.
+  - **Examine images in suspicious paths:**
+    Investigate the `Image` field for any processes ending with `reg.exe` or `regedit.exe`. Note if these processes are running from uncommon directories such as `C:\Users\Public\`, which is atypical for legitimate usage.
 
-  - **Review legitimate behavior examples:** Compare the entries with typical vendor installer paths (e.g., `C:\Program Files\...` or `C:\Windows\...`). Legitimate installers frequently adjust PendingFileRenameOperations for legitimate upgrades or installations.
+  - **Identify legitimate behavior sources:**
+    Confirm if the modification corresponds with known legitimate installers (i.e., products that typically use the PendingFileRenameOperations key). Review installation logs or processes running during the alert instance.
 
-  - **Examine system event logs:** Review System Event ID 1074 logs for any unexpected reboots or shutdowns following the registry modification timestamps. This may provide context previous to the suspicious changes.
+  - **Correlate with chain events:**
+    Look for other indicators of compromise (IOCs) surrounding this alert, such as unusual outbound connections or unauthorized file access attempts in the timeframe around registry changes.
 
-  - **Analyze recent activity:** Conduct a broader investigation within the host for any other suspicious modifications or commands executed (Event ID 4688) around the same timeframe as the registry key modification to piece together the attack timeline.
+  - **Collect system artifacts:**
+    Validate file system artifacts related to the renamed files by querying the filesystem for items denoted in the PendingFileRenameOperations. Look for temporary files or registry modification dates that align with these items.
 
-  - **Validate file system changes:** Inspect the file system using tools like Windows Explorer or PowerShell to determine if there are renamed or deleted files correlating with the registry entry modifications.
+  - **Investigate context of file renaming:**
+    Gather data on the intended files for renaming or deletion listed in PendingFileRenameOperations. Check if these files are critical system files or application components, as benign scenarios are generally limited to non-essential files.
 
   ### Prioritization
 
-  This alert carries a medium severity due to the potential impact on system integrity. While modifications to this registry key can be associated with malicious activity, they may also occur during legitimate software updates. However, the likelihood of exploitation for persistence mechanisms makes this behavior noteworthy, especially if it originates from uncommon executable paths.
+  This alert is of medium severity as it indicates potential tampering on critical system functionality. The impact of affecting the PendingFileRenameOperations may compromise system integrity or facilitate further attacks. While tainted by potential false positives from legitimate software behavior, the technique is often exploited by adversaries for stealth and persistence.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if the attacker's tools are able to mimic legitimate executables which could result in similar registry changes without raising alarms. Additionally, the alert might trigger from legitimate software installers which may use unusual paths under certain conditions. An associated detection to strengthen coverage would be monitoring for unusual process creations (Event ID 4688) around these modifications to catch any malicious process initiating the registry change.
+  This detection may suffer from evasion techniques such as using legitimate processes from atypical locations to mask malicious actions. It relies on the integrity of registry monitoring, and if configurations for monitoring are weak, relevant changes could be missed. Legitimate software installers may also trigger this alert by updating files with similar mechanisms. A related detection could include monitoring for unusual file creations or modifications within system critical directories to complement the visibility of this activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

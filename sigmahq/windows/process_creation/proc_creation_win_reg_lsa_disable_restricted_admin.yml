@@ -17,7 +17,7 @@ date: 2023-01-13
 modified: 2025-08-28
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   product: windows
@@ -34,32 +34,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects unauthorized modifications to the "DisableRestrictedAdmin" registry value, which directly influences the functionality of RestrictedAdmin mode in Windows systems. The intended behavior of this feature is to avoid transmitting reusable credentials over Remote Desktop connections, thereby safeguarding sensitive authentication information from potential adversary exploitation.
+  This rule detects changes to the "DisableRestrictedAdmin" registry value, which controls the availability of Restricted Admin mode for Remote Desktop Protocol (RDP) sessions. By altering this registry value, an attacker may aim to enable unrestricted credential transmission, thereby exposing user credentials on compromised endpoints. This behavior fits within the MITRE ATT&CK framework under the tactic "Persistence" and technique "Registry Run Keys / Startup Folder" (T1112).
 
-  The likely objective of an attacker manipulating this registry setting includes facilitating credential theft on compromised systems. This action falls under the MITRE ATT&CK tactic of Defense Evasion (T1203) and the technique of Registry Run Keys / Startup Folder (T1112). The primary telemetry sources for this detection are Windows process creation events, particularly focusing on processes altering registry settings, such as those logged under Security Event ID 4688 or Sysmon Event ID 1. If this behavior is confirmed as malicious, it could lead to significant security impacts, including unauthorized access and lateral movement within the network.
-
-  However, this detection does NOT confirm with certainty that a compromise has occurred; legitimate administrative actions or services may also modify this registry value.
+  The primary telemetry sources for this detection come from Windows process creation events, specifically monitoring command-line arguments related to registry modifications. If this behavior is malicious, it might facilitate credential harvesting and further compromise into sensitive systems. However, this detection alone does not confirm successful exploitation or that any credentials have been accessed.
 
   ### Investigation Steps
 
-  - **Examine process creation logs:** Review Security Event ID 4688 or Sysmon Event ID 1 to identify the process responsible for the registry modification. Look for parent processes associated with legitimate administrative tools versus unusual executables.
+  - **Identify the process creation event:** Check for Process Creation events (Windows Security Event ID 4688 or Sysmon Event ID 1) that reference registry modifications, particularly with paths leading to `\System\CurrentControlSet\Control\Lsa`.
 
-  - **Verify registry changes:** Check the registry path `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System` for the "DisableRestrictedAdmin" value. Compare the new value against previous known good states, noting any recent changes to indicate unauthorized access.
+  - **Analyze command-line arguments:** Review the CommandLine field in event logs for entries containing 'DisableRestrictedAdmin'. Any command line modifying this registry value without legitimate administrative purpose is suspicious.
 
-  - **Assess legitimate behavior:** CLI tools or Windows features such as Remote Desktop Configuration and Group Policy could normally invoke changes to this registry value. If recent changes coincided with scheduled administrative activities or notified updates, they may be benign.
+  - **Correlate with user and time:** Check the user associated with the process creation event. If the user is a non-administrative account performing this operation during non-business hours, it may indicate malicious intent.
 
-  - **Identify high-confidence malicious indicators:** Cross-reference the process modification with known malicious binaries or unusual command-line arguments. Filter for parameters suggesting automation or scripts, especially if the values are changed to either enable or disable restricted admin mode in unexpected situations.
+  - **Look for legitimate administrative roles:** Ensure that expected administrative actions are taken by authorized personnel. Typical behavior would show admins using tools like `Reg.exe` or `PowerShell` under well-defined contexts, such as system updates or maintenance tasks.
 
-  - **Review associated processes:** Identify sibling or child processes spawned by the modifying process in event logs. Anomalous variations in the command line, such as unusual flags set on legitimate executables, may indicate credential harvesting behavior.
+  - **Check related events for multiple modifications:** If multiple process creation events target the same registry value in a short timeframe, investigate for patterns of rapid change, which could be indicative of automated or scripted malicious activity.
 
-  - **Correlate with known attacks:** Investigate related logs or companion rules, especially those detecting suspicious remote desktop login attempts (e.g., from Event ID 4624 in Security logs) alongside changes to the "DisableRestrictedAdmin" value.
+  - **Examine historical context:** Review previous configurations of the "DisableRestrictedAdmin" value from the registry or other config management logs to confirm if the change aligns with normal administrative procedures.
 
   ### Prioritization
 
-  This alert is of high severity due to its potential for enabling malicious actors to harvest credentials and further propagate within the environment. Systems where this change occurs and are critical for business operations represent a particular risk, especially if suspect process ancestry is noted. The weaponization of remote desktop connections by adversaries is a well-documented approach in lateral movement strategies.
+  Given the potential impact on credential security in a corporate environment, tampering with the “DisableRestrictedAdmin” setting is a high-severity alert. The likelihood of an attacker exploiting this avenue is concerning, as credential-based breaches are commonly weaponized in attack campaigns.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of monitoring solutions that log registry changes comprehensively or by evasion through established tools that modulate registry values without detection. Legitimate administrative activities, such as Group Policy refreshes or scheduled maintenance, may trigger this alert if log sources are not configured to distinguish appropriately. A companion detection could focus on remote desktop service logins (e.g., Event ID 4624) during the same timeframe, enhancing the context for investigations into potentially related activities.
+  The detection may miss subtle evasion tactics where legitimate administration tools are used to alter registry keys. Reliable detection requires comprehensive logging from Sysmon or advanced Windows logging configurations. Legitimate administrative operations—such as security assessments or maintenance routines—could trigger similar alerts. A related detection for Registry access events on this value would enhance investigation coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

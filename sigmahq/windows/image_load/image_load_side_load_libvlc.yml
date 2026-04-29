@@ -9,9 +9,10 @@ references:
 author: X__Junior
 date: 2023-04-17
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -30,26 +31,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading involving the `libvlc.dll`, which is associated with the VLC media player. The likely attacker objective is to execute malicious payloads under the guise of a legitimate application, which can lead to persistence and privilege escalation on the affected system. This activity correlates with the MITRE ATT&CK technique of DLL Sideloading (T1574.001). The primary telemetry source is Windows image load events, specifically focusing on the paths from which `libvlc.dll` is loaded. If the activity is malicious, it may allow attackers to bypass security controls by executing code that appears to be from a trusted application. It is essential to note that this detection does not confirm malicious intent or compromise on its own, as legitimate applications may also raise similar alerts.
+  This rule detects the loading of "libvlc.dll" from non-standard locations, which can indicate DLL sideloading, a technique often leveraged by attackers to execute malicious code under the guise of legitimate processes. Attackers may aim to gain persistence, escalate privileges, or perform stealthy execution of malicious payloads. This behavior aligns with the MITRE ATT&CK technique T1574.001 (DLL Side-Loading).
+
+  The primary telemetry sources for this detection are Windows image load events, particularly observing DLL load operations from the `ImageLoaded` category. If legitimate, the DLL would typically load from expected paths such as `C:\Program Files (x86)\VideoLAN\VLC\`. Malicious uses of this technique can severely compromise system integrity and enable unauthorized access to sensitive data. Importantly, this detection alone does not confirm malicious intent or compromise without additional context.
 
   ### Investigation Steps
 
-  - **Identify the DLL source path:** Examine the `ImageLoaded` logs for Event ID 4104 or Sysmon Event ID 7 to find the exact file path of the loaded `libvlc.dll`. Malicious indicators would include paths outside of default installation directories: `C:\Program Files (x86)\VideoLAN\VLC\` or `C:\Program Files\VideoLAN\VLC\`.
+  - **Verify DLL load path:** Examine image load events (Windows Event ID 4104 for PowerShell or Sysmon Event ID 10) involving `libvlc.dll` to confirm if it originated from paths outside the `C:\Program Files\VideoLAN\VLC\` directories.
 
-  - **Verify the parent process:** Check for the parent process of the loaded `libvlc.dll` using the same telemetry. Legitimate activity typically shows VLC.exe as the parent process. Look for unexpected parent processes like `cmd.exe` or `powershell.exe`, which can indicate potential abuse.
+  - **Correlate with process execution:** Investigate the parent process of the VLC-related DLL loading by reviewing Sysmon Event ID 4688 for any unexpected or known malicious parent processes, such as uncommon executables spawning VLC.
 
-  - **Cross-reference file signatures:** Conduct a file analysis for the `libvlc.dll` loaded from non-standard paths to validate its integrity. Check if the file hash matches genuine VLC distributions (available through official channels).
+  - **Analyze file integrity:** Check if the `libvlc.dll` file has been modified by validating its hash against known good hashes in your organization's approved software repository. Use a tool like Tripwire or a checksum verifier.
 
-  - **Monitor process behavior:** Review additional logs for anomalous behavior following the loading of `libvlc.dll`. This includes unexpected outbound connections or process creation (Event IDs 4688/4697) that could signal exploitation.
+  - **Identify legitimate usage patterns:** Review recent user activity associated with the VLC executable (Event ID 4688) to see valid use cases, which typically include file formats supported by VLC such as `.mp4`, `.avi`, or `.mkv`.
 
-  - **Review system modifications:** Look at changes in security settings or user privileges around the time the `libvlc.dll` was loaded. Such changes could indicate an attempt to maintain persistence or escalate privileges post-exploitation.
+  - **Check for related artifacts:** Look for signs of data exfiltration or further compromise, such as unusual outbound network connections (Firewall logs) originating from the system now showing DLL sideloading behavior.
 
   ### Prioritization
 
-  The severity of this alert is medium. If malicious activity is confirmed, it can lead to significant impacts, especially if executed on critical systems or endpoints susceptible to privilege escalation. The likelihood of abuse increases as DLL sideloading is a recognized tactic used by adversaries in real-world attacks.
+  This alert has medium severity due to the potential impact on affected systems, particularly if malicious code is executed. The likelihood of malicious abuse through DLL side-loading is significant as it is a common tactic among attackers to evade detection and maintain persistence. The alert should be treated with urgency, particularly on critical assets running unmonitored software.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for legitimate applications residing in non-standard directories that might also trigger the alert. Key logging sources must be enabled, specifically Sysmon for tracking image loads, to ensure comprehensive detection. Legitimate application behavior such as devoting resources to run VLC and loading `libvlc.dll` from correct paths may trigger this alert frequently. Related detections, such as monitoring for unusual parent processes using Sysmon, can strengthen overall coverage against potential DLL-based attacks.
+  Detection limitations include the possibility of evasion tactics where attackers may place the DLL in legitimate paths or use various renaming techniques. Reliable detection requires proper logging settings for image loads (Sysmon) and may produce false positives if VLC is installed in non-default locations. Legitimate software installation activities may trigger this alert, especially if software is directed to custom installation paths. Companion detections around suspicious execution patterns of VLC and monitoring unexpected modifications to critical libraries would enhance coverage and context for the investigation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

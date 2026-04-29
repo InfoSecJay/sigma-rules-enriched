@@ -13,9 +13,9 @@ date: 2020-01-13
 modified: 2022-12-25
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
 - attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: windows
@@ -38,28 +38,33 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects potentially malicious use of the globally writable Tasks folders in Windows, specifically in the directories C:\Windows\System32\Tasks and C:\Windows\SysWow64\Tasks. Adversaries may leverage these folders to manipulate scripts or .NET applications and execute custom payloads via trusted Windows components like cscript, wscript, or mshta. The relevant MITRE ATT&CK techniques include Privilege Escalation (T1548.001) and Defense Evasion (T1574.001).
+  This rule detects the manipulation of the Tasks folder within the Windows System32 and SysWow64 directories, targeting globally writable paths to execute custom commands using script hosts like cscript, wscript, regsvr32, mshta, or eventvwr. The likely attacker objective is privilege escalation or persistence through the execution of unauthorized scripts or applications. This behavior maps to the MITRE ATT&CK techniques for Persistence (T1547.001), Abuse Elevation Control Mechanism (T1203), and Execution (T1203).
 
-  Primary telemetry sources include process creation logs which capture command line arguments, particularly Windows Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior can lead to the execution of unauthorized scripts or applications, compromising system integrity. Importantly, this detection does not confirm an actual compromise has occurred; instead, it indicates potential abuse of system capabilities.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1 for detailed command line activity. If malicious, this activity can result in unauthorized system manipulation or data exfiltration. Importantly, this detection does not confirm the legitimacy of the command execution nor does it indicate that the execution was successful or harmful by itself.
 
   ### Investigation Steps
 
-  - **Review command line parameters for suspicious activity:** Check Security Event ID 4688 for command lines containing 'echo ', 'copy ', or 'type ' along with file paths in C:\Windows\System32\Tasks or C:\Windows\SysWow64\Tasks. For benign activity, look for expected administrative operations such as scheduled task management using legitimate tools.
+  - **Verify command execution context:**
+    Review Security Event ID 4688 for the process creation events related to paths `C:\Windows\System32\Tasks\` or `C:\Windows\SysWow64\Tasks\`, checking for unusual parent processes like explorer.exe or cmd.exe that may indicate scripting misuse.
 
-  - **Check for known malicious indicators:** Look for creation or modification of files in C:\Windows\System32\Tasks and C:\Windows\SysWow64\Tasks. Validate if any files exhibit unusual naming conventions or recent timestamps unrelated to normal operations.
+  - **Analyze command line parameters:**
+    Examine the command line parameters for events containing 'echo ', 'copy ', 'type ', or 'file createnew'. Benign commands for system maintenance should not involve writing or executing scripts from the Tasks directory.
 
-  - **Verify the context of process execution:** Identify the parent process of any suspicious command lines extracted from Event ID 4688. Malicious activity often has unusual parent-child relationships, such as non-interactive sessions spawning these commands.
+  - **Correlate with user behavior:**
+    Check the account used for running the command against the User Activity logs. A legitimate user will likely be performing tasks typical to their role without interaction with system directories.
 
-  - **Assess the purpose and functionality of modified tasks:** Identify any scheduled tasks that are not part of the standard OS configuration through the Task Scheduler GUI or PowerShell commands, focusing on their actions and triggers. Typical legitimate usage should align with system maintenance or updates.
+  - **Look for high-confidence malicious indicators:**
+    Identify if the command contains the execution of `mshta.exe`, `regsvr32.exe`, or similar tools that are often exploited by attackers for execution and persistence. Capture Event ID 4688 associated with these commands as strong indicators of malicious activity.
 
-  - **Monitor network activity following detection:** Look for outbound connections or unusual data flows related to newly created or modified tasks, which may indicate exfiltration attempts or command and control callbacks. Validate against normal network baselines.
+  - **Review for potential file creation/exfiltration:**
+    Investigate if any new files were created in the Tasks directory or associated with the command. Check timestamps and file paths to validate against legitimate task scheduling and automation processes.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on system integrity and user data if an adversary successfully manipulates task execution. The likelihood of abuse is significant, as these folders are commonly exploited for persistence and further execution of malicious payloads, coinciding with known tactics and techniques in the threat landscape.
+  This alert is of high severity due to the potential impact on system integrity and the likelihood of an adversary abusing these globally writable paths for malicious purposes. The exploitability of the Tasks folder makes this behavior a commonly weaponized technique in targeting Windows environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may be influenced by legitimate administrative activities, such as scheduled task modifications by IT staff, which could trigger the rule. Evasion techniques, such as using alternate scripting methods or leveraging non-standard paths, may bypass this detection. Reliable detection requires comprehensive logging of process creation and access to Task Scheduler events. Companion detections include monitoring for unauthorized modifications to critical Windows folders or logs pertaining to script executions (e.g., Event ID 4104 for PowerShell logs), which bolster comprehensive visibility into potential threats.
+  Detection may miss events if logs are not configured to capture all process creation activities or if log retention is insufficient. An adversary may modify file permissions or use less common scripting utilities to evade detection. Legitimate administrative activities, such as scheduled task configurations, may also generate similar alerts. Companion detections could include monitoring for abnormal patterns in scheduled task modifications or executions that help strengthen coverage against persistence and execution threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

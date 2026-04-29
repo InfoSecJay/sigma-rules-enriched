@@ -13,9 +13,10 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-12-01
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -31,26 +32,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to load a non-existent DLL, "ShellChromeAPI.dll," which is indicative of potential DLL sideloading attacks. The likely attacker objective is to leverage the "DeviceEnroller.exe" binary to execute malicious code disguised as a legitimate DLL. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1203) and technique DLL Search Order Hijacking (T1574.001). The primary telemetry source is the Windows image load events, particularly those relevant to process and DLL loading. If malicious, this could allow an adversary to maintain persistence or escalate privileges undetected. This detection does NOT confirm malicious intent on its own, as benign processes may improperly reference this DLL.
+  This rule detects the loading of a non-existent DLL named "ShellChromeAPI.dll" by processes, particularly related to the "DeviceEnroller" binary. This behavior indicates a potential attempt by an attacker to utilize DLL sideloading, where a maliciously crafted DLL is being dropped and executed under the guise of a legitimate process. The likely attacker objective is to maintain persistence or execute arbitrary code while evading detection.
+
+  This detection corresponds to the MITRE ATT&CK tactic of Persistence (TA0003) and the technique DLL Search Order Hijacking (T1574.001). The primary telemetry source for this detection is Windows Image Load events, specifically monitoring for processes attempting to load this malicious DLL. If this activity is malicious, it can lead to further exploitation of the targeted system, unauthorized access, or data compromise. It is important to note that this detection does NOT confirm malicious activity on its own, as legitimate applications or misconfigured systems could also attempt to load this DLL under certain circumstances.
 
   ### Investigation Steps
 
-  - **Check Image Load Events:** Review Windows Event ID 4101 logs to identify instances where "ShellChromeAPI.dll" was loaded. Look for process names such as "DeviceEnroller.exe" and validate the file paths.
+  - **Check the process initiating the DLL load:** Investigate the parent process of the DLL loading event. Look for Security Event ID 4688 and/or Sysmon Event ID 1 to understand the context of execution and whether it originates from a suspicious or unusual source (e.g., a non-system process).
 
-  - **Identify Legitimate Use Cases:** Cross-reference the loading instances of "ShellChromeAPI.dll" with known legitimate activities of "DeviceEnroller.exe." Legitimate calls typically should not reference this DLL.
+  - **Review command-line arguments for DeviceEnroller.exe:** Examine the command line used by DeviceEnroller.exe to determine if the "PhoneDeepLink" flag is present. This is a significant indicator of potential malicious activity as it indicates specific intent to load the DLL. Look for fields in Event ID 4688 (New Process Creation) for the presence of this flag.
 
-  - **Correlate with Malicious Indicators:** Search for related processes (such as "powershell.exe" or "cmd.exe") spawned from "DeviceEnroller.exe" around the same timestamp. High-confidence malicious indicators include command lines with suspicious parameters such as flags tied to DLL modification or use.
+  - **Identify known benign uses of ShellChromeAPI.dll:** Understand legitimate applications or scenarios that might reference ShellChromeAPI.dll. For intentional benign usage, refer to trusted documentation to differentiate between legitimate and unrecognized activity.
 
-  - **Analyze Parent-Child Process Relationships:** Utilize Sysmon (Event ID 1) to investigate the process tree. Ensure that parent processes are legitimate, and note any unintended parentage or suspicious execution flows that lead to "DeviceEnroller.exe."
+  - **Collect supporting log artifacts for anomalies:** Use Windows Event Logs and Sysmon logs to identify if other suspicious activity correlates with the loading of ShellChromeAPI.dll. Look for additional malicious indicators such as unusual process trees or network activity associated with the DeviceEnroller process.
 
-  - **Check for Suspicious File System Activities:** Look for file creations or modifications related to "ShellChromeAPI.dll" in directories like C:\Windows\System32 or similar privileged locations. Track creation events in Windows Security Event ID 4663.
+  - **Verify system integrity and DLL presence:** Confirm that ShellChromeAPI.dll is not present on critical systems. Use file integrity monitoring tools or Windows file system logs to ensure that unauthorized modifications to the system have not occurred.
+
+  - **Check for established persistence mechanisms:** After identifying the suspicious loading of the DLL, monitor for any attempts by the associated process to leverage persistence methods (e.g., scheduled tasks, registry modifications). These can compound the threat posed by the initial event.
 
   ### Prioritization
 
-  This alert is high-severity due to the potential impact on system integrity and the likelihood of malicious abuse via DLL sideloading techniques, which are commonly weaponized in advanced persistent threat (APT) scenarios.
+  The alert is considered high severity due to the potential impact on critical enterprise systems. The likelihood of malicious abuse is moderate, given that DLL sideloading techniques are commonly weaponized in targeted attacks. Additionally, the involvement of legitimate processes like DeviceEnroller raises the risk of oversight in detection.
 
   ### Blind Spots and Assumptions
 
-  This detection has limitations as legitimate software behavior might unintentionally trigger the alert, especially in legacy systems. It requires accurate log configurations to capture all relevant image load events effectively. Activities such as software updates or system configurations that involve "DeviceEnroller.exe" may result in false positives. A related detection includes monitoring for the execution of unsigned or unknown DLLs loaded by processes commonly associated with device management operations.
+  Potential evasion techniques may include renaming the malicious DLL or using other methods of DLL injection. Effective detection relies on proper logging configurations, including Sysmon for process creation and image load events. Legitimate application behavior, such as misconfigured software processes, may inadvertently trigger this alert. A related detection rule for monitoring unusual process creation (Event ID 4688) can strengthen overall monitoring efforts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

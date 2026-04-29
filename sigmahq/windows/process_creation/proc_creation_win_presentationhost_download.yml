@@ -9,8 +9,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-19
 modified: 2023-11-09
 tags:
-- attack.defense-evasion
 - attack.execution
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -31,28 +31,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the `PresentationHost.exe` utility, specifically when it is used to access and potentially download files from the internet via the command line arguments that include HTTP, HTTPS, or FTP protocols. The likely attacker objective is to leverage this legitimate Windows component to download payloads or tools, exploiting the trust associated with native Windows processes to avoid detection. This behavior corresponds to the MITRE ATT&CK technique T1218 (Signed Binary Proxy Execution).
+  This rule detects instances where the `PresentationHost.exe` process, a legitimate Windows utility, is used to run .xbap (XAML Browser Application) files that can download arbitrary files from external URLs (HTTP, HTTPS, FTP). The likely attacker objective is to leverage this legitimate functionality to download malicious payloads, potentially leading to unauthorized access, data exfiltration, or malware installation. This behavior corresponds to the MITRE ATT&CK techniques for Execution (T1218), specifically using a trusted executable for malicious purposes.
 
-  The primary telemetry sources required for this detection are Windows process creation logs, specifically focusing on Event ID 4688 and Sysmon Event ID 1. If executed maliciously, this activity can lead to unauthorized code execution and potential compromise of the affected system. It is crucial to note that this detection alone does not confirm malicious intent; it simply identifies potentially suspicious use of a trusted process.
+  The primary telemetry sources include Windows process creation events (Event ID 4688) and the associated command line arguments. If detected as malicious, this activity poses a significant security risk as it bypasses traditional security mechanisms by leveraging a trusted application. However, this detection does NOT confirm an attack on its own, as legitimate applications may also use `PresentationHost.exe` for benign purposes, such as accessing legitimate XBAP applications.
 
   ### Investigation Steps
 
-  - **Check the command line arguments:** Review Event ID 4688 for `PresentationHost.exe` where the `CommandLine` field contains `http://`, `https://`, or `ftp://`. Malicious indicators include the presence of suspicious domains or URLs that do not match known safe repositories.
+  - **Examine process creation logs:** Review Windows Security Event ID 4688 where `Image` ends with `presentationhost.exe`. Check the `CommandLine` field for suspicious URLs (e.g., contains 'http://', 'https://', or 'ftp://') that indicate potential misuse.
 
-  - **Validate the originating process:** Look for the parent process associated with `PresentationHost.exe` in Sysmon Event ID 1. A typical benign scenario might involve a user-triggered operation from a recognized application, while an unexpected parent such as a command shell or scripting engine may indicate nefarious activity.
+  - **Investigate the command line arguments:** Focus on the `CommandLine` field in Event ID 4688 to identify any unusual or obfuscated parameters that can indicate malicious intent. Legitimate use cases typically do not feature external URLs.
 
-  - **Examine process creation logs:** Cross-reference against Event ID 4688 to analyse timestamps and user context. Accounts with elevated privileges executing `PresentationHost.exe` in this manner increase the likelihood of compromise.
+  - **Identify download locations:** If external files are downloaded, validate their locations by checking for file creation events associated with `PresentationHost.exe`. Look for any new files in temporary folders or unusual directories that may suggest exfiltration attempts.
 
-  - **Identify recent downloads:** Investigate file creation or modification timestamps in the user’s download directory or temporary folders. Look for recently downloaded files immediately following the execution of `PresentationHost.exe` that could be linked to malicious activity.
+  - **Correlate with network logs:** Cross-reference with firewall or proxy logs (e.g., from a SIEM) to observe any corresponding outbound requests to the URLs found in `CommandLine`. Look for known malicious domains or anomalous connections to external resources.
 
-  - **Assess asset criticality:** Evaluate the role of the affected system; if it is a critical server, malicious use of `PresentationHost.exe` can indicate a serious breach, warranting immediate escalation to incident response.
+  - **Review user and asset context:** Analyze the user account that initiated the process and the asset's criticality. Determine if the user has legitimate reasons to run `PresentationHost.exe` and validate whether this behavior is typical for their role.
+
+  - **Identify known benign activities:** Document expected behavior for legitimate use of `PresentationHost.exe`, such as internal applications utilizing XBAP for intranet solutions, to provide context against which to measure anomalies.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential impact on critical systems and the likelihood of exploitation through trusted Windows processes. Although this behavior is not the most common attack vector, it is weaponized by adversaries seeking to bypass standard security measures.
+  This alert should be treated with medium priority due to the potential impact of arbitrary file downloads on system integrity and security. The likelihood of malicious abuse is heightened, given that this method can effectively evade defenses by using trusted processes. While it may not be a common attack vector, it presents a plausible opportunity for exploitation.
 
   ### Blind Spots and Assumptions
 
-  Detection effectiveness can be limited by execution obfuscation techniques such as command-line obfuscation or network connection redirection. Ensure that Windows process creation logging via group policy is enabled and that Sysmon is appropriately configured for reliable detection. Legitimate actions, such as automated updates or scripted operations by maintenance tools, can trigger this alert. A related detection like monitoring for unusual outbound connections (e.g., DNS queries to known malicious domains) can enhance coverage against such techniques.
+  Detection may be limited by environments where `PresentationHost.exe` is commonly used for legitimate business applications, leading to false positives. Required log sources include comprehensive process creation logs and external request telemetry. Legitimate activities, such as authorized downloads of XBAP applications in managed environments, may trigger the alert. A relevant companion detection is tracking suspicious outbound requests to identify potential download targets further enhancing coverage against exfiltration methods.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

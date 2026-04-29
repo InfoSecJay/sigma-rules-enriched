@@ -13,7 +13,7 @@ date: 2019-10-27
 modified: 2025-07-08
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
+- attack.stealth
 - attack.t1055
 logsource:
   product: windows
@@ -120,30 +120,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of remote threads by common but potentially dangerous Windows processes, such as `explorer.exe` or `msiexec.exe`. The likely attacker objective is to leverage these processes to gain higher privileges or execute code in the context of a trusted process, facilitating further malicious activities like malware installation or persistence. The relevant MITRE ATT&CK techniques include Privilege Escalation (T1055) and Defense Evasion.
+  This Sigma rule detects the creation of remote threads by common but potentially misused processes such as `explorer.exe`, `iexplore.exe`, and `msiexec.exe`. The likely objective of an attacker utilizing this technique is privilege escalation or stealthy execution of arbitrary code, taking advantage of benign processes to evade detection. The relevant MITRE ATT&CK tactic is "Privilege Escalation" and the technique is T1055 (Process Injection). The primary telemetry comes from Windows event logs related to process creation, specifically targeting events related to remote thread creation.
 
-  The primary telemetry sources for this detection are Windows Event logs and Sysmon logs, specifically focusing on event IDs related to process creation (e.g., Event ID 4688) and remote thread creation activities. If the behavior is indeed malicious, it may allow attackers to manipulate critical system processes. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may occasionally trigger similar activity under controlled conditions.
+  If the detected behavior is malicious, it could signify an ongoing compromise, potentially leading to further exploitation of the system. However, it is crucial to note that this detection alone does not confirm malicious intent, as legitimate applications may create remote threads in normal operations.
 
   ### Investigation Steps
 
-  - **Check event logs for remote thread creation**: Review Sysmon Event ID 8 (CreateRemoteThread) and correlate with Process Creation logs (Event ID 4688). Look specifically for processes creating threads with unusual parent-child relationships.
+  - **Check process details**: Review the Security Event ID 4688 logs to confirm the details of the process creation event. Verify the `SourceImage`, `CommandLine`, and `User` fields for anomalies, noting that malicious activity often accompanies unusual source processes or command-line parameters.
 
-  - **Identify the invoking process**: Investigate the `SourceImage` field in triggered alerts to pinpoint which common process initiated the remote thread creation. Document processes like `iexplore.exe` or `msiexec.exe` in unusual scenarios where they invoke critical system processes unexpectedly.
+  - **Correlate with known behaviors**: Identify baseline behavior for the common processes listed in the Sigma rule. For example, normal operations for `iexplore.exe` and `explorer.exe` typically involve basic user navigation, not remote thread creation.
 
-  - **Validate against known benign behavior**: Contrast the invoking process' command line arguments with typical usage. For example, `iexplore.exe` usually accesses web resources but shouldn’t attempt to create threads in `csrss.exe` or other core system processes.
+  - **Identify peculiar siblings**: Investigate the parent-child process relationships in the process creation logs. Look for unexpected child processes spawned by high-risk source images. For instance, remote thread creation targeting `csrss.exe` or `LogonUI.exe` from `explorer.exe` is highly suspicious.
 
-  - **Review parent process information**: For alerts involving `winlogon.exe`, confirm the `TargetParentProcessId` aligns with PID 4 (System). Any deviations may suggest suspicious activity.
+  - **Examine network activity**: Analyze firewall or network logs for unusual outbound connections that coincide with the detected event timestamps. Pay special attention to communications initiated by the processes flagged in the rule, as high-risk indicators may suggest exfiltration attempts or command and control (C2) communication.
 
-  - **Capture additional telemetry**: If the alert concerns `explorer.exe` creating threads for executables in user directories (e.g., `AppData\Local\`), collect file creation artifacts from those paths and review for unusual timestamps or file sizes.
-
-  - **Examine historical context**: Assess whether similar alerts have been observed in the past and confirm the response to those incidents to identify trends or unresolved issues that require additional scrutiny.
+  - **Review legitimate application execution**: Scope out known legitimate uses of the detected processes by checking the deployment and usage context within your organization (e.g., application versions and update cycles). Reference process documentation for `msiexec.exe` or Office applications that may trigger similar threads under expected conditions.
 
   ### Prioritization
 
-  This alert has medium severity due to the potential impact on system integrity if malicious activity is confirmed. The likelihood of exploitation is moderate, as common processes are often exploited in privilege escalation attacks. This technique is somewhat weaponized as attackers frequently use it to create persistence mechanisms.
+  This alert should be classified as medium severity due to the potential impact on systems, particularly if processes with high privileges are involved. The likelihood of abuse exists as these methods are common in exploitation scenarios, often seen in targeted attacks aiming for further escalation or stealthy persistence.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques include renaming and obfuscating executing binaries to avoid detection by common security mechanisms. Reliable detection depends on proper Sysmon configurations and active logging of relevant event IDs. Legitimate software installations or updates, such as software management tools initiating from `msiexec.exe`, could trigger these alerts. Related detections focusing on process injection techniques (T1055) bolster coverage and investigative thoroughness.
+  Detection may be limited by the potential of evasion techniques such as process hollowing or using legitimate software in unexpected ways. Ensure logging for process creation is enabled and configured correctly, including capturing command lines and parent-child relationships. Legitimate activities, such as updates via `msiexec.exe` or scripts run through `powershell.exe`, may trigger the alert. A related detection that enhances this coverage is the monitoring of command execution logs, such as Windows PowerShell logs (Event ID 4104).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

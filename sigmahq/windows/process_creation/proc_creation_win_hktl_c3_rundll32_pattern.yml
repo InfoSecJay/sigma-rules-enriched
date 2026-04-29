@@ -9,7 +9,7 @@ author: Alfie Champion (ajpc500)
 date: 2021-06-02
 modified: 2023-03-05
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.011
 logsource:
   category: process_creation
@@ -27,28 +27,30 @@ level: critical
 note: |
   ### Technical Context
 
-  This rule detects the execution of a DLL using `rundll32.exe`, specifically targeting the `StartNodeRelay` function from F-Secure's C3 tool. The behavior suggests an attempt to relay network traffic or execute remote commands, which is often indicative of post-exploitation activities. This aligns with the MITRE ATT&CK technique T1218.011, which covers the abuse of legitimate system tools to conceal malicious activities. The primary telemetry sources needed for this detection are Windows process creation logs, specifically Event ID 4688. If malicious, this behavior can lead to unauthorized network access and potential data exfiltration. Importantly, the detection alone does not confirm malicious activity without additional context, as `rundll32.exe` can be used for legitimate processes.
+  This rule detects the execution of the `rundll32.exe` process with command-line arguments indicative of the F-Secure C3 payload, specifically targeting the `StartNodeRelay` function. The behavior suggests an attempt to establish a covert communication channel, likely for data exfiltration or command and control (C2) purposes.
+
+  The relevant MITRE ATT&CK tactic is "Command and Control" (TA0011) with the technique "Application Layer Protocol" (T1218.011). The primary telemetry source is Windows process creation logs, specifically focusing on Security Event ID 4688 or Sysmon Event ID 1. If malicious, the security impact could include unauthorized remote access, data theft, or lateral movement. Importantly, this detection does NOT confirm that an actual compromise has occurred, as `rundll32.exe` can also be used for benign purposes.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check Windows Security Event ID 4688 for process creation entries resembling `rundll32.exe` with command line arguments containing `.dll` and `StartNodeRelay`. Compare with known good processes for context.
+  - **Check Process Creation Logs:** Review Security Event ID 4688 or Sysmon Event ID 1 for the instance of `rundll32.exe` associated with the alert. Look for the command line containing `.dll` and `StartNodeRelay`. If the command line doesn’t contain both keywords, this could indicate a false positive.
 
-  - **Examine command line arguments:** Identify any additional parameters surrounding the `StartNodeRelay` function. Malicious executions will often include non-standard or unexpected arguments not typical in legitimate scenarios.
+  - **Examine Parent Process:** Investigate the parent process of `rundll32.exe` to determine how it was initiated. A benign parent process like `explorer.exe` might indicate legitimate use, while initiation from suspicious processes like `powershell.exe` or `cmd.exe` is more concerning.
 
-  - **Assess the file origin:** Locate the DLL file associated with the process. Check its path and creation date for legitimacy; DLLs in unusual directories (e.g., user profiles or temporary folders) are suspicious.
+  - **Validate DLL Presence:** Search for unusual DLLs in the system directories (C:\Windows\System32) using the created timestamp or file size of the DLL being called. The presence of any new DLLs, especially those related to C3 or with a creation time close to the alert, is a strong indicator of compromise.
 
-  - **Identify source host behavior:** Determine if the host has any legitimate use cases for tools like F-Secure C3. If the host typically does not use network relay functions, this execution may indicate compromise.
+  - **Monitor Network Connections:** Use network logs to correlate with the alert, checking for any connections to suspicious external IPs or domains initiated by `rundll32.exe`. Genuine internal processes usually do not initiate outbound connections unexpectedly.
 
-  - **Check for lateral movement indicators:** Investigate any network connections initiated by the process. Look for unusual traffic patterns or connection attempts to external addresses that may indicate data exfiltration or command-and-control communications.
+  - **Investigate Asset Criticality:** Assess the role of the host on which the alert triggered. If it’s a critical system (e.g., domain controllers, servers hosting sensitive data), prioritize immediate containment actions based on the identified behavior.
 
-  - **Cross-reference with threat intelligence:** Utilize threat intelligence sources to confirm if the detected behavior has prior associations with known adversaries or threat groups that use F-Secure C3 in their operations.
+  - **Identify Evasion Attempts:** Be aware of possible evasion techniques such as manipulation of the command line or targeting legitimate DLLs. Review logs for possible prior executions of `rundll32.exe` that do not match legitimate or expected command lines.
 
   ### Prioritization
 
-  The alert is marked as critical due to the potential high impact of network exploitation and data exposure, especially if critical systems are involved. The behavior is of significant concern as it leverages legitimate tools in a malicious context, which is a common tactic among attackers.
+  This alert should be treated as critical due to the potential for significant impact on sensitive systems. The likelihood of malicious abuse is high, considering the weaponization of this technique in C2 scenarios. Given the capabilities of F-Secure C3, prompt investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by evasion techniques such as renaming the `rundll32.exe` executable or using alternative processes for DLL loading. Ensure comprehensive logging is enabled for process creation (Event ID 4688) and that any anti-virus or endpoint detection technologies are configured properly for accurate detection. Legitimate uses of `rundll32.exe` for automation scripts may trigger similar alerts, and companion detections like monitoring unusual outbound network connections can strengthen overall coverage against these potentially malicious activities.
+  Detection is limited by the visibility of process creation logs; insufficient logging may lead to missed instances of `rundll32.exe` being invoked. Legitimate use cases, such as system updates or IT tools using `rundll32.exe`, could trigger false positives. A related detection that enhances coverage includes monitoring for other Sysinternals utilities that may invoke DLLs, such as `powershell.exe` or `wscript.exe`, which can be used for similar objectives.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

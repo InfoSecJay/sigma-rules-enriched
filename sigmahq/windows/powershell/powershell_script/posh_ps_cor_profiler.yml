@@ -13,8 +13,9 @@ author: frack113
 date: 2021-12-30
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1574.012
 logsource:
   product: windows
@@ -33,28 +34,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of environment variables related to .NET profiling—specifically `$env:COR_ENABLE_PROFILING`, `$env:COR_PROFILER`, and `$env:COR_PROFILER_PATH`. This behavior is indicative of an attacker’s attempt to manipulate the execution flow of .NET applications by loading a potentially malicious unmanaged DLL into the Common Language Runtime (CLR). The likely objective is to maintain persistence or escalade privileges by executing untrusted code within the context of a legitimate .NET runtime.
+  This Sigma rule detects the use of environment variables related to .NET profiling, specifically `$env:COR_ENABLE_PROFILING`, `$env:COR_PROFILER`, and `$env:COR_PROFILER_PATH`. Attackers may manipulate these variables to load unauthorized profiling assemblies into .NET applications, allowing them to intercept or alter application execution for malicious purposes, such as establishing persistence or data exfiltration. This behavior aligns with MITRE ATT&CK tactics for Privilege Escalation (TA0004) and Execution (TA0002), specifically technique T1574.012 (Registry Free COM).
 
-  This activity maps to MITRE ATT&CK technique T1574.012: Registry Run Keys / Startup Folder, related to both defense evasion and privilege escalation. The primary telemetry source for this detection is Windows PowerShell script logs, specifically Script Block Logging, which captures instances of script executions and manipulations. If this behavior is malicious, it could facilitate the execution of unauthorized code and compromise the integrity of the systems involved. Importantly, this detection does NOT confirm that a malicious act has taken place; it only indicates that a potential misuse of .NET profiling features has occurred.
+  The primary telemetry source required is PowerShell script block logging, which will capture relevant commands associated with the malicious use of these environment variables. If exploited, this could lead to unauthorized access or manipulation of critical applications. However, detection of this activity does NOT confirm malicious intent on its own, as legitimate administrative actions may trigger similar alerts.
 
   ### Investigation Steps
 
-  - **Review script block logs for related environment variable usage:** Examine PowerShell logs (Event ID 4104) for instances where `$env:COR_ENABLE_PROFILING`, `$env:COR_PROFILER`, or `$env:COR_PROFILER_PATH` are set. Compare with known malicious profiles versus legitimate administrative scripts to differentiate intent.
+  - **Inspect PowerShell logs for suspicious execution:** Review PowerShell script block logs (Event ID 4104) for any occurrences of `$env:COR_ENABLE_PROFILING`, `$env:COR_PROFILER`, and `$env:COR_PROFILER_PATH`. Note command context and user identity to determine if it’s an authorized user.
 
-  - **Identify potentially injected DLLs:** Check for DLLs referenced within the identified scripting context, including their paths and signatures. Malicious indicators include DLLs located in uncommon directories (e.g., user temp folders) or unsigned binaries.
+  - **Identify expected usage patterns:** Assess previous activity patterns for known administrative scripts, which may legitimately use COR_PROFILER. Compare user roles and historical actions to discern anomalous behavior.
 
-  - **Analyze the impact on .NET processes:** Query for recently executed processes that load the CLR (e.g., Event ID 4688) and verify if any suspicious DLLs correspond with the profiling attempts. Pay attention to unexpected parent-child process relationships.
+  - **Check for unauthorized DLLs:** Investigate for any loaded .NET profiling DLLs by correlating process creation events (Event ID 4688) with the detected environment variables. Look for processes spawned that are not expected within the application lifecycle, especially those involving unknown paths.
 
-  - **Confirm legitimate usage scenarios:** Investigate organizational guidelines for .NET profiling. Document any legitimate use cases that your environment follows and verify against the alert to rule out false positives.
+  - **Correlate with other events:** Review associated logs (e.g., Sysmon Event ID 7 for DLL loading) to trace any instance where the profiler was invoked. A sudden increase in .NET process execution with these environment variables may indicate suspicious activity.
 
-  - **Assess potential lateral movement:** Examine network connections and intranet traffic (using tools like Sysmon’s Event ID 3 for network connections) originating from the affected processes to identify any suspicious behaviors, such as outbound connections to unfamiliar IP addresses.
+  - **Examine system integrity:** Use host integrity monitoring tools to check for unexpected changes in system files or configurations, as malware may attempt to introduce persistent profiling behavior.
 
   ### Prioritization
 
-  This alert should be treated with medium priority due to the potential for significant impact if exploited—particularly in environments running critical applications. The likelihood of misuse is moderate as this method may not be widely weaponized, but awareness is essential given its capability to lead to deeper system compromise.
+  This alert has medium severity given the potential impact on critical .NET applications. While the specific use of COR_PROFILER is not commonly weaponized, its existence in environments not utilizing .NET profiling for legitimate purposes warrants priority. Continuous monitoring is essential, as this behavior could signify an elevated risk profile.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if PowerShell Script Block Logging is not enabled, potentially obscuring the activity. Legitimate administrative scripts that utilize .NET profiling for valid troubleshooting or monitoring could trigger this alert, introducing false positives. Related detections, such as monitoring for unusual DLL loads or process injection techniques (T1055), would enhance overall coverage and improve incident response capabilities.
+  Detection may be limited by the requirement for PowerShell script block logging to be enabled, which is not always in place in enterprise environments. Legitimate administrative scripts may trigger similar alerts, leading to false positives. A companion detection rule monitoring for suspicious DLL loading in .NET applications can enhance coverage and provide critical context to these alerts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

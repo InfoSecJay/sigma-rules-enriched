@@ -14,8 +14,8 @@ date: 2019-07-31
 modified: 2024-12-01
 tags:
 - attack.execution
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1548.002
 - attack.t1218.003
 - attack.g0069
@@ -44,28 +44,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects attempts to bypass User Account Control (UAC) through the use of Microsoft Connection Manager Profile Installer (CMSTP) autoelevate-capable COM objects. Attackers may utilize CMSTP to execute code with elevated privileges without prompting the user or administrator, allowing them to gain unauthorized access to sensitive areas of the system. The relevant MITRE ATT&CK techniques for this behavior include **T1548.002 (Bypass User Account Control)** and **T1218.003 (Signed Binary Proxy Execution)**.
+  This Sigma rule detects UAC bypass attempts involving the Microsoft Connection Manager Profile Installer (CMSTP) via specific COM objects. Attackers may leverage CMSTP to escalate privileges by executing code with elevated rights without the user's consent, typically aiming to gain full control over the system or to perform malicious actions undetected. This activity corresponds to MITRE ATT&CK Technique T1548.002 (Bypass User Account Control), particularly during the execution phase of an attack lifecycle.
 
-  The primary telemetry sources for this detection are Windows process creation logs, particularly Security Event ID 4688 and Sysmon Event ID 1, which provide a record of new process creation and the associated command line arguments. If successfully exploited, this technique could allow attackers to perform privilege escalation, leading to severe security incidents. It is important to note that detection of this behavior does NOT confirm malicious intent on its own, as legitimate use cases may exist, although they are rare in typical enterprise environments.
+  The primary telemetry source for this detection is Windows process creation logs. The rule specifically looks for processes spawned from `DllHost.exe`, alongside command line arguments indicating the use of known COM objects known for facilitating UAC bypass. If malicious, this activity poses a significant risk, allowing unauthorized actions with administrative privileges. Importantly, this detection does NOT confirm malicious intent on its own; legitimate applications may also trigger it, particularly in atypical environments.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check for Security Event ID 4688 and Sysmon Event ID 1 to identify the parent process as `DllHost.exe` and review the associated command line arguments for indicators of CMSTP execution.
+  - **Review process creation events**: Check for Security Event ID 4688 or Sysmon Event ID 1 for instances involving `DllHost.exe`. Pay attention to the command line for references to the specified Process IDs.
 
-  - **Analyze command line parameters**: Look specifically for the presence of `/Processid:{...}` with known CMSTP COM objects (`cmstplua.dll`, `CMLUAUTIL`, etc.) used in the command line. Legitimate CMSTP usage is uncommon; if found, further scrutiny is warranted.
+  - **Identify elevated integrity levels**: Look for logs indicating that the process was executed at High or System integrity levels. Secure logs may include the `IntegrityLevel` field showing 'High' or 'System' (SIDs: S-1-16-16384 and S-1-16-12288).
 
-  - **Inspect process integrity levels**: Validate the integrity level of the spawned process. The detection rule specifies processes with `High` or `System` integrity levels, which indicates potential misuse. Typical legitimate processes do not operate at these levels for CMSTP.
+  - **Correlate with user activity**: Confirm that the user associated with the detected behavior has legitimate reasons to invoke CMSTP. It is uncommon for legitimate users to engage CMSTP in modern enterprise contexts.
 
-  - **Cross-reference system changes**: Investigate logs for any changes made to critical system settings or configurations that correlate with the timestamp of the alert. Look for elevated commands or privilege escalations occurring around the same time to establish a pattern of behavior.
+  - **Check against known attack techniques**: Verify if any related security events were logged within proximity, such as abnormal login times, unexpected process parent-child relationships, or other suspicious behavior.
 
-  - **Look for external indicators of compromise**: Check for network connections or communication attempts made by the initiated process (if applicable). Correlate with telemetry for any signs of known malicious IP addresses or domains that have been previously identified.
+  - **Analyze legitimate CMSTP instances**: Understand benign usage patterns, including standard command line arguments in processes related to CMSTP during normal system operation, thus assisting in differentiating between legitimate and malicious activity.
+
+  - **Validate unauthorized file creation**: Inspect the file system for new files or modifications in sensitive directories (e.g., `C:\Windows\Temp`) around the alert time; look specifically for files created by processes initiated by DllHost.exe.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential for privilege escalation if exploited: an attacker gaining unauthorized access can lead to significant data breaches, system compromise, or lateral movement within the network. Given that UAC bypass techniques are commonly weaponized in the wild, the likelihood of malicious abuse is high.
+  The severity of this alert is high due to the potential impact on sensitive systems, particularly those with elevated privileges. The likelihood of abuse is significant since UAC bypass techniques are commonly weaponized in attacks. Detecting this activity may indicate an ongoing compromise or an attempt to escalate privileges.
 
   ### Blind Spots and Assumptions
 
-  A limitation of this detection is the possibility of legitimate CMSTP usage being rare but plausible in niche scenarios, leading to false positives. Reliable detection requires enabling detailed process creation logging (Sysmon) to ensure comprehensive coverage. Additionally, admin activities or configuration changes using COM objects for legitimate purposes may inadvertently trigger this alert. A related detection rule for monitoring **T1068 (Exploitation of Elevation of Privilege Vulnerabilities)** could strengthen overall coverage during investigations.
+  Detection may be limited by environmental factors, such as misconfigurations or the absence of relevant log sources (e.g., if Sysmon is not deployed). Additionally, legitimate activities might trigger this alert if CMSTP is used appropriately, although this is rare in modern enterprise settings. A related detection to strengthen coverage would be alerting on anomalous network activity following the privilege escalation attempt, which may signal lateral movement or data exfiltration.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

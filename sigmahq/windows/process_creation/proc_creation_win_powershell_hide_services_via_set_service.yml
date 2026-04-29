@@ -16,8 +16,9 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-17
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 logsource:
   category: process_creation
@@ -42,33 +43,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `Set-Service` PowerShell cmdlet with a specified security descriptor to hide services from standard utilities like `sc.exe` or `Get-Service`. The likely attacker objective is to obfuscate malicious services from detection, thereby maintaining persistence within the environment. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1568.011). The primary telemetry sources include event logs related to process creation (e.g., Security Event ID 4688 or Sysmon Event ID 1) capturing the execution of PowerShell with specific command-line arguments.
+  This detection identifies the invocation of the PowerShell cmdlet `Set-Service` with a specific Security Descriptor (SDDL) that enables a service to be hidden from standard service management tools such as `sc.exe` and `Get-Service`. The likely attacker objective is to establish persistent access on a compromised system while concealing malicious services from detection by defenders. This activity squares with the MITRE ATT&CK tactic of **Persistence** and the technique **T1574.011: Service Registry Abuse**.
 
-  If this detection is confirmed malicious, the potential security impact is significant, as it indicates an attempt to conceal malicious activity, enhance persistence, or bypass security measures. However, it is crucial to note that this detection does NOT confirm malicious intent by itself, as there may be rare legitimate use cases for hiding services.
+  The primary telemetry source is PowerShell process creation logs, specifically `Event ID 4688` or `Sysmon Event ID 1`, as well as command line arguments that capture the attempt to manipulate service visibility. If malicious, this behavior significantly diminishes the visibility of potentially harmful services, enabling attackers to maintain a foothold without detection. However, this rule does NOT confirm malicious intent on its own, as legitimate use cases for service modifications can occur.
 
   ### Investigation Steps
 
-  - **Review Process Creation Events:**
-    Locate Security Event ID 4688 or Sysmon Event ID 1 to determine context and origin of `pwsh.exe` execution, focusing on the `CommandLine` field for evidence of the `Set-Service` usage.
+  - **Confirm PowerShell Version:** Check the version of PowerShell being used by reviewing process creation logs (`Event ID 4688`), specifically for `pwsh.exe`. Legitimate environments may use PowerShell 7.x, while older versions and command-line anomalies may signify potential exploitation.
 
-  - **Identify Parameters Used:**
-    Check for specific command-line parameters in Event Log data. Look for 'Set-Service ' and the presence of 'DCLCWPDTSD', which indicates the installation of specific permissions that may denote malicious intent.
+  - **Analyze Command Line Arguments:** Review command line input of the PowerShell process (`CommandLine` field) for the presence of `Set-Service`, `-SecurityDescriptorSddl`, and `-sd`. Verify that the SDDL structure contains `DCLCWPDTSD`, indicating attempts to modify service visibility. Legitimate use for hidden services is rare; malformed commands suggest malicious intent.
 
-  - **Check for Known Legitimate Services:**
-    Compare the services list against standard service operations within the organization to determine if any common services have been hidden erroneously or maliciously.
+  - **Cross-reference Service Status:** Use `Get-Service` to track the status of services on the host post-event. Examine if any services were modified to be hidden directly after the detection event, specifically checking for services that are set to `Status: Stopped` but are not listed.
 
-  - **Correlate with Other Security Controls:**
-    Investigate endpoint protection logs (e.g., EDR solutions) for suspicious activity around processes, files, or registry changes that relate to the same user session or timeframe.
+  - **Evaluate Suspicious Service Entries:** Investigate services that are no longer visible outside of the specific PowerShell execution context. Document any entries that appear abnormal, such as services that do not match expected naming conventions for legitimate software or services.
 
-  - **Search for Lateral Movement:**
-    Look for additional indicators of lateral movement or privilege escalation in related logs, such as failed login attempts or administrative tasks executed around the same time to provide context to the service manipulation.
+  - **Identify Malicious Indicators:** Look for unusual service installation patterns, especially those occurring under high-privilege accounts or during off-hours. Utilize Security Event Logs (`Event ID 7045` for service creation).
+
+  - **Check Related Alerts:** Review other alerts or anomalies around the same timeframe, focusing on privilege escalation or unusual logins. Related activities may confirm a coordinated attack and indicate a broader exploitation strategy.
 
   ### Prioritization
 
-  This alert should be considered high severity due to its potential impact on system integrity and security. The ability to hide services is a well-known technique for evading security controls, and thus these techniques are commonly weaponized by advanced adversaries.
+  The severity of this alert is high due to its direct implications on system integrity and the likelihood that services are being obscured to facilitate continued access by an adversary. Such behavior is commonly seen in advanced persistent threats (APTs) seeking long-term footholds in enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for legitimate administrative actions to trigger this alert, which might lead to false positives. The rule depends on the accurate logging of PowerShell commands and the presence of necessary event sources, such as Sysmon, to capture these actions reliably. A related detection involves monitoring for abnormal service creation or modification events, which can provide additional context and coverage against potential threats.
+  This detection may suffer from evasion techniques such as legitimate administrative uses for hidden services, potentially leading to false positives. Additionally, a properly configured environment must ensure comprehensive logging of `pwsh.exe` commands to capture such activities reliably. Legitimate administrative tasks, like the scheduled maintenance of non-critical services, may inadvertently trigger alerts. A related detection worth monitoring includes configurations for unusual service installation or modifications detected via `Event ID 7045`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

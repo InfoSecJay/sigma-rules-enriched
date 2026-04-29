@@ -9,8 +9,9 @@ author: frack113
 date: 2022-03-01
 modified: 2023-03-27
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1197
 logsource:
   product: windows
@@ -42,28 +43,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection identifies the initiation of potentially malicious BITS (Background Intelligent Transfer Service) transfer jobs that download files with suspicious extensions such as '.exe', '.bat', and '.vbs'. The objective of an attacker leveraging BITS is typically to persistently install malware or conduct lateral movement within an environment without raising immediate suspicion. This behavior aligns with the MITRE ATT&CK technique T1197: BITS Transfer, which indicates a method of software distribution or transfer often exploited for covert data retrieval or payload delivery.
+  This Sigma rule detects the initiation of BITS (Background Intelligent Transfer Service) transfer jobs that download files with potentially suspicious extensions, such as executable files (.exe, .bat) and script files (.ps1, .vbs). The likely objective of an attacker is to exploit BITS for stealthy file downloads, aiding in malware installation or data exfiltration while evading traditional detection mechanisms.
 
-  The primary telemetry source for this detection is the BITS client logs, specifically focusing on Event ID 16403, which captures the creation of transfer jobs and the details related to the downloaded files. If the downloaded files are indeed malicious, they can be used to execute arbitrary code or maintain presence on compromised systems. However, it is important to note that the mere detection of a BITS transfer involving these file extensions does not confirm malicious intent; legitimate software may also use these extensions during updates.
+  This behavior is aligned with the MITRE ATT&CK tactics of Persistence (TA0003) and Execution (TA0002), specifically under technique T1197: BITS Jobs. The primary telemetry source for this detection comes from Windows event logs, specifically Event ID 16403 from the BITS client, which logs details about BITS transfer jobs. If such activity is malicious, it could lead to unauthorized code execution or the establishment of persistence on the system. It is important to note that this detection alone does not confirm malicious intent; it may also capture benign file transfers for legitimate updates or installations.
 
   ### Investigation Steps
 
-  - **Examine BITS transfer details:** Review Event ID 16403 for the specifics of the BITS transfer job, including the `LocalName` and `RemoteName` fields. Look for downloads to `%AppData%` targeting suspicious extensions.
+  - **Check Event ID for BITS Jobs**: Investigate Event ID 16403 logs in the Windows Event Viewer under the `Applications and Services Logs > Microsoft > Windows > BITS-Client` category to identify the transfer job's `LocalName` and `RemoteName`.
 
-  - **Identify benign behavior:** Look for common Windows system updates or legitimate application transfers, such as those from known vendors (e.g., `google.com`, `microsoft.com`, etc.). Compare the `RemoteName` against an approved vendor list to distinguish between benign and potentially harmful transfers.
+  - **Review file extensions**: Analyze the downloaded file's extension; extensions like `.exe`, `.bat`, and `.ps1` are suspicious in context. Verify if downloaded files are present in the specified folders (e.g., `C:\Users\<username>\AppData\Local\Temp\`).
 
-  - **Validate local file presence:** Check the file system at the path indicated in the `LocalName` of the transfer to confirm the presence of the downloaded file. Note any files ending in '.exe', '.bat', or '.vbs', which may be indicative of malicious intent.
+  - **Validate legitimate BITS transfers**: Confirm if the downloaded content is related to common legitimate applications (e.g., Chrome or Dropbox updates) and cross-reference the download source with known software vendors' signature IPs or domains.
 
-  - **Cross-reference with active processes:** Use tools such as Sysinternals to list processes and verify if any recent downloads are associated with newly created or running processes. Focus on execution paths originating from `%AppData%` or similar locations.
+  - **Identify unusual remote sources**: Determine if the `RemoteName` contains suspicious domains or IPs, especially those known for distribution of malware. Any unusual hosts should warrant higher scrutiny.
 
-  - **Review for high-confidence indicators:** Observe the usage of unusual download sources within the BITS logs. High-risk indicators include domains with string components typical of adversarial infrastructure or IP addresses known for malicious activity.
+  - **Correlate with other telemetry**: Cross-examine the detected BITS activity with the process creation logs (Event ID 4688) to check if a newly created process executes the downloaded file, as this can be a strong indicator of malicious behavior.
+
+  - **Assess asset criticality**: Evaluate the purpose and criticality of the affected asset to prioritize investigation; for instance, servers handling sensitive data should be treated with higher urgency in case of suspicious BITS transfer jobs.
 
   ### Prioritization
 
-  The alert is of medium severity primarily due to its potential impact on the system and its ability to facilitate malware deployment. While BITS traffic is common for software updates, the use of suspicious file extensions raises the likelihood of malicious activity. This technique is known to be weaponized by attackers for stealthy data downloads and persistent access.
+  This alert carries medium severity due to the potential for significant security impact if a critical system is compromised through unauthorized file downloads. The behavior is less common in standard operations, indicating a reasonable likelihood of malicious abuse, particularly in targeted attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by benign uses of BITS for legitimate software updates, leading to potential false positives if not appropriately filtered. Reliable detection requires proper logging configurations for the BITS service and retention of Event ID 16403 logs. Additionally, actors may leverage common file extensions in legitimate processes, which could trigger the alert. A related detection, such as monitoring for unusual process creations linked to BITS downloads (using Event ID 4688), could enhance coverage and reliability against evasion tactics.
+  Detection may miss transient BITS jobs if they complete quickly and relevant logs are not retained or captured. Additionally, established whitelisted applications transferring files may generate false positives. Ensure that logging configurations for BITS are appropriately set to capture necessary events. A companion detection could involve monitoring PowerShell usage (e.g., Event ID 4104) to identify any script execution like those downloading from the detected suspicious extensions, enhancing overall detection fidelity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

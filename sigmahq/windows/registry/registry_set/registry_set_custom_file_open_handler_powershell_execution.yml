@@ -8,7 +8,7 @@ author: CD_R0M_
 date: 2022-06-11
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1202
 logsource:
   category: registry_set
@@ -26,28 +26,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of PowerShell scripts through malicious changes to custom file open handlers in the Windows registry. Attackers typically alter registry keys to establish persistence or execution vectors for their payloads, indicating an effort to execute malicious commands. This behavior often aligns with the MITRE ATT&CK tactic of Defense Evasion (T1202).
+  This Sigma rule detects the execution of PowerShell script commands via a custom file open handler in the Windows registry, indicated by specific registry changes. The likely attacker objective is to establish persistence on the system while executing malicious scripts whenever a user interacts with specific file types associated with the crafted registry entries. This behavior aligns with the MITRE ATT&CK technique T1202 (Atomic Hint and Command Execution) within the Execution tactic.
 
-  The primary telemetry sources for this detection are Windows Registry events captured through the registry set logging. If malicious, successful execution could enable the attacker to execute arbitrary code, potentially leading to data exfiltration or system compromise. Importantly, this detection does NOT confirm actual malicious execution without additional context, as legitimate applications may also manipulate registry entries for valid reasons.
+  The primary telemetry sources relevant to this detection include Windows Registry logs, specifically monitoring for registry key modifications under `HKEY_CLASSES_ROOT\` related to file associations. If malicious, such a behavior could allow an attacker to run malicious scripts without user awareness, effectively enabling covert operations. Importantly, this detection does NOT confirm a confirmed compromise by itself but signals a potentially suspicious activity that requires further investigation.
 
   ### Investigation Steps
 
-  - **Review relevant registry modifications:** Check Windows Registry for changes made to `HKEY_CLASSES_ROOT\*\shell\open\command\`. Look for references to PowerShell commands, focusing on Event ID 4657 (registry value modified) and confirm if paths point to legitimate locations.
+  - **Check Registry Modifications:** Review the Windows Registry for changes to `HKEY_CLASSES_ROOT\*\shell\open\command\` for modifications. Use `reg query` to output the current state and review the command associated with file types that should not execute PowerShell.
 
-  - **Analyze parent process lineage:** Use Sysmon Event ID 1 to examine the process tree. Identify if processes initiating PowerShell have suspicious parent processes (e.g., cmd.exe or wscript.exe). Legitimate PowerShell executions often have processes like `explorer.exe` as parent.
+  - **Validate PowerShell Command:** Identify the PowerShell command being executed. Extract and analyze the command arguments in events. Look for common flags like `-command` that indicate execution. Additionally, ensure the presence of benign PowerShell executions for valid scripts.
 
-  - **Evaluate script content and arguments:** If PowerShell is invoked with `-command`, retrieve the full command using PowerShell logs or the command line field in Sysmon Event ID 1. Confirm if the command is obfuscated or invokes suspicious scripts or commands.
+  - **Search for Recent Execution Events:** Investigate Security Event ID 4688 for process creation events related to PowerShell (`powershell.exe`). Filter for occurrences triggered by the registry modifications and note unusual parent processes indicating potential malicious usage.
 
-  - **Check for signs of persistence mechanisms:** Look for additional registry keys under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` or similar locations, as further persistence may also indicate malicious intent if associated with non-solicited PowerShell executions.
+  - **Alert on Known Malicious Payloads:** Cross-reference any executed PowerShell scripts with threat intelligence sources or existing indicators of compromise (IOCs). Look for known malicious hashes or patterns in the command output that correspond with past incidents.
 
-  - **Validate host role for unusual activity:** Cross-reference the behavior against the roles of the affected asset. For instance, PowerShell execution from a server with no legitimate administrative function could flag malicious behavior.
+  - **Review User Activity Context:** Analyze user activity around the time of the execution. If the registry key was modified shortly before unexpected PowerShell execution, assess user roles and whether they should have interacted with files of that type.
 
   ### Prioritization
 
-  This alert is high severity due to the potential impact of arbitrary code execution on critical systems. The likelihood of abuse is significant, as attackers often target environments where they can establish persistence via registry manipulation. This behavior has been documented in high-profile attack campaigns, making it a common vector for exploitation.
+  This alert should be treated as high severity due to its potential impact on compromised systems, which could lead to unauthorized access or data exfiltration. Given the nature of PowerShell being commonly weaponized in attacks, the likelihood of malicious abuse is significant. Quick response is necessary to prevent further exploitation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the lack of appropriate logging configurations, as registry modifications must be adequately monitored. Evasion techniques such as using encoded PowerShell commands or legitimate applications scripting interfaces may trigger false positives. Additionally, certain benign applications may create or modify registry keys that could inadvertently trigger this alert. For broader coverage, integrate monitoring for other PowerShell execution methods and corroborate findings with network traffic analysis for outbound connections.
+  Detection may be limited by evasion techniques such as overlapping legitimate application usage that modifies registry settings or the use of obfuscated PowerShell commands. Ensure that Registry Auditing is enabled to capture relevant modifications accurately. Legitimate software installations may lead to similar registry changes and should be assessed carefully. A companion detection rule monitoring for suspicious PowerShell commands (e.g., T1059.001 - Powershell) would strengthen overall detection capabilities against potential misuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

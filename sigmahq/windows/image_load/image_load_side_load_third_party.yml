@@ -9,9 +9,10 @@ author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and
   research)
 date: 2022-08-17
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -46,30 +47,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading of third-party software components, specifically targeting Lenovo and Toshiba applications, which can be exploited by attackers to execute malicious code. The objective is typically to gain persistence on the system, escalate privileges, or exploit existing software vulnerabilities. This behavior aligns with the MITRE ATT&CK technique known as "DLL Side-Loading" (T1574.001).
+  This rule detects instances of third-party software DLL sideloading, particularly through known libraries like `commfunc.dll` (Lenovo) and `tosbtkbd.dll` (Toshiba). Attackers may sideload these DLLs to execute malicious payloads under the guise of legitimate software, thereby maintaining persistence and escalating privileges. The relevant MITRE ATT&CK tactics include Persistence (T1547.001) and Privilege Escalation (T1068).
 
-  The primary telemetry sources are Windows image load events, specifically targeting `ImageLoaded` events that record DLL loading activities. If the detected behavior is malicious, it may lead to unauthorized code execution or elevate attacker privileges on the affected system. However, this detection alone does not confirm malicious intent; additional context is required to establish whether the activity is part of legitimate software operation.
+  Primary telemetry sources involve Windows image load activity, specifically via Windows Security Event ID 4688 for process creation and Sysmon Event ID 7 for image loading. If malicious, this behavior can lead to unauthorized access or control over affected systems. Importantly, the detection does NOT confirm whether the loaded DLL is indeed malicious without additional evidence.
 
   ### Investigation Steps
 
-  - **Examine Image Load Events:** Check for Event ID 4656 (Handle Create) in the Security logs and investigate the `ImageLoaded` field for entries ending with `\commfunc.dll` or `\tosbtkbd.dll` that do not fit the file path criteria. Look for entries from `C:\Program Files\Lenovo\Communications Utility\` or `C:\Program Files\Toshiba\Bluetooth Toshiba Stack\`.
+  - **Check loaded DLL paths**: Review the process creation logs (Event ID 4688) for any processes that loaded `commfunc.dll` or `tosbtkbd.dll` and ensure the path aligns with the software installation directory. Legitimate behavior typically loads these DLLs from their respective directories, not AppData or unusual locations.
 
-  - **Monitor Access to Executables:** Identify processes using sysinternals tools like Process Monitor to confirm if legitimate Lenovo or Toshiba applications are indeed the originators of the DLL loading or if another unauthorized process is involved. Legitimate use cases would typically involve expected application versions and known file paths.
+  - **Validate parent process relationships**: Investigate the parent process of the detected image loads through Sysmon Event ID 1 to identify any suspicious or uncommon parent processes. A benign instance often shows a typical user interaction application as the parent.
 
-  - **Review User Context and Timing:** Assess the user under which the DLL was loaded by analyzing Windows Event ID 4688 (Process Creation). Confirm it corresponds to an expected or authorized user account during normal business operational hours.
+  - **Search for additional unusual DLLs**: Query Sysmon Event ID 7 to identify any other DLL files loaded near the time of the alert. Compare these against known malicious DLLs relevant to attackers in the environment; a DLL from a non-standard location (e.g., `C:\Users\<username>\AppData`) may indicate malicious activity.
 
-  - **Identify Malicious Indicators:** Alert for instances where the suspected DLL is loaded from unexpected paths, particularly if the loading occurs from directories like `C:\Users\[USERNAME]\AppData\Roaming\Zoom\bin\` or temporary directories. This indicates potentially suspicious manipulation.
+  - **Review execution contexts**: Evaluate the account context (user vs. system) under which the DLL was loaded. Sideloading under SYSTEM or an unexpected user account may indicate malicious intent.
 
-  - **Correlate with Other Suspicious Events:** Cross-reference with any prior security alerts or anomalies related to the same user account to identify a pattern of suspicious behavior or potential lateral movement.
-
-  - **Assess System Impact and Environment:** Consider the criticality of the affected system within the enterprise and prioritize investigation based on its role (e.g., endpoint vs. server), ensuring to check for any alerts indicating high-risk activity associated with privilege elevation.
+  - **Assess asset criticality**: Determine if the affected machine is part of a critical infrastructure or contains sensitive data. Higher criticality increases the priority of the response.
 
   ### Prioritization
 
-  This alert is assigned a medium severity due to the potential exploitation of trusted application runtimes for malicious code execution. The likelihood of such sideloading techniques being weaponized by adversaries is moderate, given the reliance on third-party software and the opportunistic nature of such attacks.
+  This alert should be taken seriously in an enterprise context, especially on critical assets, due to the potential for privilege escalation and persistence via a commonly weaponized technique. The likelihood of malicious abuse is notable, as sideloading is a tactic frequently employed by adversaries to bypass security measures.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations may arise due to legitimate software updates or reconfigurations that involve similar DLL loading behaviors, which could inadvertently trigger alerts. Required log sources include comprehensive Windows Event logs and Sysmon monitoring for full visibility. Legitimate activities may include proper execution of application updates or installations from trusted sources. A companion detection that strengthens coverage could involve monitoring for unusual outbound network connections from the affected applications, indicating potential data exfiltration attempts.
+  Detection may be limited by misconfigured logging settings or lack of Sysmon deployment. Legitimate software updates or patching processes could inadvertently trigger this alert if they involve sideloading DLLs. A related detection, such as monitoring for anomalous process creation with unauthorized image loads, can strengthen overall coverage against malicious actors employing sideloading techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

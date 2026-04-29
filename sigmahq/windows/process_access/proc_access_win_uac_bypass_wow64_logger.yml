@@ -9,7 +9,6 @@ author: Christian Burkard (Nextron Systems)
 date: 2021-08-23
 modified: 2022-10-09
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -27,30 +26,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of a DLL hijack within the WOW64 environment to bypass User Account Control (UAC) in Windows. Attackers may employ this technique to escalate privileges on the system without triggering standard security mechanisms, often aiming to execute payloads with higher privileges under the guise of trusted processes. The relevant MITRE ATT&CK tactic is Defense Evasion (ID: T1548.002) and it also relates to Privilege Escalation.
+  This rule detects the use of a Windows DLL hijack specifically targeting the SysWOW64 directory, which is employed to bypass User Account Control (UAC) protections. The likely attacker objective is to escalate privileges on a compromised system by exploiting vulnerabilities in the way Windows processes are managed. This behavior aligns with the MITRE ATT&CK technique **T1548.002: Abuse Elevation Control Mechanism: Bypass User Account Control**. The primary telemetry sources include process access logs that capture events like process creation and access attempts related to DLLs in the SysWOW64 directory.
 
-  The primary telemetry sources required include Windows Event Logs, specifically Process Creation events (Security Event ID 4688) and Sysmon events related to process access and DLL loading. If this behavior is malicious, it can lead to significant security impacts, including unauthorized access to sensitive data or full system compromise. However, this detection does not confirm that the action is malicious on its own, as legitimate applications may potentially exhibit similar behavior.
+  If successful, this attack leads to elevated permissions that allow adversaries to execute malicious activities with higher privilege. It is important to note that this detection does NOT confirm a compromise on its own; further investigation is required to establish the malicious intent behind the detected behavior.
 
   ### Investigation Steps
 
-  - **Verify Process Creation Activity**: Check for Security Event ID 4688 logs related to the process of interest. Look for user processes spawned from `C:\Windows\SysWOW64\` as this indicates potential privilege escalation attempts.
+  - **Review process access logs**: Examine logs for Security Event ID 4656 (Handle Access) and Event ID 4688 (Process Creation) to locate the use of DLLs specifically in the SysWOW64 path. Look for any unexpected processes attempting access at the high privilege level typically reserved for administrative tasks.
 
-  - **Identify Granted Access Levels**: Review logs for the GrantedAccess field, specifically look for entries with value `0x1fffff`, which indicates full access rights that are unlikely for standard user applications. This can suggest malicious intentions.
+  - **Identify malicious CallTrace patterns**: Inspect for entries where the CallTrace starts with "UNKNOWN(0000000000000000)|UNKNOWN(0000000000000000)|." This high-confidence indicator strongly suggests the manipulation of process behaviors, pointing toward nefarious activity.
 
-  - **Examine Call Trace Patterns**: Investigate Sysmon Event ID 10 logs for processes that have an associated CallTrace starting with `UNKNOWN(0000000000000000)|UNKNOWN(0000000000000000)|`. Legitimate applications should not typically generate such behavior.
+  - **Establish baseline behaviors**: Identify legitimate applications that may utilize the SysWOW64 directory for DLL access during typical system functions, e.g., mapping of 32-bit applications on a 64-bit OS. Document these to differentiate between expected and anomalous activity.
 
-  - **Correlate with Asset Role**: Confirm if the affected host is a critical system (e.g., Domain Controller, Database Server). Privilege escalation attempts are more concerning on higher-value targets.
+  - **Audit UAC settings and history**: Check for any recent changes to UAC settings or history in the Event Viewer, under Windows Logs -> Security. Look for Event ID 4608 (Windows is starting up) or other related logs that indicate changes in privilege elevation control settings.
 
-  - **Review Installed Applications**: Cross-reference installed software against known benign applications that may trigger similar patterns (e.g., legitimate installers or maintenance tools). Document any expected behavior related to these applications.
-
-  - **Look for Unusual Network Activity**: Investigate any outbound connections correlating with the detected process access, particularly involving the use of unusual or malicious command and control (C2) servers.
+  - **Analyze process lineage**: Utilize Sysmon Event ID 1 (Process Creation) to trace the parent-child relationship of processes. Confirm whether a known application parent-process initiated the questionable child-process, which could indicate a benign or malicious action.
 
   ### Prioritization
 
-  This alert is high severity due to the potential impact on critical systems if exploited. The likelihood of malicious abuse is elevated, as UAC bypass techniques are commonly targeted by attackers. This behavior is often weaponized in advanced attacks seeking privilege escalation.
+  Given the high impact on the affected system due to potential privilege escalation and the likelihood of this method being weaponized by adversaries, this alert is considered high severity. The ability to bypass UAC can facilitate further compromise and lateral movement within the network.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of logs from certain administrative actions or processes running under different user accounts. Legitimate software updates or administrative tools might trigger this alert under certain conditions. Companion detections such as monitoring for unusual command-line arguments in Security Event ID 4688 logs can enhance coverage by revealing more sophisticated usage patterns.
+  Detection limitations include the possibility of legitimate applications using DLLs in the SysWOW64 directory, which can lead to false positives. The detection relies heavily on process access logs; therefore, adequate logging configuration in place is crucial for effective monitoring. Additionally, certain security applications might utilize similar behaviors for legitimate purposes, which can trigger the alert. Related detections, such as monitoring for unauthorized process creation (e.g., Event ID 4688) or the use of direct administrative commands, can provide complementary insights into potential privilege escalation activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

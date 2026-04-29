@@ -9,9 +9,10 @@ references:
 author: frack113
 date: 2022-12-13
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -28,28 +29,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading when `ClassicExplorer32.dll` is loaded from an unexpected file path, specifically when it does not originate from its legitimate installation directory, `C:\Program Files\Classic Shell\`. The likely attacker objective is to leverage a trusted application to execute malicious code, achieving persistence and privilege escalation. This behavior relates to the MITRE ATT&CK tactic of Defense Evasion (ID T1574) and Persistence (ID T1546.001). The primary telemetry source is Windows Image Load events, particularly focusing on the image loaded and its path.
+  This rule detects potential DLL sideloading behavior by identifying when the ClassicExplorer32.dll is loaded from an unusual directory, instead of its expected location within the Classic Shell installation directory. DLL sideloading is often exploited by attackers to execute malicious payloads by leveraging trusted executables to load untrusted libraries. The likely attacker objective here is to escalate privileges, maintain persistence, or execute arbitrary code on the host.
 
-  If the behavior is confirmed malicious, it may indicate a compromise of the trusted application and subsequent unauthorized command execution. Notably, this detection alone does not confirm whether the code executed is indeed malicious or if it's a benign use of the Classic Shell application.
+  This behavior aligns with MITRE ATT&CK tactics: **Persistence** (TA0003) and **Privilege Escalation** (TA0004) through the technique of **DLL Search Order Hijacking** (T1574.001). The primary telemetry source is Windows process load logs, specifically image load events that track DLLs being loaded. If successful, the security impact could be significant, including unauthorized access to sensitive data or disruption of critical services. It is important to note that this detection alone does not confirm malicious intent, as the DLL may have been loaded by legitimate software installations or configurations.
 
   ### Investigation Steps
 
-  - **Check the image load path:** Investigate Event ID 4104 or Sysmon Event ID 7 for `ImageLoaded` paths. Validate if `ClassicExplorer32.dll` is loaded from `C:\Program Files\Classic Shell\` or an unusual path like `C:\Users\<username>\AppData\Local\Temp\`. An unexpected path suggests potential malicious activity.
+  - **Check DLL Load Path:** Review the Event ID 10 logs (Image Load events) for the ClassicExplorer32.dll. Confirm the file load path is `C:\Program Files\Classic Shell\ClassicExplorer32.dll`. If the path is different (e.g., local user directories), this is a potential malicious indicator.
 
-  - **Review load order and execution context:** Analyze Event ID 4688 for process creation details where `ClassicExplorer32.dll` is called. Confirm if the parent process is a legitimate process like `ClassicShell.exe`. Any anomalous parent-child relationships may indicate malicious behavior.
+  - **Validate Process Parent:** Identify the parent process associated with the loading of the ClassicExplorer32.dll via Event ID 4688 (Process Creation). Ensure the parent process is a legitimate application from Classic Shell. An unusual or suspicious parent process (e.g., cmd.exe or powershell.exe) can indicate potential abuse.
 
-  - **Identify system role and file validation:** Assess if the system is a critical asset, such as a server or domain controller, making the impact of potential compromise more significant. Also, cross-reference file hashes of the loaded DLL with known databases to check for any reported malicious versions.
+  - **Review User Context:** Analyze the user account that triggered the DLL load. If it is a low-privilege user initiating the load under unusual circumstances, this could raise red flags. Normal activity should involve admin or system accounts executing Classic Shell components.
 
-  - **Document legitimate usage scenarios:** For context, consider standard usage of the Classic Shell application. Typical usage will often yield loads from the installation directory. Document instances of legitimate operations using `ClassicExplorer32.dll` for comparison.
+  - **Examine System Changes:** Look for additional signs that could indicate a compromise, such as recent changes to system policies or task scheduler configurations that might reflect persistence mechanisms typically used in DLL sideloading.
 
-  - **Look for other indicators of compromise:** Correlate findings with Windows Security Event IDs (e.g., 4624, 4672) for unusual logins or privilege escalations around the same time. Indicators like downloads from untrusted sources or suspicious network connections further support a malicious hypothesis.
+  - **Check for Related Alerts:** Look for alerts that may indicate related malicious behaviors, such as unauthorized modifications in the Windows Event Logs (Event ID 4624 for successful logons) or unusual file creations in the Classic Shell directory through Sysmon Event ID  creations.
 
   ### Prioritization
 
-  This alert carries a medium severity level because it could indicate an attempt to exploit a commonly used legitimate application for malicious purposes. A successful attack using DLL sideloading techniques could severely impact an enterprise, particularly if it targets critical systems or sensitive data. This behavior is increasingly weaponized by adversaries, particularly in targeted attacks.
+  This alert carries a medium severity level due to the potential privilege escalation risk it poses if malicious. The impact is heightened if the affected system is a critical endpoint, such as a server or administrative workstation, and the likelihood of this technique being used in active attacks is notable, especially amongst targeted threat actors.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if Windows Event logging or Sysmon configurations are not properly set, as these logs are essential for identifying DLL activity. Evasion techniques may include legitimate applications being compromised, leading to sideloading, or threat actors utilizing less common software for similar runs. Legitimate updates or changes in application environment could trigger this alert as well. A related detection to strengthen coverage is tracking process injection attempts or unauthorized DLL modifications in real-time, which can provide additional context to the current behavior being investigated.
+  This detection may be limited by the presence of legitimate applications that may load the same DLL in unconventional paths under certain configurations. It's essential that the appropriate configuration captures all image loads from potential directories. Alternatives such as legitimate software updates may also trigger similar alerts, reinforcing the need for thorough investigation. A companion detection to consider is monitoring for unusual execution of scripts or binaries that could leverage the DLL for account manipulation (related to T1064 - Scripting).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

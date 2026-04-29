@@ -13,7 +13,6 @@ author: Luc Génaux
 date: 2026-01-24
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
 - attack.t1548
 - attack.t1554
@@ -31,30 +30,26 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the `setcap` utility to assign the `setuid` capability (`cap_setuid`) to a binary file on Linux systems. Such capability allows non-privileged users to change their user ID (UID) in ways typically restricted, including potentially allowing a binary to gain root-level access when executed. The likely objective of an attacker using this technique is to create a backdoor or maintain persistence within the system without raising immediate suspicion.
-
-  The relevant MITRE ATT&CK Tactics are **Privilege Escalation** (TA0004) and **Defense Evasion** (TA0005), with techniques T1548 (Abuse Elevation Control Mechanism) and T1554 (Compromise Account). This detection primarily relies on process creation logs, specifically focusing on the command execution pattern associated with `/setcap` and `cap_setuid`. If malicious, this action can lead to unauthorized privilege escalation and system compromise. Importantly, this detection does NOT confirm a compromise on its own; it merely highlights a potential security misconfiguration or malicious intent in setting capabilities.
+  This rule detects the use of the `setcap` utility to set the `setuid` capability on a binary file in a Linux environment. The likely attacker objective is to grant an unprivileged process the ability to manipulate user IDs, potentially allowing execution as the root user (UID 0) in the future. This activity aligns with MITRE ATT&CK techniques, particularly **Privilege Escalation** (T1548) and **Persistence** (T1554). The primary telemetry source is the Linux process creation logs capturing command-line arguments and image names. If malicious, this could enable further exploitation by allowing an attacker to execute commands with elevated privileges. Importantly, this detection alone does not confirm malicious intent; legitimate administrative actions may also trigger the alert.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Linux audit logs or Syslog entries for Event ID related to process creation, specifically focusing on entries where the `Image` ends with `/setcap` and the `CommandLine` contains `cap_setuid`. Look for abnormal execution patterns not consistent with normal operations.
+  - **Check command execution history:** Review bash history (`/var/log/bash_history`) for users who executed `setcap` commands recently. Legitimate usage typically originates from system administrators performing necessary privilege adjustments.
 
-  - **Validate the binary targeted:** Identify the binary that had its `setuid` capability set. Use `getcap <binary_path>` to examine capabilities on the binary; a legitimate binary typically should not have `cap_setuid` set unless specifically intended for controlled administrative functions.
+  - **Validate recent binaries with modified capabilities:** Use the command `getcap -r /path/to/check` to identify binaries with the `cap_setuid` capability set. Confirm that these binaries should require such capabilities; unexpected binaries having this capability is a strong indicator of potential compromise.
 
-  - **Correlate with known binaries:** Cross-reference the modified binary with a list of critical or high-value binaries in your environment. Identify if the `setcap` was applied to a non-standard binary that could indicate malicious usage.
+  - **Analyze process creation events:** Look for Linux process creation logs (Syslog or custom logs) for Event ID related to process creation (usually found in `/var/log/syslog`). Cross-reference the `setcap` execution and review parent processes to see if they originate from expected administrator contexts or unusual sources.
 
-  - **Monitor system changes:** Check for other changes made around the same time as the `setcap` execution. Review logs for unusual activities such as package installations, file modifications, or creation of cron jobs that may indicate wider compromise.
+  - **Monitor for subsequent malicious activities:** Investigate ongoing background processes linked to the binaries modified by `setcap`. High-confident indicators include additional privilege escalation attempts or abnormal network traffic from these processes.
 
-  - **Review user activity:** Look for the user that executed `setcap` and their recent activity. Analyze if this user account has a history of legitimate administrative tasks or if it has been newly created or altered in suspicious ways.
-
-  - **Identify legitimate use cases:** Determine if `setcap` usage is common within your organization’s workflow for specific applications. If not, escalate the investigation as potential malicious activity.
+  - **Assess permissions on sensitive binaries:** Review access permissions for the modified binaries using `ls -l /path/to/binary`. Verify that permissions and ownership are consistent with policy; irregular permissions may confirm exploitation.
 
   ### Prioritization
 
-  The alert severity is classified as low due to the specific usage of `setcap`, which may have legitimate administrative purposes. However, its potential for abuse in a privileged escalation context is non-negligible, especially if coupled with other indicators of compromise. While not commonly weaponized on its own, should it occur alongside other suspicious behaviors, it warrants immediate review.
+  This alert should be treated with a low to moderate severity in most enterprise contexts. The impact is higher if the affected binary is critical to system functions or applications. The likelihood of malicious abuse is noteworthy, as this technique is commonly used for privilege escalation and persistence in compromised environments.
 
   ### Blind Spots and Assumptions
 
-  Detection might miss legitimate workflows where `setcap` usage is necessary for application functionality, potentially leading to false positives. Reliable monitoring relies on thorough auditing configurations and adequate log retention for process creation events. Additionally, if the system is poorly monitored or configurations allow for unmonitored `setcap` usage, it may promote evasion opportunities for adversaries. Companion detections could include monitoring for unusual user activity or privilege escalation events (e.g., abnormal `sudo` usage or unexpected system modifications) to enhance security visibility.
+  Detection may be limited if logs have not been configured to capture command-line arguments fully or if the `setcap` utility is not monitored consistently. Legitimate activities that might trigger this alert include routine updates or security hardening tasks by administrators. A related detection that strengthens coverage includes monitoring for unauthorized changes to `sudo` permissions or unexpected `setuid` binary modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

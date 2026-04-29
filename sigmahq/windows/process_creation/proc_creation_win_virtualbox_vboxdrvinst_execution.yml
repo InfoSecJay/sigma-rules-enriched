@@ -13,7 +13,7 @@ date: 2020-10-06
 modified: 2021-11-27
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   category: process_creation
@@ -32,33 +32,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection rule identifies suspicious executions of `VBoxDrvInst.exe`, specifically when it runs with parameters that allow the processing of INF files. This behavior is typically used by attackers to install malicious drivers, modify registry keys, or establish persistence mechanisms by adding entries to the Run or RunOnce registry keys. The likely attacker objective is to enable further malicious activities, such as maintaining access to the system after a compromise.
+  This rule detects the execution of `VBoxDrvInst.exe` with parameters associated with processing INF files, which indicates attempts to modify registry values and install drivers. The likely attacker objective is to achieve persistence on a system by exploiting driver installation mechanisms, potentially modifying the Run or RunOnce registry keys. This behavior aligns with the MITRE ATT&CK tactic of Persistence and the technique T1112: Modify Registry.
 
-  The relevant MITRE ATT&CK tactic is **Persistence**, specifically technique **T1112** (Modification of Registry). The primary telemetry source consists of Windows process creation logs, specifically Event ID **4688** from the security log and potentially Event ID **4104** from Sysmon for capturing command-line arguments. If malicious, this action may lead to unauthorized driver installations and persistent footholds on the target machine. However, the detection alone does not confirm malicious intent; benign uses during legitimate installations of VirtualBox Guest Additions could trigger the same alert.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. The security impact of this behavior, if malicious, includes unauthorized persistence mechanisms and potential escalated privileges via driver execution. Importantly, this detection alone does not confirm malicious activity; benign usage by legitimate software installation (e.g., VirtualBox Guest Additions) can trigger the alert.
 
   ### Investigation Steps
 
-  - **Examine the process execution details:**
-    Review Event ID 4688 for `VBoxDrvInst.exe` execution. Check the command line for indicators such as the presence of `executeinf` and `driver`. This includes fields such as `NewProcessName` and `CommandLine`. Benign entries typically lack these flags.
+  - **Check process creation logs**: Review Security Event ID 4688 and Sysmon Event ID 1 for instances of `VBoxDrvInst.exe` and note the complete command line used. Look for variations in the parameters that do not indicate benign use.
 
-  - **Identify the parent process:**
-    Check the parent process of `VBoxDrvInst.exe` using Event ID 4688 or Sysmon Event ID 1. Legitimate installations are often spawned by installer processes or system updates. Any unusual parent processes should raise suspicion.
+  - **Analyze registry modifications**: Examine Windows registry for changes associated with `Run` or `RunOnce` keys (e.g., `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`). Indications of recent modifications, especially from a process like `VBoxDrvInst.exe`, could suggest malicious intent.
 
-  - **Review registry modifications:**
-    Investigate modifications in key registry paths related to startup entries, specifically **HKLM\Software\Microsoft\Windows\CurrentVersion\Run** and **HKCU\Software\Microsoft\Windows\CurrentVersion\RunOnce**. Look for newly added or altered entries corresponding to the execution time of `VBoxDrvInst.exe`.
+  - **Assess historical usage**: Investigate historical runs of `VBoxDrvInst.exe` in the environment. Frequent execution or execution by non-administrative users could imply abuse versus legitimate periodic updates.
 
-  - **Check for file presence in expected paths:**
-    Validate the existence of unwanted or unexpected drivers in the `C:\Windows\System32\DriverStore\FileRepository` directory. Malicious drivers may not align with typical VirtualBox driver file structures.
+  - **Correlation with known malicious indicators**: If identified, correlate with threat intelligence feeds for known malicious hashes or command-line patterns associated with `VBoxDrvInst.exe`. Look for high-confidence malicious indicators, such as unfamiliar or suspicious domains being contacted post-execution.
 
-  - **Correlate with network activity:**
-    If the execution coincides with network connections, review outbound connections from the host device. Use firewall logs to identify unusual traffic, especially to known bad IPs or domains. Relevant log fields include `DestinationIP` and `Protocol`.
+  - **Confirm legitimate activity**: Consider expected usage scenarios, such as installations or updates related to VirtualBox. Validate any recent software updates or installations within the organization that could justify this behavior.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to its potential to create persistent access on critical systems if the execution is indeed malicious. The `VBoxDrvInst.exe` tool’s normal use in legitimate VirtualBox installations makes it vital to differentiate between benign and malicious intent. However, the parameters flagged in this rule indicate a higher likelihood of abuse.
+  The alert severity is medium due to the moderate impact of the affected system, as it relates to potential unauthorized persistence mechanisms. The likelihood of malicious abuse is credible given the common use of driver installations in later stages of compromise. However, because of its legitimate usage in software installations, a full investigation is essential to contextualize the alert.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate uses of `VBoxDrvInst.exe`, particularly during installation processes that run similar commands. It is crucial to have Windows security and Sysmon logs properly configured to capture all process creation events for reliable coverage. Notably, other virtualization tools may also utilize similar executables, which can cause false positives. A related detection to consider is monitoring for modifications to **HKEY_LOCAL_MACHINE** and **HKEY_CURRENT_USER** for unusual persistence mechanism patterns.
+  This detection may miss obfuscation techniques where adversaries rename or modify the executable to avoid detection. It requires consistent collection of process creation logs; insufficient logging configurations could lead to gaps in visibility. Additionally, legitimate VirtualBox operations may trigger false positives, necessitating thorough investigation. A related detection, such as monitoring modifications to the registry keys themselves, could enhance coverage and provide a more comprehensive view of persistence attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

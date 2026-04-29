@@ -10,7 +10,7 @@ author: oscd.community, @redcanary, Zach Stanford @svch0st
 date: 2020-10-08
 modified: 2023-02-21
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070.005
 logsource:
   category: process_creation
@@ -34,28 +34,30 @@ level: low
 note: |
   ### Technical Context
 
-  This rule detects the unmounting of network shares through the use of the `net.exe` or `net1.exe` commands with the `/delete` parameter. Such behavior may indicate an adversary's attempt to remove traces of unauthorized network access after an operation is complete, which aligns with the objective of maintaining stealth during malicious activities. The relevant MITRE ATT&CK tactics and techniques include **Defense Evasion (T1070.005)**, which focuses explicitly on the removal of artifacts that could hint at prior activities on the system.
+  This rule detects the execution of the `net.exe` or `net1.exe` commands specifically related to the removal of mounted shares using the parameters that indicate deletion. Attackers may use this technique to clean up traces of their malicious activities after accessing remote resources. This behavior aligns with the MITRE ATT&CK tactic for stealth, specifically technique **T1070.005: Indicator Removal on Host**. The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID **4688** and Sysmon Event ID **1**, which track command executions.
 
-  Primary telemetry sources include Windows process creation logs, specifically Security Event ID **4688** and Sysmon Event ID **1**, capturing process creation events and associated command line arguments. If an adversary were to successfully execute this command, it could facilitate lateral movement or data theft, thereby impacting network security. However, it's important to note that this detection alone does NOT confirm malicious intent, as legitimate administrators may execute similar commands for routine maintenance.
+  If executed by a malicious actor, this behavior can signal an effort to obfuscate their actions and maintain persistence while preventing the discovery of malicious activity. It is important to note that this detection alone does not prove malicious activity; it may also represent legitimate administrative actions by system administrators or automated scripts.
 
   ### Investigation Steps
 
-  - **Validate process creation events**: Check for Security Event ID **4688** or Sysmon Event ID **1** for the creation of `net.exe` or `net1.exe`. Focus on the `CommandLine` field for `/delete` and `share` keywords to identify potential misuse.
+  - **Check process creation logs**: Review Security Event ID **4688** and Sysmon Event ID **1** for process creation events involving `net.exe` or `net1.exe` with the command line containing `share` and `/delete`. Confirm the contextual use of the command.
 
-  - **Assess context of command execution**: Look at the user account executing the command. Legitimate activity typically comes from administrator accounts performing maintenance tasks. Check the `SubjectUserName` and `AccountDomain` fields in the logs.
+  - **Identify user context**: Establish who executed the command by checking the `SubjectUserName` and `SubjectDomainName` fields in the event logs. A legitimate admin user might indicate normal activity, whereas anomalous accounts could signal potential abuse.
 
-  - **Correlate to network share activity**: Investigate prior events related to network share creation (e.g., Event ID **5140** in Security logs) to establish if this unmounting is part of a legitimate workflow or indicates an attempt to conceal previous access.
+  - **Assess command-line arguments**: Look for specific command line arguments in the logs to confirm evidence of malicious intent, such as `cmd.exe /c net share <share_name> /delete`. The presence of actions that do not pertain to documented administrative tasks indicates possible malicious exploitation.
 
-  - **Identify non-standard behavior**: Note any occurrences of this command being run outside of business hours or from unusual geographic locations. Such indicators may signal malicious activity, enhancing the confidence of findings.
+  - **Validate legitimate share usage**: Review the expected share connections on the host using the `net share` command. Check if the share being deleted was indeed established before and if it corresponds with documented administrative activities or business functions.
 
-  - **Examine for related artifacts**: Look for any file or process artifacts created during share interaction. Investigate for file access or modification events subsequent to the share being mounted/unmounted, particularly around potential exfiltration via other processes.
+  - **Monitor for related artifacts**: Validate the absence of anomalies in file system activity, particularly around share files or configurations in relevant directories. Also, ensure no unexpected file creations or deletions correlate with the execution event.
+
+  - **Examine user behavior patterns**: Look for recent activity involving unusual or suspicious access patterns to the shares prior to the removal command. Follow up on any odd timelines or sequences that diverge from regular operational behavior.
 
   ### Prioritization
 
-  This alert should be prioritized as **low** severity in most enterprise contexts, as the likelihood of malicious abuse, while plausible, is relatively low. However, the security impact could be significant if the behavior allows attackers to erase traces of their network activity, necessitating thorough investigation, especially on high-value assets or sensitive systems.
+  The alert is considered low severity due to its potential for benign administrative actions but should be investigated due to the risk of adversarial behavior aimed at obscuring data access. If the affected system handles sensitive data or critical infrastructure, the likelihood of malicious activity increases, warranting further examination.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations exist as legitimate administrative users may inadvertently trigger this alert during routine operations. Ensure comprehensive log collection from all endpoints to avoid gaps in monitoring. Adversaries may employ alternative methods or legitimate tools for similar unmounting operations to evade detection. A related detection to enhance coverage could involve monitoring for unusual file share access or creation events, assisting in identifying unwanted lateral movement patterns.
+  Detection may be limited by the misconfiguration of logging settings, resulting in inability to capture all relevant command executions. Legitimate administrative actions can often trigger this alert, especially in environments where network shares are routinely managed. It is recommended to monitor related detections, such as **T1070.001 - File and Directory Permissions Modification**, to provide additional context around the actions taken on the shares and validate the nature of the changes made.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

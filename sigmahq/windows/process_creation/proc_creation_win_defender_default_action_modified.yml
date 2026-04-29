@@ -18,8 +18,8 @@ references:
 author: 'Matt Anderson (Huntress)'
 date: 2025-07-11
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   category: process_creation
   product: windows
@@ -49,28 +49,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of the PowerShell cmdlet `Set-MpPreference` to change Windows Defender's threat severity default actions to 'Allow' (6) or 'NoAction' (9). Such configurations significantly diminish Windows Defender's ability to automatically respond to potential threats, effectively making malware deployment easier. The likely attacker objective is to bypass native security measures prior to executing malicious payloads, facilitating more successful exploitation attempts.
+  This rule detects the execution of the PowerShell cmdlet `Set-MpPreference`, specifically when the `ThreatSeverityDefaultAction` parameter is modified to 'Allow' (value '6') or 'NoAction' (value '9'). This behavior indicates an attempt to alter Windows Defender's response mechanism to threats, effectively reducing its ability to automatically handle severe malware threats. The likely attacker objective is to compromise a system by disabling critical security features before executing a malicious payload, potentially leading to successful exploitation.
 
-  This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1562.001). The primary telemetry sources are Windows process creation logs, specifically monitoring Command Line arguments associated with PowerShell executions. If malicious, this activity poses a substantial risk by eliminating critical endpoint defenses. Note that this detection alone does NOT confirm malicious intent, as legitimate administrative activities may involve altering these settings under certain contexts.
+  This action aligns with the MITRE ATT&CK tactic of **Defense Evasion** (TA0051) and the technique **Modify System Process: T1685**. The primary telemetry sources for this detection are the process creation logs from Windows, particularly focusing on PowerShell command execution captured via Security Event ID 4688 or Sysmon Event ID 1. If this change is conducted maliciously, it could severely reduce the organization's response capability to malware incidents. It’s important to note that this detection does NOT confirm malicious intent, as legitimate administrators may also use this cmdlet for troubleshooting or testing.
 
   ### Investigation Steps
 
-  - **Verify the command execution context:** Check for Event ID 4688 (Process Creation) or Sysmon Event ID 1 logs to identify the parent process (e.g., was it initiated by a command shell or legitimate admin tools?). Legitimate changes might come from confirmed administrators on domain-joined machines.
+  - **Review PowerShell command execution logs:** Check Security Event ID 4688 or Sysmon Event ID 1 for the execution of `Set-MpPreference`. Focus on command lines containing terms such as `-LowThreatDefaultAction`, `-ModerateThreatDefaultAction`, or `-HighThreatDefaultAction`, followed by 'Allow' or 'NoAction'.
 
-  - **Review the full command line arguments:** Specifically, look for CommandLine field values that include `Set-MpPreference` with `-LowThreatDefaultAction`, `-ModerateThreatDefaultAction`, `-HighThreatDefaultAction`, or `-SevereThreatDefaultAction`. Note if mentioned values are 'Allow' (6) or 'NoAction' (9), indicating a possible malicious change.
+  - **Identify user context:** Note the user account running the command. If it’s an account with administrative privileges and not usually associated with security modifications, this may indicate malicious intent.
 
-  - **Examine user account details:** Validate the identity of the user or service account invoking the PowerShell command. Confirm whether this account is associated with standard operational activity or if it’s typically non-administrative, which would indicate potential abuse.
+  - **Compare with baseline legitimate configurations:** Review the history of `Set-MpPreference` executions in your environment. If these values have not been changed before or if the command is executed unexpectedly from a non-administrative system, flag for further investigation.
 
-  - **Investigate surrounding log entries:** Look for correlated events within a close timeframe to discern further malicious behaviors, such as abnormal process creation (Event ID 4688) or suspicious network activity related to the same user or machine.
+  - **Correlate with network traffic:** Look for correlated suspicious outbound connections following the change in Windows Defender settings. Use Network Event monitoring for any unusual activity (e.g., unusual PowerShell sessions or external connections from the host).
 
-  - **Correlate with historical data:** Check if the same user or machine has made similar changes historically. Consistent changes could signify a standard administrative practice, while isolated cases may require deeper investigation.
+  - **Examine auxiliary logs for related activity:** Check for logs related to changes in system security settings or service manipulation, especially in Windows Event Logs. Look for Event IDs indicating configuration changes (e.g., event ID 1102 for audit log clearing).
+
+  - **Validate against threat intelligence:** Look for known malware or threat actor groups that utilize similar tactics for disabling protections and correlate any findings with external threat intelligence reports.
 
   ### Prioritization
 
-  This alert should be considered high priority due to the potential for significant security impact on affected systems. The likelihood of malicious actors using this technique is elevated, as it directly undermines endpoint security. Furthermore, this behavior is increasingly common in various attack vectors aimed at disabling detection mechanisms.
+  This alert is high priority due to the direct impact on the security posture of the affected systems. The alteration of Windows Defender settings poses a significant risk, as it creates a pathway for malware to operate without automatic mitigation. Additionally, this behavior is not commonly performed by legitimate users, making the likelihood of malicious abuse high.
 
   ### Blind Spots and Assumptions
 
-  There are limitations regarding detection effectiveness based on logging configurations; if process creation logging is disabled or improperly configured, detection may not occur. Legitimate tools or scripts used by system administrators may inadvertently trigger this alert, particularly during maintenance windows. A related detection to bolster coverage could include monitoring for unusual PowerShell command executions beyond the defense evasion context, such as remote execution patterns or attempts to disable security features across endpoints.
+  This detection may face limitations due to possible evasion techniques such as unauthorized users leveraging obfuscation methods to bypass logging. A comprehensive logging strategy is essential; without it, you risk missing critical indicators of compromise. Legitimate administrative activities, particularly in testing or troubleshooting scenarios, may occasionally trigger this alert. Implementing companion detections for PowerShell script block logging (Sysmon Event ID 22) can enhance coverage and detection capabilities against this type of malicious behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -11,7 +11,7 @@ author: Florian Roth (Nextron Systems)
 date: 2022-01-11
 modified: 2023-05-24
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.010
 logsource:
   category: process_creation
@@ -65,30 +65,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of `regsvr32.exe` with command line parameters that reference remote DLL files hosted on IP addresses. The likely objective of an attacker using this command is to execute or install malicious DLLs, which can be part of a persistence mechanism or data exfiltration process. This behavior falls under the MITRE ATT&CK tactic of `Defense Evasion (TA0005)` and specifically targets the technique `Executable Proxy Execution (T1218.010)`.
+  This Sigma rule detects the execution of `regsvr32.exe` to download and install DLLs from remote locations specified by an IP address in its command line. This behavior is often associated with malicious activities, where an attacker aims to install backdoors or other malware without triggering security mechanisms commonly implemented for traditional executable downloads. The relevant MITRE ATT&CK tactic is "Execution," specifically technique T1218.010 (Packaged Application Execution).
 
-  The primary telemetry source for this detection includes Windows process creation logs with critical Event ID 4688. If the behavior is confirmed malicious, it poses a high risk as it may indicate unauthorized software installation or execution within the enterprise environment. Importantly, this detection does NOT conclusively verify malicious intent without additional context, such as the reputation of the IP address or the legitimacy of the DLL being executed.
+  Primary telemetry sources include process creation logs from Windows, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing command line arguments. If malicious, the execution can facilitate unauthorized data access or system control. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate applications can also use regsvr32 in similar contexts.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check Windows Security Event ID 4688 for the creation of processes with `regsvr32.exe` in the command line. Look for unusual or unfamiliar command line arguments that include `http://` or `https://` with numerically prefixed addresses.
+  - **Review the command line arguments:** Check for instances of `regsvr32.exe` with command lines containing ` /i:http://` or ` -i:http://` + an IP address. Look for unusual IP addresses that do not resolve to known legitimate services.
 
-  - **Validate the DLL source**: Identify the original file names and paths of the DLLs being registered. Confirm if these DLLs are known, trusted, and authorized. Malicious indicators include DLLs from unknown or suspicious sources.
+  - **Examine Security Event ID 4688:** For the detected process, correlate Security Event ID 4688 events from the Windows Security logs. Focus on the `NewProcessName` and the `CommandLine` fields for clues about potential malicious execution.
 
-  - **Inspect network activity**: Analyze network logs for outbound HTTP/S connections initiated by the process. Monitor for connections to the IP addresses invoked in the command line. Legitimate activity typically involves known and trusted endpoints.
+  - **Identify benign equivalent activities:** Look for expected usage of `regsvr32.exe`, such as legitimate software installations or updates that do not involve downloading from IP addresses but rather from domain names.
 
-  - **Cross-reference IP reputation**: Utilize threat intelligence sources to check the reputation of the IP addresses in use. High-confidence malicious indicators would be IPs listed in known threat databases or linked with previous attacks.
+  - **Assess network activity:** Conduct a review of network logs for any outbound connections to the identified IP address, including details such as connection duration, data sent, and received, using firewall logs or network monitoring tools.
 
-  - **Document legitimate usage scenarios**: Consider whether there are approved software installations or updates that utilize `regsvr32.exe` in your environment. Examples may include software maintenance or automated installations where IP addresses are part of controlled deployment.
+  - **Validate file system changes:** Investigate if any DLLs were created or modified in temporary directories (typically C:\Windows\Temp), using File Explorer or PowerShell. Check for creation timestamps around the regsvr32 execution time.
 
-  - **Identify potential file creation**: Verify if there are any new files created in the system’s Temp folders or other directories after the execution of `regsvr32.exe`. Look for temporary DLLs or associated files created during this process.
+  - **Correlate additional alerts:** Check for any companion alerts or logs that may indicate further activity related to this detection, such as execution of other suspicious processes or network traffic to known malicious IP addresses.
 
   ### Prioritization
 
-  Given that the detection involves potential execution of malicious DLLs from remote sources, this alert should be rated as high severity. The impact on affected systems can be significant if the executed code is indeed malicious, as it can lead to unauthorized control or data breaches. The likelihood of adversaries utilizing this method is assessed to be high, based on the known use cases in attack vectors.
+  This alert has a high severity rating due to the potential impact of the compromised system and the likelihood of this behavior being used in malicious contexts. The regsvr32 utility is frequently weaponized by adversaries, particularly in stealthy DLL hijacking operations that bypass conventional defenses.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the use of evasive measures, such as utilizing DNS names instead of direct IPs. Alerts can also be generated by legitimate software installations that use numerical prefixes in their domain names. Ensure all necessary audit policies are configured to collect process creation events comprehensively. A companion detection such as monitoring for unusual network connections originating from `regsvr32.exe` can improve coverage of this attack vector.
+  Detection limitations may arise from the use of legitimate FQDNs that start with numbers or benign usage of regsvr32 within corporate environments, potentially triggering false positives. Reliable detection requires complete process creation audit logs; absence of these may lead to missed detections. Additionally, be aware that similar behaviors may also be indicative of known legitimate applications, such as software installers or updates, that use regsvr32 for valid purposes. A companion detection could involve monitoring for unusual outbound traffic to newly resolved IPs associated with regsvr32 executions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

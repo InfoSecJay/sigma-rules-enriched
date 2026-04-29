@@ -17,8 +17,8 @@ author: Nasreddine Bencherchali (Nextron Systems),  Florian Roth (Nextron
 date: 2022-08-14
 modified: 2024-02-23
 tags:
-- attack.defense-evasion
 - attack.execution
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -37,28 +37,36 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of commands that use the "mshtml.dll" library to run arbitrary code through various protocol handlers, such as VBScripts, JavaScripts, or HTTP requests. The attacker’s objective is likely to execute malicious content without raising alarms, targeting systems with the intention of conducting a range of actions like data exfiltration or remote access.
+  This rule detects instances where the `mshtml.dll` is used to execute arbitrary code through the `RunHTMLApplication` function, commonly leveraged by attackers to execute malicious scripts or commands. The likely objective of attackers using this technique is to bypass application whitelisting and execute payloads stealthily. The relevant MITRE ATT&CK tactic is Execution, specifically the technique ID T1203 (Exploitation for Client Execution).
 
-  The relevant MITRE ATT&CK tactics and techniques include Execution (T1203) and Defense Evasion (T1484). Primary telemetry sources are Windows process creation logs, specifically focusing on Event ID 4688. If malicious, the security impact includes potential system compromise and unauthorized access to sensitive data. This detection does NOT confirm that the executed command is malicious on its own; further investigation is required to establish context.
+  Primary telemetry sources include Windows Security Event logs for process creation (Event ID 4688) and Sysmon logs (Event ID 1) capturing process execution details, including command line arguments. If exploited, this behavior could lead to system compromise, data exfiltration, or additional malware installation. Importantly, this detection does NOT confirm malicious intent by itself; legitimate uses of `mshtml.dll` may exist.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Analyze Windows Security Event ID 4688 to identify the command line associated with the process creation event. Look for the presence of parameters like `RunHTMLApplication` and any indicators of `mshtml.dll`. Legitimate usage generally excludes such parameters or shows expected application behavior.
+  - **Check Security Event Logs for Process Creation:**
+    Review Windows Security Event ID 4688 for any instance where `mshtml.dll` is invoked to check the command line for unusual parameters, such as `#135` or `RunHTMLApplication`, indicating potentially malicious usage.
 
-  - **Verify execution context:** Check if the command was initiated from a known and trusted application. Use Event ID 4704 to understand if the process had unusual parent-child relationships or originated from unexpected locations.
+  - **Examine Sysmon Logs for Process Activity:**
+    Look at Sysmon Event ID 1 to identify the parent process that invoked `mshtml.dll`. Legitimate instances often include known applications like browsers or authorized scripts.
 
-  - **Identify high-risk command patterns:** Look specifically for command lines that contain `\..\` along with `mshtml`. These patterns are often indicative of malicious activities. Compare against baseline behavior in your environment to determine anomalies.
+  - **Review Command Line Arguments:**
+    Focus on command lines containing suspicious patterns (e.g., `\..\` and `mshtml`). For instance, a command invoking `RunHTMLApplication` outside of standard application contexts could indicate exploitation.
 
-  - **Cross-reference with user activity:** Check user activity logs (e.g., Event ID 4624 for logons) to correlate if the user account that triggered this event has previous incidents or unusual activity patterns that might indicate compromise.
+  - **Identify High-Confidence Malicious Indicators:**
+    Search for known non-standard protocols or unusual script handlers in command lines (e.g., `vbscript` or `javascript`). These could imply an attempt to use Windows scripting environments for malicious execution.
 
-  - **Inspect network activity:** Utilize network logs, including firewall logs and proxy logs, to see if there are outbound connections associated with the time of the alert that align with `RunHTMLApplication` execution. Malicious execution might coincide with suspicious data transfer behavior or domain requests.
+  - **Validate Asset Role and Criticality:**
+    Determine whether the affected system is a high-value target (e.g., a domain controller or financial system). Increased scrutiny is warranted if the alert originates from critical assets.
+
+  - **Correlate with Other Detection Rules:**
+    Investigate companion rules for related behaviors, such as suspicious PowerShell execution or unusual inbound connections, that may suggest a coordinated malicious effort.
 
   ### Prioritization
 
-  This alert carries a high severity due to the potential impact on critical systems, as arbitrary code execution can lead to full system compromise. The likelihood of this behavior being malicious is elevated, given that the usage of `mshtml.dll` in this context is often weaponized in attacks.
+  This alert is high severity due to the potential impact on sensitive systems and the likelihood of malicious abuse through widely exploited methods for remote code execution. The behavior is frequently weaponized in targeted attacks, making timely investigation critical.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations exist, as legitimate applications may sometimes invoke `mshtml.dll` for valid purposes; reviewing context is vital for accurate classification. Required log sources include process creation events and network telemetry, which must be enabled for reliable detection. Common legitimate activities that may trigger this alert could be software updates or internal scripts that employ `mshtml`. A companion detection to strengthen coverage includes monitoring for unusual files or scripts created in conjunction with this alert pattern, highlighting potential exfiltration activities.
+  Detection may be limited by evasion techniques such as code obfuscation or legitimate use of scripting applications that could trigger similar alerts. Required telemetry includes accurate logging of command line arguments; without these logs, it may be challenging to assess context. Legitimate scenarios might trigger the alert, such as automated scripts running legitimate code. A related detection is the monitoring of browser activity for unexpected or malformed URLs that may correspond with `mshtml.dll` usage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

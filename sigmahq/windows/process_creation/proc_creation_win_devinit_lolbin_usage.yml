@@ -12,7 +12,7 @@ date: 2022-01-11
 modified: 2023-04-06
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -29,30 +29,33 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of the `devinit.exe` binary to download arbitrary MSI packages using specific command-line flags, particularly the combination of `-t msi-install` and `-i http`. The likely attacker objective is to exploit this legitimate system binary as a living-off-the-land binary (LOLBIN) to execute malicious code via MSI files. This activity corresponds to the MITRE ATT&CK technique T1218 (Signed Binary Proxy Execution), specifically focusing on execution through system binaries commonly trusted by Windows environments.
+  This Sigma rule detects the execution of `devinit.exe` with specific command line arguments that indicate an attempt to download and install arbitrary MSI packages. This behavior is often seen when attackers leverage "living off the land" binaries (LOLBINs) to evade detection, aiming to install malware or other malicious software on a compromised system. The relevant MITRE ATT&CK tactic is Execution, specifically technique T1218, which pertains to the use of system tools for execution.
 
-  The primary telemetry source for this detection is Windows process creation events, specifically Security Event ID 4688 and Sysmon Event ID 1, which detail command-line execution. If malicious, this behavior could lead to the installation of malware or unauthorized applications on the target system. It is important to note that this detection does NOT confirm that malicious activity is occurring; it merely highlights the potential use of a legitimate binary in a suspicious manner that warrants further investigation.
+  The primary telemetry sources necessary for detection include Windows Process Creation events, specifically Security Event ID 4688 or Sysmon Event ID 1. Malicious activity could lead to installation of backdoors, remote access tools, or other forms of malware impacting confidentiality, integrity, and availability of targeted systems. It’s critical to note that this detection does not confirm malicious intent on its own, as benign applications could utilize similar command line flags under legitimate circumstances.
 
   ### Investigation Steps
 
-  - **Review process creation details:** Check Security Event ID 4688 or Sysmon Event ID 1 for entries involving `devinit.exe`. Look for command-line arguments containing `-t msi-install` and `-i http` to confirm alert relevance.
+  - **Check the process execution history:**
+    Use Windows Security Event ID 4688 to verify the creation of `devinit.exe`. Review the CommandLine field for the presence of `-t msi-install` and `-i http`. Benign execution typically shows no network-related command line arguments.
 
-  - **Verify network activity:** Use network logs (e.g., firewall logs, proxy logs) to identify outbound connections associated with `devinit.exe`. Focus on HTTP requests targeting unusual or untrusted domains that coincide with the process execution.
+  - **Correlate with network activity:**
+    Look for outbound connections linked to the command execution in your firewall logs or network monitoring tools (e.g., DNS query logs). Identify entries where `devinit.exe` downloads MSI files; legitimate executions should not result in unexpected internet traffic.
 
-  - **Assess system context:** Identify the user context under which `devinit.exe` was executed. Legitimate usage usually occurs under administrative tasks or system updates. Cross-reference the user against known job functions to assess legitimacy.
+  - **Analyze parent process relationships:**
+    Review the parent process of `devinit.exe` (Event ID 4688 or Sysmon Event ID 1) to determine the context of execution. If invoked by a known system or administrative tool, it might be benign. Malicious indicators include execution initiated from non-standard applications or user contexts.
 
-  - **Check for downloaded MSI files:** Validate whether MSI packages were downloaded during the timeframe of the alert. Investigate the presence of any MSI files in the `%TEMP%` or `%APPDATA%` directories, noting the creation timestamps and file hashes.
+  - **Validate sign integrity of the downloaded MSI:**
+    After execution, check for MSI files created or modified in common application directories (e.g., C:\ProgramData\Microsoft\Windows\Start Menu\Programs). Use file system logs to validate the presence and integrity of these potentially harmful payloads.
 
-  - **Examine process parentage:** Review process trees for `devinit.exe`, utilizing Sysmon Event ID 5 or Windows Event ID 4688 fields for ParentProcessId. Malicious activity often has uncommon parent processes, which can provide context about the method of execution.
-
-  - **Identify routine patterns:** Compare against historical norms of `devinit.exe` usage within your organization. Track legitimate instances of `devinit.exe` running with similar flags to mitigate false positives and understand common patterns.
+  - **Identify related alerts or detections:**
+    Monitor for other related anomalies such as unusual Windows service creation (Security Event ID 7045), which may support the deployment of a backdoor following the execution of `devinit.exe`.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the capability of the affected system to execute potentially harmful code, especially if it involves administrative privileges. The likelihood of malicious abuse is moderate, as attackers often favor less conspicuous methods to avoid detection. This particular behavior is weaponized due to its association with common malware deployment strategies utilizing trusted system binaries.
+  This alert carries medium severity due to the potential for significant impact if exploited, particularly if it installs unauthorized software on critical systems. The likelihood of abuse is high, as malicious actors commonly exploit LOLBINs for stealth operations. This specific behavior has been documented in several attack scenarios leveraging `devinit.exe`.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for adversaries to obfuscate or modify command-line parameters, thereby evading detection. Reliable detection relies on collecting comprehensive logs from both process creation and network traffic sources, especially if these facilitate the command's execution. Legitimate activities that may inadvertently trigger this alert include IT maintenance tasks or software installations performed by trusted personnel. A companion detection to strengthen coverage could involve monitoring for unusual network activity specifically involving MSI downloads from IPs or domains not typically associated with your organization.
+  Detection may be limited if logging is incomplete, particularly if process creation logs aren't universally collected or if command line arguments are stripped by certain logging configurations. Additionally, benign usage patterns may exist where IT operations utilize `devinit.exe` for legitimate software deployments. A related detection that could improve coverage includes monitoring for unusual file creation events associated with newly installed MSI packages (e.g., tracking Event ID 4663).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

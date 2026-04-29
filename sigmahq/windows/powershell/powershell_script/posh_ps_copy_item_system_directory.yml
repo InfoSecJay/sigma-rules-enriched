@@ -10,8 +10,8 @@ date: 2021-12-27
 modified: 2024-01-22
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.credential-access
+- attack.defense-impairment
 - attack.t1556.002
 logsource:
   product: windows
@@ -27,34 +27,30 @@ level: high
 note: |
   ### Technical Context
 
-  This detection identifies the use of PowerShell to copy or install a Dynamic Link Library (DLL) file into critical system directories, specifically "System32" or "SysWOW64". Such an action is typically employed by attackers aiming to achieve persistence, escalate privileges, or disguise malicious activities by placing their payloads in trusted system locations. The relevant MITRE ATT&CK tactic and technique for this behavior is "Persistence" (TA0003) and "Install Utility" (T1556.002). The primary telemetry sources for this detection include Windows PowerShell logs, focusing on events that capture script block logging details. If successfully executed, this behavior could lead to unauthorized access or control over the affected system. Importantly, this detection does NOT confirm that a DLL is malicious; legitimate software can also use this method to install necessary components.
+  This Sigma rule detects the use of PowerShell commands to copy files into sensitive system directories, specifically "System32" or "SysWOW64." Such behavior often indicates an attacker attempting to establish persistence or to deploy malicious payloads capable of evading detection. The objective may include installing credential stealers or backdoors for later access.
+
+  Relevant MITRE ATT&CK tactics and techniques include Persistence (TA0003) and Abuse Elevation Control Mechanism (T1556.002). The primary telemetry source is Windows PowerShell script logs (Event ID 4104) with Script Block Logging enabled, tracking any executed scripts. If malicious, this behavior can lead to compromised systems or unauthorized access. It is essential to note that the detection does NOT confirm the execution of malicious activity unless further context is provided.
 
   ### Investigation Steps
 
-  - **Review PowerShell logs:**
-    Inspect PowerShell logs for Event ID 4104 where the `ScriptBlockText` matches the specified regex pattern to confirm the execution of the copy command targeting the system directories.
+  - **Review PowerShell script logs for suspicious activity:** Check Event ID 4104 for logs where the ScriptBlockText matches the signature `(Copy-Item|cpi) .{2,128} -Destination .{1,32}\\Windows\\(System32|SysWOW64)`. Look for direct references to file paths in Windows system directories.
 
-  - **Validate DLL creation:**
-    Check for new DLL files in `C:\Windows\System32` and `C:\Windows\SysWOW64` that coincide with the PowerShell execution time, noting any non-standard filenames or unexpected behavior.
+  - **Validate the legitimacy of the copied file:** Cross-reference copied file names or hashes against known benign files. Use tools like Windows File Integrity Check or OS query against known system files to confirm unexpected alterations.
 
-  - **Cross-reference file hashes:**
-    Use tools like VirusTotal to check the file hash of any newly detected DLLs against known malicious binaries, looking for high-confidence indicators of compromise.
+  - **Identify the parent process:** Investigate Event ID 4688 for the process that initiated the PowerShell command to understand how it was triggered. Determine if it was invoked from a legitimate administrative action or potentially from malicious software.
 
-  - **Identify legitimate behavior:**
-    Determine if a routine system update or software installation has occurred during the same time frame, which may account for legitimate DLL copying to these directories.
+  - **Analyze user context:** Confirm who executed the PowerShell commands by examining Event ID 4624 (Logon events). Check if it was executed under an uncommon user or during odd hours, which may indicate malicious intent.
 
-  - **Check process parentage:**
-    Investigate the parent process of the PowerShell execution using Sysmon Event ID 1 to determine if it initiated from a suspicious or unusual executable, signaling potential malicious intent.
+  - **Assess system roles and criticality:** Determine if the affected system is a server or workstation and its criticality. If it is a vital system (e.g., domain controller), prioritize the investigation.
 
-  - **Assess system criticality:**
-    Determine the role and importance of the affected system. Critical servers or domain controllers warrant immediate attention, while less critical endpoints may follow standard operational procedures.
+  - **Look for additional indicators of compromise (IoC):** Investigate for high-confidence malicious indicators such as the existence of unusual files or processes in the "System32" or "SysWOW64" directories that may have been created around the same time as the alert.
 
   ### Prioritization
 
-  This alert is classified as high severity due to the potential impact associated with tampering in system directories. The likelihood of malicious abuse is significant, as this technique is commonly leveraged by threat actors to establish persistence. Recognizing that the behavior is well-known among attackers further raises its priority for investigation.
+  This alert is classified as high severity due to the potential impact of modifying system directories and the high likelihood of malicious behavior associated with this activity. Such actions are frequently weaponized for persistence in a target environment.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by users disabling PowerShell logging, making alerts less reliable. Legitimate administrative activities, such as system updates or software installations, can trigger this alert if not properly documented. Related detections, such as monitoring for unusual scheduled tasks or newly created services, would strengthen coverage and context around such activities.
+  Detection may be limited by the configuration of PowerShell logging, which must include Script Block Logging. Evasion techniques can involve using obfuscated commands or alternate methods to interact with the file system. Legitimate administrative activities, such as software deployments or updates, could trigger this alert. A related detection to consider is monitoring for unusual file access patterns in "System32" or "SysWOW64," as it could further substantiate potential malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

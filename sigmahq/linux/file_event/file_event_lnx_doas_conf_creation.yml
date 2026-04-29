@@ -9,7 +9,6 @@ author: Sittikorn S, Teoderick Contreras
 date: 2022-01-20
 modified: 2022-12-31
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548
 logsource:
@@ -25,28 +24,31 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of the `doas.conf` file on Linux systems, which is a configuration file for the `doas` command, allowing users to execute commands as another user, typically the superuser. Attackers may create this file to set up unauthorized privilege escalation or bypass access control on a compromised system. This behavior aligns with the MITRE ATT&CK tactic of **Defense Evasion** (TA0005) and the technique **Privilege Escalation** (T1548).
-
-  The primary telemetry source for this detection is Linux file system events tracking changes in critical configuration paths. A successful detection indicates potential malicious activity, as the unauthorized creation of this file could indicate an attempt to gain elevated privileges. However, this detection does NOT confirm whether the file was used for malicious purposes without further context.
+  This rule detects the creation of the `doas.conf` file on Linux systems, which governs how the `doas` command is used for privilege escalation. The likely attacker objective is to bypass standard security controls, allowing unauthorized users to execute commands with elevated privileges. This behavior is relevant to the MITRE ATT&CK technique "Sudo and Doas" (T1548). The primary telemetry source is Linux file event logs, specifically monitoring changes to the `/etc/doas.conf` file. If this behavior is malicious, it can significantly compromise system integrity and enable further exploitation. However, this detection does NOT confirm that the created file is being used for malicious intent on its own.
 
   ### Investigation Steps
 
-  - **Verify recent file changes:** Check Linux audit logs (e.g., `/var/log/audit/audit.log` or `Systemd Journal`) for Event ID related to file creation (e.g., `type=CONFIG_CHANGE`), looking for entries that include `/etc/doas.conf`.
+  - **Check file existence and permissions:**
+    Review the attributes of `/etc/doas.conf`. Use `ls -l /etc/doas.conf` to confirm permissions. Legitimate configurations typically have read permissions only for the root user.
 
-  - **Investigate file ownership and permissions:** Ensure that the created file has appropriate ownership (e.g., owner should be root:root) and permissions (e.g., 0440). Malicious indicators include unusual ownership changes or overly permissive settings.
+  - **Examine recent changes and ownership:**
+    Investigate who created the file by running `stat /etc/doas.conf`. A newly created file owned by a non-privileged user indicates potential malicious activity.
 
-  - **Review command history:** Analyze user command history files (e.g., `~/.bash_history`) for any suspicious commands executed before and after the file creation. Look for signs of privilege manipulation or tools often associated with privilege escalation.
+  - **Analyze related process creation events:**
+    Query for Security Event ID 4688 for instances of the `doas` command being executed following the file’s creation. Look for atypical parent processes that may suggest misuse.
 
-  - **Recognize legitimate usage:** Confirm whether `doas` is expected in your environment by checking its usage in `/etc/sudoers`. Legitimate use should show signed requests for elevated commands by authorized users.
+  - **Review system logs for administrative actions:**
+    Check `/var/log/auth.log` for any `doas` command executions around the same time as the file creation. Legitimate use would generally follow established operational procedures.
 
-  - **Check for additional filesystem artifacts:** Look for other file changes around the same timestamp, particularly in `/etc/` or `/bin/`, that could indicate a related compromise (e.g., changes to `/etc/passwd` or `/bin/su`), as part of broader privilege escalation attempts.
+  - **Identify recent user activity prior to detection:**
+    Use command history logs (`~/.bash_history`) of users who may have created the `doas.conf` file. Look for unusual commands or indicators of privilege escalation attempts.
 
   ### Prioritization
 
-  This alert is of medium severity as it indicates a potential privilege escalation attempt on critical systems. Given that `doas` is often used for severe modifications, the likelihood of malicious intent is moderate if flagged. The creation of configuration files like `doas.conf` is a common step in Linux exploitation.
+  This alert is of medium severity due to the potential for high-impact privilege escalation on critical systems. The likelihood of malicious abuse is elevated, especially in environments where the `doas` command is not typically used. This specific behavior is not commonly weaponized but indicates attention is required.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss deliberate suppression mechanisms, such as using alternate file paths or renaming files post-creation. A requirement for reliable detection is the configuration of file integrity monitoring or audit logging on Linux hosts. Legitimate configurations or changes by DevOps teams may trigger this alert. A related detection could focus on monitoring user access patterns following `doas` file creation to capture potentially malicious usage.
+  The detection may miss cases where log configurations do not capture file creations, leading to incomplete coverage. Legitimate activities such as system administration by trusted personnel may inadvertently trigger the alert. A related detection involving monitoring changes to the `/etc/sudoers` file strengthens overall visibility into privilege escalation mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

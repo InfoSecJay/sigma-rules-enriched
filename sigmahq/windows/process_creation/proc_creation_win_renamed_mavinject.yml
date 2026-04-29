@@ -17,8 +17,8 @@ author: frack113, Florian Roth
 date: 2022-12-05
 modified: 2023-02-03
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1055.001
 - attack.t1218.013
 logsource:
@@ -40,28 +40,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of renamed instances of "Mavinject.exe," a tool commonly used for process injection. The attacker often aims to escalate privileges or maintain persistence by injecting malicious code into existing processes. This behavior is associated with the MITRE ATT&CK techniques T1218.013 (Signed Binary Proxy Execution) and T1055.001 (Process Injection).
+  This Sigma rule detects the execution of a renamed version of the "Mavinject" executable, specifically `mavinject32.exe` or `mavinject64.exe`. The primary behavior being monitored involves the potential misuse of process injection techniques—specifically using the "/INJECTRUNNING" flag, commonly associated with privilege escalation or evasion tactics. The relevant MITRE ATT&CK techniques include Process Injection (T1055.001) and ExeCreate (T1218.013).
 
-  The primary telemetry source is process creation logs, specifically Windows Security Event ID 4688 and Sysmon Event ID 1. If malicious, it could lead to unauthorized process manipulation, allowing adversaries to execute malicious activities covertly. However, this detection does NOT confirm that the executed process is malicious without additional context.
+  The primary telemetry sources are Windows process creation logs, particularly events detailing newly launched processes. The potential security impact is significant, as successful process injection can lead to stealthy execution of malicious payloads or control over other legitimate processes. However, this detection alone does not confirm malicious intent; benign instances of `mavinject` usage may exist within the environment.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Windows Security Event ID 4688 for instances where `mavinject32.exe` or `mavinject64.exe` was recently executed. Look for unusual parent processes indicating potential abuse.
+  - **Verify the process details:** Check Security Event ID 4688 for the process creation log. Look for `mavinject32.exe` or `mavinject64.exe` in the `New.Process.Name` field. Benign instances may originate from known third-party applications or security tools.
 
-  - **Analyze command line arguments:** Validate the presence of the `/INJECTRUNNING` flag in the command line of the process. Legitimate usage generally lacks this flag, while its presence indicates high confidence in potentially malicious activity.
+  - **Identify the parent process:** Review the parent process ID (PPID) in the same security log event (Event ID 4688). Processes spawned by unexpected or anomalous parents (e.g., Windows PowerShell or command-line) could indicate malicious use of `mavinject`.
 
-  - **Identify parent process behavior:** Determine if the parent process of the `mavinject` execution is a known legitimate application (such as antivirus or system maintenance tools). Legitimate applications rarely invoke Mavinject.
+  - **Check for flags utilized:** Investigate the command-line parameters associated with the process in Event ID 4688. The inclusion of the "/INJECTRUNNING" argument is a strong indicator of potential abuse. Legitimate instances typically will not utilize this flag.
 
-  - **Correlate with network activity:** Examine outbound connections in firewall logs (e.g., Event ID 5156) initiated around the same time as `mavinject` execution. Look for unexpected or suspicious connections to external IPs, especially those associated with known malicious activity.
+  - **Cross-reference with threat intelligence:** Utilize threat intelligence sources or incident repositories to check if the observed behavior or specific executable hashes align with known malicious indicators of compromise (IOCs).
 
-  - **Search for file presence:** Validate the existence of files created or modified at the time of `mavinject` execution by checking file system logs. Suspicious file creation may indicate an attempt at lateral movement or data exfiltration.
+  - **Inspect for abnormal execution paths:** Analyze the file path and hash of `mavinject`. Legitimate executions are usually found in standard install directories. Any variations, especially from user directories or temporary files, should be flagged.
+
+  - **Assess system role and criticality:** Confirm whether the system executing `mavinject` falls within critical infrastructure or highly sensitive roles. The presence of this process on such assets increases potential impact and severity of investigation.
 
   ### Prioritization
 
-  This alert has high severity due to the potential impact of process injection on critical systems. It is a common attack method utilized by adversaries, increasing the likelihood of malicious abuse. Additionally, the execution of a renamed Mavinject process raises severe security concerns, warranting immediate investigation.
+  This alert should be treated with high severity due to the potential for privilege escalation and stealthy malware execution. Systems executing renamed `mavinject` binaries could indicate imminent or active malicious activity. The behavior is known to be weaponized, particularly in advanced persistent threats (APTs).
 
   ### Blind Spots and Assumptions
 
-  Detection may miss renamed versions of Mavinject or if the process is bundled into benign applications. Reliable detection requires proper logging configuration for process creation events, which could be circumvented if logging is disabled. Legitimate use cases might include trusted development or testing environments where Mavinject is employed for benign purposes. Related detections to monitor include unusual behaviors associated with the parent processes or network patterns indicative of command and control communications.
+  Detection may be limited if systems are misconfigured or if logging is insufficient, leading to undetected executions. Evasion techniques include renaming legitimate tools or using alternative process injection methods. It is important to consider legitimate administrative tools that may invoke similar behavior, such as testing or development environments, which could also trigger this alert. Companion detections that strengthen coverage include monitoring for abnormal command-line arguments in associated process creations or network connections made by newly spawned processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

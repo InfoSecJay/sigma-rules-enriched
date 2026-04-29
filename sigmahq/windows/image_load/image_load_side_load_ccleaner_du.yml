@@ -7,9 +7,10 @@ references:
 author: X__Junior (Nextron Systems)
 date: 2023-07-13
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -32,28 +33,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects potential DLL sideloading of "CCleanerDU.dll" when loaded alongside CCleaner executables. It targets malicious behavior where attackers leverage legitimate software to load malicious libraries, aiming to bypass security controls and achieve persistence or elevate privileges on compromised systems. The relevant MITRE ATT&CK techniques include Defense Evasion (T1574.001) and Persistence, as the sideloaded DLL is potentially leveraged for unauthorized actions on affected endpoints. Primary telemetry sources for this detection include image load events from Windows, specifically capturing the loading of DLL files using logs that track application behavior. If the detected DLL is indeed a malicious payload, it poses risks such as data theft, system compromise, or further lateral movement. It is important to note that this detection does NOT confirm malicious intent on its own; further context is required to determine the legitimacy of the DLL and associated activities.
+  This rule detects the potential sideloading of the "CCleanerDU.dll" library through the legitimate process loaders of CCleaner. An attacker may aim to execute malicious code by tricking the CCleaner executable into loading a compromised DLL, thereby evading standard detection mechanisms while maintaining the original process's functionality. This behavior fits within the MITRE ATT&CK framework under the tactic of Persistence and the technique of DLL Search Order Hijacking (T1574.001). The primary telemetry source for this detection comes from Windows event logs, specifically image load events that track DLL loading activities.
+
+  If the detected behavior is malicious, it poses a significant risk of privilege escalation and unauthorized access to sensitive data or system resources. It’s important to note that this detection does NOT definitively confirm malicious behavior on its own, as legitimate applications may utilize the same DLL paths without nefarious intent.
 
   ### Investigation Steps
 
-  - **Review image load events:** Check Windows Event ID 4688 or Sysmon Event ID 10 for image load events showing `CCleanerDU.dll` loaded by `CCleaner.exe` or `CCleaner64.exe`. Compare timestamps between the DLL load and user activity to assess if it aligns with normal operations.
+  - **Investigate process creation events:** Check for Security Event ID 4688 or Sysmon Event ID 1. Look for the execution of "CCleaner.exe" or "CCleaner64.exe" around the time the DLL was loaded. Legitimate instances will generally originate from known installation paths.
 
-  - **Validate legitimate installation paths:** Investigate the paths from which `CCleanerDU.dll` is loading. Legitimate installations typically reside in `C:\Program Files\CCleaner\` or `C:\Program Files (x86)\CCleaner\`. Any deviation from these may indicate suspicious behavior.
+  - **Validate DLL file integrity:** Review file creation or modification timestamps of "CCleanerDU.dll" located in the specified directories. Legitimate installations will have consistent timestamps matching their main executable installation.
 
-  - **Analyze process creation context:** Examine the parent process of the CCleaner executable loading the DLL. Use Event ID 4688 to ensure it's launched from a legitimate user session and not by an anomalous process such as `cmd.exe` or `powershell.exe`.
+  - **Check parent process relationships:** Use Sysmon Event ID 1 to trace the parent process of the CCleaner executable. If an unexpected process (e.g., a download manager or script) launched CCleaner, this could indicate potential malicious exploitation.
 
-  - **Correlate with known malicious indicators:** Check for any reported hash values associated with `CCleanerDU.dll`, cross-referencing with threat intelligence platforms or internal reference data to identify any known malicious variants.
+  - **Examine command-line arguments:** For "CCleaner.exe" instances, inspect the command line for unusual flags or arguments that may indicate abuse or non-standard usage, such as automation via scripts or stealthy operations.
 
-  - **Check for unusual outbound traffic:** Inspect network activity to detect potential exfiltration attempts from the host where the DLL was loaded. Look for unusual connections or large data transfers originating from `CCleaner` or related processes.
+  - **Look for known malicious signatures:** Query threat intelligence sources for known malicious variants of "CCleanerDU.dll." Cross-reference SHA256 hashes against any indexed malicious DLLs to detect potential matches.
 
-  - **Identify high-confidence indicators:** Look for a recent pattern of DLL loading that deviates from historical behavior, such as frequent loads of `CCleanerDU.dll` without related user actions, signaling a potential compromise.
+  - **Assess system roles and criticality:** Identify the host role where the alert triggered. If it’s on a critical server or asset, elevate the priority for deeper analysis, as sideloading campaigns may be more impactful in sensitive environments.
 
   ### Prioritization
 
-  This alert is of medium severity in enterprise contexts as it involves potential misuse of a widely used application, CCleaner. Given the tool's commonality and the likelihood of being weaponized for evasion techniques, it necessitates prompt investigation to assess the extent of any malicious exploitation.
+  The alert has medium severity due to its potential to enable persistence or privilege escalation on user workstations or servers. The likelihood of abuse is notable, as DLL sideloading tactics are often weaponized by adversaries. However, the presence of this alert does not guarantee malicious intent and must be correlated with additional evidence.
 
   ### Blind Spots and Assumptions
 
-  There are detection limitations such as potential evasion through custom installation paths, which could result in false positives. Comprehensive collection of image load telemetry across systems is essential for accurate detection. Legitimate activity may include routine maintenance tasks performed with CCleaner on systems. Companion detections such as monitoring file integrity changes or execution of scripts using PowerShell could strengthen overall coverage against this attack vector.
+  Evasion techniques for this detection may include altering the loading paths or methods of execution to obscure the true origin of the DLL. Reliable detection requires comprehensive logging from Sysmon or similar tools, capturing all relevant image loading events. Legitimate uses, such as regular software updates or custom installations of CCleaner, may inadvertently trigger this alert. Companion detections for process injection or other anomalies (e.g., abnormal network activity by the same process) can enhance awareness of potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

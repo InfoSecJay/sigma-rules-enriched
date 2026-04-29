@@ -9,9 +9,9 @@ author: daniel.bohannon@permiso.io (@danielhbohannon)
 date: 2023-05-17
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059.009
 - attack.persistence
-- attack.defense-evasion
 - attack.initial-access
 - attack.privilege-escalation
 - attack.t1078.004
@@ -35,28 +35,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the unauthorized creation of an IAM policy using the S3 Browser that includes a default placeholder value `<YOUR-BUCKET-NAME>`, which indicates a potentially careless action or a pre-configured attack. The likely attacker objective involves either privilege escalation or initial access by exploiting misconfigured permissions in AWS S3 buckets. This behavior aligns with MITRE ATT&CK Tactics: Execution (T1059.009 for scripting) and Persistence (T1078.004 for valid accounts).
+  This detection identifies attempts to create an inline IAM policy that grants `s3:GetObject` permissions on a specified S3 bucket using the S3 Browser tool. The likely attacker objective is to exploit misconfigured S3 permissions to gain unauthorized data access and exfiltration. It aligns with the MITRE ATT&CK tactic of Initial Access (TA0001) and the technique of Abuse Elevation Control Mechanism (T1078.004).
 
-  The primary telemetry sources are AWS CloudTrail logs, specifically `PutUserPolicy` events under `iam.amazonaws.com`. If malicious, this could lead to unauthorized access or information leakage through improper S3 bucket access. However, this detection does NOT confirm malicious intent on its own, as it may also result from legitimate usage of the S3 Browser tool without modifying the bucket placeholder value.
+  The primary telemetry source is AWS CloudTrail logs, specifically focusing on the `PutUserPolicy` API event emitted by IAM. If this behavior is malicious, it could result in unauthorized access to sensitive data stored in the S3 bucket. However, this detection does NOT confirm that the action is malicious on its own, as it may also represent a legitimate misconfiguration or error by a user unaware of the default placeholder.
 
   ### Investigation Steps
 
-  - **Validate User Context**: Check the IAM user associated with the alert. Review user activity and permissions for signs of compromise or unusual access patterns. Look for high-risk role assignments, EventName `PutUserPolicy`, and check CloudTrail logs for UserIdentity fields.
+  - **Check IAM Policy Creation Events**: Review CloudTrail logs for event name `PutUserPolicy` (Event ID: `PutUserPolicy`) and verify the associated user agent contains 'S3 Browser'. Malicious indicators include source IP addresses that are not part of your known user base.
 
-  - **Examine Policy Details**: Analyze the specific policy created. Use CloudTrail logs to find the `requestParameters` field containing the policy with the placeholder value, specifically `arn:aws:s3:::<YOUR-BUCKET-NAME>/*`, to determine if this was a legitimate configuration.
+  - **Inspect Policy Details**: Examine the `requestParameters` field in the CloudTrail logs to confirm it contains the placeholder `<YOUR-BUCKET-NAME>`. A legitimate use case would typically involve a user modifying the bucket name to match a valid production bucket.
 
-  - **Identify Legitimate Activity**: Investigate other recent `PutUserPolicy` changes made by the same user or application via CloudTrail logs to establish a normal baseline of activity. Confirm if the user regularly uses the S3 Browser for benign tasks.
+  - **Review User Access Levels**: Investigate the role and access level of the user who triggered the alert by checking the IAM Dashboard. Be cautious with users having elevated permissions or who have used the S3 Browser tool for sensitive operations.
 
-  - **Look for Malicious Indicators**: Search for multiple instances of policy changes involving the same placeholder from different users. Effective query parameters should include `userAgent: "S3 Browser"` and `eventSource: iam.amazonaws.com` for correlating suspicious activity.
+  - **Validate User Agent Logs**: Cross-reference the user agent details in other AWS logs (e.g., ELB or VPC Flow Logs) to establish baseline behavior and check for unusual patterns or multiple requests from a single source that could indicate abuse.
 
-  - **Assess S3 Bucket Configuration**: Verify the S3 bucket's policy linked to the alert. Review settings, permissions, and any access logs to ensure there is no inappropriate access configured.
+  - **Assess Affected Bucket Permissions**: Check the S3 bucket's permission settings in the AWS Management Console to confirm if any policies grant overly permissive access (`s3:GetObject`). Legitimate implementation should exclude default or placeholder configurations.
 
   ### Prioritization
 
-  The alert severity is high due to the potential impact of unauthorized IAM policy changes which can lead to elevated privilege access. The likelihood of malicious abuse exists, especially when default settings are used, and this tactic is increasingly weaponized to exploit misconfigured permissions in AWS environments.
+  This alert is of high severity due to the potential impact on confidentiality if an S3 bucket containing sensitive data is improperly configured. The likelihood of malicious abuse is considerable since similar tactics are weaponized to escalate privileges and gain access to valuable cloud resources.
 
   ### Blind Spots and Assumptions
 
-  This detection may not identify legitimate use cases where users accidentally create policies with default placeholders while using the S3 Browser. Reliable detection requires consistent logging of AWS CloudTrail event metadata. Legitimate activities might include non-malicious administrative tasks by cloud users unaware of default configurations. Strengthening coverage could include companion detections for cross-referencing IAM policy changes with unusual user activity or failed access attempts in S3, providing a broader context for any observed behavior.
+  Detection may be limited by overlooked IAM user policies, allowing default configurations to persist. Effective monitoring requires enabling detailed CloudTrail logging for all region events. Legitimate actions, such as routine reconfigurations by DevOps teams or accidental policy creations, can trigger this alert. A companion detection to strengthen coverage could involve monitoring for additional IAM policy changes that deviate from baseline configurations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,8 +9,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-12-20
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.stealth
 logsource:
   product: windows
   category: registry_set
@@ -62,36 +62,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the registration of user-specific or system-wide environment variables in the Windows registry that contain potentially malicious commands and strings. Attackers often utilize environment variables to persistently store payloads or commands for execution during later stages of an attack, enabling them to maintain access and evade detection. This aligns with the MITRE ATT&CK technique for persistence (T1547) and defense evasion (T1070).
+  This detection rule identifies the creation of suspicious environment variables, particularly those containing potential commands or indicators of malicious behavior, by monitoring registry changes in Windows. The attacker’s likely objective is to establish persistence or execute payloads through environment settings, potentially enabling further exploitation on the system. This behavior corresponds to the MITRE ATT&CK tactics of Persistence (T1547) and Defense Evasion (T1070).
 
-  Primary telemetry sources include Windows Registry logs, particularly monitoring changes to the `HKEY_CURRENT_USER\Environment` and `HKEY_LOCAL_MACHINE\Environment` locations. If detected, this behavior could indicate a harmful presence, as adversaries might store payloads or command strings in environment variables to leverage during system exploitation. Importantly, this detection alone does not confirm malicious activity; it simply highlights suspicious entries that require further investigation.
+  The primary telemetry source for this detection is the Windows Registry, particularly through registry set events, which can be captured using Sysmon or native Windows Event Logs. If malicious, this could lead to elevated privileges or running malicious scripts without user consent. However, the creation of these environment variables does NOT confirm malicious activity on its own, as benign applications may also modify environment settings.
 
   ### Investigation Steps
 
-  - **Inspect registry changes:**
-    Check for recent changes in the Windows Registry focusing on `HKEY_CURRENT_USER\Environment` and `HKEY_LOCAL_MACHINE\Environment`. Use a tool like Regedit or PowerShell (`Get-ItemProperty`) to identify Event IDs relevant to registry modifications.
+  - **Review registry changes:** Examine Registry Event IDs Key (reg_set) for alterations under the `HKEY_CURRENT_USER\Environment\` or `HKEY_LOCAL_MACHINE\Environment\` paths, specifically for keys containing the strings listed in the detection criteria.
 
-  - **Identify suspicious strings:**
-    Review the environment variables for indications of malicious activity such as presence of `powershell`, `pwsh`, or Base64 encoded strings (e.g., 'TVqQAAMAAAAEAAAA'). This is critical for differentiating between benign and potentially harmful variables.
+  - **Analyze command strings:** Look for the presence of suspicious strings in the environment variable values, notably any Base64 encoded content (e.g., `TVqQAAMAAAAEAAAA`) or references to PowerShell, like `powershell` or `pwsh`, in the `Data` field of the registry event logs.
 
-  - **Analyze process creation:**
-    Monitor for any process creation events linked to environment variable modifications. Look specifically for Security Event ID 4688 on the system where a suspicious environment variable was created. Benign processes typically do not reference paths like `C:\Users\Public\` or `%TEMP%`.
+  - **Identify legitimate environment variable usage:** Check for standard, known environment variables typically used by applications in the organization, such as `TEMP` and `PATH`, and verify the legitimacy of any associated values.
 
-  - **Verify legitimate usage:**
-    Cross-reference the environment variables against known software installations and configuration settings. Legitimate applications often utilize specific environment variables without suspicious content or excessive complexity. If a legitimate application is identified, ensure its expected usage is in line with system and user roles.
+  - **Check execution context:** Monitor for processes spawned from environment variables containing suspicious commands by correlating Windows Event ID 4688 (Process Creation) with registry changes. Identify if the command line contains any known malicious patterns.
 
-  - **Correlate with threat intelligence:**
-    Check for reported vulnerabilities or exploits related to the detected strings. Use sources like threat feeds or internal knowledge bases to verify if specific indicators are recognized as malicious.
+  - **Assess host role and asset criticality:** Determine the role of the affected host within the environment. A workstation may exhibit different behavioral patterns than a server, with a higher risk associated with critical assets such as domain controllers.
 
-  - **Confirm file artifacts:**
-    Validate if any files have been created or modified in directories related to the suspicious environment variables (e.g., `%TEMP%`). Look for recent file creations or modifications that could indicate payload execution rather than simple registry changes.
+  - **Validate logging configuration:** Ensure Sysmon or Windows event logging is fully configured to capture registry modifications and process creation. If these logs are missing, this could lead to gaps in detection capabilities.
 
   ### Prioritization
 
-  This alert is categorized as high severity due to the possibility of compromise in affected systems and the frequent exploitation of similar techniques by threat actors. The presence of suspicious environment variables is a recognized step in the attack lifecycle, which suggests an elevated risk of escalation and persistence.
+  The severity of this alert is high due to the potential for malicious persistence mechanisms to be established, especially in critical environments. The likelihood of abuse is elevated given that such manipulations are well-documented in threats using sophisticated techniques like living-off-the-land.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the quality and configuration of logging around registry changes; thus, ensuring comprehensive logging is crucial for reliable detection. Legitimate activities, such as software installations or user customization, may also trigger this alert. Related detections, such as monitoring for `Base64` encoded commands in script executions (e.g., PowerShell scripts), can provide stronger context and support for identifying malicious activity.
+  Detection effectiveness may be limited if logging configurations are not correctly set up to capture all relevant registry changes or if Sysmon is not deployed. Legitimate applications, particularly in software development and scripting environments, may frequently modify environment variables, potentially triggering this alert. Companion detections such as monitoring for abnormal process executions from changes in environment variables can provide stronger validation of malicious intent.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

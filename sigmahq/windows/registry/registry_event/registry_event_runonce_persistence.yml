@@ -11,7 +11,7 @@ date: 2020-11-15
 modified: 2024-03-25
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   product: windows
@@ -37,26 +37,25 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to the Run Once registry key related to `\Microsoft\Active Setup\Installed Components`. Such modifications can enable malicious payloads to execute on user login through `runonce.exe /AlternateShellStartup`. The likely attacker objective could be persistence, allowing an adversary to ensure execution of their code whenever the system starts or a user logs in. This behavior maps to the MITRE ATT&CK tactic of Persistence (T1053) and Defense Evasion (T1112). The primary telemetry source is Windows Registry event logs, specifically capturing registry changes (Event ID 4657). If malicious, the impact could be substantial, resulting in successful code execution upon user logon. However, this detection does NOT confirm that the activity is immediately malicious without further context, as legitimate applications may also modify this registry key.
+  This Sigma rule detects the configuration of the Run Once registry key typically used for executing scripts or applications during user logon. The likely attacker objective is to maintain persistence on a compromised system by leveraging trusted executables (e.g., runonce.exe) to execute malicious payloads. This activity aligns with the MITRE ATT&CK persistence tactic, specifically technique T1112 (Run Keys / Startup Folder).
+
+  Primary telemetry sources include Windows Registry event logs that capture modifications to registry keys, specifically under the path '\Microsoft\Active Setup\Installed Components'. If malicious, this indicates an unauthorized attempt to execute payloads automatically during startup. Importantly, this detection does not confirm critical analysis without additional context, such as identifying the payload being executed or the source of the modification.
 
   ### Investigation Steps
 
-  - **Inspect registry modification details**: Check Windows Security Event ID 4657 for the specific modification details reported in the alert, paying close attention to the `TargetObject` and `Details` fields to determine the context of the change.
-
-  - **Verify process parentage**: Review Sysmon Event ID 1 to identify the parent process of `runonce.exe`. Ensure that the parent process is a trusted application; if it originates from an unrecognized or suspicious source, this may indicate malicious intent.
-
-  - **Assess frequency of modification**: Examine the historical data for the specific registry key using Powershell or relevant registry monitoring tools to establish a baseline for expected behavior. Legitimate applications may trigger these modifications periodically (e.g., Chrome updates), but unusual frequency could signal malicious activity.
-
-  - **Cross-reference executable paths**: Analyze `Details` field to check the paths. For example, if it points to `C:\Program Files\Google\Chrome\Application\` or similar, investigate legitimate software versions against known malware leveraging the same paths to ensure validity.
-
-  - **Evaluate environmental context**: Take note of the host role—whether it is a critical server or user workstation. Higher criticality systems warrant deeper investigation and potential isolation if malicious indicators are confirmed.
+  - **Review registry modifications:** Examine Windows Registry logs for Event ID 4657 that indicate changes to the `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Active Setup\Installed Components\` key, focusing on `StubPath` values.
+  - **Verify command line arguments:** Investigate the `Details` field for typical command lines such as `runonce.exe /AlternateShellStartup`. Be cautious of values containing paths to malicious executables or unusual parameters that deviate from standard operations.
+  - **Identify expected legitimate behavior:** Document modifications to the Run Once key during Windows installation or updates (e.g., legitimate entries like `C:\Program Files (x86)\Microsoft\Edge\Application\Installer\setup.exe`). Compare current entries to baseline for anomalies.
+  - **Check user escalation:** Confirm if the user making the registry modification had appropriate permissions and valid context (e.g., system accounts or authorized administrators). Look for Event ID 4670 indicating changes made by a user with high privileges.
+  - **Search for high-confidence malicious indicators:** Look for known malicious file paths in the `StubPath`. Use threat intelligence sources to validate whether executed commands align with known malicious behavior.
+  - **Assess potential persistence:** Review execution artifacts or logs indicating if additional tasks or scheduled jobs were created to complement the Run Once registry modifications—for instance, looking at Task Scheduler logs (Event IDs 106, 200).
 
   ### Prioritization
 
-  This alert should be treated with medium severity. Modifications to the Run Once registry key can indicate persistent malware deployment, particularly on endpoint systems where users log in regularly. While such behaviors are often weaponized, legitimate software can also modify this registry key, necessitating careful analysis.
+  The severity of this alert is medium due to its potential impact on user sessions and system integrity, especially if the affected systems are critical. The likelihood of malicious abuse is moderate, as attackers often leverage persistence mechanisms to regain access. This technique is commonly found in real-world exploits, making it a noteworthy indicator.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of supporting telemetry; without robust logging configurations, legitimate activity may generate false positives. Assumptions include that not all legitimate programs will generate Registry Event ID 4657, potentially missing benign alterations. Related detections, such as monitoring for the execution behavior of `runonce.exe` (Sysmon Event ID 1), can enhance detection coverage and context.
+  This rule may miss sophisticated stealth techniques such as delayed execution or using alternative persistence mechanisms if the logs are incomplete. Reliable detection requires active monitoring of relevant registry paths and appropriate logging configurations within the environment. Legitimate activities, such as software installations or updates from trusted vendors, may trigger the alert. A related detection includes monitoring for suspicious use of runonce.exe itself, which could strengthen anomaly detection in user sessions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

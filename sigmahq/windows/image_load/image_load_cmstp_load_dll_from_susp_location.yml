@@ -9,7 +9,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-30
 modified: 2023-02-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.003
 logsource:
   category: image_load
@@ -34,28 +34,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of Dynamic Link Library (DLL) or Object Linking and Embedding (OLE) Custom Control (OCX) files from suspicious locations by the `cmstp.exe` binary, a configuration management tool that is often exploited by attackers to bypass security mechanisms. The likely attacker objective is to execute malicious code while appearing to use a legitimate Windows process, facilitating defense evasion. This detection corresponds to the MITRE ATT&CK tactic of Defense Evasion and the specific technique T1218.003 (Signed Binary Proxy Execution: CMSTP).
+  This Sigma rule detects the execution of `cmstp.exe` loading DLL or OCX files from suspicious directories, such as `C:\PerfLogs\`, `C:\ProgramData\`, or `C:\Windows\Temp\`. The potential adversary objective is to execute malicious code through a technique known as “Signed Binary Proxy Execution,” allowing attackers to run malware without raising immediate suspicion due to the use of a legitimate process. This behavior corresponds to the MITRE ATT&CK Tactic: Execution, specifically Technique T1218.003 (CMSTP).
 
-  The primary telemetry sources include Windows image load events with a focus on the paths from which these binaries are loaded, specifically monitoring the `Image` and `ImageLoaded` fields in the Windows Security Event Log. Should this detection indicate malicious behavior, the security impact could be severe, potentially leading to unauthorized access, data exfiltration, or lateral movement. Importantly, this detection does NOT confirm malicious intent on its own; further investigation is required to establish context around the behavior.
+  The primary telemetry sources are Windows event logs documenting image loads, specifically image load events associated with executable processes (Event ID 11). If detected, this behavior could indicate a security breach or an attempt to execute unauthorized applications. However, it is critical to note that this detection alone does not confirm malicious intent; legitimate administrative tasks may also utilize `cmstp.exe` for valid purposes.
 
   ### Investigation Steps
 
-  - **Review the loading source for `cmstp.exe`:** Check Security Event ID 4688 for the parent process details. Confirm if the source path of `cmstp.exe` is from its legitimate directory (`C:\Windows\System32\cmstp.exe`). Any deviations signal potential malicious activity.
+  - **Verify the execution context of `cmstp.exe`:** Check for Event ID 4688 (Process Creation) to determine the parent process ID and user context. If `cmstp.exe` was launched under a benign or administrative context (e.g., by `powershell.exe` or `explorer.exe`), further investigation may be needed.
 
-  - **Examine the loaded DLL/OCX files:** Cross-reference Event ID 4104 from PowerShell logs to capture the exact DLL/OCX paths and signatures. Typically, legitimate path loading occurs from `C:\Windows\System32\`. Suspicious paths should be flagged for immediate attention.
+  - **Inspect loaded images for known hash values:** Compare the loaded DLL or OCX file hashes against known malicious samples using a threat intelligence database. If the hash is found in malicious databases, escalate as a confirmed indicator of compromise.
 
-  - **Validate file hashes against known good indicators:** Use file integrity monitoring tools or scripts to compute and check hashes of the loaded DLL/OCX files against VirusTotal or other reputation services to identify known malicious artifacts.
+  - **Audit suspicious directories:** Investigate the contents of directories that may have loaded suspicious DLLs or OCXs. Authentic paths typically contain legitimate files; an unusual presence of executable files, especially from `C:\Temp\` or `C:\Users\`, can indicate malicious activity.
 
-  - **Inspect cmdlets executed in conjunction with `cmstp.exe`:** Review PowerShell logs for any unusual cmdlets executed right before or after the use of `cmstp.exe`. Monitor for commands like `Invoke-WebRequest` or `DownloadString`, which may indicate malicious file retrieval.
+  - **Conduct a behavior analysis of the compromised system:** Review Sysmon logs (Event ID 7 for File Creation Time) and identify any high-volume or anomalous file creation events occurring in these directories around the same time as the initial detection, suggesting exfiltration or lateral movement.
 
-  - **Identify system impact and asset criticality:** Determine the affected system’s role within the enterprise (e.g., server, workstation) to gauge the potential impact of a successful exploitation. High-privileged systems should receive immediate attention.
+  - **Check for command-line arguments:** Since `cmstp.exe` can take parameters, inspect the command line used to execute `cmstp.exe`. Legitimate usage often includes specific config files; queries without such arguments may indicate malicious behavior.
 
   ### Prioritization
 
-  This alert should be treated as high priority due to the potential impact of executing arbitrary code through a legitimate system process, thus facilitating further malicious activities. The behavior is frequently weaponized in real-world attacks, increasing the likelihood of malicious intent.
+  This alert is considered high severity due to the possibility of executing malware from a directory commonly used by adversaries for staging. The use of `cmstp.exe` is notably weaponized among attackers, increasing the potential impact on the environment if successful exploitation occurs.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate `cmstp.exe` usage in standard administrative tasks, which may also trigger the alert. Consistent log sources must be ensured, such as Security Event Logs and PowerShell logs, for reliable detection. Additionally, benign usage patterns include authorized software installations or configurations that leverage `cmstp.exe`. A related detection that strengthens coverage is monitoring for unusual network activities post-execution of `cmstp.exe`, which may indicate successful exploitation.
+  Detection may be limited if logs are not correctly configured, particularly if Sysmon isn't deployed for comprehensive visibility into process creation and image loads. Additionally, legitimate administrative activities could trigger this alert, such as valid software updates or installations. Companion detections related to suspicious PowerShell commands or known malware signatures loading via these methods can enhance monitoring for this type of behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

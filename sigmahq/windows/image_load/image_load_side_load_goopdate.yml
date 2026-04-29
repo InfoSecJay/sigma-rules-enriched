@@ -10,8 +10,9 @@ date: 2023-05-15
 modified: 2025-10-07
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -49,26 +50,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading involving `goopdate.dll`, which is typically associated with `googleupdate.exe`. The likely attacker objective is to leverage trusted application behaviors to load malicious code under the guise of legitimate functions, enhancing persistence and evading detection. This activity aligns with the MITRE ATT&CK tactic of Persistence and the technique T1574.001 (DLL Side-Loading). The primary telemetry sources include Windows image load event logs, specifically focusing on suspicious loading of `goopdate.dll` outside expected installation paths. If exploited, this behavior may allow an adversary to execute arbitrary code with the privileges of the loaded application. However, this detection does NOT confirm that the system is compromised without further context of the executing process and its legitimacy.
+  This Sigma rule detects potential DLL sideloading that involves `goopdate.dll`, which is commonly used by `googleupdate.exe`. Attackers may exploit this to persist malware within the Windows environment by loading malicious libraries from non-standard locations. The relevant MITRE ATT&CK tactics include *Persistence* (TA0003) and *Privilege Escalation* (TA0004), specifically utilizing technique *Sideloading* (T1574.001). Primary telemetry sources are Windows event logs that capture image loads (e.g., Image Load events), focusing on specific paths indicative of suspicious activity. If malicious, this could lead to unauthorized persistence and escalation of privileges on the affected system. However, this detection does NOT confirm actual malicious activity on its own without additional context.
 
   ### Investigation Steps
 
-  - **Identify the loading source:** Check for Event ID 4103 in Windows Security or Sysmon logs that show the loading of `goopdate.dll`. Determine if it was loaded from a common directory or an unusual location, such as user temp directories.
+  - **Review Image Load Events:** Check Windows Security Event ID 4657 or Sysmon Event ID 10 for occurrences of `goopdate.dll`. Look for unusual paths outside of standard installation directories, which may indicate malintent.
 
-  - **Review process paths:** Examine the command line arguments and paths of associated processes using Sysmon Event ID 1. Determine if `googleupdate.exe` or other legitimate instances are running alongside the detected DLL load from non-standard paths.
+  - **Analyze Path Context:** Validate the loading paths by confirming that legitimate installations of `googleupdate.exe` and other Chromium-based apps are located under the expected directories (e.g., `C:\Program Files (x86)\`, `C:\Program Files\`). Path deviations should be flagged for further analysis.
 
-  - **Baseline legitimate behavior:** Look for instances of `goopdate.dll` loading from expected paths (`C:\Program Files (x86)\` or `C:\Program Files\`) as these indicate benign operation. Any instance from `%AppData%` or temporary directories needs further scrutiny.
+  - **Identify High-Confidence Indicators:** If the `goopdate.dll` is found loading from `\AppData\Local\Temp\GUM`, and is not associated with a legitimate Google Chrome installation, escalate immediately, as this is highly indicative of potential malware activity.
 
-  - **Correlate with known malicious indicators:** Identify if there are any other indicators of compromise (IoCs) associated with the loading of `goopdate.dll` such as known hashes of malicious binaries from malware databases.
+  - **Correlate with Process Creation Logs:** Look for corresponding Security Event ID 4688 logs that show the creation of `googleupdate.exe` shortly after the DLL load. This timing can provide insights into whether the DLL loading is associated with an unusual process execution.
 
-  - **Check for associated network activity:** Investigate any outbound connections using Windows Firewall logs or Proxy logs while `goopdate.dll` is loaded, as this may indicate command and control communication indicative of a malicious attack.
+  - **Check for Other Associated Artifacts:** Verify for the presence of temporary files or suspicious installers (e.g., `.tmp\GoogleUpdate.exe`) in `C:\Users\<username>\AppData\Local\Temp`. Unusual file activity or unexpected install paths can confirm malicious behavior.
+
+  - **Document Legitimate Usage Scenarios:** Capture and list instances of standard user behavior involving `goopdate.dll`, such as regular updates from verified software. This helps in establishing a behavioral baseline against which alerts can be evaluated.
 
   ### Prioritization
 
-  This alert carries a medium severity due to the potential for exploitation through sideloading within a commonly used application (e.g., Google Update). The likelihood of abuse is moderate, especially given the prevalence of similar techniques observed in the wild. Since DLL sideloading is a frequently weaponized tactic in both malware campaigns and targeted attacks, timely investigation is critical.
+  The severity of this alert is medium; the affected system's impact can be significant if the compromised DLL leads to unauthorized persistence. Given that sideloading techniques are commonly weaponized in malware campaigns, this behavior could indicate an active threat. Timely investigation is essential to mitigate potential risks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by false positives introduced by legitimate applications such as Google Chrome and other Chromium-based apps, which may sideload DLLs from non-standard paths. Reliable detection requires comprehensive logging configurations, particularly ensuring Sysmon is capturing image loads accurately. There may be legitimate updates or behavior from cloud services that trigger this alert which should not be overlooked. A related detection that strengthens coverage is monitoring for unauthorized process creation events signaling potential exploitation attempts, such as the creation of proxy processes associated with the detected DLL.
+  Detection is limited, as legitimate applications may trigger similar alerts, particularly third-party Chrome installations running from user directories. Reliable detection requires capturing comprehensive image load logging and correlating it with appropriate process creation events. Other potential benign activities include legitimate application updates or installations. Companion detections, such as monitoring for unusual process behaviors (e.g., unsolicited outbound connections from `googleupdate.exe`), can enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

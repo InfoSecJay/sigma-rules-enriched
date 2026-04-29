@@ -10,9 +10,9 @@ author: Florian Roth (Nextron Systems)
 date: 2021-02-11
 modified: 2023-02-21
 tags:
-- attack.defense-evasion
-- attack.t1562.001
-- attack.t1070.001
+- attack.defense-impairment
+- attack.t1685
+- attack.t1685.005
 logsource:
   category: process_creation
   product: windows
@@ -39,28 +39,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the `logman.exe` utility specifically when it is used to stop or delete Windows event tracing sessions, such as the Circular Kernel Context Logger or Sysmon trace sessions. The likely attacker objective is to evade detection or hinder forensic analysis by manipulating trace logs that could contain evidence of malicious activities. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0020), especially under technique T1562.001 (Disable or Tamper with Logs). The primary telemetry sources for this detection are Windows process creation logs (Security Event ID 4688) and Sysmon logs (Event ID 1). If this activity is indeed malicious, it may allow adversaries to erase traces of their actions, compromising the organization's security posture. It is important to note that this detection does NOT confirm malicious intent on its own; legitimate administrative actions may also trigger this alert.
+  This Sigma rule detects the execution of the "logman" utility to disable or delete Windows Event Tracing for Windows (ETW) sessions. The likely attacker objective is to impair detection capabilities by halting or removing logging mechanisms that are essential for monitoring and incident response. This behavior corresponds to the MITRE ATT&CK tactic of Defense Evasion (TA0005) and the technique of Indicator Removal on Host (T1485) and specifically to the sub-technique of Deleting Event Logs (T1485.005). The primary telemetry sources include process creation logs (Security Event ID 4688 and Sysmon Event ID 1), focusing on the `logman.exe` execution and its command-line parameters.
+
+  If the activity is malicious, there is a potential compromise of system integrity and monitoring capabilities, drastically improving an adversary's foothold within the environment. This detection, however, does NOT confirm malicious activity on its own; it could also indicate legitimate administrative tasks or benign software operations that interact with ETW sessions.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID 4688 for any instance where `logman.exe` is executed. Look specifically for events initiated outside of normal administrative use or from non-administrative accounts.
+  - **Identify the alert event:** Review Security Event ID 4688 and Sysmon Event ID 1 for `logman.exe` execution details. Check the process creation timestamp and the user account associated with the execution to establish context.
 
-  - **Analyze command line arguments:** Investigate the CommandLine field of the process creation logs for `logman.exe`. Legitimate commands should not include "stop" or "delete" targeting common trace sessions like "Circular Kernel Context Logger" or "SysmonDnsEtwSession".
+  - **Analyze command-line arguments:** Inspect the command line used for `logman.exe`. Look for `stop` or `delete` commands, especially those that contain keywords like `Circular Kernel Context Logger`, `EventLog-`, `SYSMON TRACE`, or `SysmonDnsEtwSession`, to discern potentially malicious intent.
 
-  - **Correlate with Sysmon logs:** If Sysmon is deployed, review Event ID 1 logs for `logman.exe` activities correlated with the identified endpoints. Cross-reference timestamps to identify unusual activity.
+  - **Conduct user behavior analysis:** Determine if the user account that executed `logman.exe` has a history of administrative actions or if they belong to a legitimate role such as an IT admin. Flag deviations from normal account behavior.
 
-  - **Identify legitimate use cases:** Confirm whether the alert correlates with scheduled maintenance tasks or known administrative actions. Administrative changes might involve disabling certain trace sessions prior to installation of logging agents or routine system updates.
+  - **Check for legitimate administrative activity:** Compare against any relevant change management tickets or scheduled maintenance that could justify the use of `logman.exe`. Verify with administrative teams if known maintenance or tool deployment took place around the time of the alert.
 
-  - **Look for forensic artifacts:** Inspect any anomalies in log retention settings or sudden drops in log sizes. Check for additional indicators such as the absence of normal Sysmon logs from captured events, which could suggest tampering.
+  - **Identify malicious indicators:** Look for the absence of expected logs from the modified ETW sessions. If significant logs are missing, it may indicate successful tampering with log preservation.
 
-  - **Review user account privileges:** Identify the user account that executed `logman.exe`. Look out for standard users attempting to perform administrative actions, which can indicate potential privilege escalation or unauthorized activity.
+  - **Validate file artifact integrity:** Verify if logman execution resulted in file artifacts related to session information, such as .etl files. Inspect directory `C:\Windows\System32\winevt\Logs\` and confirm if logs were deleted alongside tool execution to support malicious behavior.
 
   ### Prioritization
 
-  The alert is considered high priority due to the potential impact on systems involving trace logs critical for incident investigation. The malicious likelihood is raised by the nature of the `logman.exe` execution patterns in the context of threat actors attempting to cover their tracks. This behavior is commonly weaponized, especially in targeted attacks against organizations with mature logging practices.
+  This alert holds a high severity level due to the potential for significant impact on system visibility and incident response capabilities. The likelihood of malicious abuse is considerable, as deleting or modifying logging sessions is a common tactic employed by attackers to obfuscate their activities. Given the critical nature of retained logs, such activity is frequently weaponized.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of Sysmon logging or if logs get purged before analysis. Potential evasion techniques include legitimate administrative actions that disable tracing for maintenance purposes, which can also trigger this alert. There may be other applications or legitimate system processes that also stop or manipulate tracing that aren't adequately covered. Companion detections such as abnormal log retention patterns or access to log modification utilities can strengthen the detection coverage.
+  Detection limitations include potential evasion techniques, such as legitimate tools or scripts that employ `logman.exe` for benign purposes, which may generate false positives. Required log sources, including Sysmon and Windows Security logs, must be properly configured for reliable detection. Legitimate administrative activities that may trigger alerts include scheduled maintenance and troubleshooting sessions where administrative staff disable logs. A related detection that strengthens coverage is monitoring for other command-line utilities or scripts that modify ETW session states, like `wevtutil`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

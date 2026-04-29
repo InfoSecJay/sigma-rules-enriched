@@ -12,8 +12,9 @@ date: 2021-12-30
 modified: 2024-03-13
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 logsource:
   category: process_creation
@@ -34,26 +35,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts by adversaries to alter the `ImagePath` of Windows services using the `reg.exe` command-line tool. Such modifications are typically aimed at executing malicious payloads by redirecting service execution to an adversary-controlled file at startup. The relevant MITRE ATT&CK tactics are **Persistence** and **Privilege Escalation** (T1574.011). Primary telemetry sources include Windows process creation logs specifically monitoring command-line executions involving `reg.exe` and the registry. If successful, such modifications can grant an attacker sustained control over a system and facilitate further exploitation. Importantly, this detection does NOT confirm that the behavior is unequivocally malicious; further investigation is needed to establish context.
+  This rule detects changes to the `ImagePath` value of Windows services via the `reg.exe` command-line utility. This behavior is typically associated with adversaries attempting to execute malicious payloads by hijacking legitimate service configurations, allowing their code to run at service start. The attacker likely aims to establish persistence or elevate privileges by running unauthorized binaries instead of legitimate service executables.
+
+  Relevant MITRE ATT&CK tactics include **Persistence** and **Privilege Escalation** with the technique ID **T1574.011** (Patch System Image). The primary telemetry source is process creation logs, particularly Windows Security Event ID **4688** and Sysmon Event ID **1** for monitoring command executions. If malicious, this activity could lead to unauthorized access and control over the system. Importantly, this detection does NOT confirm that malicious activity was successful, only that a potentially suspicious change has occurred.
 
   ### Investigation Steps
 
-  - **Review process creation logs for reg.exe usage:** Investigate Security Event ID 4688 or Sysmon Event ID 1 for instances of `reg.exe` with a command line containing `add` and `ImagePath`. Look for unusual service names or paths that are not typical for the environment.
+  - **Check process creation logs:** Review Windows Security Event ID **4688** for `reg.exe` invocations. Look for command line arguments that contain `add` with the path `SYSTEM\CurrentControlSet\Services\` and `ImagePath`. Malicious indicators would show unusual executable paths unrelated to known service binaries.
 
-  - **Identify high-confidence malicious indicators:** Check for instances where the `ImagePath` value points to an unusual or non-standard executable, especially those located outside of known application directories (e.g., `C:\Program Files`, `C:\Windows`).
+  - **Validate legitimate activity:** Cross-reference service configuration changes against administrative change records or a known baseline. Legitimate changes typically come from authorized users or scheduled maintenance activities, not from unexpected or unauthorized command executions.
 
-  - **Analyze legitimate service modifications:** Consider whether there are known maintenance windows or admin-approved changes involving service reg modifications. Normal administrative commands typically relate to application updates or configurations.
+  - **Correlate with Sysmon logs:** Analyze Sysmon Event ID **1** for detailed command-line information and parent processes. Multiple initiations of `reg.exe` from non-administrative users could indicate a malicious attempt and is a high-confidence indicator.
 
-  - **Examine registry permissions and recent changes:** Access the registry at `HKLM\SYSTEM\CurrentControlSet\Services` to review recent modifications. Note any changes made to `ImagePath` that deviate from established service parameters or have not been thoroughly documented.
+  - **Inspect related services:** Use `sc query` to list services and confirm if any have been altered. Check the `ImagePath` values against the original configurations to identify unauthorized tampering.
 
-  - **Correlate with user activity logs:** Cross-verify the timestamps of the `reg.exe` command execution with user activity logs (like login/logout events) through Event IDs 4624 and 4625 to identify if an unexpected or malicious user triggered the command.
+  - **Examine registry access permissions:** Look at the registry permissions for relevant paths (`HKLM\SYSTEM\CurrentControlSet\Services`) using `regedit` or PowerShell to determine if the access control settings allow for tampering by non-administrative accounts.
 
   ### Prioritization
 
-  The alert is rated as medium severity due to the potential impact on the affected system if a malicious payload is executed as a service. The likelihood of malicious exploitation is moderate given that service image manipulations are a known tactic among attackers. This behavior is often weaponized in targeted attacks, especially for persistence.
+  This alert is medium severity due to the potential impact on critical Windows services. Its likelihood of malicious exploitation is moderate since service hijacking is a known technique among adversaries. While this behavior may not directly cause harm, it serves as a precursor to later exploitations.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss modified `ImagePath` changes made through other means (like PowerShell or third-party scripts), highlighting a limitation in solely relying on `reg.exe`. Required log sources need to be consistently available; thus, ensure auditing for process creation is enabled across endpoints. Legitimate software updates or automated deployment tools may trigger similar activities, hence requiring contextual awareness. A companion detection to consider is monitoring PowerShell command executions that may also manipulate service configurations to provide enhanced visibility and coverage.
+  Detection relies heavily on accurate logging configurations for Windows Event IDs and Sysmon events. Adversaries might attempt to evade detection through alternate methods for modifying service configurations or by using scripting to manipulate registry values instead of `reg.exe`. Additionally, legitimate administrative actions or service updates could trigger this alert, requiring careful context to differentiate true threats. Related detections such as unexpected or unusual service start events (e.g., suspicious services initiating from non-standard locations) will enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

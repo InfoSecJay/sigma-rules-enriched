@@ -12,7 +12,7 @@ date: 2020-10-18
 modified: 2022-12-13
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
 logsource:
   product: windows
@@ -31,36 +31,28 @@ level: low
 note: |
   ### Technical Context
 
-  This rule detects instances where "Run Once" tasks are executed via the registry on Windows systems, specifically monitoring for the `runonce.exe` process and its command line arguments. The likely objective of an attacker leveraging this technique is to maintain persistence on a compromised system, often executing payloads during user logon without direct user interaction. This behavior correlates with the MITRE ATT&CK framework under the tactics of Persistence (TA0010) and Defense Evasion (TA0005) using the technique "Systemd Service" (T1112).
+  This rule detects the execution of tasks using the `runonce.exe` executable, which is often leveraged by attackers to achieve persistence within a system. By modifying registry entries to include a command for `runonce.exe`, adversaries can ensure that malicious payloads are executed during user logon. The relevant MITRE ATT&CK technique is Persistence (T1112: Modify Existing Service), where attackers aim to re-establish access to a compromised system after reboots or user logins.
 
-  The primary telemetry sources for this detection include Windows Security Event ID 4688 (Process Creation), which captures event logs related to process instantiation. If an alert triggers from this rule, it raises concerns about potential malicious behavior, such as the installation of malware, which would allow an adversary to regain access to the compromised system. However, this detection alone does not confirm the nature or intent of the execution; benign applications may also leverage similar methods.
+  The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 for process creation, and Sysmon Event ID 1 for detailed process execution data. If malicious, this behavior can indicate an ongoing compromise that poses a significant risk to data integrity and system security. However, this detection does NOT confirm whether the execution was malicious or benign on its own, as legitimate system maintenance tasks may invoke similar behavior.
 
   ### Investigation Steps
 
-  - **Check Process Execution:**
-    Review upcoming process creation logs for Event ID 4688. Look specifically for `runonce.exe` in the "New Process Name" field. Validate if the parent process is legitimate (e.g., `explorer.exe`), as this can indicate expected user behavior or malicious escalation.
+  - **Verify process execution details:** Review Security Event ID 4688 and Sysmon Event ID 1 logs for `runonce.exe` execution. Look for unusual parent processes or command-line arguments, such as those ending with `/r` or containing `/AlternateShellStartup`.
 
-  - **Analyze Command Line Arguments:**
-    Verify the "CommandLine" field for specific command line arguments (e.g., `/AlternateShellStartup` or `/r`). Legitimate user applications might utilize similar arguments, but variations deviating from expected user patterns should heighten scrutiny.
+  - **Check the execution context:** Determine which user account triggered the `runonce.exe` by correlating with User ID fields in the logs. If executed by a non-admin user without a clear business justification, this may indicate suspicious activity.
 
-  - **Review Scheduling Info:**
-    Check for any registry keys under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce`. Look for entries that include unusual or unknown applications. Malicious entries might disguise themselves with generic names.
+  - **Analyze command-line arguments:** Review specific command-line arguments used with `runonce.exe`. Legitimate administrative actions should not commonly include `/r` or other atypical flags.
 
-  - **Identify Malicious Indicators:**
-    Confirm if the execution correlates with known malware signatures. Use threat intelligence feeds to validate any associated hashes of files executed through `runonce.exe` during the identified timeframe.
+  - **Identify related registry modifications:** Investigate the Windows registry for entries under `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunOnce` or `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\RunOnce`. Look for unfamiliar or suspicious entries that may associate with the process execution.
 
-  - **Evaluate User Activity:**
-    Investigate the user context under which this rule was triggered. Cross-reference with user login events (Event ID 4624) to determine if the execution followed irregular login patterns or occured under unexpected user conditions (e.g., logins at unusual hours).
-
-  - **Confirm MITRE Coverage:**
-    Enhance detection capabilities by mapping to related techniques in the MITRE ATT&CK framework, such as "Registry Run Keys / Startup Folder" (T1060), reinforcing persistent threat detection across potential attack paths.
+  - **Collect additional telemetry:** If available, check EDR or AV logs for any detections related to the executed tasks. Confirm whether the action created or modified files on the system, particularly in user profile folders (e.g., AppData), which could indicate malicious intent.
 
   ### Prioritization
 
-  The severity of this alert is low in most contexts due to the potential for benign executions of `runonce.exe`. However, if an organization has been compromised or is under targeted attack, this behavior could signify critical persistence mechanisms. Attackers typically utilize these methods to fortify their foothold within the environment, making it essential to investigate anomalous triggers despite the low rating.
+  The alert severity is low, as the behavior may frequently relate to benign system processes or administrative maintenance tasks. However, given the potential for abuse by adversaries to establish persistence mechanisms, it warrants investigation, particularly on critical systems.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by various evasion techniques, as attackers can use renamed or modified instances of `runonce.exe` to bypass detection. Reliable identification depends on comprehensive log settings for process creation and registry modifications. Legitimate software updates and user-scheduled tasks may inadvertently trigger this alert. Additionally, companion detections focusing on abnormal registry access or other scheduled tasks may augment overall detection efficiency, reducing false positive rates.
+  This detection may be limited by legitimate administrative actions that utilize `runonce.exe`, which may trigger false positives. Ensuring complete logging of registry modifications is crucial for accurate assessment. Additionally, consider companion detections, such as monitoring for scheduled task creations (MITRE ATT&CK T1053) which can also indicate persistence mechanisms.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

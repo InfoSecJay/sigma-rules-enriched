@@ -8,7 +8,7 @@ author: Jakob Weinzettl, oscd.community
 date: 2019-09-23
 modified: 2022-11-26
 tags:
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1222.002
 logsource:
   product: linux
@@ -30,30 +30,36 @@ simulation:
 note: |
   ### Technical Context
 
-  This rule detects the use of the `chattr` command to remove the immutable attribute from files on Linux systems. The likely attacker objective is to manipulate or delete critical files that have been protected from modification, allowing for malicious activities such as backdoor implantations or data tampering. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion and specifically the technique T1222.002 (File and Directory Permissions Modification).
+  This rule detects the removal of the immutable file attribute on Linux systems using the `chattr` command. An attacker might aim to alter or delete files that are meant to be protected, thereby facilitating unauthorized access or modification of critical files. The relevant MITRE ATT&CK tactic is Defense Evasion (T1070), and the specific technique is T1222.002 (Remove Immutable File Attribute).
 
-  Primary telemetry sources for this detection are Auditd logs, which record information related to system calls—specifically EXECVE events when the `chattr` command is invoked with the `-i` option. If malicious, this action signifies an attempt to compromise system integrity by altering file protection mechanisms. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative actions may also trigger the same event.
+  The primary telemetry source is Linux Audit Daemon (`auditd`) logs with a focus on EXECVE events. If this behavior is malicious, it could lead to significant security impacts, such as unauthorized alterations of sensitive files or system configurations. Importantly, this detection does NOT confirm malicious intent solely; it requires context and further investigation to understand the reasons behind the attribute removal.
 
   ### Investigation Steps
 
-  - **Identify the Command Execution:** Review Auditd logs for EXECVE events related to the `chattr -i` command. Look for Event ID 1300 in `/var/log/audit/audit.log`, focusing on fields such as `exe`, `a0`, and `a1` to confirm the command and its parameters.
+  - **Check audit logs for context:**
+    Review `auditd` logs (e.g., `/var/log/audit/audit.log`) for Event ID 132 (EXECVE) containing `chattr` and `-i`. Note the timestamp, user ID, and command output to assess the legitimacy of the action.
 
-  - **Determine the User Context:** Analyze the user (`uid`) in the Auditd logs that invoked the command. A non-administrative user executing this command on sensitive files could indicate malicious intent, whereas an administrator performing maintenance tasks is more likely benign.
+  - **Identify the user and their intentions:**
+    Determine the user who executed the command. If it's a standard user or service account with limited permissions, investigate the account for potential compromise.
 
-  - **Review File Changes:** Check for subsequent modifications to files that had their immutable attributes removed. Use `lsattr` to verify file attributes post-command execution and compare timestamps of file changes with the event log for correlation.
+  - **Correlate with other events:**
+    Look for any additional related activity around the same time, such as file modifications or deletions (check additional EXECVE or file access logs) that may indicate a more extensive malicious operation.
 
-  - **Assess System Role Implications:** Consider the role of the affected Linux system. If it's a high-value or sensitive asset (e.g., a web server or database), the risks of this command executing increase significantly, warranting further immediate investigation.
+  - **Distinguish legitimate use cases:**
+    Investigate any documented system administration practices involving the removal of immutable attributes for expected operations (e.g., system upgrades or standard maintenance) to establish benign context.
 
-  - **Correlate with Other Alerts:** Look for related activities such as unusual login attempts or unauthorized access to directories containing sensitive files. This may suggest a broader compromise attempt.
+  - **Validate high-confidence malicious indicators:**
+    An execution of `chattr -i <filename>` on critical files such as `/etc/passwd` or system binaries without valid administrative context can indicate potential compromise.
 
-  - **Legitimate Usage Patterns:** Document any prior legitimate use of the `chattr` command from the same user or system in the recent logs. Recognizing known scenarios (like restoring data or recovery actions) can refine your understanding of the context around the alert.
+  - **Check for persistent malicious changes:**
+    Review other files on the system for modifications or suspicious access patterns after the command execution, including unexpected changes to sensitive configuration files.
 
   ### Prioritization
 
-  This alert is medium severity due to the potential impact on file integrity, especially on critical systems. The likelihood of malicious abuse is moderate; while removing immutable flags is a common administrative task, attackers often employ it to evade security measures. This behavior is indicative of a common exploitation technique.
+  The alert is of medium severity. The impact could be significant if critical files are altered or deleted, leading to broader system vulnerabilities. The likelihood of malicious exploitation is moderate since attackers frequently disable file protections to facilitate deeper system compromise.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if Auditd is not consistently configured or if relevant log retention policies are weak. Legitimate administrative tasks may trigger this alert, such as system backups or maintenance, which could lead to false positives. A related detection to consider is monitoring for the execution of other command-line tools or scripts that manipulate file permissions, enhancing overall coverage and context.
+  Detection limitations include potential evasion through legitimate `chattr` usage by administrators who may inadvertently trigger the alert. Reliable detection requires configured `auditd` properly logging EXECVE events. Additionally, other legitimate activities could involve modification of file attributes for system maintenance. A companion detection might be monitoring for direct file access or alterations (e.g., checking for inode changes or file hashes) to strengthen coverage on potential unauthorized changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

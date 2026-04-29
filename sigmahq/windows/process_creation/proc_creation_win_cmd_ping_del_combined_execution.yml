@@ -14,7 +14,7 @@ author: Ilya Krestinichev
 date: 2022-11-03
 modified: 2024-03-05
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070.004
 logsource:
   category: process_creation
@@ -41,30 +41,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the use of a command-line sequence that combines a `ping` command with `del` (delete) to obfuscate deletion of potentially malicious files, a technique often leveraged by ransomware to clean up after payload execution. The likely attacker objective is to execute malware while minimizing detection through file deletion. This behavior relates to the MITRE ATT&CK tactic of Defense Evasion (T1070.004) and targets Windows environments.
+  This Sigma rule detects a pattern where the `ping` command is used to introduce a delay before executing the `del` command to delete a specified file. This behavior is often leveraged by ransomware to mask the initial file responsible for infection, effectively attempting to destroy evidence of the malicious payload. The primary MITRE ATT&CK technique associated with this behavior is **T1070.004 - File Deletion**, with the overarching tactic being **T1027 - Obfuscated Files or Information**.
 
-  Primary telemetry sources include Windows Security Event ID 4688 (process creation) capturing command line arguments, and Sysmon Event ID 1, which may also log these commands. If malicious, this activity signifies an attempt to remove evidence of file-based malware execution, significantly impacting the integrity and availability of affected systems. Importantly, this detection does NOT confirm that the file was successfully deleted or that malicious intent exists without further context.
+  The main telemetry sources for this detection include process creation logs (such as Security Event ID 4688) and command line arguments captured via Sysmon (Event ID 1). If this behavior is indeed malicious, it indicates an attempted obfuscation tactic meant to hinder detection and investigation. However, the detection does NOT confirm that a malware infection is definitely occurring; it merely highlights suspicious command execution related to file deletion.
 
   ### Investigation Steps
 
-  - **Review command line execution logs**: Analyze Security Event ID 4688 and Sysmon Event ID 1 for process creation log entries. Look for command lines detailing usage of `ping` followed by `del`, particularly noting patterns with `> Nul`.
+  - **Identify process execution details**: Review Security Event ID 4688 logs to check for the command line corresponding to the `cmd.exe` execution, specifically looking for snippets that include `ping` and `del`. Validate that there is a clear timing relation, indicating the execution order is intended to be malicious.
 
-  - **Identify benign uses of ping**: Determine whether the `ping` command is associated with legitimate network diagnosis operations. Include investigations of known scripts or scheduled tasks using `ping` for legitimate purposes.
+  - **Check command output direction**: Look for logs indicating the output being directed to `Nul` (using the marker `> Nul`). Commands using this directionality are suspicious as they indicate a possible intent to mask output and activities.
 
-  - **Check for followed deletion patterns**: Look for instances where deletion follows unusual use of `fsutil file setZeroData`, which could indicate an effort to erase files following execution. Validate any files targeted for deletion against known good file inventories.
+  - **Legitimate behavior checks**: Identify benign use cases for `ping` and `del` commands. Common administrative tasks might involve legitimate testing via `ping` without subsequent deletion of files, or using `del` on non-malicious user files.
 
-  - **Correlate with filesystem changes**: Examine file system logs, particularly looking for file removal (e.g., using the `del` command) in the paths indicated in command lines. Identify file names or locations associated with known ransomware families, particularly those mentioned in threat intelligence sources.
+  - **High-confidence malicious indicator**: Identify any preceding process (especially unusual or non-standard applications) that led to the command execution observed. Linux or Windows native tools executing arbitrary file deletions, particularly against files from known ransomware families, should be flagged for further action.
 
-  - **Assess system criticality and role**: Determine the role of the impacted host (e.g., server vs. workstation) and its criticality. Elevated privileges on sensitive systems (like domain controllers) warrant a higher level of scrutiny.
+  - **Review file creation/deletion events**: Use Sysmon (Event ID 11) to confirm that the file intended for deletion was indeed a malicious executable (e.g., `lockbit.exe`). Monitor the timeline for file modifications that coincide with the suspicious command execution.
 
-  - **Validate file indicators in process creation**: If files such as `lockbit.exe` are identified, check their hash against known malware signatures in threat repositories for definitive malicious indicators.
+  - **Investigate system roles**: Consider the host's role in the environment. If the system is a critical server or contains sensitive data, prioritize this alert over activities originating from less critical endpoints.
 
   ### Prioritization
 
-  This alert should be treated as high priority due to the potential impact on critical systems and the likelihood that this command sequence is indicative of ransomware activity. Given that this method is a common tactic among ransomware groups, immediate investigation is warranted.
+  This alert should be treated with high severity due to the potential impact on sensitive systems and the high likelihood of malicious intent. The behavior follows a common ransomware technique, indicating a risk of data loss or compromise if not investigated and mitigated promptly.
 
   ### Blind Spots and Assumptions
 
-  The detection may be limited by environments not logging command-line arguments or lacking comprehensive monitoring on endpoints. Evasion techniques might include using obfuscation methods to hide the presence of `ping` or `del`. Legitimate system maintenance scripts or scheduled tasks that employ similar commands can trigger this alert. Companion detections worth considering include monitoring for unusual file creation patterns or execution traces via Sysmon Event ID 1 related to suspicious executable behavior.
+  The detection is limited by potential evasion through command obfuscation or alternative tools that avoid detection of `cmd.exe`. Reliable detection of this behavior requires proper logging configurations (e.g., Sysmon and Security Event logs). Additionally, legitimate activities—such as routine system maintenance or administrative file management—may trigger similar commands. Strengthening detection coverage could involve monitoring for unusual command line arguments or scripted automation that frequently invokes file system changes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

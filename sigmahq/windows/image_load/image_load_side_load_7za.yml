@@ -7,9 +7,10 @@ references:
 author: X__Junior
 date: 2023-06-09
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -33,36 +34,28 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading of "7za.dll", indicating that a non-standard or potentially malicious version of this file is being loaded into memory. Attackers may leverage this behavior as a part of their persistence strategy or as a means of privilege escalation to execute arbitrary code. This aligns with the MITRE ATT&CK framework's tactic of Defense Evasion and Persistence, specifically technique T1574.001 (DLL Side-Loading).
+  This Sigma rule detects potential DLL sideloading of the "7za.dll" file, which is typically associated with compression and extraction utilities. Attackers may exploit this behavior to load malicious payloads by using a legitimate DLL from an unexpected location, thereby evading detection. The relevant MITRE ATT&CK tactic is "Persistence" (T1543) and the technique is "DLL Side-Loading" (T1574.001). The primary telemetry source is Windows image load events that capture attempts to load DLL files.
 
-  The primary telemetry sources include Windows image load events, specifically where the "ImageLoaded" field reports the loading of the specified DLL. If malicious, this might enable attackers to execute code that can bypass security controls. Importantly, this detection does not confirm that the activity is malicious by itself; legitimate applications might also load "7za.dll" from expected paths.
+  If this behavior is malicious, it may indicate that an adversary is attempting to maintain persistence on a system or escalate privileges by masking their payload as a legitimate application. This detection does not confirm that the activity is malicious on its own, as it may also be triggered by legitimate applications using the same DLL.
 
   ### Investigation Steps
 
-  - **Check the loading path:**
-    Look for "ImageLoaded" events where the path ends with '\7za.dll'. Validate this against expected paths in "C:\Program Files" or "C:\Program Files (x86)". Malicious sideloading attempts may attempt to load from unexpected directories, e.g., user profiles or temporary folders.
+  - **Review image load events:** Check Windows Event ID  sentido que 4103 for any occurrences of "7za.dll." Compare the file path against known good paths (e.g., 'C:\Program Files (x86)\' and 'C:\Program Files\') to identify if it was loaded from a suspicious location.
 
-  - **Review the process creation logs:**
-    Examine Security Event ID 4688 for process creation events corresponding to the loading of the "7za.dll". Look for anomalies, like execution from paths such as "C:\Users\<username>\AppData\". Legitimate use typically involves recognizable processes like "7-Zip" or installer executables.
+  - **Identify execution context:** Examine the parent process of the image loading the "7za.dll" (check Event ID 4688) to see if it is initiated by a legitimate application like the 7-Zip software. Uncommon or unexpected parent processes may indicate malicious behavior.
 
-  - **Validate the parent process:**
-    Identify the parent process of the DLL load events (e.g., Filtering for "NewProcessName"). Malicious indicators may involve suspicious executables or scripts initiating the loading, especially from non-standard directories.
+  - **Cross-reference file reputation:** Use endpoint detection tools to check the SHA256 hash of the "7za.dll" being loaded. Confirm whether it is a verified version from a trusted source or if it has been modified.
 
-  - **Evaluate DLL signature:**
-    Analyze the "Image" field for the loaded DLL’s signature. Verify if it's signed by a legitimate owner. Unsigned or poorly signed versions of "7za.dll" may indicate malicious tampering.
+  - **Expected legitimate behavior:** Note that legitimate uses of "7za.dll" may occur in directories such as 'C:\Program Files\7-Zip\'. If the DLL is loaded from 'C:\Users\<Username>\AppData\', it may indicate potential misuse.
 
-  - **Assess system criticality:**
-    Determine if the system running the detected behavior holds any critical data or services. Malicious activity in high-value assets raises severities significantly, emphasizing immediate action.
-
-  - **Monitor related process behavior:**
-    Correlate this alert with other telemetry, like Sysmon Event ID 10, which provides file create activity. High-frequency file creations or executions in proximity to the DLL load can indicate malicious activity such as file exfiltration or further command-and-control actions.
+  - **Inspect for file creation or modification:** Validate if any files were created or modified around the same time using File System Event IDs 4663 or similar file monitoring logs to ensure there are no related malicious artifacts.
 
   ### Prioritization
 
-  This alert is classified as low severity due to the low likelihood of widespread abuse specific to "7za.dll" unless correlated with other malicious behaviors. However, on systems hosting sensitive data or critical operations, the impact can escalate significantly; thus, vigilance is warranted.
+  This alert has a low severity in many enterprise contexts as it may indicate benign usage of "7za.dll" with legitimate applications. However, as DLL sideloading is a known technique for persistence and privilege escalation, further investigation is warranted, particularly if it aligns with indicators of malicious behavior.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by potential evasion techniques such as modifying DLL signatures or using legitimate third-party applications benignly utilizing "7za.dll". Reliable detection relies on comprehensive provisioning of Windows image load logs and ensuring proper Sysmon configurations are in place. Legitimate application updates may also trigger this alert. A companion detection, such as monitoring scripts for unusual execution paths or tracking API calls involved in executable loading, could enhance alerting fidelity.
+  Detection is limited as legitimate applications may also load "7za.dll" from non-standard paths, generating false positives. Proper configuration of log sources, specifically ensuring image load events and detailed process creation events are captured, is essential for reliable detection. Legitimate third-party applications that use "7za.dll" for compression may inadvertently trigger this alert. A related detection to consider is monitoring for unusual command line arguments associated with processes invoking "7za.dll", which may provide additional context for potential malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

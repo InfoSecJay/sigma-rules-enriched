@@ -9,7 +9,7 @@ author: Andreas Hunkeler (@Karneades)
 date: 2021-11-19
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: registry_set
   product: windows
@@ -24,28 +24,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to create a new file association for executable files through registry modifications, specifically targeting the `exefile` handler. Malicious actors may exploit this behavior to bypass security controls, disguising malicious payloads as legitimate executable files. This activity aligns with the MITRE ATT&CK tactic for Defense Evasion (TA0005), specifically the technique of "Masquerading" (T1036).
+  This rule detects when a new file association is created for executable files (exefile), which can indicate attempts to bypass security measures by mapping potentially malicious file types to executable actions. The likely attacker objective is to enable the execution of malicious payloads under the guise of benign file types, helping to facilitate persistence or malware execution. This behavior maps to the MITRE ATT&CK tactic of "Defense Evasion" (TA1211) and the technique "Modify Registry" (T1112).
 
-  The primary telemetry sources include Windows Registry logs related to the creation or modification of file associations, particularly under the `HKEY_CLASSES_ROOT` hive. If successful, this detection could indicate a significant security threat, potentially allowing malware to run evading conventional security measures. However, this detection alone does not confirm malicious intent, as legitimate software installations or user actions can also alter file associations.
+  The primary telemetry sources are Windows Registry logs, specifically tracking modifications to HKEY_CLASSES_ROOT (HKCR). If malicious, the security impact includes possible unauthorized execution of malware disguised as normal files. It's important to note that this detection does NOT confirm that malicious activity has occurred on its own; further investigation is required to understand the context and intent behind the registry modification.
 
   ### Investigation Steps
 
-  - **Identify Registry Changes:​** Query Windows Registry for changes under `HKEY_CLASSES_ROOT` to locate recent modifications related to `exefile`. Use `Event ID 4657` to find changes to the registry value indicating the new association.
+  - **Verify registry changes:** Identify the Event IDs from the Windows Security log (Event ID 4657) or the Sysmon log (Event ID 13) that detail registry modifications, specifically targeting `HKEY_CLASSES_ROOT` and looking for new values associated with `exefile`.
 
-  - **Review Process Creation Events:​** Look at Security Event ID 4688 for any associated process creation events around the same time as the registry change, checking for unusual command-line arguments that could indicate malicious use of the new file association.
+  - **Assess the nature of the new association:** Check the `Data` field of the registry modification to identify what file extension is now associated with the `exefile` class. For benign behavior, look for typical associations (like `.txt`, `.docx`) rather than suspicious extensions (like `.vbs`, `.scr`).
 
-  - **Analyze User Context:​** Determine the user context that triggered the registry change. If it matches a known administrative account or a service account under unusual activity patterns, this may indicate malicious intent.
+  - **Determine the user context:** Identify which user account initiated the registry change by checking the `SubjectUserName` field. Investigate whether this user has administrative privileges or is performing actions outside of expected behavior for their role.
 
-  - **Check for Existing File Associations:​** Verify the legitimacy of the current file associations for the application type by cross-referencing with expected values in the organization's policy documentation. Any unexpected modifications should be flagged for escalation.
+  - **Check for related suspicious activity:** Cross-reference with Windows Event ID 4688 (process creation) to identify if there were any executable processes initiated immediately following the registry change that may indicate malicious intent.
 
-  - **Validate via Audit Logs:​** Review Windows Audit logs for legitimate software installations (Event ID 11724). Compare timestamps with the time of the registry modification to establish whether legitimate software interacted with the file associations.
+  - **Review system and user behaviors:** Examine the System event logs (Event ID 5145) for file access events that may indicate the execution of new extensions associated with `exefile`, especially identifying any recent execution of scripts or executables that are atypical for the organization.
+
+  - **Identify evasion patterns:** Look for patterns of users attempting to create file associations shortly after recon or initial access activities. This can reveal a suspected campaign aimed at maintaining persistence.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to potential abuse by threat actors to bypass security mechanisms. The likelihood of this behavior being weaponized is significant, given the ease with which attackers can exploit executable file associations for malicious purposes.
+  This alert is categorized as high priority due to the impact of executable file associations on endpoint security and the likelihood of such tactics being weaponized by adversaries to circumvent security solutions. Given the direct ability of an attacker to execute code through the associated file types, this signifies a critical risk that requires immediate attention.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by missing registry auditing policies or a lack of detailed logging settings, which could allow legitimate software behaviors, such as application updates, to trigger the alert. Additionally, remote administrative tools and scripting capabilities may create similar registry changes without malicious intent. A related detection pertaining to abnormal process creation (e.g., by analyzing execution of uncommon executables via PowerShell) would enhance coverage against potential abuse linked to this alert.
+  Detection limitations include potential bypasses via alternative methods of modifying file types that do not log through traditional registry access. Reliable detection requires logging settings that ensure comprehensive auditing of registry access and modifications. Additionally, legitimate software installations might trigger this alert, particularly during updates. A companion detection to strengthen coverage includes monitoring for unusual spikes in process creation events (Event ID 4688) following registry changes related to executable handlers.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

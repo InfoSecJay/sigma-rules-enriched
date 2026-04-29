@@ -19,8 +19,8 @@ date: 2025-05-24
 tags:
 - attack.privilege-escalation
 - attack.initial-access
-- attack.defense-evasion
 - attack.persistence
+- attack.stealth
 - attack.t1078.002
 - attack.t1098
 logsource:
@@ -39,33 +39,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of a delegated Managed Service Account (dMSA) using the PowerShell cmdlet `New-ADServiceAccount`, particularly when executed in specific Organizational Units (OUs). The likely attacker objective is to exploit the BadSuccessor privilege escalation vulnerability in Windows Server 2025, potentially allowing unauthorized changes to Active Directory configurations and elevated access within the environment. This behavior maps to the MITRE ATT&CK techniques for Privilege Escalation (T1078.002) and Defense Evasion (T1098).
+  This Sigma rule detects the use of the `New-ADServiceAccount` cmdlet with parameters indicating the creation of a delegated Managed Service Account (dMSA) in specified Organizational Units (OUs) within Active Directory environments. The likely attacker objective is to exploit the privilege escalation vulnerability known as "BadSuccessor" in Windows Server 2025, enabling unauthorized elevation of privileges. This behavior aligns with the MITRE ATT&CK tactics of Privilege Escalation (TA-0052), specifically technique T1078.002, which involves using valid accounts for unauthorized access.
 
-  Primary telemetry sources include PowerShell script logs capturing the execution of commands and Active Directory event logs related to account creation. If malicious, this could lead to significant security impacts such as unauthorized access and account abuse. However, this detection alone does NOT confirm that the action was indeed malicious, as legitimate administrative tasks by authorized personnel may also trigger this alert.
+  Primary telemetry sources include Windows PowerShell logs (Event ID 4103) and security logs capturing administrative activities (Event ID 4672 for Special Privileges Assigned). If exploited, malicious creation of these accounts could allow an adversary to execute unauthorized actions under elevated privileges. This detection does NOT confirm that privilege escalation has occurred; it only identifies suspicious account creation activity.
 
   ### Investigation Steps
 
-  - **Check for authorized account creation:**
-    Review the Active Directory logs (Event ID 4720) to confirm whether the account was created by a legitimate user (e.g., a known administrator) who possesses the necessary permissions.
+  - **Check Powershell Invocation:** Review PowerShell logs for Event ID 4103 with `ScriptBlockText` containing `New-ADServiceAccount`. Look for unusual user accounts running the command, indicating potential misuse by unauthorized personnel.
 
-  - **Identify PowerShell command usage:**
-    Look for related PowerShell events (Event ID 4104) containing `New-ADServiceAccount -CreateDelegatedServiceAccount -path`. Verify if these commands were run from unexpected or unauthorized hosts.
+  - **Identify Privileged User Activity:** Examine Event ID 4672 logs to see if the user executing the command has been granted special permissions. Legitimate administrators typically create accounts in a controlled manner using established processes, not directly via ad-hoc commands.
 
-  - **Evaluate the OU context:**
-    Assess if the account was created in a sensitive or unusual OU. Legitimate dMSA accounts should typically reside within designated administrative OUs.
+  - **Analyze OU Policy Enforcement:** Validate the OU in which the dMSA account is created. Compare against organizational policies to ensure that legitimate service accounts align with documented practices. Unexpected ou usage could signal unauthorized behavior.
 
-  - **Detect related malicious activity:**
-    Cross-reference with failed login attempts in Security Event ID 4625. A spike in failed login attempts after the account's creation suggests potential misuse of the dMSA.
+  - **Correlate with Known Accounts:** Cross-reference the account used to create the dMSA with a list of designated administrative accounts. A non-administrative account triggering this alert is a strong indicator of malicious activity.
 
-  - **Review account properties:**
-    Analyze attributes of the created service account (e.g., `servicePrincipalName`, `msDS-ManagedServiceAccount`) to ensure they align with valid operational practices and do not reveal suspicious configurations or properties.
+  - **Look for Excessive Account Creation:** Query for multiple dMSA accounts being created in a short timeframe within the same OU. Legitimate actions would typically show a more distributed or singular account creation based on needs.
 
   ### Prioritization
 
-  The severity of this alert is medium. While the potential impact of unauthorized service account creation could lead to significant security breaches, such activities may occur in legitimate administrative processes. However, the exploitation of the BadSuccessor vulnerability is an emerging threat and can be weaponized by adversaries aiming for privilege escalation.
+  This alert has medium severity due to the potential for privilege escalation within critical server environments. The likelihood of abuse is significant, particularly in misconfigured Active Directory where privileges are inappropriately assigned. Similar exploitation techniques are frequently weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques such as executing PowerShell commands through encoded shells or alternative execution methods that do not use direct cmdlet syntax. Reliable detection requires enabling PowerShell transcription and logging, as well as comprehensive Active Directory auditing. Legitimate activities that may trigger this alert could include a legitimate administrator performing maintenance or updates. Related detections include monitoring for unauthorized changes in Active Directory (e.g., Event ID 5136) to strengthen coverage against privilege escalation attempts.
+  The primary detection limitation is that authorized administrators could mistakenly trigger this alert during legitimate activities. Required event logging configurations need to be verified to ensure PowerShell execution and sensitive Active Directory changes are captured reliably. Additionally, consider companion detections such as monitoring for failed authentication attempts or unauthorized PowerShell access logs (Event ID 4104) to enhance overall visibility into suspicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

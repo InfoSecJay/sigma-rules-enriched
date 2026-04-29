@@ -12,7 +12,8 @@ modified: 2022-09-28
 tags:
 - attack.privilege-escalation
 - attack.persistence
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: windows
@@ -32,28 +33,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects attempts to load unsigned Dynamic Link Libraries (DLLs) through Microsoft Defender processes, specifically `MpCmdRun.exe` and `NisSrv.exe`. These attempts may indicate an adversary’s intent to sideload unauthorized code, potentially allowing them to execute malware while masquerading as legitimate processes. The relevant MITRE ATT&CK tactics are **Privilege Escalation** and **Defense Evasion**, particularly technique **T1574.001** (Sideloading).
+  This Sigma rule detects instances where Microsoft Defender's Code Integrity (CI) engine blocks the loading of unsigned DLLs by critical processes (MpCmdRun and NisSrv). This behavior is typically exploited by attackers attempting to sideload malicious DLLs, potentially leading to unauthorized execution of code or privilege escalation within the environment. The relevant MITRE ATT&CK tactic is "Defense Evasion" (ID: T1574) with the sub-technique "Sideloading" (T1574.001).
 
-  Primary telemetry sources for this detection are Windows Security Mitigations logs, specifically focusing on Event IDs 11 (Indicating blocked DLL load attempts) and 12 (Indicating blocked non-Microsoft signed binaries). If successful, such activity poses a significant risk as it may lead to the execution of arbitrary code, privilege escalation, or other malicious activities. Importantly, this detection does NOT confirm that a successful compromise has occurred; it simply indicates a blocked loading attempt.
+  Primary telemetry sources include Windows Security Event logs, specifically Event ID 11 (for blocked DLLs by the Code Integrity engine) and Event ID 12 (related to blocked actions). If malicious, this indicates an attempt to compromise the integrity of a trusted security process, which could lead to broader system compromise or lateral movement within the network. However, the detection alone does not confirm actual malicious activity; it merely indicates a block event which could be a result of misconfiguration or legitimate software behavior.
 
   ### Investigation Steps
 
-  - **Verify blocked events:** Examine Security Mitigation logs for Event ID 11 and 12 specifically for the processes `MpCmdRun.exe` and `NisSrv.exe`. This confirms if a malicious actor attempted to sideload an unsigned DLL.
+  - **Review Event IDs for block actions**: Check Security Event ID 11 and 12 in Windows Event Viewer to confirm the DLL was logged as blocked by the Code Integrity engine. Note the ProcessPath and relevant command-line arguments for suspicious patterns.
 
-  - **Correlate with process activity:** Analyze Sysmon Event ID 1 (Process Creation) for `MpCmdRun.exe` and `NisSrv.exe` around the time of the blocked events. Look for unusual command line arguments or timestamps that don’t align with normal operational patterns.
+  - **Identify the DLL attempting to load**: Analyze the blocked DLL's name and source path. Look for indicators that suggest it is commonly associated with known malware or unauthorized software. Legitimate Windows DLLs should be signed; therefore, verify DLL signatures through properties.
 
-  - **Identify legitimate uses:** Confirm benign use of these processes by cross-referencing the `ProcessPath` with the organization's operational baseline. Legitimate usage typically includes defined maintenance tasks for Microsoft Defender and should not feature unusual parameters.
+  - **Cross-reference processes involved**: Collect details on the MpCmdRun.exe and NisSrv.exe processes, including their process IDs and command-line arguments (Sysmon Event ID 1). Compare against known safe usage for these processes—legitimate executions often include path details highlighting common AV command usage.
 
-  - **Check for known malware signatures:** Cross-reference blocked DLL attempts with threat intelligence databases to identify known malicious signatures associated with DLL sideloading tactics. This confirms high-confidence indicators of compromise.
+  - **Investigate recent configuration or software changes**: Review logs for any recent changes in Group Policies or security software updates that might have inadvertently triggered legitimate processes to load unsigned DLLs (e.g., Event ID 4739 for policy changes).
 
-  - **Review potential evasion techniques:** Investigate whether legitimate software or scripts might trigger this alert. Common examples include sysadmin tools or automated patching scripts that could inadvertently try to invoke unsigned DLLs.
+  - **Collect additional context from host activity**: Examine the timeline of events leading up to the alert to determine if there was any unusual file activity or network connections that may signify pre-attack reconnaissance or lateral movement attempts.
+
+  - **Assess for evasion tactics**: Evaluate if there are signs of persistence mechanisms such as scheduled tasks or modifications to startup items associated with the blocked action, indicating an attempt to evade detection.
 
   ### Prioritization
 
-  This alert is assessed as high severity given the potential impact on system integrity and the likelihood of malicious abuse through DLL sideloading. The behavior is indicative of attacks aimed at evading detection by using trusted processes, a tactic seen in numerous exploit cases.
+  This alert is of high severity due to the criticality of the processes involved and the potential for malicious actors to exploit such mechanisms. The likelihood of malicious abuse is significant, especially as sideloading techniques are commonly weaponized by known adversaries seeking to bypass security measures.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited as attackers may use signed DLLs or other obfuscation techniques to bypass the alert. Reliable detection requires appropriate logging configurations for Microsoft Defender and could potentially miss legitimate signed software attempts. Related detection rules should focus on unauthorized code execution via other mechanisms, enhancing overall threat visibility through coverage against lateral movement.
+  Detection may be limited if traffic logs are not reviewed alongside event logs, as attackers may use various evasion techniques, such as modifying legitimate processes. Required configurations for full visibility include enabling detailed logging for Code Integrity events. Legitimate software installations or updates may trigger this alert, so context is critical. A companion detection to consider is monitoring for unusual file modifications or process injections on the same host, which can confirm the presence of potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

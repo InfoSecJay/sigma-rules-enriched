@@ -8,8 +8,8 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-04-18
 tags:
-- attack.defense-evasion
 - attack.persistence
+- attack.stealth
 logsource:
   product: windows
   category: create_stream_hash
@@ -36,26 +36,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects potentially suspicious installations of software via WinGet, where the installation source is flagged as untrusted. The attacker likely aims to gain persistence or evade detection by using trusted package managers to install malicious software, a tactic that can blend in with legitimate software management activities. This behavior is associated with MITRE ATT&CK technique T1073 (Application Layer Protocol) and T1203 (Exploitation for Client Execution). The primary telemetry source requires Windows event logs related to file operations, specifically monitoring for logs indicating changes to `Zone.Identifier` files in the Windows filesystem. If confirmed malicious, this activity poses a significant risk, leading to unauthorized software installations and potential system compromise. This detection does NOT confirm whether the installed package is definitively malicious; further investigation is necessary to substantiate intent.
+  This rule detects the installation of packages using Windows Package Manager (winget) from potentially malicious sources identified through the presence of specific URLs and zone transfer indicators in the Zone Identifier file. The likely attacker objective is to establish persistence or execute malicious payloads on a target system using a commonly trusted tool, thereby bypassing traditional security measures. Relevant MITRE ATT&CK tactic includes "Persistence" (TA0002) and the specific technique is "Windows Package Manager" (T1610).
+
+  Telemetry sources include Windows Event Logs (particularly those tied to file creation and modification) and Zone.Identifier files, specifically looking for `ZoneId=3` entries that indicate downloaded files from the internet. If malicious, this behavior could lead to unauthorized software installation or execution with potentially harmful consequences. This detection alone does NOT confirm whether the installed package is malicious without further context and investigation.
 
   ### Investigation Steps
 
-  - **Check event logs for unauthorized installations:** Review Windows Security Event ID 4688 logs for process creation related to WinGet and the target path `\AppData\Local\Temp\WinGet\`, noting any additional command line arguments that may look suspicious or unusual.
+  - **Review event logs for suspicious installations:** Check Windows Security Event ID 4688 for process creation events associated with winget and verify user accounts invoking these commands. Focus on command line arguments for any unusual behavior.
 
-  - **Identify source of package installation:** Examine `Zone.Identifier` files for the presence of flagged sources (e.g., those containing `://1`, `://2`, etc.). Legitimate sources should not typically route through these zones; confirm any benign updates from well-known repositories.
+  - **Examine Zone.Identifier files:** Look for files located in `C:\Users\<username>\AppData\Local\Temp\WinGet\` with a `Zone.Identifier` indicating `ZoneId=3`. This signifies files downloaded from an untrusted source and warrants close scrutiny.
 
-  - **Review process parents and ancestry:** Analyze associated log entries for process parentage using Sysmon Event ID 1. Legitimate WinGet installations typically originate from trusted system processes. Determine if a suspicious parent process indicates a malicious workflow.
+  - **Identify package sources:** Analyze the URLs included in the package installation commands or relevant telemetry fields. Legitimate sources typically do not include suspicious domains or IP addresses (e.g., anything with `://1`, `://2`, etc.).
 
-  - **Look for recent changes in persistency artifacts:** Investigate the registry changes or scheduled tasks that may correlate with software installation referenced by WinGet, focusing on alterations to persistence locations such as `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`.
+  - **Correlate with system roles:** Determine if the affected system plays a critical role within your environment (e.g., domain controllers, file servers) and if winget usage is expected for that role, or if this behavior is anomalous.
 
-  - **Correlate with historical data:** Cross-reference affected endpoints with threat intelligence or previous incidences of compromise. Systems that have logged installations from flagged sources should be treated with heightened scrutiny.
+  - **Document user context:** Identify the user account involved in the installation. Authentic user behavior often includes the installation of packages from Microsoft or trusted repositories, while unknown users or service accounts performing these actions could indicate compromise.
 
   ### Prioritization
 
-  This alert is high severity as it targets potential malicious activity involving software installations via a commonly used package manager, which is often weaponized by adversaries to persist malware. This behavior can lead to significant security breaches on sensitive systems, especially if these installations are unauthorized.
+  This alert carries high severity due to the potential impact of installing unverified software, especially on critical systems. The likelihood of malicious abuse is significant given the common use of winget in enterprise environments to facilitate software management. This behavior can be weaponized for persistence and lateral movement.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited to the explicit logging configurations for `Zone.Identifier` modifications, which might be disabled or inadequately collected in some environments. Legitimate administrative actions, such as software updates from trusted vendors, may inadvertently trigger the alert. Additionally, companion detections for monitoring unusual file access patterns or exploit attempts through the application layer should be enabled to enhance overall visibility against such evasion techniques.
+  Detection may be limited by the lack of proper logging for all winget actions or potential evasion techniques such as adversaries disguising harmful packages with trusted names. Ensure that Zone.Identifier files are not excluded in log configurations for reliable detection. Legitimate activities may trigger this alert when benign packages from unknown but non-malicious external sources are installed. To strengthen coverage, consider companion detections for PowerShell scripts invoking winget or use of other package managers.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

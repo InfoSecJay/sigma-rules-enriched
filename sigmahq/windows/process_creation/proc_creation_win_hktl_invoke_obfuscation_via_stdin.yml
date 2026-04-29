@@ -6,9 +6,9 @@ references:
 - https://github.com/SigmaHQ/sigma/issues/1009     # (Task28)
 author: Nikita Nazarov, oscd.community
 date: 2020-10-12
-modified: 2024-04-16
+modified: 2026-03-16
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1027
 - attack.execution
 - attack.t1059.001
@@ -17,7 +17,7 @@ logsource:
   product: windows
 detection:
   selection:
-    CommandLine|re: '(?i)(set).*&&\s?set.*(environment|invoke|\$\{?input).*&&.*"'
+    CommandLine|re: '(?i)(?:set).*&&\s?set.*(?:environment|invoke|\$\{?input).*&&.*"'
   condition: selection
 falsepositives:
 - Unknown
@@ -25,30 +25,30 @@ level: high
 note: |
   ### Technical Context
 
-  The Sigma rule detects obfuscated PowerShell commands being executed through standard input (stdin), which may indicate attempts to evade detection measures by using deceptive scripting techniques. The likely objective of an attacker using this method is to execute malicious commands covertly, potentially leading to further compromise, data exfiltration, or lateral movement within the network. This behavior aligns with the MITRE ATT&CK techniques T1027 (Obfuscated Files or Information) and T1059.001 (PowerShell).
+  This Sigma rule detects the execution of obfuscated PowerShell commands through standard input (stdin), specifically looking for command structures that build environment variables or invoke processes using chained commands. The likely attacker objective is to execute malicious scripts stealthily while avoiding static detection methods that look for known patterns. This behavior fits into the MITRE ATT&CK framework under the tactics of Execution (T1203) and Obfuscated Files or Information (T1027).
 
-  Primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688, and Sysmon Event ID 1, which contain detailed command line information for running processes. If malicious, such behavior may lead to unauthorized system access or data breach events. However, this detection does NOT confirm that the execution is malicious on its own; further context is needed.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior could lead to a successful exploit, malware installation, or lateral movement within the network. However, this detection does NOT prove a compromise on its own; further investigation is required to confirm malicious intent.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Security Event ID 4688 and Sysmon Event ID 1, focusing on the CommandLine field for any entries matching the regex pattern and containing terms like 'invoke' or 'set'. Compare against known benign scripts.
+  - **Review recent process creation events**: Check Security Event ID 4688 for any PowerShell (powershell.exe) command lines that match the regex in the detection. Pay attention to any unusual command arguments, especially those that involve `set` and chaining commands like `&&`.
 
-  - **Analyze parent process relationships:** Determine if the executing PowerShell process has a suspicious parent process (e.g., a random executable or a known exploit tool). Use Sysmon Event ID 1 to find ParentProcessId fields.
+  - **Correlate with Sysmon logs**: Look for Sysmon Event ID 1 entries corresponding to the detected PowerShell processes. Analyze the CommandLine field for obfuscation patterns or unusual parent processes.
 
-  - **Correlate user activity:** Look for user account behavior in the context of the event (Event ID 4624). Legitimate administrative users may run obfuscated scripts for troubleshooting, but unusual usage patterns (e.g., at odd hours) could signify malicious intent.
+  - **Identify legitimate usage scenarios**: Assess whether the PowerShell execution is part of scheduled tasks or automation scripts known to the organization, particularly from trusted systems or users.
 
-  - **Check environment variables:** If applicable, assess any environment variables set prior to the command execution via command logging tools. Unexpected environmental changes might indicate malicious activity.
+  - **Check for high-confidence malicious indicators**: Look for subsequent process creations spawned by the detected PowerShell instance, especially if those processes are benign executables or exhibit malicious characteristics (e.g., CMD.exe, .NET binaries invoking other processes).
 
-  - **Validate script origins:** Use file monitoring logs to verify if the PowerShell scripts were downloaded from suspicious URLs or external sources. Look for URL shortening services indicating potential obfuscation or evasion attempts.
+  - **Examine for potential lateral movement**: Investigate any network connections or communication patterns initiated by the detected PowerShell, referencing logs (such as Windows Firewall logs) for unusual outgoing traffic to untrusted external IPs or domains.
 
-  - **Identify high-confidence indicators:** Capture instances where the CommandLine specifically includes a substantial amount of tampering or obfuscation (e.g., encoded commands) as this suggests malicious intent, particularly if sourced from non-standard locations.
+  - **Validate environment changes and artifacts**: Review logs for any sudden changes in environment variables or temporary files created/session artifacts post-execution. Check if any logging (Sysmon Event ID 10) points to script block logging or deobfuscated outputs.
 
   ### Prioritization
 
-  This alert has high severity due to the potential impact on critical enterprise systems, particularly if PowerShell is abused for lateral movement or data exfiltration. The likelihood of malicious abuse is significant given historical trends showing weaponization of obfuscation techniques in recent attacks.
+  This alert should be treated with high severity due to the potential impact on critical systems, as obfuscated PowerShell commands can be indicative of advanced persistent threat (APT) activities. The likelihood of malicious use is high given the stealthy nature of obfuscation techniques in exploitation and malware delivery.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by tools that do not log command lines adequately or where users legitimately use obfuscated scripts for administrative purposes. A dependence on configuration settings in logging policies is crucial for reliable detection. Legitimate activities like troubleshooting or automation using obfuscated scripts could trigger this alert. Companion detections such as monitoring for unusual outbound network connections initiated by PowerShell may strengthen overall threat coverage.
+  The detection may be limited by various evasion techniques such as directly executing commands with low verbosity or using encoded command invocations. Reliable detection requires the use of both Security Event ID and Sysmon logging configurations; without Sysmon, visibility into command behavior is significantly reduced. Legitimate administrative activities, such as automation scripting, may trigger the alert. A companion detection to consider is the monitoring of Windows Event IDs for suspicious process creations following the PowerShell execution pattern.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

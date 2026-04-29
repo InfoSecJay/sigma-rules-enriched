@@ -10,8 +10,8 @@ author: Nasreddine Bencherchali (Nextron Systems), X__Junior (Nextron Systems)
 date: 2024-01-11
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059
-- attack.defense-evasion
 - attack.t1202
 logsource:
   category: process_creation
@@ -58,26 +58,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of a renamed "PingCastle" binary. PingCastle is a tool often used for security assessments of Active Directory environments, and while it can serve legitimate purposes, its misuse can indicate a reconnaissance phase by an attacker seeking to identify vulnerabilities in the network. It falls under the MITRE ATT&CK tactic of **Execution** (TA0002) and the technique **Command-Line Interface** (T1059). The primary telemetry source is Windows Process Creation logs, specifically focusing on Event ID 4688. If executed maliciously, PingCastle can lead to unauthorized access to sensitive information and potentially facilitate further attacks, such as lateral movement or privilege escalation. Importantly, this detection does NOT confirm malicious activity without correlating additional context, such as the user account executing the command or the presence of other suspicious behavior.
+  This detection rule identifies the execution of renamed "PingCastle" binaries by examining specific PE metadata fields and command-line arguments used during execution. The likely attacker objective is to perform reconnaissance or exploit vulnerabilities in Active Directory environments, gathering information for further exploitation. Relevant MITRE ATT&CK tactics include Execution (T1202) and Defense Evasion (T1059), as attackers may use renamed legitimate tools to bypass security measures.
+
+  The primary telemetry sources for this detection include Windows process creation logs, specifically relying on Security Event ID 4688 or Sysmon Event ID 1. If executed maliciously, this behavior may lead to unauthorized access or compromise of sensitive domain information. However, this detection does NOT confirm that the execution was malevolent on its own; context and further investigation are required to understand intent.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Windows Security Event ID 4688 related to the execution of `PingCastleReporting.exe`, `PingCastleCloud.exe`, or `PingCastle.exe`. The presence of these binaries is inherently suspicious and warrants deeper inspection.
+  - **Review process creation events:** Examine Security Event ID 4688 or Sysmon Event ID 1 for the detected binaries ("PingCastleReporting.exe", "PingCastleCloud.exe", "PingCastle.exe"). Check the `NewProcessName` field for exact file paths.
 
-  - **Examine command line arguments:** Analyze the command line associated with the process for specific arguments that indicate malicious intent, such as `--scanner nullsession`, `--scanner smb`, or `--scanner zerologon`. Legitimate use cases typically lack excessive enumeration flags or focus on security assessments without invasive parameters.
+  - **Analyze command-line arguments:** Focus on command-line parameters for suspicious flags such as “--scanner” followed by potential credentials or system queries. Confirm the presence of strings like "nullsession" or "zerologon", indicating reconnaissance intentions.
 
-  - **Investigate user account activity:** Identify the user account that launched the PingCastle executable. Investigate its recent activity for signs of privilege elevation or unusual access patterns, correlating with user behavior within the environment.
+  - **Check for known good behavior:** Compare against typical usage logs for PingCastle to identify regular activity. Look for command-line arguments related to the tool's normal scanning functions that don't involve suspicious queries.
 
-  - **Check for related process activity:** Look for sibling processes created immediately before or after the execution of the PingCastle binary (Event ID 4688). Malicious activity often involves additional processes that may indicate exploitation or lateral movement.
+  - **Examine parent-child relationships:** Identify the parent processes that initiated the execution using Event ID 4688. If the parent process is a legitimate administrative tool, it may suggest benign activity.
 
-  - **Analyze for anomalies in network activity:** Validate if any associated network calls were made that align with common PingCastle operations. Use network logs to check for excessive or unauthorized requests to SMB shares, which correlate with the command line options used.
+  - **Validate execution context:** Ensure that the process isn't running from unusual directories (e.g., temp folders) or by non-privileged users that would typically misuse such tools. Investigate user accounts associated with the execution.
+
+  - **Look for anomalies in telemetry:** Review network logs for unusual outbound traffic patterns following the execution. Specifically, identify any external command-and-control communication attempts, which may indicate post-exploitation activities.
 
   ### Prioritization
 
-  This alert should be considered high priority due to the potential security impact on critical systems when **PingCastle** is utilized for malicious reconnaissance. The likelihood of this tool being weaponized is significant, especially in environments where attackers are targeting Active Directory infrastructures.
+  This alert should be considered high severity due to the potential impact on sensitive Active Directory environments if exploited. The likelihood of malicious abuse is significant, as attackers often weaponize benign-looking tools like PingCastle for reconnaissance or privilege escalation. The nature of the detected behavior suggests it is commonly weaponized.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques, such as renaming the binary or running it from an unmonitored user account. Reliable detection requires complete logging configurations in Windows to capture all relevant process creation events. Legitimate administrative actions, such as assessments on compliance or security posture utilizing PingCastle, may trigger this alert. A related detection to strengthen coverage could be identifying other tools or scripts traditionally used for AD enumeration that may simultaneously execute.
+  Detection may have limitations in scenarios where legitimate users or administrative accounts run PingCastle tools for valid assessments. Ensure proper logging configurations for Windows process creation to minimize blind spots in surveillance. Other processes that rename or employ similar command-line strings can trigger false positives; hence, it is critical to correlate alerts with contextual logs. Companion detection rules focusing on abnormal network activities after deployment, such as unusual Kerberos ticket requests, can enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

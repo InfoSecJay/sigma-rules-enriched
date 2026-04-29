@@ -8,7 +8,7 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems), Anish Bogati
 date: 2024-01-05
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036
 logsource:
   category: process_creation
@@ -40,28 +40,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of `forfiles.exe` from a non-standard location, spawning a child process named `cmd.exe` intended to execute commands, typically with a `/c echo` parameter. This behavior suggests a potential attempt at command execution or evasion, as attackers may leverage unusual command paths to avoid detection. The relevant MITRE ATT&CK technique is T1036: Masquerading, specifically targeting defenses that filter against known executables.
+  This Sigma rule detects the execution of "forfiles.exe" from a non-default location, which may be leveraged by an attacker to spawn a malicious instance of "cmd.exe" from the current working directory. The likely objective of this behavior is to perform stealthy command execution while evading detection mechanisms. This activity aligns with the MITRE ATT&CK tactic of "Defense Evasion" (T1036), specifically focusing on the technique of "Masquerading".
 
-  The primary telemetry sources include process creation logs from Windows, specifically Security Event ID 4688 and Sysmon Event ID 1. If this behavior is malicious, it could indicate an adversary attempting to execute arbitrary commands or scripts without triggering standard security mechanisms. Importantly, this detection on its own does not confirm malicious intent; legitimate uses of `forfiles` with expected command parameters could also trigger the rule.
+  The primary telemetry sources for this detection are Windows process creation logs, particularly Security Event ID 4688 and Sysmon Event ID 1, which capture details about processes being created. If malicious, this could lead to further exploitation or data exfiltration. It's crucial to note that this detection alone does not confirm malicious intent; legitimate uses of "forfiles.exe" may occur in the environment under specific administrative tasks.
 
   ### Investigation Steps
 
-  - **Review process creation events**: Check Security Event ID 4688 for the suspicious instance of `forfiles.exe` alongside its parent process. Look for unusual parent command lines absent of CLI options to identify potential evasion techniques.
+  - **Check creation of cmd.exe:** Review Security Event ID 4688 for the creation of "cmd.exe" from any non-standard path. Look for event log entries where the Image field does not contain "C:\Windows\System32\cmd.exe" or "C:\Windows\SysWOW64\cmd.exe".
 
-  - **Verify command-line arguments**: Examine the command-line for `cmd.exe`, specifically looking for instances that start with `/c echo`. If the echoed output appears consistent with legitimate administrative activity (e.g., standard output messages), it may indicate benign usage.
+  - **Verify parent process:** Identify and analyze the parent process for the cmd.exe instance by examining Event ID 4688. The ParentCommandLine field should end with ".exe" and should not contain configuration options, indicating a potential exploitation attempt.
 
-  - **Inspect file paths**: Validate the file paths against known default locations for `forfiles.exe`. Any execution from non-standard directories, such as user directories or temporary folders (such as `C:\Users\[User]\Temp`), should be flagged as a high-confidence indicator of malicious activity.
+  - **Correlate with forfiles.exe execution:** Confirm whether "forfiles.exe" was executed by collecting logs from Sysmon Event ID 1. The ParentImage field must contain "forfiles.exe" and should be initiated from a path outside the standard system directories.
 
-  - **Cross-reference with known benign activities**: Identify typical legitimate use cases of `forfiles.exe` in your environment. If a user account matches those patterns while executing `forfiles.exe`, it may reduce the threat level.
+  - **Review legitimate use cases:** Investigate historical usage patterns of "forfiles.exe" in the environment to understand normal operational behavior. Typical command lines will contain legitimate arguments for file manipulation tasks, differing significantly from the suspicious "/c echo" pattern observed in alerts.
 
-  - **Examine associated GUI activity**: Look for corresponding user interface interactions or file manipulations concurrent with the execution of `forfiles.exe`. Authentic processes may include specific file creation or moves, altering typical workflow patterns.
+  - **Look for signs of lateral movement:** Search for additional execution events following the detection. Use Sysmon Event ID 1 to correlate "cmd.exe" spawn or script execution from the same working directory, which may represent a follow-up action consistent with compromise.
+
+  - **Assess system criticality:** If the detected behavior is occurring on critical systems (e.g., domain controllers), prioritize the investigation higher due to the potential for serious impact on overall enterprise security.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential for malicious command execution. Systems affected may include critical endpoints, increasing the likelihood of significant adverse impact. Furthermore, the use of `forfiles.exe` in an atypical manner reflects behavior that could be leveraged for evasion in various attack vectors.
+  The alert has a high severity due to its potential impact on critical infrastructure if exploited. The likelihood of misuse is elevated as attackers often utilize legitimate tools like "forfiles.exe" to facilitate stealthy command execution. The behavior is correlated with known techniques that are increasingly weaponized in targeted attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate use cases that execute `forfiles.exe` from unexpected locations. Adequate logging configurations must be in place, such as enabling detailed process creation logging via Sysmon, to ensure comprehensive visibility. Legitimate administrative scripts may occasionally generate similar alert patterns. A related detection to strengthen coverage would involve monitoring for unusual command execution patterns associated with `powershell.exe`, which is commonly used alongside evasion tactics.
+  This detection may be evaded if an attacker executes "forfiles.exe" from a whitelisted or commonly used path, which could be interpreted as benign activity. It requires proper configuration of process creation logging to capture necessary information; without monitoring, events may be missed. Additionally, scheduled tasks, administrative scripts, or user-initiated processes could generate similar alert conditions, complicating triage. Companion detections focusing on unusual process hierarchies or rapid cmd.exe execution may strengthen overall coverage and context understanding.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -13,8 +13,8 @@ author: Milad Cheraghi
 date: 2025-05-27
 modified: 2025-12-05
 tags:
-- attack.defense-evasion
-- attack.t1070.002
+- attack.defense-impairment
+- attack.t1685.006
 logsource:
   product: linux
   service: auditd
@@ -42,30 +42,31 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of the `syslog` syscall with action codes indicating an attempt to clear or disable kernel ring buffer logs on Linux systems. The likely attacker objective is to obfuscate their activities following exploitation or privilege escalation, thereby avoiding detection by security monitoring tools. The relevant MITRE ATT&CK technique for this behavior is Defense Evasion (T1070.002).
-
-  Primary telemetry sources include audit logs from the `auditd` service and specifically the actions recorded when the `syslog` syscall is executed. If successful, this detection could indicate a significant security impact, as it could allow attackers to erase traces of their actions on the system. Importantly, it does NOT confirm malicious intent on its own, as legitimate system administrators might also invoke this syscall for maintenance or debugging purposes.
+  This rule detects the use of the `syslog` syscall with action codes that clear or disable the kernel ring buffer logs (dmesg). The likely attacker objective is to erase digital footprints during or after exploitation or privilege escalation to hinder forensic investigations. This behavior aligns with the MITRE ATT&CK tactic "Defense Evasion" (ID: T1685.006). The primary telemetry source for this detection is the Linux audit logs, specifically through the `auditd` service capturing syscall events. If malicious, the security impact includes the potential for undetected exploitation, as clearing dmesg logs can obscure signs of compromise. It's essential to note that this detection does NOT confirm unauthorized access or malicious actions on its own; it indicates an attempt to manipulate log visibility.
 
   ### Investigation Steps
 
-  - **Check relevant audit logs:** Review Audit logs for syscall events (Audit Event ID 132) related to `syslog`, specifically action codes 4, 5, and 6. Look for timestamps and process identifiers to assess the context of the command execution.
+  - **Review syslog syscall usage:**
+    Check Linux audit logs for Event IDs related to the `syslog` syscall, specifically looking for action codes 4 (SYSLOG_ACTION_READ_CLEAR), 5 (SYSLOG_ACTION_CLEAR), and 6 (SYSLOG_ACTION_CONSOLE_OFF). The presence of code 5 indicates an explicit attempt to clear logs.
 
-  - **Identify the invoking process:** Correlate the `syslog` syscall events back to the parent process using Audit logs. Evaluate the command line arguments of the processes to ascertain if the action was performed by a legitimate administrator or an unauthorized user.
+  - **Correlate with user activity:**
+    Identify the user or process associated with the syscall events using fields like `exe`, `uid`, and `pid` from the audit logs. Determine whether the user has administrative access or if this action was executed by a known process.
 
-  - **Evaluate user permissions:** Verify the user account under which the `syslog` syscall was executed. Look for accounts with elevated privileges (UID 0 or members of the sudoers group) in the logs to ascertain if this aligns with known legitimate activity.
+  - **Assess log clearing context:**
+    Analyze the timing and frequency of log clearing actions in conjunction with other events around the same timeframe. Look for abnormal patterns that could suggest malicious activity, such as log clearing occurring soon after system compromises or privilege escalations.
 
-  - **Document normal behaviors:** Acknowledge that legitimate system maintenance may include log clearing activities. Review the history of regular scripts or cron jobs that employ log clearing commands, which can help distinguish between benign and malicious activity.
+  - **Identify benign vs malicious behavior:**
+    Compare discovered `syslog` actions with expected activities from system administrators or scripts for legitimate maintenance of dmesg logs. Recognizing standard operational procedures is critical for differentiating between benign and suspicious actions.
 
-  - **Look for correlating anomalies:** Check if there were any other suspicious activities recorded around the time of the `syslog` calls, such as high usage of other logging utilities or unexpected privilege escalations (associated Event IDs 4688 for Windows processes or Sudo command executions).
-
-  - **Identify suspicious patterns:** Note any rapid successive calls to `syslog` clear actions within a very short timeframe, which may indicate automated malicious behavior, contrasting with typical manual processes that usually exhibit longer execution intervals.
+  - **Look for companion malicious indicators:**
+    Check for other alerting behaviors nearby, such as execution of known malicious binaries or unauthorized access attempts within the system processes. Look for compromised binaries that could indicate lateral movement or persistence mechanisms.
 
   ### Prioritization
 
-  This alert has medium severity. Systems affected by this rule are typically production servers or critical infrastructure that, if compromised, can lead to extensive security incidents. The likelihood of malicious abuse is moderate because this behavior is indicative of attempts to conceal actions post-exploitation, which aligns with common attack methodologies.
+  This alert should be treated with medium severity given the potential for significant impact if an attacker is leveraging this technique to cover their tracks. The likelihood of malicious abuse is concerning due to the common occurrence of log-clearing methods in attacks. This behavior can indicate a well-organized adversary trying to evade detection, warranting prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations may arise from legitimate administrative activities where clearing logs is a normal procedure for maintenance. It assumes proper configuration of `auditd`, as incomplete or misconfigured audit rules may miss these events. Additionally, certain debugging scripts may inadvertently trigger this alert. Related detections, such as monitoring for suspicious user behavior or a spike in privilege escalation attempts, can strengthen coverage of potentially malicious activity.
+  Detection is limited by the proper configuration of auditd for capturing syscall events; missing configurations will result in undetected log clearing activities. Legitimate activities such as maintenance by system administrators or debugging scripts can trigger this alert. A related detection to consider is monitoring for unusual process creations indicating persistent or abnormal behaviors to strengthen the overall detection framework.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -8,7 +8,7 @@ references:
 - https://twitter.com/Yasser_Elsnbary/status/1553804135354564608
 author: Nasreddine Bencherchali (Nextron Systems), X__Junior (Nextron Systems)
 date: 2022-08-03
-modified: 2023-11-06
+modified: 2026-03-16
 tags:
 - attack.discovery
 logsource:
@@ -37,13 +37,13 @@ detection:
         # http://1359248394
   - CommandLine|re: 'https?://0[0-9]{3,11}'
         # http://0121.04.0174.012
-  - CommandLine|re: 'https?://(0[0-9]{1,11}\.){3}0[0-9]{1,11}'
+  - CommandLine|re: 'https?://(?:0[0-9]{1,11}\.){3}0[0-9]{1,11}'
         # http://012101076012
   - CommandLine|re: 'https?://0[0-9]{1,11}'
         # For octal format
   - CommandLine|re: ' [0-7]{7,13}'
   filter_main_valid_ip:
-    CommandLine|re: 'https?://((25[0-5]|(2[0-4]|1\d|[1-9])?\d)(\.|\b)){4}'
+    CommandLine|re: 'https?://(?:(?:25[0-5]|(?:2[0-4]|1\d|[1-9])?\d)(?:\.|\b)){4}'
   condition: selection_img and 1 of selection_ip_* and not 1 of filter_main_*
 falsepositives:
 - Unknown
@@ -51,30 +51,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of obfuscated versions of IP addresses in command-line arguments, which can indicate an attempt by an adversary to mask communications or enumerate network resources stealthily. The likely attacker objective is to bypass network security mechanisms that rely on analyzing legible IP addresses to prevent unauthorized access or data exfiltration. This behavior aligns with the MITRE ATT&CK tactic of "Discovery" (TA0007), specifically techniques such as "Network Service Scanning" (T1046) and "Application Layer Protocol" (T1071).
+  This Sigma rule detects the use of command-line interfaces to call system utilities (such as `ping.exe` and `arp.exe`) with obfuscated IP addresses. Attackers often use encoded or obfuscated formats (like hex or octal) to hide malicious activity and avoid detection while conducting reconnaissance or network scanning. This behavior aligns with the MITRE ATT&CK tactic of **Discovery** (TA Discovery) and technique **Network Service Scanning** (T1046).
 
-  The primary telemetry sources for this detection include Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which record executed processes and their associated command-line parameters. If malicious, such activities could enable lateral movement, data exfiltration, or establishment of command and control (C2) channels. Importantly, this detection alone does NOT confirm malicious intent; it merely signals that obfuscated IP addresses were utilized, which must be reviewed in conjunction with other context indicators.
+  The primary telemetry source involves process creation logs on Windows systems, specifically those reported through Security Event ID 4688. If the detected behavior is malicious, it could indicate preparation for data exfiltration, lateral movement, or scanning for vulnerable services. However, this detection does NOT confirm the intent of the command (malicious or benign) without additional context.
 
   ### Investigation Steps
 
-  - **Review Process Creation Events**: Check Security Event ID 4688 and Sysmon Event ID 1 for legitimate processes (`ping.exe`, `arp.exe`) using PowerShell or the command line. Confirm usage of command-line arguments containing encoded IP formats as described in the detection criteria.
+  - **Review the command line arguments of the process:** Identify if the arguments contain obfuscated IP patterns, such as `0x` or octal numbers, within the process creation logs (Security Event ID 4688, command line field). Look for specific keywords like `ping.exe` or `arp.exe` which may indicate scanning behavior.
 
-  - **Identify High-Confidence Malicious Indicators**: Focus on command-line invocations that feature obfuscated IP addresses (e.g., hexadecimal `0x` formats, octal patterns) and compare with known threat actor methodologies. Ensure the command line does not include valid IP address formats, as indicated by the exclusion filter.
+  - **Cross-check the originating IP address:** Validate the legitimacy of the source IP of the request related to the detected obfuscated IP usage against known IP reputation databases. Malicious IP addresses may have a history of exploitation or compromise.
 
-  - **Examine Network Activity Logs**: Review your firewall or proxy logs for connections to the detected obfuscated addresses. Look for unusual outbound connections that align with the detected obfuscated IP to assess any associated malicious activity.
+  - **Assess the process context:** Determine if the invoking process had a legitimate administrative context. For example, if `ping.exe` was executed by an unprivileged user or on a workstation, this behaviour might be suspicious, whereas it could be expected if initiated by a network administrator.
 
-  - **Understand Legitimate Use Cases**: Recognize that certain applications may legitimately use encoded IP formats for internal checks or communication, particularly in development or testing environments—contextualize findings accordingly.
+  - **Identify established baseline activity:** Establish what normal command line usage looks like in your environment for `ping.exe` and `arp.exe`. Note the typical IP address formats seen and common use cases for these commands to distinguish benign from potentially malicious usage.
 
-  - **Assess File and Network Activity**: If applicable, check for file creation associated with the process using `ping.exe` or `arp.exe` that may indicate malicious payload delivery. Validate against your typical network baseline to identify deviations.
+  - **Investigate surrounding events for lateral movement:** Review recent authentication and network traffic events for unusual user activity or account usage associated with the identified obfuscated command line execution, particularly focusing on failed login events or non-standard access patterns.
 
-  - **Document Affected Hosts and Roles**: Document the impacted systems considering their roles within the environment (e.g., endpoint vs. server). Prioritize investigation of critical assets that might be targeted for lateral movement if malicious activity is confirmed.
+  - **Look for extensive automated scanning patterns:** Identify if there were multiple processes invoking the obfuscated IP within a short time frame, which could indicate scripted or automated attacks. These would typically show up in the same logs as anomalies in command line execution.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential impact on the network if malicious IP obfuscation is indicative of hostile actions. The likelihood of exploitation through obfuscated communications is moderate, as threat actors commonly employ such techniques to evade detection while scanning networks or conducting external reconnaissance.
+  This alert should be treated with medium severity due to the potential impact on network operations if malicious. The likelihood of abuse is significant; obfuscation is a common tactic employed by adversaries during reconnaissance or exploitation phases. While not every instance of obfuscated IP usage signals malicious intent, it warrants immediate investigation due to the nature of the tools involved.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques such as using alternate encoding methods that may not be captured by the current patterns. The alert may also trigger from legitimate scenarios involving coding practices or internal tools that inadvertently use encoded IP formats. Ensure logging of all relevant process creations and network connections to maintain effective detection capability. A related detection rule for monitoring direct network connections would enhance overall coverage and mitigate blind spots.
+  Detection limitations include the potential for situational awareness gaps; legitimate scripts or tools may utilize similar obfuscation techniques for legitimate purposes. Reliability depends on effective logging configurations in place that capture all required command execution details. Additionally, some benign activities, such as scripted monitoring or custom network tools using obfuscated IPs, could inadvertently trigger alerts. The companion detection of unusual outbound connections can enhance coverage, indicating where the obfuscated traffic may lead to any known malicious domains or IPs.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

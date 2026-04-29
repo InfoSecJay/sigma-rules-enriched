@@ -17,7 +17,7 @@ references:
 date: 2022-12-24
 modified: 2024-08-07
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -51,30 +51,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the `AgentExecutor.exe` binary, which is commonly abused for executing PowerShell scripts with the "Bypass" execution policy. The primary objective of an attacker using this technique is to execute malicious scripts while evading detection mechanisms that monitor standard PowerShell invocations. This behavior aligns with the MITRE ATT&CK technique T1218 (System Binary Proxy Execution).
+  This Sigma rule detects the execution of the `AgentExecutor.exe` binary, which can be leveraged by attackers as a living-off-the-land binary (LOLBIN) to execute malicious PowerShell scripts with the execution policy set to "bypass." The likely attacker objective is to execute unauthorized scripts for various purposes, such as data exfiltration or deployment of additional malware. This behavior falls under the MITRE ATT&CK Tactic: Execution (TA0002) and Technique: PowerShell (T1059.001).
 
-  The primary telemetry source is process creation logs on Windows systems, specifically focusing on `Event ID 4688` (process creation) which captures command-line arguments and parent process information. If malicious, the execution of this binary could indicate an attempt to run unapproved scripts, potentially leading to system compromise. Importantly, this detection does not confirm malicious intent without additional context; legitimate use of `AgentExecutor.exe` in managed environments exists, particularly in automated deployment scenarios.
+  The primary telemetry sources are Windows process creation logs, specifically focusing on log types such as Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior could lead to data breach or system compromise. However, it is important to note that this detection does NOT confirm malicious intent by itself, as the legitimate use of `AgentExecutor.exe` can occur within valid administrative contexts.
 
   ### Investigation Steps
 
-  - **Review security event logs**: Inspect Windows Security Event ID 4688 for instances of `AgentExecutor.exe` execution, noting any anomalous command line arguments such as `-powershell` or `-remediationScript`.
+  - **Review process creation logs:** Filter for Security Event ID 4688 and Sysmon Event ID 1 to identify instances of `AgentExecutor.exe` being run. Look specifically for command line invocations containing `-powershell` or `-remediationScript`.
 
-  - **Identify suspicious parent processes**: Check the `ParentImage` field in the Event logs to see if `AgentExecutor.exe` was spawned by any non-standard processes. Legitimate executions are typically initiated by trusted applications like `IntuneWindowsAgent.exe`.
+  - **Examine command line arguments:** Analyze the full command line for relevant flags and paths. Legitimate PowerShell execution typically does not use the "bypass" execution policy, so if observed, it may indicate malicious intent.
 
-  - **Analyze command line arguments**: Specifically look for command line entries that contain `-executionPolicy bypass`. Command lines that leverage this flag might indicate an attempt to evade execution policy restrictions, a common trait of malicious activity.
+  - **Check parent process details:** Investigate the ParentImage field in the logs to see if `AgentExecutor.exe` was spawned by a legitimate process (e.g., `C:\Windows\System32\Microsoft.Management.Services.IntuneWindowsAgent.exe`) or by potentially suspicious processes. Activity initiated by non-standard parent processes could indicate compromise.
 
-  - **Evaluate the context of execution**: Confirm the execution time against standard operational activity. Legitimate usage patterns usually align with IT administration tasks, while out-of-hours usage may suggest malicious activity.
+  - **Look for anomalous PowerShell paths:** Confirm that the command line does not reference unauthorized PowerShell binaries. Legitimate executions typically do not specify PowerShell paths outside of default locations (e.g., should not contain uncommon directories).
 
-  - **Correlate with endpoint telemetry**: Use EDR telemetry to check the processes running at the same time as `AgentExecutor.exe`, noting any associated files created or modified in directories commonly used by malware.
+  - **Validate network activity associated with execution:** Correlate the timestamp of `AgentExecutor.exe` executions with network artifact logs to identify any unusual outbound connections or data transfers that could indicate data exfiltration efforts.
 
-  - **Monitor for lateral movement indicators**: If the execution was not initiated from a management console, search for subsequent network connections or file shares accessed using this binary, which could indicate an attempt to establish a foothold or pivot within the network.
+  - **Document high-confidence malicious indicators:** Identify and escalate instances where command line parameters suggest the execution of potentially harmful scripts, especially when combined with bypass arguments, as they signify a deviation from expected behavior.
 
   ### Prioritization
 
-  This alert carries high severity because `AgentExecutor.exe` is often manipulated by adversaries to bypass security controls and execute malicious payloads. The potential impact on enterprise systems is significant, especially if it leads to further compromise or lateral movement within the network. While not all executions are malicious, the high confidence in risks associated with this behavior necessitates immediate investigation.
+  This alert should be prioritized as high severity due to the potential impact on sensitive systems and data. The execution of low-trust executables like `AgentExecutor.exe` is frequently abused in modern attack vectors, making this behavior relevant for threat actors looking to exploit enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logging configurations do not capture all pertinent process creation events or if `AgentExecutor.exe` is used by legitimate applications without proper monitoring. Evasion techniques may include renaming the binary or using alternate execution methods that do not involve `AgentExecutor.exe`. Additionally, legitimate usage exists in environments managed by configuration tools like Intune, which may generate false positives. A related detection rule for monitoring PowerShell script execution directly (e.g., `CmdLet` execution) can enhance coverage and context for investigations.
+  Detection using this rule may be limited if logging is not configured correctly, and certain processes may mask `AgentExecutor.exe` activity. Alternatives to DLL hijacking or credential dumping can also exist, which may bypass this detection. Legitimate administrative tools/operations may unintentionally trigger this alert, such as system management or automated scripts utilizing `AgentExecutor.exe`. As a companion detection, consider monitoring for unusual scripts executed in PowerShell combined with TTPs related to process injection or suspicious parent-child relationships for more nuanced coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

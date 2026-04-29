@@ -9,7 +9,6 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-07-03
 tags:
 - attack.execution
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548.002
 logsource:
@@ -27,28 +26,30 @@ level: high
 note: |
   ### Technical Context
 
-  This detection identifies the creation of a file by **dllhost.exe** within the **System32** directory, specifically targeting DLL files associated with an **IDiagnosticProfileUAC** bypass technique. This behavior typically indicates an attempt by an attacker to escalate privileges by manipulating User Account Control (UAC) settings, leveraging legitimate Windows processes to evade detection. The relevant MITRE ATT&CK tactics and techniques includes **Execution** (TA0002) and **Privilege Escalation** (TA0004) via **T1548.002: Abuse Elevation Control Mechanism**.
+  This Sigma rule detects the creation of a DLL file in the System32 directory by the process `dllhost.exe`, which is indicative of a UAC (User Account Control) bypass technique using `IDiagnosticProfile`. The likely attacker objective is to escalate privileges on a compromised system while avoiding alerting security controls typically associated with direct execution attempts. This behavior aligns with the MITRE ATT&CK technique for privilege escalation (T1548.002 - Abuse Elevation Control Mechanism: UAC Bypass).
 
-  The primary telemetry sources are Windows file event logs that capture file creation activities in critical system directories. If malicious, this behavior could facilitate unauthorized access to elevated privileges, potentially leading to further exploitation of the system. It’s important to note that while this detection indicates suspicious behavior, it does NOT confirm malicious intent without additional context or corroborating evidence.
+  The primary telemetry sources for this detection are Windows file event logs indicating file creation actions, specifically monitored by Sysmon or Windows native logging mechanisms. If malicious, this activity allows attackers to gain higher access levels than what the compromised account would otherwise allow. However, this detection alone does not confirm that the action is malicious; legitimate applications may also create files within System32.
 
   ### Investigation Steps
 
-  - **Check Event IDs for file creation**: Review Windows Security Event IDs 4663 and 5145 to confirm the creation of the DLL file by **dllhost.exe**. Look for unusual paths or filenames that are not typically seen in a standard environment.
+  - **Review file creation events:** Examine Windows Security Event ID 4663 logs for the creation of a DLL file with `TargetFilename` showing a path starting with `C:\Windows\System32\` and ending with `.dll`. Lengthy access times initiated by non-admin users may denote suspicious activity.
 
-  - **Analyze process tree for parent processes**: Use Sysmon Event ID 1 to investigate the parent-child relationship of processes initiated by **dllhost.exe**. Malicious processes usually show anomalous parent processes or unusual arguments passed to **dllhost.exe**.
+  - **Analyze process initiation:** Check Sysmon Event ID 1 for the parent-child process relationship involving `dllhost.exe`. Confirm if this process is spawned from a legitimate application or an expected user context. Look for unusual parent processes which could indicate malicious behavior.
 
-  - **Investigate file attributes and timestamp**: Examine the created DLL file's attributes in the filesystem. Legitimate files will typically have standard timestamps and will appear in context with system updates or installs. Anomalous timestamps, particularly recent or non-standard modification dates, warrant further inspection.
+  - **Validate host role:** Identify whether the system running `dllhost.exe` and creating a DLL in System32 is a server or high-privilege asset. Such behavior on critical infrastructure (like DCs or databases) should raise immediate scrutiny.
 
-  - **Cross-reference modified files with installed applications**: Utilize a tool to scan for installed applications and verify that the DLL being created correlates with known and legitimate application installations. Any discrepancy may indicate malicious intent.
+  - **Check UAC settings:** Investigate local security policies and system settings relating to UAC. If UAC is disabled or set to a reduced security level, the likelihood of a legitimate UAC bypass increases. This can suggest a review of the security posture of the entire system.
 
-  - **Assess network activity associated with the process**: Investigate outbound connections using Windows Firewall logs or Sysmon Event ID 3 that correlate with the timing of the DLL file creation. Legitimate **dllhost.exe** activity typically does not involve unusual external communications.
+  - **Examine historical behavior:** Look into the timeline of system activities using Windows Event Viewer logs, focusing on any previous anomalous activities around the time of DLL creation.
+
+  - **Collect persistence artifacts:** Look for registry modifications or scheduled tasks that may relate to `dllhost.exe`. These would typically indicate an attempt to create persistence mechanisms alongside privilege escalation tactics.
 
   ### Prioritization
 
-  This alert is considered high priority due to the potential for privilege escalation on critical systems. Given that **dllhost.exe** is a legitimate Windows process, its misuse in this context suggests a high likelihood of malicious activity, especially since UAC bypass techniques are often weaponized in targeted attacks.
+  This alert should be prioritized as high due to the critical nature of the affected system, especially if it is a domain controller or application server. The likelihood of abuse is significant, as UAC bypass methods are standard in stealthy attacks. Furthermore, this technique is commonly weaponized by malware to facilitate lateral movement within an environment.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss evasion techniques, such as renaming malicious payloads or using other legitimate processes for file creation. Proper logging configuration for Windows file events is essential for reliable detection. Legitimate tools for software deployment or application updates may sometimes trigger this rule, adding complexity to triage. Companion detections, like monitoring for unusual Windows service creation events, can reinforce the effectiveness of this detection.
+  Detection may be limited if file event logging or Sysmon is not properly configured or deployed across all endpoints. Adversaries may employ various evasion techniques, such as using legitimate processes to create files to mask malicious behavior. Additionally, certain legitimate programs that operate in a security context might trigger this rule. A related detection to strengthen coverage would involve monitoring for atypical process spawning behaviors, particularly any instances of `dllhost.exe` initiated by unexpected parent processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

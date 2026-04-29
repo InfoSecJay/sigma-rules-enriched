@@ -12,8 +12,8 @@ author: Sittikorn S
 date: 2022-04-15
 modified: 2025-10-25
 tags:
-- attack.defense-evasion
-- attack.t1562
+- attack.defense-impairment
+- attack.t1685
 logsource:
   product: windows
   category: registry_delete
@@ -31,23 +31,28 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the removal of the Security Descriptor (SD) value in the Windows registry path relating to Scheduled Tasks, particularly under `\Schedule\TaskCache\Tree\`. This behavior is commonly employed by the Tarrask malware to hide existing scheduled tasks from users and system monitoring tools. The relevant MITRE ATT&CK tactic is Defense Evasion (ID: T1562). The primary telemetry source is Windows registry delete events, specifically targeting entries in the registry related to task management. A successful evasion of detection can lead to malicious task execution without alerting security systems. However, this detection alone does not confirm that the behavior is solely malicious, as legitimate applications may also adjust task security parameters.
+  This rule detects the removal of the Security Descriptor (SD) value from the Windows Registry, specifically within the Scheduled Tasks cache. This behavior is often associated with malware, such as Tarrask, aiming to conceal the existence of scheduled tasks from security monitoring. It fits within the MITRE ATT&CK framework under the tactic of Defense Evasion (ID: TA0005) and the technique of T1685 (Hide Artifacts).
+
+  The primary telemetry source is Windows Registry change logs, specifically targeting events related to registry deletions within the TaskCache. If this behavior is confirmed malicious, it can indicate an attempt to manipulate scheduled tasks for nefarious purposes, potentially allowing further exploitation or persistence. Importantly, this detection does NOT confirm any active malicious activity on its own; further investigation is required to establish intent and impact.
 
   ### Investigation Steps
 
-  - **Verify registry deletion event**: Review Windows Event ID 4657 (Registry Value Changed) for deletions related to the Registry Path: `\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\SD`. Look for events with "Deleted" in the `OperationType` field.
-  - **Identify scheduled tasks**: Examine any tasks within the Task Scheduler that are suspected to have altered security descriptors. Use Task Scheduler logs (Event ID 106) to compile a list of tasks and their SD settings.
-  - **Look for associated malwares**: Cross-reference the machines generating this alert with threat intelligence for indicators of compromise related to Tarrask malware. Events logged might include unusual command line executions (Event ID 4688 / Sysmon Event ID 1) involving malicious binaries.
-  - **Review legitimate task activity**: Check for legitimate task operations to understand if the task modifications align with administrative tasks, such as those created by security products or maintenance scripts running in normal operating windows.
-  - **Investigate account activities**: Look for unusual account behavior around the time of registry modification, such as abnormal logins (Event ID 4624) from privileged accounts, correlating with the registry events.
-  - **Assess file artifacts**: Validate any new or modified scheduled task executable files which may implicate malicious intent. Check for file creation events (Event ID Creation 4663) in conjunction with the registry changes to backtrack to any potentially malicious artifacts.
+  - **Identify affected registry path:** Examine the Windows Registry for deletions in the path `\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\`. Look for entries related to the security descriptor (SD) values that were removed.
+
+  - **Review associated registry keys:** Check the scheduled tasks associated with the affected directory using `Get-ScheduledTask | Where-Object {$_.TaskPath -like "*TaskCache*"} | Format-Table` in PowerShell. Compare legitimate task entries present against missing tasks which could indicate malicious modification.
+
+  - **Analyze event logs for registry activity:** Review Windows Security Event ID 4657 (A registry value was modified) linked to the same area to gain context on when and by whom the deletion occurred, confirming if this aligns with user actions or anomalous behavior.
+
+  - **Correlate with other security telemetry:** Cross-reference with Windows Event ID 4697 (A service was installed) to check if there were any new services created at the same time as the registry changes. This could indicate an active installation of malicious software trying to hide its presence.
+
+  - **Identify normal operations:** Look for standard administrative activities or system processes that modify registry settings, such as Windows updates or system maintenance tasks, in order to distinguish between legitimate and unauthorized modifications.
 
   ### Prioritization
 
-  This alert should be treated as medium severity due to the potential impact on the security integrity of scheduled tasks within an enterprise. The removal of security descriptors can directly enable persistence mechanisms that are often weaponized by advanced threats like Tarrask. The likelihood of malicious use requires immediate investigation to mitigate risks.
+  This alert should be prioritized as medium severity. The impact on affected systems can be significant if a scheduled task is modified to run malicious payloads covertly. The likelihood of this specific technique being exploited for malicious purposes is high, given its use in known malware campaigns.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if registry changes are not fully captured, which can occur during high-frequency events or insufficient logging settings. Legitimate applications may trigger this alert when modifying task security settings for operational purposes. A companion detection could involve monitoring for unusual Scheduled Task creations or modifications (MITRE ATT&CK T1053) to enhance visibility on this potential threat vector.
+  Detection limitations include the possibility of legitimate applications that may alter registry settings for valid reasons, potentially causing false positives. A reliance on specific log sources is critical; ensure that detailed registry auditing is enabled in group policies to capture all relevant events. Related detection such as monitoring for unusual service installations or changes (e.g., Event ID 4702 for Service Control Manager) could enhance coverage and provide context to malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -8,8 +8,8 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-07-05
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 logsource:
   category: process_creation
   product: linux
@@ -24,28 +24,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of the "execve_hijack" payload commonly associated with the Triple Cross eBPF rootkit, a technique used by adversaries to elevate privileges covertly. The likely attacker objective is to gain unauthorized access to sensitive administrative functions by manipulating the Linux operating system's execution framework. This action aligns with the MITRE ATT&CK technique for privilege escalation (T1068) and defense evasion (T1203).
+  This rule detects the execution of a file named "execve_hijack" invoked through the `sudo` command, indicating potential privilege escalation efforts by an attacker utilizing the Triple Cross eBPF rootkit. The likely objective is to elevate user privileges without detection, thus gaining unauthorized access to sensitive system resources. This activity maps to the MITRE ATT&CK framework under the tactic “Privilege Escalation” (TA0004) and technique “Exploitation for Client Execution” (T1203).
 
-  The primary telemetry sources required for this detection include Linux process creation logs that capture command execution details, specifically focusing on events from the `sudo` command. The security impact of a successful exploitation could lead to full administrative access and control over compromised systems, enabling further malicious activities. Importantly, this detection does not confirm whether the execution resulted in a successful privilege escalation; it merely identifies that the potentially malicious command was invoked.
+  Primary telemetry source involves Linux process creation logs, particularly focusing on command execution events tied to `sudo`. If malicious, such behavior could lead to compromised dependencies and the manipulation of system configurations or data. Importantly, this detection does NOT confirm that a successful privilege escalation or system compromise has occurred—further analysis is required to establish intent.
 
   ### Investigation Steps
 
-  - **Verify process execution details:** Check Linux logs for `sudo` process creation events corresponding to Event ID 3600 (Linux Kernel process execution events). Specifically, look for a command line containing "execve_hijack" and note the parent process that initiated it.
+  - **Inspect Process Creation Events:** Review process creation logs, specifically checking for Linux Event IDs associated with `sudo` execution (syslog, audit logs). Look for the command line containing 'execve_hijack'. This is indicative of suspicious behavior.
 
-  - **Identify parent process legitimacy:** Investigate the immediate parent process of the detected `sudo` execution to establish context. A legitimate parent process may indicate authorized activity (e.g., maintenance scripts), while an unusual or unexpected parent indicates potential malicious intent.
+  - **Analyze Command-Line Arguments:** Check the command-line argument for the `sudo` command (fields like `command_line` or `args`). A typical benign use of `sudo` would not contain 'execve_hijack' and would be related to legitimate administrative tasks.
 
-  - **Correlate timestamp with other events:** Evaluate system logs around the timestamp of the `execve_hijack` execution for related suspicious activities, such as unauthorized user logins or other unusual command executions.
+  - **Monitor for System Calls:** Review for related syscall logs that may indicate abnormal behavior linked to `execve`, particularly filtering for syscall events (e.g., `sys_enter_execve`). Look for deviations from normal execution patterns.
 
-  - **Check for eBPF artifacts:** Validate whether the expected eBPF traces or hooks are present on the system as a result of the rootkit’s operation, which may involve reviewing configurations under `/sys/kernel/debug/tracing/`.
+  - **Verify File Integrity:** Correlate with file integrity monitoring logs to confirm if 'execve_hijack' was newly created or modified (in auditd logs, look for relevant fields denoting file changes). Legitimate files shouldn’t unexpectedly change in critical directories.
 
-  - **Collect additional forensic data:** Document any file creations or modifications associated with the invocation of the `execve_hijack`, looking for abnormal behavior or artifacts in `/tmp`, `/var/tmp`, or user home directories.
+  - **Check for Established Persistence:** Investigate if there's evidence of the rootkit maintaining persistence. Look for unusual startup scripts or services linked with 'execve_hijack' in system monitoring logs.
+
+  - **Identify Malicious Indicators:** Establish high-confidence indicators such as presence of the `execve_hijack` binary in unexpected directories or unusual parent-child process relationships indicating potential chain of execution leading to privilege escalation.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential for significant impact on system integrity and administrative control when privilege escalation is exploited. The behavior detected is specific to advanced threats like rootkits, which are less frequent but highly impactful when successful.
+  This alert is high severity due to the potential impact on system integrity and security. The likelihood of malicious abuse is considerable; the behavior typically indicates an active attempt to escalate privileges, which is a common tactic used by attackers.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of comprehensive logging configurations or if the rootkit employs evasion techniques such as process hiding. Legitimate administrative activities involving the `sudo` command may inadvertently trigger the alert, complicating investigations. Complementary detections focused on monitoring system calls or unusual eBPF activity can strengthen coverage against this type of threat.
+  Detection may be limited if the logs for process creation are not captured thoroughly or if logging configurations are incomplete. Adversaries may employ techniques to obfuscate execution (e.g., altered command structures). Additionally, legitimate activities such as administrative scripts or automated tasks could trigger this alert. A companion detection to consider includes monitoring for abnormal `sudo` command usage patterns elsewhere in the environment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

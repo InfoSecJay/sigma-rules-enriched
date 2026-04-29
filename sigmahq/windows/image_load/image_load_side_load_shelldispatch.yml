@@ -8,8 +8,9 @@ author: X__Junior (Nextron Systems)
 date: 2023-06-20
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -29,28 +30,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the potential side-loading of the "ShellDispatch.dll" file, which could be used by an attacker to execute malicious code in the context of a legitimate Windows process. The likely objective of the attacker is to gain persistence or elevate privileges by leveraging this commonly used DLL in a way that bypasses typical security measures. This behavior maps to the MITRE ATT&CK tactics of Persistence and Defense Evasion (T1574.001: DLL Side-Loading).
+  This rule detects potential DLL sideloading involving "ShellDispatch.dll," which is often abused by attackers to execute malicious code under the guise of a legitimate process. The attacker’s objective is typically to achieve persistence or elevate privileges by using existing system processes to load malicious libraries. This corresponds to the MITRE ATT&CK tactic of Persistence and technique T1574.001 (DLL Side-Loading).
 
-  The primary telemetry source is Windows image load events, specifically targeting process creation events that include DLL loading activities, with a focus on the 'ImageLoaded' field. If malicious, this behavior can lead to unauthorized access or control over the system, posing a significant risk to the enterprise ecosystem. Importantly, this detection alone does NOT confirm active exploitation or direct malicious intent—further investigation is required to establish context.
+  Primary telemetry sources include Windows Event Logs for image load events, particularly focusing on Event ID 2050 for image loads, and relevant data from the Windows API. If malicious, this behavior may allow an adversary to maintain foothold/exploitation on a system without detection. However, this detection rule does NOT confirm that the loaded DLL is inherently malicious; it only indicates that a potentially suspicious loading behavior has been observed.
 
   ### Investigation Steps
 
-  - **Identify process initiation context:** Review event logs for Security Event ID 4688 (Process Creation) to identify which process initiated the load of "ShellDispatch.dll" and assess whether that process is legitimate (e.g., "explorer.exe" or similar system processes).
+  - **Review image load events:** Search for Event IDs related to image loads, especially Event ID 2050 in Security logs. Identify any processes that have loaded `ShellDispatch.dll` and note their parent process for context.
 
-  - **Verify file origin and integrity:** Check the file path for "ShellDispatch.dll" in the context of Event ID 4656 (Handle Access) and correlate it to common locations like 'C:\Windows\System32\' or 'C:\Windows\Temp\.' Legitimate instances will typically originate from system directories, while deviations could indicate malicious activity.
+  - **Check the file path:** Validate the image load path. Friendly paths should originate from system directories (e.g., `C:\Windows\System32`); unexpected paths like `C:\Users\<username>\AppData\Local\Temp\` should raise flags.
 
-  - **Assess timing and user context:** Cross-reference the process creation time with user logon events (Event ID 4624) to verify that the process loaded by the DLL aligns with expected user behavior and timelines. Malicious DLL loads may occur outside of normal user activity hours.
+  - **Analyze parent process behavior:** Investigate the parent process of the loaded DLL. For instance, if the parent is a system-level process (e.g., explorer.exe) and the DLL is loaded from a known good path, it may indicate benign activity.
 
-  - **Confirm legitimate software associations:** Investigate any installers or software recently executed that may have legitimately triggered this alert, recognizing that some installer processes could lead to false positives. Validate using installation logs or MSI events.
+  - **Identify high-confidence indicators:** List all loaded images and check for hashes or file signatures. If `ShellDispatch.dll` is running but does not match known good hashes, consider it a malicious indicator.
 
-  - **Look for supporting indicators of compromise:** Examine for additional signs of DLL side-loading in Sysmon logs (Event ID 7) that may capture file creation or unexpected network connections initiated by processes loading "ShellDispatch.dll" indicating exfiltration or command-and-control activity.
+  - **Assess legitimate application installations:** Be aware that some installers may load DLLs during installation. Document any related installer processes and verify their legitimacy using software inventory.
 
   ### Prioritization
 
-  Given the potential impact on systems processing sensitive data and the likelihood of this tactic being weaponized by attackers, alerts generated by this rule should be treated as medium severity. While the behavior could have benign explanations, repeated occurrences or contexts involving non-standard processes elevate the risk of malicious activity significantly.
+  The alert severity is medium, as the loading of "ShellDispatch.dll" can indicate made attempts at establishing persistence or privilege escalation. While sideloading is a common technique among adversaries, it can also result from benign activities like application installations, requiring careful triage.
 
   ### Blind Spots and Assumptions
 
-  There are limitations to this detection due to potential evasion techniques such as renaming or encryption of the DLL file that may not be logged by default. Reliable detection requires that image load events are properly configured in the Windows Event Log. Additionally, legitimate software installations and updates could also trigger this alert, necessitating further context to ascertain true malicious intent. For comprehensive coverage, consider pairing this alert with detections for other common LOLBins (living off the land binaries) that could also threaten system integrity.
+  Sideloading detections may be limited by the presence of legitimate installations that load the same DLL. Effective detection depends on having reliable image load event logging configured. Activities related to application installations or updates could inadvertently trigger this alert. A companion detection for malicious process creation (e.g., suspicious child processes from installers) would help strengthen alert coverage against such threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

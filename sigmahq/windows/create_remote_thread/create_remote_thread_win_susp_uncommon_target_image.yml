@@ -11,8 +11,8 @@ author: Florian Roth (Nextron Systems)
 date: 2022-03-16
 modified: 2025-07-04
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1055.003
 logsource:
   product: windows
@@ -60,36 +60,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of remote threads in uncommon target processes such as `calc.exe`, `notepad.exe`, and others that typically do not initiate threads remotely. The likely attacker objective is to leverage these benign applications as a means to execute malicious code without arising suspicion, potentially gaining unauthorized access or escalated privileges. Relevant MITRE ATT&CK tactics and techniques include **Defense Evasion** (T1562) and **Privilege Escalation** (T1055.003). The primary telemetry sources are Windows Security Event Logs focusing on the process creation events (Event ID 4688) and potentially Sysmon logs for detailed process activity.
+  This Sigma rule detects the creation of remote threads in uncommon target processes, which may indicate malicious activity such as privilege escalation, evasion, or exploitation. Specifically, attackers may aim to execute arbitrary code in benign processes to bypass security mechanisms and maintain persistence. It aligns with the MITRE ATT&CK technique T1055.003 (Process Injection: Thread Injection).
 
-  If the behavior is malicious, it can lead to unauthorized remote control of the system, data exfiltration, or lateral movement within the network. However, this detection does NOT confirm that the observed activity is definitively malicious; further investigation is required to establish intent and context.
-
-  ---
+  The primary telemetry source is Windows Event Logs related to process creation (Event ID 4688) and potentially Sysmon logs (Event ID 1) that track process creation events, enabling detailed identification of the source and target images involved. If this behavior is malicious, it may allow the adversary to run malicious payloads in trusted processes, leading to significant security breaches. Importantly, this detection does NOT confirm that an attack is occurring; it only highlights potentially suspicious behavior requiring further investigation.
 
   ### Investigation Steps
 
-  - **Identify the creating process:** Review Security Event ID 4688 logs for the user who initiated the remote thread creation. Focus on the `ProcessId` and `NewProcessName` fields to check which application is being targeted and verify if the source aligns with known legitimate use cases (like an authorized user running benign applications).
+  - **Check Event ID 4688 for remote threads:** Review Windows Security Event ID 4688 logs to identify the creation of remote threads in processes like `notepad.exe` or `calc.exe`. Ensure the SourceImage corresponds to `csrss.exe` or other known legitimate processes.
 
-  - **Examine command-line arguments:** Investigate the command line of the source process (Event ID 4688, `CommandLine` field) to determine if the execution context appears unusual or malicious. Legitimate activity will show common arguments, whereas anomalies might reveal potential malicious intent.
+  - **Examine Sysmon logs for process injection:** Look for Sysmon Event ID 1 to analyze processes that created remote threads. Pay attention to `TargetImage` and `SourceImage` fields. Confirm if the source image appears legitimate.
 
-  - **Validate the thread context:** For any alerts involving `csrss.exe`, compare against expected behavior for this essential Windows process. Malicious indicators include attempts to create threads in unusual contexts or processes not typically used for remote thread execution, which may indicate an attack.
+  - **Identify high-confidence malicious indicators:** Analyze the thread creation events where the `SourceImage` matches `csrss.exe` and the `TargetImage` is one of the uncommon processes listed. These events should be flagged for further analysis as they may indicate stealthy injection attempts.
 
-  - **Cross-reference with Sysmon logs:** Check Sysmon Event ID 8 (CreateRemoteThread) for a holistic view of thread creation patterns, including the `SourceImage`, `TargetImage`, and `StartFunction`. Look for unexpected function calls and processes that indicate an anomaly, particularly those involving known benign applications or irrelevant ones.
+  - **Evaluate for legitimate behavior:** Confirm that expected behavior includes common applications being launched normally by user actions. For example, `notepad.exe` launched directly by a user’s action (user context) is expected behavior, while remote thread creation should come from trusted sources only.
 
-  - **Review for known benign exceptions:** Confirm if the activity stems from authorized uses of applications such as remote desktop tools or corporate scripts that legitimately utilize processes like `notepad.exe` or `calc.exe`. Document any legitimate cases noted during the investigation.
+  - **Review application logs for known good sources:** Collect logs from `vmtoolsd.exe` and `XeroxPrintJobEventManagerService.exe` and check for normal operations that might trigger legitimate remote thread creation to rule out false positives.
 
-  - **Assess for evasion techniques:** Investigate if the source processes (like `vmtoolsd.exe` or `pjems.exe`) attempt to hide malicious activities during the remote thread creation. Note if the source is leveraging DLL injection or known evasion techniques, which can point to potential security risks.
-
-  ---
+  - **Correlate with network activity:** If available, analyze network logs for connections initiated by these processes (e.g., suspicious outbound traffic). Use tools like Sysmon to correlate anomaly detection with network behavior.
 
   ### Prioritization
 
-  This alert is of medium severity as it could indicate an attempt at privilege escalation or evasion in your environment. The impact on a compromised system can be significant, as it may lead to unauthorized access across an enterprise network. However, while the behavior is suspicious, it does not inherently confirm a breach without context.
-
-  ---
+  This alert is of medium severity due to the potential impact on system integrity, especially if targeting critical systems. The likelihood of malicious abuse is moderate, given that process injection techniques are often weaponized. Investigation is warranted to determine whether this behavior is part of a broader attack.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion through legitimate use of these applications that could trigger false positives. Reliable detection requires proper logging configurations for Sysmon and Windows event logs; absence of these could lead to undetected malicious activities. There's also a chance that benign automation leveraging legitimate applications may generate similar alerts, making it essential to understand typical operational patterns. A related rule focusing on Injections (like T1055) can provide additional context to strengthen overall detection coverage.
+  Detection may be limited if logs from `csrss.exe` or other critical processes are not thoroughly monitored, as these processes could be misused in benign contexts. Legitimate software utilizing remote thread creation may trigger false positives. Companion detections, such as monitoring for the execution of atypical command-line arguments or unusual parent-child process relationships, strengthen overall coverage against evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

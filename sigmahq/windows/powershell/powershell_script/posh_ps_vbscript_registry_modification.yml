@@ -17,9 +17,9 @@ references:
 date: 2025-08-13
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.execution
+- attack.defense-impairment
 - attack.t1112
 - attack.t1059.005
 logsource:
@@ -39,28 +39,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to modify the Windows registry using VBScript via the PowerShell environment, specifically through the usage of `CreateObject("Wscript.shell")` and the `.RegWrite` method. Attackers often employ this technique to evade traditional detection methods that monitor direct registry interactions, which could involve common tools like regedit.exe or PowerShell’s built-in cmdlets. The likely objective of an adversary is to establish persistence, evade defenses, or escalate privileges by altering crucial registry keys.
+  This rule detects attempts to modify the Windows registry using VBScript's `CreateObject("Wscript.shell")` method alongside the `RegWrite` function, executed within PowerShell scripts. Attackers often utilize this technique to bypass traditional detection mechanisms that monitor direct registry access via tools such as `regedit.exe` or PowerShell's native registry cmdlets. The likely objective includes establishing persistence, evading defenses, or escalating privileges.
 
-  This activity correlates with the MITRE ATT&CK techniques of Persistence (T1547) and Defense Evasion (T1112). The primary telemetry sources involved are PowerShell logs, specifically targeting the 'ScriptBlockText' field to analyze the executed scripts. If malicious, unauthorized modifications to registry keys may allow for backdoor access or system manipulation. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative scripts may also utilize similar methods for configuration purposes.
+  The relevant MITRE ATT&CK techniques are Persistence (T1112) and Command and Scripting Interpreter: Windows PowerShell (T1059.005). The primary telemetry sources include PowerShell logs, specifically the Script Block Logging containing Event ID 4104, which captures executed scripts. If malicious, such behavior could lead to unauthorized system modifications and potential lateral movement within the network. However, this detection on its own does not confirm malicious intent, as it may also trigger from benign administrative scripts.
 
   ### Investigation Steps
 
-  - **Review PowerShell command logs**: Inspect PowerShell logs for Event ID 4104 detailing specific script block text containing `CreateObject`, `Wscript.shell`, and `.RegWrite`. Compare against known good administrative scripts.
+  - **Check PowerShell Script Block Logs for execution details:** Review PowerShell logs (Event ID 4104) for any related ScriptBlockText containing both `CreateObject` and `Wscript.shell`. Legitimate admin scripts may include registry modifications, but review context and the author of the scripts.
 
-  - **Check affected registry keys**: Identify any registry keys modified during the alert time frame. Focus on keys under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`, which are often targeted for persistence.
+  - **Identify the script execution context:** Analyze the `UserID` field from Event ID 4104 logs. Compare against known admin accounts. Scripts executed by unprivileged users could indicate potential misuse.
 
-  - **Analyze script execution context**: Determine the user context in which the PowerShell script was executed. Look for unusual accounts or elevated privileges that suggest malicious intent. Examine `UserID` and `SessionID` fields in Event ID 400 for context.
+  - **Examine process creation logs:** Investigate Windows Event ID 4688 for processes that correlate with the timing of the registry modification attempt, specifically looking for PowerShell processes (powershell.exe) that spawn VBS scripts.
 
-  - **Identify high-confidence malicious indicators**: Look for prior detections of the same script or behavior across your environment. If the same script path is repeated with registry writes, it may indicate malicious modification.
+  - **Look for registry changes:** Use Event ID 4657 (Registry value modified) to confirm changes in registry keys. Verify if the modified keys are linked to persistence mechanisms (e.g., startup entries), noting legitimate applications that might use similar registry paths.
 
-  - **Document legitimate activity**: Compare the script behavior to legitimate administrative tasks. Note expected patterns like installation scripts from verified sources that modify registry keys—these typically have accompanying logs indicating context or origin.
+  - **Review for common malicious indicators:** Check for connections to known malicious infrastructure or command-and-control (C2) domains in network traffic logs during the time of the script execution. Indicators could include unusual external connections from hosts executing this script.
+
+  - **Correlate with related detections:** See if similar behavior appears in associated, companion detections, especially those tied to fileless malware techniques. This can enhance the confidence in determining whether the alert stems from legitimate or malicious activity.
 
   ### Prioritization
 
-  This alert poses medium severity in an enterprise context, given that it detects behavioral patterns commonly exploited for persistence and evasion. The likelihood of malicious abuse is significant, as utilizing VBScript embedded in PowerShell is a documented technique among threat actors, particularly in sophisticated attacks.
+  The alert holds medium severity as it involves potential registry modifications that can affect critical system functions. The likelihood of malicious abuse is moderate, as attackers commonly leverage this technique for persistence or privilege escalation. The behavior is frequently observed in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations arise as legitimate administrative activities may also invoke similar VBScript methods for registry modifications, introducing false positives. It’s crucial to ensure that PowerShell logging is fully enabled, as incomplete telemetry can lead to undetected malicious actions. Additionally, monitoring for related techniques such as process injection or script execution from unusual paths can bolster overall detection capabilities.
+  Detection may be limited by the lack of Script Block Logging or if PowerShell logging is not adequately configured. Legitimate administrative scripts may trigger these alerts, potentially leading to false positives. Companion detections such as direct registry access using `reg.exe` or activity around known persistence techniques should be considered to enhance overall monitoring and detection capability.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

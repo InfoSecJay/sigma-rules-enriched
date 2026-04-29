@@ -13,8 +13,8 @@ author: Teymur Kheirkhabarov, Roberto Rodriguez (@Cyb3rWard0g), Open Threat
 date: 2019-10-26
 modified: 2024-12-01
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1134.002
 logsource:
   category: process_creation
@@ -48,28 +48,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects instances where a child process is created with SYSTEM privileges by a parent process running under LOCAL SERVICE or NETWORK SERVICE accounts. This behavior is often indicative of privilege escalation attempts, where an attacker aims to gain higher privileges on a compromised system. The relevant MITRE ATT&CK techniques are Privilege Escalation (T1068) and Privilege Escalation via Windows Service (T1134.002). The primary telemetry sources are Windows Security logs (Event ID 4688), Sysmon logs (Event ID 1), specifically monitoring the processes' parent and child relationships. If the detected activity is malicious, it can lead to complete system takeover and administrative access for the adversary. This detection does not confirm that the SYSTEM process is malicious on its own; further context is required to establish intent.
+  This rule detects the creation of child processes running with SYSTEM privileges, specifically when spawned by processes owned by the LOCAL SERVICE or NETWORK SERVICE accounts. This behavior may indicate an attempt to escalate privileges or execute malicious activities under a highly privileged context, often associated with lateral movement or establishing a foothold within a target network. The relevant MITRE ATT&CK tactic is **Privilege Escalation** (TA0004), with the technique identified as **Win32 Privilege Escalation** (T1134.002).
+
+  Primary telemetry sources include Windows Process Creation events monitored via Sysmon (with a minimum version of 13.30). The security impact of this detection is significant; if confirmed as malicious, it may lead to an attacker gaining full control over affected systems. It is important to note that this detection does NOT confirm that a compromise has occurred on its own and further investigation is needed to determine intentions.
 
   ### Investigation Steps
 
-  - **Review process creation events:** Analyze Windows Security Event ID 4688 or Sysmon Event ID 1 for the child process creation. Focus on the `ParentUser`, `User`, and `IntegrityLevel` fields to confirm that the observed child process was indeed created by a service account and runs with SYSTEM privileges.
+  - **Check parent process user context:** Review Sysmon Event ID 1 for the Process ID of the suspicious child process. Confirm if the parent user is from LOCAL SERVICE or NETWORK SERVICE accounts, indicative of potential privilege escalation behavior.
 
-  - **Check for known malicious command line usage:** Inspect the `CommandLine` field for the presence of `DavSetCookie`. This specific command usage in conjunction with `rundll32.exe` can indicate malicious intent, as it is often leveraged in exploitation scenarios.
+  - **Validate child process integrity level:** Examine the integrity level of the child process using Sysmon Event ID 1. Confirm it shows as SYSTEM (S-1-16-16384), which is expected to be controlled and monitored, especially for processes spawned by non-administrative accounts.
 
-  - **Identify expected behavior of service accounts:** Establish baseline behavior for LOCAL SERVICE and NETWORK SERVICE accounts in your environment, noting typical child processes they generate and their command line usage to spot anomalies against expected patterns.
+  - **Analyze command line arguments:** For detected rundll32.exe process, analyze the CommandLine field in Sysmon Event ID 1 to identify specific parameters (e.g., occurrences of "DavSetCookie"). legitimate or expected command line executions should typically not invoke such arguments.
 
-  - **Correlate with endpoint logs:** Cross-reference alerts with additional telemetry such as EDR or endpoint logs for any anomalous behavior originating from the same asset. Look for any related odd system calls or abnormal network connections to assess the potential impact.
+  - **Identify similar recent alerts:** Search across the last 30 days for similar patterns involving SYSTEM-level children spawned from NETWORK or LOCAL SERVICE parents. Consistency in alerts may indicate a larger, ongoing attack pattern as opposed to a one-off incident.
 
-  - **Analyze historical execution context:** Investigate the timeline of process creation events leading to this detection to see if previous malicious behaviors have been documented for the asset or user in question.
+  - **Assess system role and impact:** Consider the role of the host where the alert was triggered (i.e., critical infrastructure or domain controller). Determine if this system's compromise could significantly impact the enterprise.
 
-  - **Assess asset criticality:** Because this detection can indicate a potential breach, check if the affected system is a critical asset within your infrastructure. Systems with greater privileges or sensitive data should prompt immediate action.
+  - **Compare with known benign processes:** Research if the involved processes have an established benign history, especially for internal applications where known legitimate service accounts may invoke SYSTEM-level child processes for valid operational reasons.
 
   ### Prioritization
 
-  This alert is high-severity due to the system’s role as a potential target for privilege escalation. SYSTEM-level process creation is commonly abused by attackers for lateral movement or establishing persistence, making it a frequent target for exploitation. The likelihood of malicious abuse is high, especially if observed in conjunction with known malicious indicators.
+  This alert is classified as high severity due to the potential for escalated privileges on critical systems, which could jeopardize the integrity and confidentiality of the network. The technique is known to be weaponized in various attack scenarios, increasing the likelihood of malicious abuse.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by specific configurations of Sysmon and Windows logging, particularly if not all process creation events are captured. Legitimate scenarios that could trigger the alert include misconfigurations or automated process behaviors associated with service accounts. A related detection that strengthens coverage is monitoring process injection activities, which can provide additional context about possible exploitation attempts against services.
+  Detection may be limited if Sysmon is not deployed or misconfigured; the requirement for the ParentUser field indicates that without Sysmon version >= 13.30, coverage may be incomplete. Legitimate activities, such as certain application behaviors or maintenance scripts, could also trigger this alert when executing under service accounts. A related detection that should be implemented includes monitoring for anomalies in service account logon events, which can help correlate this behavior with potential compromises.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

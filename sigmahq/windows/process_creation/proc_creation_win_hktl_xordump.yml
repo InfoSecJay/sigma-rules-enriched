@@ -8,7 +8,7 @@ author: Florian Roth (Nextron Systems)
 date: 2022-01-28
 modified: 2023-02-08
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036
 - attack.t1003.001
 - attack.credential-access
@@ -30,30 +30,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the XORDump memory dumping utility, specifically when used against the LSASS process or with other debugging parameters. The likely objective of an attacker employing XORDump is to extract sensitive information such as credentials from memory, which can be exploited to escalate privileges or gain unauthorized access to systems. This behavior is associated with the MITRE ATT&CK tactics of Credential Access (TA0006) and Defense Evasion (TA0005), particularly techniques T1003.001 (Credential Dumping: LSASS Memory).
+  This Sigma rule detects the execution of the XORDump utility, a memory dumping tool often used by attackers to extract sensitive information from processes like `lsass.exe`, which manages user credentials in Windows. The likely objective of an attacker deploying XORDump is to extract credentials or other sensitive data from memory in order to escalate privileges or establish persistence within a network. This behavior maps to the MITRE ATT&CK techniques for credential access (T1003.001) and stealth (T1036).
 
-  The primary telemetry sources for this detection are Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, capturing execution details and command-line arguments. If malicious, this behavior can lead to severe security impacts, including stolen credentials and potential lateral movement within the network. Importantly, the detection of XORDump usage does NOT confirm successful credential theft without further corroborating evidence.
+  The primary telemetry source for this detection is Windows process creation logs, specifically Security Event ID 4688. If malicious, the execution of this tool could lead to credential compromise, allowing further access and control over the affected systems. This detection does NOT confirm successful credential theft; it only indicates that the suspicious process was invoked with known malicious parameters.
 
   ### Investigation Steps
 
-  - **Review recent process creation logs:** Filter Security Event ID 4688 or Sysmon Event ID 1; look for instances where the image ends with `\xordump.exe` and check the CommandLine for arguments suggesting it targeted `lsass.exe`.
+  - **Validate process execution:** Check Security Event ID 4688 for the command line associated with `xordump.exe`. Look specifically for parameters like `-process lsass.exe` or `-m comsvcs`. A legitimate use might involve different parameters, such as routine memory analysis tools not targeting LSASS or COM services.
 
-  - **Analyze command-line arguments:** Look for parameters `-m comsvcs`, `-m dbghelp`, or `-m dbgcore`; if present alongside the use of XORDump, it indicates potential malicious intent.
+  - **Examine parent processes:** Use Sysmon Event ID 1 to identify the parent process of `xordump.exe`. Malicious executions might have suspicious parent processes like `cmd.exe` or `powershell.exe`. Verify legitimate tools would have identifiable parent processes like `explorer.exe`.
 
-  - **Check for legitimate usage patterns:** Identify if any secure processes or applications in the environment utilize XORDump legitimately. This can include typical administrative tools or development activities, which may explain benign command-line arguments.
+  - **Assess execution context:** Review the User field in Event Log entries. Malicious execution often occurs under accounts with elevated privileges (e.g., SYSTEM or an admin). Check if the user account is associated with regular administrative tasks or appears anomalous.
 
-  - **Identify high-confidence malicious indicators:** Cross-reference any associated user accounts executing XORDump against historical activity. Look for suspicious logins or entity behaviors, especially on critical assets (e.g., domain controllers).
+  - **Analyze network activity:** Look for outbound connections that were initiated simultaneously with the XORDump execution via Windows Firewall logs or network monitoring tools. Malicious use may correlate with unusual exfiltration patterns or connections to unknown IPs.
 
-  - **Validate associated artifacts:** Search for new file creation or modifications, specifically targeting sensitive files or logs in the filesystem that might indicate a successful dump. This includes looking for common credential storage locations such as the Windows Credential Manager.
+  - **Check system logs for related activities:** Examine Windows Event Logs for abnormal logon events (Event ID 4624) or logoff events (Event ID 4634) around the same timeframe. A series of rapid logon/logoff activities may indicate credential harvesting attempts accompanying `xordump.exe` execution.
 
-  - **Assess the impact on critical systems:** Identify if the host running XORDump is part of a sensitive role, such as Active Directory or financial applications, which would heighten risk associated with credential access attempts.
+  - **Review for known YARA signatures:** Search for YARA signatures or hashes related to known malicious versions of XORDump in security software logs. A match would indicate prior awareness of the tool's malicious use.
 
   ### Prioritization
 
-  This alert is high severity due to its potential to expose sensitive credentials and facilitate lateral movement within the environment. The likelihood of malicious use is significant, as XORDump is a known tool associated with credential dumping, an activity frequently leveraged by attackers.
+  This alert is high severity due to its potential to indicate a direct attack on credential storage, affecting privileged access across systems. The likelihood of abuse is significant, considering the increasing weaponization of memory manipulation tools by adversaries in various environments.
 
   ### Blind Spots and Assumptions
 
-  There are limitations in detection effectiveness if logging configurations for process creation events are not robust or if Sysmon is not deployed. Legitimate system administrators may use similar command-line switches during troubleshooting, potentially generating false positives. A companion detection to enhance coverage would be monitoring for any LSASS access events to corroborate potential credential dumping activities.
+  This detection may miss instances where attackers disguise their use of XORDump with different command-line switches or alternative tools that mimic similar behavior. Required log sources include detailed process creation logs and configuration settings for Sysmon to enhance detection accuracy. Legitimate activities that could trigger this alert include debugging or troubleshooting performance issues in applications that are not associated with credential harvesting. Companion detections focusing on suspicious process behavior during credential access attempts can improve coverage and mitigate blind spots (e.g., detecting other credential dumping tools).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -15,9 +15,9 @@ author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2025-11-27
 tags:
 - attack.credential-access
+- attack.defense-impairment
 - attack.t1003.001
-- attack.defense-evasion
-- attack.t1562.001
+- attack.t1685
 logsource:
   category: process_access
   product: windows
@@ -66,30 +66,28 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious access to the LSASS.exe process from unusual sources utilizing the dbgcore.dll or dbghelp.dll libraries. The presence of these DLLs indicates potential credential dumping activities, as they are associated with functions capable of extracting sensitive information from the LSASS memory space. The likely attacker objective is to obtain user credentials for lateral movement or privilege escalation. This detection aligns with the MITRE ATT&CK techniques: Credential Access (T1003.001) and Defense Evasion (T1562.001).
+  This Sigma rule detects suspicious access to the Local Security Authority Subsystem Service (LSASS) process by examining the call trace of processes using `dbgcore.dll` or `dbghelp.dll`. Attackers often use these DLLs for credential dumping, targeting LSASS to extract sensitive information such as user credentials. The relevant MITRE ATT&CK techniques include Credential Dumping (T1003.001) and Process Injection (T1685).
 
-  Primary telemetry sources include Windows process access logs, specifically focusing on Event IDs related to process creation and memory access. If malicious, the action may lead to unauthorized access to sensitive user credentials stored in LSASS. Importantly, this detection does NOT confirm malicious intent on its own; legitimate activities such as software installations may trigger similar alerts.
+  The primary telemetry sources include Windows Process Access logs that capture events related to process interactions, specifically Event ID 4656 (Access Attempt) and Event ID 4688 (Process Creation). If this behavior is malicious, it could compromise user credentials and lead to further lateral movement or privilege escalation. Importantly, this detection does not confirm malicious activity on its own, as there may be legitimate processes that access LSASS under certain conditions.
 
   ### Investigation Steps
 
-  - **Review Call Trace:** Check for Event ID 4688 (Process Creation) to analyze the CallTrace field for `dbgcore.dll` or `dbghelp.dll` in conjunction with accessing `lsass.exe`. Malicious indicators include abnormal source paths accessing LSASS.
+  - **Review Process Access Logs**: Check Windows Security Event ID 4656 and 4688. Look for access attempts to `lsass.exe` from processes located in uncommon directories, particularly those using `dbgcore.dll` or `dbghelp.dll`.
 
-  - **Examine Source Path:** Validate the SourceImage file path against known benign locations. If the source is located in directories like `C:\Users\Public` or `C:\Temp`, this may indicate malicious activity, while `C:\Windows\System32` would be considered normal.
+  - **Identify Uncommon Process Locations**: Examine the `SourceImage` field in the logs. Legitimate access typically occurs from expected system directories (e.g., `C:\Windows\System32`). Any access from paths like `C:\Temp\`, `C:\Users\Public\`, or `C:\AppData\Roaming\` is suspicious.
 
-  - **Check for Granted Access Rights:** If access logs indicate a GrantedAccess value of '0x1fffff,' '0x10,' '0x1010,' '0x1410,' or '0x1438,' it is indicative of high-risk actions like memory dumping. Use Sysmon Event ID 10 (ProcessAccess) where possible.
+  - **Analyze Call Traces**: Use Sysmon (if available) to obtain detailed call trace information. Investigate whether the `CallTrace` field includes `dbgcore.dll` or `dbghelp.dll`. Legitimate use cases rarely invoke these DLLs for LSASS access.
 
-  - **Investigate Integrated Security Tools:** Determine whether legitimate applications (e.g., antivirus or monitoring tools) running from unusual locations are responsible for accessing LSASS. If legitimate processes invoke LSASS, note the context around how they do so.
+  - **Correlate with Recent Activity**: Cross-reference the timing of the alert with known software installations or updates that may generate false positives. Ensure no recent installations required legitimate LSASS access under these conditions.
 
-  - **Note Historical Context:** Cross-reference the event timeline with recent password changes or user access requests. Unexpected access attempts coinciding with these events may warrant further scrutiny for malicious intent.
-
-  - **Correlate with Network Traffic:** Use network monitoring tools to look for unusual outbound traffic or connections following the LSASS access. High-confidence malicious activity may align with unusual data exfiltration patterns.
+  - **Assess Granted Access Levels**: Although this selection is commented out in the rule, if enabled, inspect `GrantedAccess` fields for suspicious values (e.g., `0x1fffff`) typically used for dumping LSASS memory, indicating potential malicious intent.
 
   ### Prioritization
 
-  This alert carries a high severity due to the sensitive nature of LSASS and the potential for credential theft. The impact on systems where credential access occurs can lead to significant breaches and unauthorized access. The likelihood of malicious abuse is elevated as tools leveraging these DLLs are commonly observed in cyber attacks targeting credential harvesting.
+  This alert is high-severity due to the potential impact on the integrity and confidentiality of system credentials. The likelihood of malicious abuse is significant, as credential dumping is a common technique employed by attackers to gain unauthorized access. Given that tools employing `dbgcore.dll` and `dbghelp.dll` for malicious purposes have historical precedence, prompt investigation is critical.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations stem from the likelihood of false positives during legitimate software updates or installations, which may also access LSASS. Required logs include process access and creation events, which must be configured correctly to ensure comprehensive monitoring. Legitimate usage scenarios, especially from administrative tools or during system maintenance, may inadvertently trigger alerts. A related detection covering direct memory access attempts (using tools like Mimikatz) should be monitored to enhance overall security coverage.
+  The detection may be evaded if attackers implement techniques to camouflage their operations, such as using alternative methods for credential access. Accurate detection relies on the availability and configuration of Windows Process Access logging. Legitimate software installation and updating processes may trigger this alert, necessitating contextual awareness. A related detection rule monitoring for process injection techniques (such as those using `ntdll.dll`) can enhance overall detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

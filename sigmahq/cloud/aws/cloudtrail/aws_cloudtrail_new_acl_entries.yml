@@ -8,8 +8,8 @@ references:
 author: jamesc-grafana
 date: 2024-07-11
 tags:
-- attack.defense-evasion
-- attack.t1562.007
+- attack.defense-impairment
+- attack.t1686.001
 logsource:
   product: aws
   service: cloudtrail
@@ -23,40 +23,30 @@ falsepositives:
   internet into a public VPC
 level: low
 note: |
-  ---
-
   ### Technical Context
 
-  This rule detects the creation of new network ACL (Access Control List) entries in an AWS environment, specifically through the CloudTrail service. By doing this, it captures behavior that indicates potential changes to network security configurations, which could be leveraged by adversaries to manipulate access control for their objectives. The likely attacker objective is to open new attack vectors to facilitate unauthorized access or lateral movement within the AWS infrastructure.
+  This rule detects the creation of new network ACL (Access Control List) entries in an AWS environment. Such activities may indicate an attacker attempting to manipulate network configurations to open new attack vectors for data exfiltration or lateral movement. The relevant MITRE ATT&CK tactic is Defense Impairment (TA0042) and the specific technique is Application Layer Protocol Manipulation (T1686.001).
 
-  The relevant MITRE ATT&CK technique is **Defense Evasion (T1562.007)**, as changing ACLs may help an attacker evade existing network defenses. The primary telemetry source is **AWS CloudTrail**, specifically looking for events with **eventSource: ec2.amazonaws.com** and **eventName: CreateNetworkAclEntry**. If malicious, this behavior could significantly impact the confidentiality and integrity of data and resources by allowing unmonitored access. This detection does NOT confirm that the configuration change is malicious on its own—legitimate access configurations can trigger this rule as well.
-
-  ---
+  The primary telemetry source is AWS CloudTrail, particularly focusing on the event type "CreateNetworkAclEntry." If this action is malicious, it could allow unauthorized traffic into sensitive resources or applications. It is important to note that this detection does NOT confirm malicious intent by itself; legitimate changes can occur as part of regular network management.
 
   ### Investigation Steps
 
-  - **Review CloudTrail logs for the event:** Check CloudTrail for **eventName: CreateNetworkAclEntry** and correlate it with **eventTime, userIdentity, and sourceIPAddress** fields. For example, a log entry from an unexpected user or an anomalous IP should be flagged as suspicious.
+  - **Verify event details:** Review CloudTrail logs for the event `CreateNetworkAclEntry` (Event ID: 6). Check fields such as `eventTime`, `userIdentity`, and `sourceIPAddress`. If the user is an authorized network admin managing ACLs, classify as benign.
 
-  - **Cross-check against known legitimate changes:** Verify if the detected change matches documented maintenance or security governance activities. Legitimate actions may include enabling access for specific services or for public access to a public-facing workload.
+  - **Inspect network ACL changes:** Examine the updated ACL entries for any rules that allow access from unusual or untrusted IP addresses. Look for `ruleAction: "allow"` paired with known malicious IPs or ranges.
 
-  - **Investigate associated network traffic:** Utilize VPC flow logs to assess traffic before and after the ACL modification. Look for increased traffic patterns to the affected resources or unexpected inbound/outbound connections that could indicate post-configuration exploitation.
+  - **Assess affected resources:** Identify the route table affected by the new ACL entry to determine if it impacts critical resources such as publicly accessible instances or databases (e.g., check EC2 instance configurations and security groups).
 
-  - **Asses IAM role changes:** Check for any changes in IAM policies or roles coinciding with the ACL entry creation by reviewing **CloudTrail logs** for **eventName: PutRolePolicy** or **eventName: AttachRolePolicy** events, which may reveal an attempted elevation of privileges alongside the network changes.
+  - **Review prior activity:** Investigate prior CloudTrail logs leading up to the event to check for any suspicious activity, such as unauthorized IAM console logins or prior IAM permission changes.
 
-  - **Validate impacted resources:** Identify the resources associated with the modified ACL and their criticality level (e.g., public-facing web servers). If these resources are known to host sensitive data, classify the alert severity accordingly.
-
-  ---
+  - **Compare with expected behavior:** Identify recent legitimate changes to network ACLs by trusted admins. For routine developments, ACL changes are often accompanied by `CreateNetworkAcl` events; if these are missing, it raises red flags.
 
   ### Prioritization
 
-  This alert is considered **low severity**, as new ACL entries can stem from legitimate administrative use, such as enabling access for cloud applications or staff. However, given the potential for adversaries to exploit such changes, analysts must remain vigilant, particularly in public-facing contexts where misuse of ACLs can lead to significant data compromise.
-
-  ---
+  This alert should be considered low severity unless tied to critical assets, as the addition of ACL entries can typically be part of normal network management practices. However, the potential for malicious exploitation warrants closer inspection, especially if associated with compromised credentials or unauthorized accounts.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if CloudTrail logging is not enabled for the account, or if log retention policies are inadequate. Additionally, known benign activities, such as security updates for services, can trigger this alert. A companion detection to consider is monitoring for changes to **network security groups (NSGs)**, as they often relate to ACL changes and can provide insight into broader network manipulation attempts.
-
-  ---
+  The primary detection limitation includes potential legitimate activities by network admins, which may prevent missed detections if ACLs are frequently updated. Required log sources include comprehensive CloudTrail logging to capture all relevant API calls, particularly if AWS services are configured restrictively. Additionally, closely related detections, such as unauthorized IAM policy changes (e.g., `CreatePolicy`), could help provide wider coverage of potential compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -15,7 +15,7 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-18
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -39,30 +39,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of PowerShell commands that modify the Access Control List (ACL) of files or directories using the `Set-Acl` cmdlet. Attackers often aim to manipulate permissions to obscure malicious activities, prevent detection, or facilitate unauthorized access to sensitive data, particularly during lateral movement or data exfiltration stages in the attack lifecycle. The relevant MITRE ATT&CK tactics are **Defense Evasion** (T1071.001) and **Permissions Escalation** (T1068).
+  This rule detects the execution of PowerShell scripts that configure file or folder Access Control Lists (ACLs) using the `Set-Acl` command, indicating potential privilege escalation or obfuscation attempts by an attacker. The attacker may aim to manipulate permissions to prevent detection, alter access for sensitive files, or maintain persistence. This behavior aligns with the MITRE ATT&CK technique "Modify Existing Service" (T1505.005).
 
-  The primary telemetry sources include Windows process creation logs (Event ID 4688) and PowerShell logs (Event ID 4104). If malicious, this behavior can significantly impact system integrity and data security, allowing unauthorized modifications and potential data breaches. Importantly, this detection alone does not confirm malicious intent; legitimate administrative tasks may also perform similar actions.
+  The primary telemetry sources for this detection are process creation events from Windows, specifically Security Event ID 4688, which logs process initiation, and may include Sysmon Event ID 1. If the behavior is malicious, it could lead to unauthorized access or data manipulation. It is crucial to note that this detection does NOT confirm malicious activity on its own, as legitimate administration tasks may also invoke similar commands.
 
   ### Investigation Steps
 
-  - **Review Process Creation Events:** Check for Event ID 4688 in Windows logs for the execution of `powershell.exe` or `pwsh.exe`. Look for unusual parent processes, such as `cmd.exe`, that may indicate scripted or automated execution rather than manual invocation.
+  - **Verify Command Line Arguments:** Review the process creation logs for Security Event ID 4688 where `CommandLine` includes `Set-Acl`, `-AclObject`, and `-Path`. Malicious indicators would show these arguments targeting sensitive files or directories, such as system paths (`C:\Windows\System32`).
 
-  - **Analyze Command Line Arguments:** Inspect the command line arguments of the PowerShell execution for occurrences of `Set-Acl`, `-AclObject`, and `-Path`. Confirm that the target file or directory is associated with legitimate administrative tasks. Malicious indicators often include atypical or sensitive file paths.
+  - **Check Recent ACL Changes:** Correlate PowerShell execution with Security Event ID 5145 (File Share Object Access) to detect any changes in ACL settings that align with the command execution timestamp. Investigate any changes to high-risk files normally accessed only by admin users.
 
-  - **Correlate with PowerShell Logs:** Examine PowerShell logs (Event ID 4104) to gather additional context on the scripts being executed. Verify if PowerShell scripts employing `Set-Acl` are aligned with expected administrative behavior.
+  - **Review Host Role and Context:** Assess the executing host's role. If the command originates from a non-administrative account on a sensitive server (e.g., Domain Controller), this could indicate malicious intent. Compare with expected behavior of legitimate user activity for similar hosts.
 
-  - **Document Legitimate Administrator Actions:** Identify known operational activities performed by admins, such as scheduled script executions or group policy updates, that would utilize the `Set-Acl` cmdlet. Compare these against the alert context.
+  - **Examine Process Parentage:** Analyze parent processes of the PowerShell execution in Sysmon Event ID 1. Legitimate commands typically stem from well-known administration tools, while suspicious parent processes (e.g., unusual scripts or command shells) may indicate compromise.
 
-  - **Identify Malicious Indicators:** Look for known malicious indicators such as the targeting of system files, key directories (`C:\Windows`, `C:\Program Files`), or use of encoded command arguments, which may suggest obfuscation efforts by an attacker.
+  - **Query PowerShell Script Logs:** Investigate PowerShell logs (Event IDs 4103, 4104) for historical executions of scripts with `Set-Acl`. Frequent or unauthorized use can enhance the suspicion of misuse for privilege elevation.
 
-  - **Check for Evasion Techniques:** Investigate if there are modifications or controls in place that may suppress or bypass logs related to PowerShell execution, such as changes in logging levels or execution policies that obscure malicious behavior.
+  - **Confirm File Manipulation Artifacts:** For file exfiltration validation, ensure no unexpected file modifications occurred post-command execution, especially files that could indicate persistence mechanisms (e.g., `C:\Windows\System32\config\`).
 
   ### Prioritization
 
-  This alert has high severity due to the potential impact on system security and data integrity if an attacker is modifying file permissions for malicious purposes. The likelihood of abuse is significant, as permission changes are a common tactic in various attack scenarios, particularly for evading detection during lateral movements.
+  This alert is of **high severity** due to the critical nature of file permission changes that can compromise system integrity. The likelihood of abuse is elevated as this technique is weaponized for both evasion and privilege escalation. The context of the affected system further increases the risk, especially when targeting high-value assets.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations may include scenarios where PowerShell logging is disabled or insufficiently configured, allowing attackers to perform `Set-Acl` actions without triggering alerts. Legitimate activities that may trigger this rule include routine permissions changes by administrators in maintenance windows. A related detection for comprehensive coverage could involve monitoring for other PowerShell cmdlets associated with privilege escalation or access modifications, such as `Get-Acl` (T1061).
+  Detection limitations include scenarios where the script runs from benign administrative scripts that also call `Set-Acl`, leading to false positives. Ensure configuration of Windows Event Forwarding or similar log aggregation for comprehensive coverage. For companion detections, monitoring for unusual PowerShell execution or file permission changes via network shares (Security Event ID 5140) can enhance context and coverage against these behaviors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

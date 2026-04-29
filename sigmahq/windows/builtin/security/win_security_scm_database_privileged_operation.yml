@@ -9,7 +9,6 @@ author: Roberto Rodriguez @Cyb3rWard0g, Tim Shelton
 date: 2019-08-15
 modified: 2022-09-18
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.t1548
 logsource:
@@ -31,26 +30,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects non-system users attempting to perform privileged operations on the Windows Service Control Manager (SCM) database, specifically leveraging the 'SeTakeOwnershipPrivilege'. This behavior suggests that an attacker may be attempting to elevate privileges or manipulate services on a Windows host, often with the goal of establishing persistence or altering service configurations. The relevant MITRE ATT&CK technique is "Privilege Escalation" (T1548). Primary telemetry sources include the Windows Security logs, specifically Event ID 4674. If exploited maliciously, this activity could lead to unauthorized control over services, impacting system integrity and availability. Importantly, this detection does NOT confirm the success of the operation; it only indicates an attempt has been made.
+  This Sigma rule detects non-system users attempting privileged operations on the Service Control Manager (SCM) database via Event ID 4674. The likely attacker objective is to escalate privileges for unauthorized service modifications, potentially impacting system integrity or enabling further malicious activities. This behavior aligns with the MITRE ATT&CK tactic of Privilege Escalation (TA0004) and specifically technique T1548 (Abuse Elevation Control Mechanism).
+
+  The primary telemetry source is the Windows Security log, specifically monitoring Event ID 4674 which captures detailed information about privileged operations. If the detected operations are malicious, they may allow an adversary to gain control over system services, leading to broader compromise of the system. Notably, the detection does NOT confirm that the actions were successful or that any subsequent malicious actions were executed.
 
   ### Investigation Steps
 
-  - **Check Event ID 4674 logs:** Review Security Event logs for Event ID 4674. Filter for events where the 'ObjectName' is 'servicesactive' and 'PrivilegeList' includes 'SeTakeOwnershipPrivilege'. Assess which non-system user triggered the event.
+  - **Verify the event details:** Review Event ID 4674 in Security logs for Objective Type, Name, and User. Look specifically for `ObjectType: 'SC_MANAGER OBJECT'` and `PrivilegeList: 'SeTakeOwnershipPrivilege'`. Identify if the SubjectLogonId corresponds to a non-system user, e.g., `SubjectLogonId: '0x3e4'`.
 
-  - **Correlate with process details:** Identify the associated 'ProcessName' for the detected events by checking for 'services.exe' in the logs. Confirm if the parent process aligns with legitimate service configuration actions, indicating benign activity.
+  - **Identify typical service access patterns:** Cross-reference the Service Control Manager logs for `services.exe` activities logged during the same timeframe. Legitimate administrative users may perform similar actions; thus validate against scheduled maintenance or authorized deployments.
 
-  - **Investigate user permissions:** Examine the user's permissions and roles in Active Directory to determine if they should be capable of performing the detected actions. Legitimate administrative users typically have elevated permissions on SCM actions.
+  - **Check for previous successful logons:** Review related Event ID 4624 for the user account in question to analyze logon patterns. Frequent logons and service modifications in a short timeframe might suggest abusive behavior.
 
-  - **Identify high-confidence malicious indicators:** Look for repeated executions of Event ID 4674 from the same non-system user within a short timeframe, which may suggest malicious intent rather than typical administrative use.
+  - **Assess contextual system role:** Consider the criticality of the systems involved. Actions performed on critical servers (e.g., domain controllers or application servers) warrant immediate escalation.
 
-  - **Review surrounding context:** Validate if there are any associated logs from ID 4688 (Process Creation) for notable processes that may have executed around the same time. Check for instances indicating unusual service handling, like creating or deleting critical services.
+  - **Investigate the account's activity:** Look for any unusual behavior from the user account in the User Logon logs, such as excessive account lockouts via Event ID 4625 or activity outside normal business hours.
+
+  - **Look for correlated file system changes:** Examine file creation events (e.g., Event ID 4663) in directories related to service binaries, which may indicate added persistence mechanisms or other post-compromise activities by the user.
 
   ### Prioritization
 
-  The alert is assigned medium severity due to the potential risk of privilege escalation on affected systems. Given that non-system users generally should not perform such operations, the likelihood of malicious abuse is significant, particularly if correlated with known attack vectors, making this behavior a focal point for investigation.
+  This alert has medium severity due to the direct manipulation of the SCM database by non-system users, which can indicate a potential privilege escalation attempt. While privilege escalation tactics are commonly employed by adversaries, the likelihood of abuse directly correlates with the criticality of the affected system and the sensitivity of the services involved.
 
   ### Blind Spots and Assumptions
 
-  This detection may be bypassed by sophisticated adversaries who use stealthy privilege escalation techniques or modify their actions to blend in with normal activity. Reliable detection relies on proper logging configuration for Windows Security Events, specifically ensuring Event ID 4674 is being logged. Legitimate administrative activities such as service ownership changes by authorized personnel or system maintenance tasks could trigger the alert. Related detections include monitoring for suspicious account logins or unusual service startup events to further strengthen coverage against potential privilege escalation activities.
+  Detection may be limited by the absence of log entries from unmonitored actions or configured auditing levels that do not capture all privileged tasks. Evasion techniques could involve using legitimate admin accounts to share the same privileges, which may mask unauthorized activities. Moreover, legitimate software management activities may trigger this alert, such as authorized IT management actions, requiring more context for proper analysis. Companion detections such as monitoring for changes in service states (Event ID 7045) can enhance coverage against similar abuse patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

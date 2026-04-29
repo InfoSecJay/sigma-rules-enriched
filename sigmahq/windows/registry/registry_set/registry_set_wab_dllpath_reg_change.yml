@@ -12,7 +12,7 @@ author: oscd.community, Natalia Shornikova
 date: 2020-10-13
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: registry_set
@@ -29,30 +29,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects instances where the `WAB.EXE` process attempts to load a DLL from a registry path that deviates from the expected default path. The likely attacker objective here is to leverage `WAB.EXE` as a living-off-the-land binary (LOLBin) to execute malicious code through a non-standard DLL. This behavior correlates with the MITRE ATT&CK tactic "Defense Evasion" (ID: T1218) and the technique of "Signed Binary Proxy Execution" (ID: T1218.004).
+  This rule detects attempts to load a non-standard dynamic link library (DLL) through the Windows Address Book (WAB.EXE) by monitoring changes to the registry that specify an alternative DLL path instead of the default. The likely attacker objective is to leverage WAB.EXE as a legitimate process to execute malicious code, utilizing DLL sideloading techniques. This behavior fits the MITRE ATT&CK framework under the tactic "Defense Evasion" and the technique "Malicious DLL Search Order Hijacking" (T1218).
 
-  The primary telemetry sources include Windows Registry logs, specifically monitoring changes to the `HKEY_CURRENT_USER\Software\Microsoft\WAB\` path. Unauthorized DLL loading using `WAB.EXE` can result in significant security risks, as it may bypass traditional security methods. Notably, this detection does not confirm malicious activity on its own, as it could also be indicative of benign misconfigurations or legitimate administrative actions.
+  The primary telemetry sources required for detection are Windows Registry changes, specifically targeting the registry path `HKEY_CURRENT_USER\Software\Microsoft\WAB\DLLPath`. The security impact of malicious activity could lead to unauthorized code execution under a trusted process, resulting in potential data exfiltration or system compromise. It is important to note that this detection alone does not confirm malicious activity, as legitimate applications can also modify the DLL path if properly authorized.
 
   ### Investigation Steps
 
-  - **Review the registry key in question:** Examine `HKEY_CURRENT_USER\Software\Microsoft\WAB\DLLPath` for values differing from `'%CommonProgramFiles%\System\wab32.dll'` and document current values.
+  - **Check the registry value path:** Review the registry entry located at `HKEY_CURRENT_USER\Software\Microsoft\WAB\DLLPath` for anomalies. Malicious modifications typically involve paths that do not correspond to known good DLLs.
 
-  - **Analyze the process creation log:** Check Security Event ID 4688 for `WAB.EXE` execution events around the same timestamp as the registry change. Note the command line arguments used to determine if there is suspicious usage.
+  - **Verify DLL path legitimacy:** Compare the loaded DLL path to expected legitimate DLLs, such as `%CommonProgramFiles%\System\wab32.dll`. Any differences that point to unrecognized or suspicious DLLs should raise concerns.
 
-  - **Identify DLL file path:** Validate the path of the DLL specified in the registry entry and confirm whether it resides on the file system by checking for its existence via a file search (on endpoint telemetry or file system snapshots).
+  - **Analyze WAB.EXE parent processes:** Use Process Explorer or equivalent to examine the parent process that initiated WAB.EXE. Execute `Get-Process -Id [ProcessID]` to determine if a suspicious process (like an unexpected calling application) launched it.
 
-  - **Verify historical changes to the registry:** Use Event ID 4657 or Sysmon Event ID 13 to track previous states of the registry key, looking for recent changes that could indicate unauthorized manipulation along with the user context that performed these actions.
+  - **Identify execution context:** Look for related Event ID 4688 logs for process creation events associated with WAB.EXE. Check the `NewProcessName` and `CommandLine` fields for any unconventional arguments or paths.
 
-  - **Compare against known good behavior:** Confirm standard practices for `WAB.EXE` use in your environment, such as legitimate administrative scripts or authorized applications, by referencing application inventory or change logs.
-
-  - **Correlate with other security alerts:** Investigate for any additional alerts associated with the same user or system context, particularly those linked to unusual process execution or network connections, to build a comprehensive view of the activity.
+  - **Monitor for related behaviors:** Facilitate broader detection by checking if similar patterns are logged, such as unexpected entries in the same registry key or execution of other LOLBins (Living Off The Land Binaries) which may indicate a more extensive compromise.
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential for critical systems being compromised through the misuse of a trusted application. The deviation from the standard DLL path indicates a higher likelihood of being weaponized by an adversary, especially in environments where `WAB.EXE` is common for legitimate operations.
+  This alert should be treated as high priority due to the potential impact on critical systems where WAB.EXE could be misused. The malfeasance is likely to be weaponized, as attackers often utilize trusted binaries to bypass security measures.
 
   ### Blind Spots and Assumptions
 
-  This detection is limited by potential evasion techniques such as modifying legitimate applications or DLL files, which could mask malicious intent. Reliable detection requires complete logging of registry changes and process execution, particularly with detailed command line arguments. Legitimate use cases may include software updates or configurations that modify the DLL path for `WAB.EXE` for business purposes. A related detection could include monitoring for event correlations involving other LOLBins, such as `powershell.exe`, to enhance detection capabilities.
+  Detection may be limited by the absence of registry logging or changes not being captured if Windows auditing is not enabled. Legitimate software updates or application configurations could also lead to similar registry modifications. A companion detection worth noting is the monitoring of behavior involving other known LOLBins, like `rundll32.exe`, to strengthen detection coverage and provide context around possible attack vectors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -10,8 +10,8 @@ author: Florian Roth (Nextron Systems)
 date: 2022-04-06
 modified: 2023-04-12
 tags:
-- attack.defense-evasion
 - attack.credential-access
+- attack.stealth
 - attack.t1036
 - attack.t1003.001
 logsource:
@@ -48,28 +48,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects suspicious execution of the `DumpMinitool.exe` binary, which is often used for memory dumping on Windows systems. The primary objective of an attacker leveraging this tool would be to extract sensitive data from the memory of processes, typically to harvest credentials or other sensitive information. This behavior corresponds with the MITRE ATT&CK frameworks, specifically Tactics: **Credential Access** (TA0006) and **Defense Evasion** (TA0005), Techniques: **Credential Dumping** (T1003.001) and **Obfuscated Files or Information** (T1027).
+  This Sigma rule detects the execution of the "DumpMinitool.exe" binary, which may indicate potential credential dumping activities, particularly when certain command-line arguments are present or default settings are bypassed. The rule expects the behavior to align with attackers attempting to extract cached credentials or sensitive information from memory, typically using this tool due to its stealthy nature. The relevant MITRE ATT&CK techniques are Credential Dumping (T1003.001) and Masquerading (T1036).
 
-  The primary telemetry sources for this detection include Windows process creation logs, specifically filtered for Event ID 4688 (New Process Created) or Sysmon Event ID 1 (Process Creation). If utilized with malicious intent, the impact to the organization could be significant, potentially leading to data breaches involving sensitive user information. It is critical to note that this detection does NOT confirm malicious intent on its own, as `DumpMinitool` might be used legitimately in certain contexts.
+  Primary telemetry sources include Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which log process creation events along with command-line arguments. Should this behavior be malicious, it could lead to unauthorized access or data breach related to sensitive credential stores. Importantly, this detection does NOT confirm that credential dumping is occurring by itself; legitimate uses of the binary may trigger the rule.
 
   ### Investigation Steps
 
-  - **Verify Process Creation Logs:** Review Event ID 4688 logs for process creation of `DumpMinitool.exe` and note the parent process. A benign instance typically originates from a legitimate application context, such as Microsoft Visual Studio or testing frameworks.
+  - **Review Command-Line Arguments**: Inspect the command-line arguments of the executed instance of DumpMinitool. Look for flags such as “Full”, “Mini”, or “WithHeap” indicating command usage not commonly associated with benign use cases. Focus on the CommandLine field in Security Event ID 4688.
 
-  - **Analyze Command Line Arguments:** Look within the command line field for Event ID 4688 or Sysmon Event ID 1 for indications of suspicious flags, specifically `--dumpType` absence, as well as `Full`, `Mini`, or `WithHeap` presence. A lack of expected flags combined with high-use flags significantly increases the likelihood of malicious activity.
+  - **Inspect Process Image Path**: Confirm the Image path of the DumpMinitool process. Executions from non-standard directories could indicate suspicious behavior. Look for entries in Sysmon Event ID 1 where Image contains paths like `\Microsoft Visual Studio\` or `\Extensions\`. Legitimate executions should ideally source from usual system paths.
 
-  - **Investigate the Parent Process:** Examine the parent process's path to determine legitimacy. If executed from non-development directories (e.g., C:\Users\Public), it may indicate an unauthorized use case or attack.
+  - **Check for Suspicious File Creation**: Validate if any .txt files were created in connection with this process. The presence of newly created text files alongside the execution could suggest credential dumping, especially when matched with the susp_flags condition in the event of suspicious activity.
 
-  - **Check Output File Locations:** If possible, validate if any output files are created in unexpected locations (e.g., system folders or user profile directories) after `DumpMinitool` runs. Analyze file creation timestamps and user accounts associated with those files.
+  - **Analyze System Context**: Determine the role of the host where the DumpMinitool was executed. For instance, if the execution occurs on a domain controller or a sensitive server, it amplifies the potential risk and justification for further investigation.
 
-  - **Cross-reference with User Behavior:** Compare the execution time of `DumpMinitool.exe` against known user activity logs. Legitimate development or testing activities may correlate with its execution, whereas isolated runs during non-business hours may be considered suspicious.
+  - **Cross-reference with User Activity**: Review the user context under which DumpMinitool was executed. Compare with intended user roles and see if the user has legitimate access needs that would require such tools. Investigate any anomalous user behaviors or logins around the time of the alert.
+
+  - **Look for Related Indicators**: Identify if any sessions exist indicating other tools typical of credential dumping, like Mimikatz. For example, look for log entries indicating executions that relate to the use of memory access tools, as they may corroborate potentially malicious activity in conjunction with DumpMinitool.
 
   ### Prioritization
 
-  This alert is classified as high-priority in an enterprise context due to its association with credential theft and defense evasion tactics. Given the potential impact of compromised credentials and the tool's commonality in both legitimate and malicious activities, analysts should respond promptly to verify the context of the execution.
+  Alerts triggered by this rule should be prioritized as high due to the significant potential for data breach and credential theft if malicious. The impact is particularly severe if the activity is detected on high-value target systems, thereby increasing the likelihood of an adversary conducting credential dumping as this technique is frequently weaponized in real-world attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by incomplete logging configurations; ensure all relevant process creation events are captured. `DumpMinitool.exe` may also be executed through legitimate development activities involving debuggers or analysis tools, making contextual understanding essential. A related detection to consider is the monitoring of known credential dumping tools such as `Mimikatz`, which can be cross-referenced to strengthen coverage against memory manipulation attacks.
+  Detection may be limited by legitimate use cases of DumpMinitool in development environments, leading to false positives. Reliable detection necessitates proper logging of command-line arguments and system access paths. Additionally, scenarios where users may legitimately use similar tools, such as for testing purposes, could inadvertently trigger this rule. Companion detections, such as monitoring for process injections or unexpected use of memory scraping tools, can enhance coverage and context around this activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -9,9 +9,9 @@ references:
 author: '@kostastsale'
 date: 2024-08-16
 tags:
-- attack.defense-evasion
 - attack.execution
 - attack.command-and-control
+- attack.stealth
 - attack.t1218.011
 - attack.t1071
 logsource:
@@ -37,30 +37,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `rundll32.exe` utilizing the `oledb32.dll` library to open a User Defined Link (UDL) file. Such behavior is potentially indicative of an attacker attempting to exploit a legitimate Windows component for malicious purposes, often as a method for phishing to collect sensitive information.
-
-  The relevant MITRE ATT&CK techniques involved are Execution (T1203) and Defense Evasion (T1218.011). The primary telemetry source is Windows process creation logs, specifically focusing on Security Event ID 4688 and Sysmon Event ID 1 to capture process activity and command-line arguments related to `rundll32.exe`.
-
-  If executed in a malicious context, this behavior can allow an attacker to interact with the user’s credentials or other sensitive data. Importantly, while this detection flags suspicious activity, it does NOT confirm that the activity is malicious on its own; legitimate administrative actions could also trigger the rule.
+  This rule detects executions of `rundll32.exe` with the `oledb32.dll` library specifically used to open `.udl` files. This behavior is often exploited by attackers as a phishing vector to execute embedded scripts or capture sensitive data such as authentication credentials. The relevant MITRE ATT&CK techniques are Execution (T1218.011) and Command and Control (T1071). The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 for process creation and Sysmon Event ID 1. If the execution is malicious, it could compromise user credentials and lead to further unauthorized access or data exfiltration. However, this detection does not alone confirm malicious intent, as legitimate applications may also use `rundll32.exe` to manage database connections.
 
   ### Investigation Steps
 
-  - **Review command-line arguments:** Inspect the command line of the detected process using Security Event ID 4688. Check for `oledb32.dll` and ensure it contains `,OpenDSLFile ` followed by `.udl`. Legitimate usage may involve valid database connections; malicious activity typically exploits unusual or unexpected parameters.
+  - **Check the process creation logs**: Review Windows Security Event ID 4688 or Sysmon Event ID 1 for the creation of `rundll32.exe`. Look for ProcessID, CommandLine, and ParentImage fields. If the ParentImage is `explorer.exe`, it may indicate user-initiated behavior.
 
-  - **Check parent process:** Identify the parent process of `rundll32.exe` via Sysmon Event ID 1. If the parent is `explorer.exe`, correlate with user activity. Unusual context or timing may indicate malicious intent, while normal user actions may suggest benign activity.
+  - **Examine the command line parameters**: Analyze the CommandLine field for indicators such as inclusion of `oledb32.dll` and the ending of the command line with `.udl`. Legitimate parameter use will often resemble database connection tests, such as specifying valid paths rather than suspicious ones.
 
-  - **Examine download directory:** Verify the presence of the UDL file in the `\Users\*\\Downloads\\` directory indicated in the command line. Validate its origin and content. Malicious UDL files may contain credentials harvesting scripts.
+  - **Assess the UDL file path**: Validate the file paths referenced in the CommandLine field. Potentially malicious activity will typically involve paths pointing to user folders (e.g., `\\Users\\*\\Downloads\\`). Confirm that the downloaded `.udl` files are from known and trusted sources.
 
-  - **Analyze process behavior:** Use Sysmon Event ID 10 to track the execution tree and network activity associated with the `rundll32.exe` process, focusing on outbound connections. Unexpected connections or access attempts can signal malicious behavior.
+  - **Collect and review EDR telemetry**: Examine endpoint detection and response (EDR) logs for the presence of other suspicious activities following the execution of `rundll32.exe`. Identify any unusual network connections or additional processes spawned by `rundll32.exe`.
 
-  - **Cross-reference recent alerts:** Check for other related alerts involving `rundll32.exe` or UDL files. Repeated instances could indicate a pattern, strengthening the case for potential malicious activity.
+  - **Identify high-confidence malicious indicators**: Look for historical data on the specific UDL file being accessed. If it has been flagged in previous incidents or matches known artifacts related to phishing attacks, consider it a high-confidence indicator of compromise.
+
+  - **Review legitimate user activity**: If the execution appears benign, check for standard operating procedures involving database connectivity tests or administrative tasks that typically utilize `.udl` files within your environment.
 
   ### Prioritization
 
-  This alert holds medium severity due to the potential for information theft impacting users or the organization. The behavior is not frequently weaponized but represents a legitimate tactic for credential harvesting, thus warranting thorough investigation.
+  This alert should be prioritized as medium severity due to the critical nature of the systems involved and the potential for credential harvesting through phishing tactics. While such behavior is not common as a primary attack vector, it has been weaponized in certain contexts and should be investigated promptly.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss obfuscation techniques where attackers modify command-line arguments or use alternate execution methods to avoid detection. Reliable detection requires comprehensive logging (Sysmon and Windows event logs). Legitimate scenarios, such as troubleshooting or development tasks, may trigger the alert, resulting in false positives. Companion detections involving abnormal command-line activities or unexpected network connections would help enhance security posture against this threat vector.
+  Detection may be limited by user behavior and systems configuring logging appropriately for process creation events; lack of Sysmon or incomplete log collection can inhibit visibility. Legitimate developers or administrators may trigger this alert while testing database connections via UDL files. Related alerts, such as those detecting anomalous `rundll32.exe` behavior (e.g., invoking other DLLs or suspicious command line arguments), can enhance overall detection coverage and context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

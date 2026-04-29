@@ -10,8 +10,8 @@ author: Teymur Kheirkhabarov, Ecco, Florian Roth
 date: 2019-10-26
 modified: 2023-02-05
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1134.001
 - attack.t1134.002
 logsource:
@@ -48,30 +48,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `getsystem` command, an indicator often associated with Meterpreter or Cobalt Strike sessions, which is commonly used by threat actors for privilege escalation. The primary attacker objective is to gain elevated permissions on a compromised system, enabling further malicious actions such as lateral movement or data exfiltration. This behavior aligns with the MITRE ATT&CK techniques T1134.001 (Access Token Manipulation: Token Impersonation/Theft) and T1134.002 (Access Token Manipulation: Process Injection).
+  This rule detects the execution of the "getsystem" command in Meterpreter/Cobalt Strike, commonly used in post-exploitation scenarios to escalate privileges on a compromised Windows system. The attacker’s objective is to gain SYSTEM-level access, enabling them to manipulate the environment or access sensitive resources. It aligns with the MITRE ATT&CK tactic of "Privilege Escalation" (T1068), specifically techniques T1134.001 (Subverting Trusted Processes) and T1134.002 (Exploitation of Trusted Processes).
 
-  The primary telemetry sources required are Windows process creation logs, specifically Security Event ID 4688, and Sysmon Event ID 1. If this activity is malicious, it could lead to unauthorized access and control over critical systems, significantly impacting the organization's security posture. It is important to note that this detection alone does not confirm successful exploitation or persistence—it merely indicates suspicious command execution that requires further investigation.
+  The primary telemetry source includes Windows process creation logs, specifically looking for Event ID 4688 detailing command-line activity. If malicious, this activity poses a significant security risk, providing attackers with administrative control over the system. However, this detection does not confirm successful privilege escalation, as further investigation is warranted.
 
   ### Investigation Steps
 
-  - **Check process creation logs for Event ID 4688:** Look for command lines containing `/c`, `echo`, or `\pipe\`, initiated by `services.exe`. If found, verify the parent process to assess whether it follows known legitimate behavior. Legitimate services should not exhibit this command pattern.
+  - **Check process creation logs**: Review Windows Event ID 4688 for instances where the `ParentImage` ends with `\services.exe` and the `CommandLine` contains "/c", "echo", and "\pipe\". Look for known indicators such as `cmd` usage with unusual echo commands directed to named pipes.
 
-  - **Examine Sysmon logs (Event ID 1):** Review for any instances of `cmd.exe` or `rundll32.exe` that match the command patterns indicative of Meterpreter/Cobalt Strike usage. Note the timestamps and user context under which the processes were initiated for any anomalies.
+  - **Identify suspicious command patterns**: Search for Event ID 4688 where `CommandLine` includes 'rundll32' and '.dll,a' and check if it is associated with an unusual path, such as `C:\Users\[username]\AppData\Local\Temp`, suggesting potential misuse.
 
-  - **Query installed services:** Check if any new services were created within a short time frame before the alert was generated. Services created or modified unexpectedly may indicate malicious activity, especially if linked to the detected command execution.
+  - **Correlate with recent events**: Analyze related security events leading up to this alert. Queries for other log types like Windows Security Event ID 4663 (Access to an object) or 4672 (Special privileges assigned) can provide context on recent privilege changes or unusual access attempts.
 
-  - **Identify active network connections:** Look for outbound connections related to the executing process using tools like netstat or Sysmon (Event ID 18) to reveal potential communication with known malicious domains or IP addresses. Malicious indicators often include connections to unfamiliar external IPs.
+  - **Validate legitimate usage scenarios**: Review typical administrative commands executed via `cmd.exe` to distinguish between normal operations and malicious intentions. Analyze whether similar commands were executed by known system services or administrators.
 
-  - **Validate file paths and artifacts:** Investigate the presence of suspicious files within `C:\Users\{username}\AppData\Local\Temp\`, specifically those referenced in detected command lines. Artifacts related to Meterpreter, including dynamic link libraries (DLLs) or scripts, may suggest a deeper compromise.
-
-  - **Analyze user account activity:** Check the security logs (Event ID 4624) to identify any unusual logon patterns, particularly logons from service accounts or at non-standard times, which could correlate with the detected activity.
+  - **Check for MsMpEng.exe activity**: Since `MpCmdRun` indicates Windows Defender activity, confirm whether any recent detections from this process correspond with the event in question. If found, it might indicate legitimate scanning or remediation processes.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential compromise of administrative controls on critical systems, which may allow attackers to execute arbitrary commands and escalate access. The likelihood of malicious abuse is high, as the detected behavior directly correlates with tactics employed in active intrusions, making it a common vector for exploitation.
+  This alert has high severity due to the critical nature of the affected system that could allow attackers to gain full control. The likelihood of malicious abuse is significant, as privilege escalation commands are frequently weaponized in attacks. Given its detection of a sophisticated post-exploitation technique, immediate investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques such as using obfuscation within command lines or employing legitimate tools that should not trigger alerts. It's essential that the relevant log sources (Windows security event logs and Sysmon) are properly configured to capture this behavior consistently. Legitimate activities that may trigger the alert include the usage of scripting tools for system maintenance or management tasks. A related detection that strengthens coverage could involve monitoring for other common Meterpreter commands or privilege escalation attempts, such as any instances of `wmic` being executed with similar patterns.
+  Detection may be limited if logs are improperly configured or if the attack employs evasion techniques like obfuscating command-line arguments. Legitimate administrative actions, such as tool configurations executed under elevated privileges or automated scripts, can inadvertently trigger the alert. A companion detection rule focusing on unauthorized service creation or modifications would enhance coverage, alerting for behavior that typically precedes privilege escalation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

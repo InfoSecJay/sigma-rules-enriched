@@ -17,7 +17,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-08-14
 modified: 2025-02-24
 tags:
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1127
 logsource:
   category: process_creation
@@ -46,28 +47,30 @@ level: high
 note: |
   ### Technical Context
 
-  This detection rule identifies the execution of `aspnet_compiler.exe` when invoked from potentially suspicious paths, such as temporary directories or user-profile folders. Attackers may leverage this tool to compile malicious ASP.NET applications into assemblies, thereby obfuscating their actions or facilitating deployment of web shells. This behavior relates to the MITRE ATT&CK technique "Compile Application" (T1127), which demonstrates a phase where an adversary prepares a malicious payload to deploy for execution.
+  This detection captures the execution of `aspnet_compiler.exe` from atypical locations associated with ASP.NET compilation, particularly paths like `C:\Users\Public\`, `C:\AppData\Local\Temp\`, and others. Such behavior may indicate an adversary's attempt to exploit the ASP.NET framework for malicious purposes, possibly aiming to deploy web shells or other forms of web-based payloads.
 
-  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on Event ID 4688. If malicious, successful execution may lead to unauthorized code deployment, exfiltration, or lateral movement within the environment. It’s important to note that this detection does not confirm malicious intent on its own; legitimate use, especially in development contexts, may trigger the alert without further malicious behavior being present.
+  The relevant MITRE ATT&CK tactic is Execution (TA0002), specifically the technique T1127, which involves running a trusted process as a means to execute malicious code. The primary telemetry sources include process creation logs from Windows, specifically Event ID 4688 and Sysmon Event ID 1, capturing both the command being executed and its source path.
+
+  If malicious, this behavior could lead to unauthorized application deployment or remote access. However, this detection does NOT confirm that the activity is inherently malicious; it merely indicates potential misuse of a legitimate tool.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Inspect Windows Event ID 4688 logs for any instances of `aspnet_compiler.exe`. Filter for the specific Image path to assess for anomalies not normally associated with application development, such as invocation from `C:\Users\Public\` or `C:\Windows\Temp\`.
+  - **Check the process creation logs:** Review Windows Event ID 4688 or Sysmon Event ID 1 for instances of `aspnet_compiler.exe`, specifically filtering for the command line that includes paths such as `C:\Users\Public\`, `C:\AppData\Local\Temp\`, and others mentioned in the detection.
 
-  - **Examine command line arguments**: Analyze the CommandLine field for ancillary suspicious parameters or paths. Legitimate compilations typically reference project paths and build directories, while malicious ones may contain indicators of obfuscation or external URLs.
+  - **Inspect command line arguments:** Analyze arguments used with `aspnet_compiler.exe` in the command line to identify suspicious flags or targets. Legitimate usage often specifies valid project locations under trusted directories, unlike the suspected paths which may indicate evasion techniques.
 
-  - **Check parent process relationships**: Investigate the parent process ID to determine if `aspnet_compiler.exe` was executed from an unusual context. For instance, a parent process originating from a user application rather than a System or Management context could indicate potential abuse.
+  - **Cross-reference process parentage:** Investigate the parent process of `aspnet_compiler.exe`. If it was spawned by a script or a process like `cmd.exe` that is rarely used for ASP.NET compilations, it may suggest malicious intent.
 
-  - **Assess host role and criticality**: Ensure the flagged instance is running on a critical asset, such as a web server or application server. Higher criticality assets must have heightened scrutiny due to their exposure to the internet and potential targeting by adversaries.
+  - **Validate the execution context:** Examine the user account under which `aspnet_compiler.exe` was executed. Alerting activity from non-administrative or less-trusted accounts can indicate potentially malicious behavior, especially if the execution location is atypical for ASP.NET operations.
 
-  - **Validate file and network activity**: Look for temporary files created in response to the execution in folders such as `C:\AppData\Local\Temp\`. If files exhibit malicious naming patterns (e.g., obfuscation, unusual extensions) or unusual network activity is detected post-execution, this could reinforce malicious intent.
+  - **Look for subsequent file creations:** Check for any files created in temporary directories or web application directories immediately following the execution of `aspnet_compiler.exe`. Malicious indicators could include files with extensions typically used for web applications that were not previously part of the deployment.
 
   ### Prioritization
 
-  This alert is high severity due to the possibility of backend web exploitation or unauthorized application deployment that could lead to significant data breaches or system compromise. The risk is heightened because the exploitation of ASP.NET vulnerabilities is a known tactic employed by various threat actors.
+  This alert should be treated with high severity due to the potential impact on web application integrity and data confidentiality. Given the specific nature of the behavior, it poses a significant risk for exploitation if used maliciously. Moreover, the execution of `aspnet_compiler.exe` from non-standard paths is not typical and is commonly associated with weaponization attempts in environments lacking stringent controls.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss cases where legitimate applications use `aspnet_compiler.exe` from expected development directories. It assumes that critical paths and processes are appropriately monitored, which might not be the case in all environments. Log sources must be correctly configured to capture process creation telemetry consistently. Companion detections, such as monitoring file execution in known script interpreters or web server logs for abnormal traffic patterns following `aspnet_compiler.exe` execution, can enhance detection efforts.
+  Detection limitations include the possibility of legitimate uses of `aspnet_compiler.exe` from atypical paths, such as development scenarios or troubleshooting efforts by administrators. For reliable detection, ensure logging of all process creation events is enabled across the environment. Legitimate automated scripts or CI/CD pipelines might trigger this alert if not correctly configured. A good companion detection would be monitoring the creation or modification of files in the application directories following these executions to capture broader exploitation patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

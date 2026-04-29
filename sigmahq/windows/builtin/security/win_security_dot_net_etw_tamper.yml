@@ -22,9 +22,9 @@ date: 2020-06-05
 modified: 2022-12-20
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.defense-impairment
 - attack.t1112
-- attack.t1562
+- attack.t1685
 logsource:
   product: windows
   service: security
@@ -48,26 +48,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects changes in the Windows registry that disable Event Tracing for Windows (ETW) for .NET processes, specifically by monitoring registry keys that modify ETW settings. The likely objective of an attacker utilizing this behavior is to avoid detection by security monitoring tools, as disabling ETW can prevent tracking of suspicious .NET assembly loads. This activity maps to the MITRE ATT&CK tactic of Defense Evasion, specifically technique T1112 (Modification of Registry). The primary telemetry source is Windows Security log, particularly Event ID 4657 which logs registry value changes. If successful, malicious actors may conceal their activities, significantly increasing the risk of undetected persistence. Importantly, this detection does NOT confirm that malicious activity has occurred on its own; it only indicates a potential evasion technique that may warrant further investigation.
+  This Sigma rule detects changes to registry settings that disable Event Tracing for Windows (ETW) in .NET processes. Adversaries may target ETW to prevent logging of potentially malicious activity associated with .NET applications, hindering detection efforts. This behavior corresponds to the MITRE ATT&CK tactics of Defense Evasion (T1203) and Persistence (T1112), as the attacker may seek to maintain a foothold while impeding forensic efforts.
+
+  The primary telemetry source is Windows Security event logs, specifically Event ID 4657, which records changes to registry values. If malicious, disabling ETW could enable attackers to operate undetected, leading to escalated privileges, persistence, or data exfiltration. This alert does not confirm that an attack is occurring; it only indicates that a registry change has been made that could facilitate malicious activity.
 
   ### Investigation Steps
 
-  - **Review registry change details:** Inspect Security Event ID 4657 for modifications to keys under `\SOFTWARE\Microsoft\.NETFramework` and `\Environment`. Look for values `ETWEnabled`, `COMPlus_ETWEnabled`, and `COMPlus_ETWFlags`, all set to 0. Legitimate software may adjust these values briefly during installation or updates.
+  - **Review Event ID 4657 logs:** Check for registry modifications where `ObjectName` ends with `\SOFTWARE\Microsoft\.NETFramework`, `ObjectValueName` is `ETWEnabled`, and `NewValue` is 0. Note that legitimate software updates may also trigger this.
 
-  - **Correlate with application behavior:** Verify the types of .NET applications running on the system. High-frequency modifications by unknown or newly-installed applications to these keys without corresponding activity or expected patterns may indicate malicious intent.
+  - **Identify COMPlus settings changes:** Inspect Event ID 4657 for modifications where `ObjectName` contains `\Environment` and `ObjectValueName` is `COMPlus_ETWEnabled` or `COMPlus_ETWFlags` with `NewValue` set to 0. This may indicate attempts to suppress logging in the environment.
 
-  - **Check for abnormal process execution:** Examine processes that initiated shortly before the registry change using Sysmon Event ID 1. Look for unexpected .NET assemblies or unusual parent-child process relationships that might indicate exploitation or tampering.
+  - **Examine process activity:** Use Sysmon Event ID 1 to identify any recent process creations associated with applications that leverage .NET. Malicious activity may show abnormal process parent-child relationships or unusual command-line arguments.
 
-  - **Look for persistent changes:** Determine if the registry change is a part of an established malware tactic by checking for recurrent modifications in a short timeframe or across multiple systems. Malicious actors may attempt to reset these values frequently.
+  - **Verify normal application behavior:** Evaluate logs for legitimate processes that use ETW disabled settings during development or testing phases. Applications typically should not disable ETW in production environments.
 
-  - **Validate ETW functionality:** Assess whether there are other ETW providers active on the host. Disabling ETW for .NET processes could also be accompanied by activity targeting other logging providers, indicating a broader attempt at concealment.
+  - **Correlate with additional telemetry:** Look for combined events from other sources, such as PowerShell or WMI logs (Event IDs 4103 and 5861), that may point to scripting activity around the same timeframe as the registry modification. This could indicate a more extensive evasion tactic.
+
+  - **Check for persistence indicators:** Analyze system and user profiles for other persistence mechanisms that might be present alongside the registry change. Malicious actors might attempt to establish further means of maintaining access once ETW is disabled.
 
   ### Prioritization
 
-  This alert should be considered high-severity due to the potential for significant impact on security monitoring capabilities and the likelihood that such registry modifications are initiated by malicious actors to evade detection mechanisms. The behavior explicitly targets established security controls, which is characteristic of advanced persistent threats and other sophisticated adversaries.
+  This alert has high severity due to the critical nature of ETW in monitoring .NET application behavior. The likelihood of malicious abuse is significant, as disabling these logging mechanisms is a known tactic used by adversaries to evade detection. This behavior is not commonly benign and should be prioritized for analysis.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques where legitimate software might also modify these settings without being malicious; therefore, context is essential. Ensure that logging for registry changes (Event ID 4657) is consistently enabled across all production systems for reliable detection. Legitimate software installations may trigger these registry changes without indicating malicious activity. A companion detection, such as monitoring Sysmon logs for unusual process creation patterns or network connections relevant to .NET sessions, can enhance coverage and response capabilities.
+  Detection may be limited by the absence of detailed logging configurations needed for comprehensive ETW coverage. Attackers may leverage various evasion techniques, such as using different registry keys or modifying other ETW settings not covered by this alert. Legitimate system maintenance or application deployment might also trigger similar changes. Related detections, such as unauthorized PowerShell commands (T1059.001), should be monitored to strengthen overall defensive posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

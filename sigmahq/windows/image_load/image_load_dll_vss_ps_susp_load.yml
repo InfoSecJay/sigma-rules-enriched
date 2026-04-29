@@ -17,7 +17,6 @@ author: Markus Neis, @markus_neis
 date: 2021-07-07
 modified: 2025-07-11
 tags:
-- attack.defense-evasion
 - attack.impact
 - attack.t1490
 logsource:
@@ -65,30 +64,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of the `vss_ps.dll` by uncommon executables, a behavior that often indicates a potential attempt to manipulate or delete volume shadow copies by an adversary. The objective may be to hinder forensic investigations and data recovery efforts post-compromise. This detection aligns with the MITRE ATT&CK techniques of Defense Evasion (T1490).
+  This rule detects the loading of the `vss_ps.dll` by processes not typically associated with the Volume Shadow Copy Service (VSS). Attackers may use this technique to manipulate or delete shadow copies, hindering forensic efforts and data recovery. This behavior aligns with the MITRE ATT&CK technique T1490 - "Inhibit System Recovery."
 
-  The primary telemetry source includes Windows image load events, specifically looking for Event ID 4688 (Process Creation) where `vss_ps.dll` is loaded. If the load is performed by non-standard executables, it raises the risk of malicious activity on the system. While this detection indicates a potential misuse of shadow copy functions, it does NOT confirm malicious intent by itself, as there can be benign use cases for this DLL.
+  The primary telemetry sources are Windows image load events, specifically identifying instances where `vss_ps.dll` is loaded by uncommon executables. If this activity is malicious, it could signify potential data exfiltration or destruction. Importantly, this detection does NOT confirm malicious intent or behavior without additional context or correlation with other alerts.
 
   ### Investigation Steps
 
-  - **Check Event ID 4688 for process creation**: Review Security Event ID 4688 logs for process creation events that show the loading of `vss_ps.dll`. Filter for unusual parent processes not listed in the legitimate filter. Look for timestamps correlating with alert events.
+  - **Identify the loading process:** Check for events with `ImageLoaded` indicating `vss_ps.dll`. Focus on Event ID 4688 (Process Creation) and Sysmon Event ID 7 (Image Load) to find unusual loading processes.
 
-  - **Analyze command line arguments of parent processes**: If the parent process is `dismhost.exe`, verify that the command line does not include abnormal or suspicious arguments that could indicate a manipulation attempt (e.g., `dismhost.exe {SOME_UNEXPECTED_FLAG}`).
+  - **Examine command lines:** Review CommandLine fields in conjunction with the image load for suspicious execution context. Look for evidence of non-standard command lines associated with `dismhost.exe` or other legitimate processes.
 
-  - **Assess typical behavior of cited executables**: Confirm benign loads of `vss_ps.dll` to see if they originate from expected executables like `vssadmin.exe`, `taskhostw.exe`, or other common Windows processes. Refer to organization documentation for legitimate operational contexts.
+  - **Correlate with known benign processes:** Cross-reference identified processes against a list of legitimate processes that typically use `vss_ps.dll`, such as `vssvc.exe` or `svchost.exe`.
 
-  - **Identify high-confidence malicious indicators**: Look for processes such as `cmd.exe`, or `powershell.exe` spawning and loading `vss_ps.dll`. This combination is often associated with script-based exploitation tactics. Verify these events in Windows Security Event ID 4688 logs.
+  - **Investigate system criticality:** Assess the affected host's role (e.g., server, endpoint) and its criticality to determine the potential impact of the malicious behavior.
 
-  - **Review parent-child relationships in process creation**: Use Sysmon Event ID 1 to analyze the process tree for suspect executable and DLL loads. Examine closely any processes historically leveraged in prior incidents.
+  - **Monitor for high-confidence indicators:** Be alert for correlated events indicating malicious intent, such as subsequent attempts to delete shadow copies (using commands like `vssadmin delete shadows`) or excessive use of `vss_ps.dll`.
 
-  - **Inspect for signs of shadow copy manipulation**: Check for unusual creation or deletion logs in VSS through `vssadmin list shadows` and review for any unexpected activity, particularly around times when alerts were triggered.
+  - **Identify benign file creation:** Check for legitimate scheduled tasks or maintenance activities, like backups, which may normally invoke `vss_ps.dll`, to differentiate them from suspicious uses.
 
   ### Prioritization
 
-  The alert severity is high due to the implications of potential data destruction or forensic obstruction. The use of `vss_ps.dll` in unusual contexts strongly suggests an attempt by adversaries to interfere with critical backup functionalities, which could be weaponized during an active compromise.
+  This alert warrants high priority due to the potential impact on data integrity and the likelihood of exploitation. The loading of `vss_ps.dll` by untrusted processes is a tactic commonly weaponized by attackers seeking to disrupt investigations or evade detection.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by processes that are legitimately using `vss_ps.dll`, leading to false positives. Heavy reliance on certain log sources, like Windows Event logs for abnormal image loads, is critical for reliability. Typical legitimate activities may occasionally involve tools like backup software or system utilities that use this DLL as part of standard operations. A related detection worth implementing is tracking unusual command line executions (e.g., through PowerShell) that directly interact with VSS functions to ensure coverage on a broader attack surface.
+  Detection may be limited by the absence of logging for legitimate processes that trigger the rule, or due to unmonitored endpoints that do not have security logging enabled (e.g., older systems). Processes that run legitimate backup tasks might unintentionally trigger alerts, such as `backup.exe` or other backup solutions using `vss_ps.dll`. A companion detection to reinforce coverage is monitoring for changes or deletions of shadow copies, correlating with this alert for context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

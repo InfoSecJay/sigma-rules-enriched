@@ -10,7 +10,7 @@ author: Sander Wiebing, Tim Shelton, Nasreddine Bencherchali (Nextron Systems)
 date: 2020-05-26
 modified: 2026-02-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.005
 logsource:
   category: file_event
@@ -148,28 +148,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of executable files with names associated with legitimate system processes located outside of their expected directories (e.g., System32, SysWOW64). The likely attacker objective here is to disguise malicious executables as legitimate system processes to evade detection and execute payloads undetected. This behavior fits within the MITRE ATT&CK framework under the Defense Evasion tactic (TA0005), specifically using the technique "Masquerading" (T1036.005).
+  This rule detects the creation of executable files that share names with legitimate system processes but are located in non-standard directories, such as user profiles or temporary folders, rather than the expected system directories (e.g., System32). The likely goal of an attacker triggering this behavior is to blend in with legitimate system processes, potentially creating a backdoor or executing malicious commands while bypassing security solutions.
 
-  The primary telemetry sources for this rule are Windows file event logs, specifically targeting log types related to file creation. The security impact of this behavior could be significant, as it may indicate the presence of malware or other unauthorized software that can compromise system integrity. However, this detection alone does not confirm malicious intent or activity; legitimate administrative activity may also trigger this alert.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion**, specifically technique **Masquerading (T1036.005)**. The primary telemetry source for this detection is file creation events in Windows, specifically focusing on executable file types in user- or temp-specific directories. If malicious, this behavior poses significant risks, including unauthorized execution of malicious payloads with elevated privileges. However, this detection does NOT confirm that the identified executable is malicious, as it could be a legitimate software behavior dependent on the context.
 
   ### Investigation Steps
 
-  - **Check creation timestamps:** Review Event ID 4663 (File Access) logs for the creation of files at unusual times (e.g., after hours or during maintenance windows). Compare against normal business operations to assess legitimacy.
+  - **Check for recent file creation events:** Look for **File Creation Events (Sysmon Event ID 11 or Windows Event ID 4663)** concerning the flagged executable, noting the **creation time** and **user context**. Malicious activity typically shows rapid execution following creation.
 
-  - **Identify file location:** Verify the file creation path in the relevant logs. Maliciously created files in directories such as `C:\Windows\Temp\` or `C:\Users\[username]\AppData\Local\` may indicate suspicious activity. Legitimate system processes should be located in `C:\Windows\System32\` or similar standard directories.
+  - **Validate the file location:** Verify the path of the detected executable. Legitimate system processes should reside in **C:\Windows\System32\** or **C:\Windows\SysWOW64\**. Files created in **C:\Users\<username>\AppData\Local\Temp** or other unexpected directories are suspicious.
 
-  - **Correlate with process tree:** Analyze the process tree at the time of the alert using Sysmon Event ID 1 (Process Creation). Look for suspicious parent processes that spawn an executable with a system process name, especially from unexpected locations.
+  - **Identify abnormal parent process relationships:** Review the parent process of the executable creation using **Event ID 4688 (Process Creation)** to determine if it originated from a legitimate source or a suspicious process (e.g., cmd.exe, powershell.exe, or other system utilities).
 
-  - **Review file signatures and hashes:** Use tools to analyze the SHA256 hash of the detected files against malware databases (e.g., VirusTotal). A high confidence malicious indicator would be a file with a known malicious hash or signatures indicating tampering.
+  - **Examine user permissions and attributes:** Investigate if the user account associated with the executable creation has unnecessary administrative privileges. Malicious actors often utilize accounts with elevated rights for their actions.
 
-  - **Corroborate against known software:** Validate if the file name is associated with known legitimate software within the environment. Instances of legitimate software (e.g., remote management tools) should be documented in asset inventories.
+  - **Review file signature and hash values:** Use file properties to check the hash (SHA1/SHA256) of the executable. Genuine system files will usually have known hash values that you can validate against known databases (e.g., VirusTotal).
+
+  - **Check for related artifacts of execution:** Look for other indicators of compromise related to the execution of this application, such as **Windows Event ID 7045** (Service Installation) or evidence of network activity in **Firewall logs** or **Proxy logs** related to that executable's activity.
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential impact on critical systems, especially if the affected machine is a server or workstations with administrative access. The likelihood of malicious abuse is elevated, as attackers often utilize masqueraded filenames and paths to upscale their attack stealth. This behavior is commonly weaponized in various attack vectors, especially in advanced persistent threats (APTs).
+  This alert has medium severity as it indicates potential evasion techniques being used by an adversary. Given the nature of the affected executables, if confirmed as malicious, this behavior could allow attackers to maintain persistence or escalate privileges. While rare, similar techniques have been weaponized in active attacks against enterprises.
 
   ### Blind Spots and Assumptions
 
-  Limitations in detection can arise from legitimate administrative actions that may create executable files with system process names in unexpected locations, perhaps for testing or configuration purposes. Accurate detection requires appropriate logging configurations to capture all relevant file events. Additionally, benign software might use similar naming conventions leading to false positives. A related detection that can strengthen coverage would involve monitoring for abnormal command line parameters or parent processes spawning these executables to further investigate intent.
+  Detection may miss instances where an attacker successfully names their malicious executable after a benign application yet places it in an expected directory. Additionally, required log sources such as Sysmon and Windows Event Logs must be correctly configured to capture these file creation events reliably. Legititimate system management tasks like software updates may trigger the alert, which requires close scrutiny of the associated context. A companion detection might involve monitoring for unusual parent-child process relationships that indicate potentially malicious activity preceding or following the detected file creation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

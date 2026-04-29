@@ -12,7 +12,7 @@ date: 2021-08-03
 modified: 2022-03-03
 tags:
 - attack.discovery
-- attack.defense-evasion
+- attack.stealth
 - attack.t1497.001
 logsource:
   product: windows
@@ -34,30 +34,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of PowerShell commands that query system information to identify the presence of a virtualization environment. Specifically, it looks for commands that retrieve WMI objects, such as `Get-WmiObject` queries against `Win32_ComputerSystem` and `MSAcpi_ThermalZoneTemperature`. The likely adversary objective is to determine whether they are operating within a virtualized environment, which is often used to thwart analysis by security tools. This behavior is mapped to the MITRE ATT&CK technique T1497.001 (Virtualization/Sandbox Evasion).
+  This detection identifies PowerShell commands that may be employed by adversaries to query system properties indicative of a virtualized environment. The likely attacker objective is to evade detection mechanisms employed in security analysis environments, such as sandboxes. Relevant MITRE ATT&CK tactics include Discovery (TA0007) and the technique for detecting virtualization environments (T1497.001), where attackers seek to identify if their execution context is within a virtual machine to modify or terminate their activity accordingly.
 
-  The primary telemetry sources include Windows PowerShell script logs, which require Script Block Logging to be enabled. If successful, this detection could indicate an attempt to evade detection mechanisms, potentially allowing adversaries to proceed with malicious activities undetected. However, this rule does NOT confirm malicious activity by itself, as legitimate system tools or admins may use similar commands for valid reasons.
+  The primary telemetry sources required for this detection are PowerShell script logs, specifically those with Script Block Logging enabled capturing Command Text. If malicious, this behavior could allow an attacker to evade security mechanisms and maintain persistence without detection. Importantly, this detection does NOT confirm malicious intent on its own; it merely highlights a query that may be used for evasion.
 
   ### Investigation Steps
 
-  - **Review script execution context**: Check PowerShell Event ID 4104 (Script Block Logging) for `Get-WmiObject` and the specific WMI classes mentioned. Determine if the execution was triggered by an authorized user or a script with known benign purposes.
+  - **Check PowerShell Script Block Logs**: Review PowerShell script block logs (Event ID 4104) for entries containing `PayLoad = "Get-WmiObject"` or `gwmi`. This command indicates an attempt to gather system information that may be used to evade detection.
 
-  - **Monitor for unusual execution patterns**: Investigate the command invocations for frequency and source, focusing on specific accounts or systems that invoke these alerts frequently compared to established baselines.
+  - **Examine Command Context**: Look for parent processes of PowerShell (Event ID 4688 for process creation) and check if there's a preceding process with low reputability, such as `cmd.exe` or `powershell.exe`, spawning in a suspicious manner.
 
-  - **Prioritize systems involved**: Identify the impacted systems and their roles within the network. If they are critical assets (e.g., domain controllers, databases), prioritize further investigation.
+  - **Validate WMI Calls**: Cross-reference the PowerShell execution logs with the associated outputs from WMI queries (e.g., `Win32_ComputerSystem`). Ensure the expected outputs (like virtualization state) align with organizational infrastructure and standards.
 
-  - **Establish baseline of legitimate activities**: Document regular administrative activities using `Get-WmiObject` or similar commands for system inventory checks. Compare the alerting instance against documented workflow to assess legitimacy.
+  - **Identify Similar Legitimate Activity**: Determine if legitimate administrative users are executing similar PowerShell commands. Routine environmental checks for VM status may produce similar log entries but are often accompanied by other admin activities around configuration management.
 
-  - **Search for additional indicators**: Look for correlated alerts such as unexpected outbound connections (e.g., unknown devices querying public IPs) or other suspicious activity on the same host that could indicate broader malicious intent.
-
-  - **Evaluate response actions**: If malicious indicators are confirmed, check for signs of lateral movement or further exploit attempts using relevant logs, such as Security Event ID 4624 (logon events) or Sysmon Event ID 10 (process access).
+  - **Monitor for Evasion Artifacts**: Look for evidence of atypical file manipulations or scripts that could indicate a broader evasion effort (e.g., creation of temporary files containing the script). Check file creation times around suspicious events in the PowerShell logs to spot potential exfiltration attempts.
 
   ### Prioritization
 
-  This alert has a medium severity due to the potential for adversaries to utilize this technique to evade detection, particularly in environments with current exploitation activity. The presence of this behavior in a sensitive system raises concerns about a more significant security threat, given that many attackers commonly exploit virtualization awareness to enhance their operational security.
+  This alert should be considered medium severity due to the possible implications of a successful evasion tactic employed by an adversary. The likelihood of abuse is moderate, as detecting virtualization is a well-known method among threat actors seeking to bypass security mechanisms. This behavior is not commonly weaponized but may precede other tactics, amplifying its importance.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques could include the use of alternative commands or scripts that do not trigger this detection due to the absence of Script Block Logging. Additionally, the rule relies on a prerequisite configuration—if Script Block Logging is disabled, detection will not occur. Legitimate activities may include system admins conducting routine checks of system properties or inventory. Companion detection rules focusing on anomalous user behavior in conjunction with this rule can strengthen overall threat coverage, particularly those tooled for lateral movement assessments.
+  Detection may be limited by the absence of Script Block Logging or if users disable logging features to evade detection. Legitimate administrative tasks, like system health checks or performance monitoring scripts, may inadvertently trigger this alert. A related detection might be the monitoring of external WMI queries (Event ID 5858), which strengthens coverage against unauthorized data gathering attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

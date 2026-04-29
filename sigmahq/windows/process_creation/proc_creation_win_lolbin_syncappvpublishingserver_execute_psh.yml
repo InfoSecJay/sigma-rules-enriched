@@ -13,7 +13,7 @@ author: frack113
 date: 2021-07-12
 modified: 2022-10-04
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   category: process_creation
@@ -31,34 +31,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of arbitrary PowerShell code via `SyncAppvPublishingServer.exe`, typically used as a tool for Application Virtualization in Windows environments. The likely attacker objective is to leverage a trusted Windows process to circumvent security controls and execute malicious commands, which is indicative of an attempt to maintain persistence or perform reconnaissance. This behavior aligns with the MITRE ATT&CK technique ID T1218 (Signed Binary Proxy Execution), specifically the tactic of Defense Evasion.
+  This rule detects the execution of arbitrary PowerShell code via the `SyncAppvPublishingServer.exe` process. Attackers may leverage this technique to run malicious scripts or commands under the guise of a legitimate application, potentially leading to unauthorized access or data exfiltration. The relevant MITRE ATT&CK technique is T1218 - "Signed Binary Proxy Execution."
 
-  The primary telemetry sources for this detection are Windows process creation logs, particularly focusing on Event ID 4688 or Sysmon Event ID 1, that provide details about process creation, including command lines and image paths. Malicious execution of this kind could allow an adversary to bypass whitelists or traditional detection methods. However, this rule alone does not confirm that the activity is indeed malicious without additional context, such as known good usage patterns or user behavior.
-
-  ---
+  The primary telemetry source is Windows process creation events, specifically Event ID 4688 from the Security logs or Sysmon Event ID 1. If malicious, this behavior poses a significant security risk as it may circumvent traditional security controls, allowing for lateral movement and further exploitation within the environment. Importantly, this detection does NOT confirm that the execution was malicious without further context; legitimate administrative actions may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Review command line arguments:** Inspect the CommandLine field in Event ID 4688/Sysmon Event ID 1. Malicious indicators include the presence of `'"n; '` which indicates the execution of PowerShell commands. Legitimate usage typically does not include this syntax and may show normal Application Virtualization processes.
+  - **Identify Process Details**: Search for Sysmon Event ID 1 or Security Event ID 4688 for the `SyncAppvPublishingServer.exe` execution. Investigate the process creation time and parent process ID to identify unusual process lineage.
 
-  - **Analyze parent process relationships:** Correlate the process creation event with its ParentProcessId in logs to identify suspicious parent-child relationships. An anomalous parent process such as `explorer.exe` or an unrelated application could indicate malicious activity.
+  - **Examine Command Line Arguments**: Review the CommandLine field in the process creation events. Look for unexpected or malicious strings, especially if they include PowerShell commands (e.g., `-n;`). Legitimate usage will typically have standard App-V client parameters.
 
-  - **Confirm legitimate usage of SyncAppvPublishingServer.exe:** Identify known good usage patterns by reviewing historical logs to understand how `SyncAppvPublishingServer.exe` was used within the environment. Verification may include matching the user account and usage frequency to what is typically expected.
+  - **Correlate User Activity**: Check user logins and concurrent activities by referencing the Security Event logs (Event ID 4624). Ensure the executing user has valid reasons to run the application. Unfamiliar or unauthorized accounts executing this process are suspicious.
 
-  - **Check for frequent execution:** Monitor for repeated execution or high frequency of `SyncAppvPublishingServer.exe` processes, which may suggest scripting or automation by an adversary attempting to leverage this tool for malicious purposes.
+  - **Monitor for Post-Execution Actions**: Analyze subsequent events for signs of exporting, deleting, or modifying system files. Look for abnormal file writes in the Windows directory or other critical paths, as indicated by Event ID 4663 in the Security logs.
 
-  - **Correlate network activity for exfiltration attempts:** Look at recent outbound connections related to the executing user and process. This includes monitoring for suspicious network traffic artifacts in firewall or proxy logs that may indicate data exfiltration or command and control communication.
+  - **Review Environment Context**: Determine the asset type where this detection occurred. If flagged on a critical server (e.g., Domain Controller or SQL server), assign greater urgency, as this increases the risk of significant impact.
 
-  ---
+  - **Establish a Baseline of Legitimate Use**: Gather information on regular use of `SyncAppvPublishingServer.exe` in your organization. Document standard command line usage patterns to differentiate between benign and suspicious activity.
 
   ### Prioritization
 
-  This alert carries medium severity as it affects trusted processes on potentially critical systems. The likelihood of malicious abuse is elevated because unauthorized PowerShell execution is a common tactic in attacks. While certain benign uses exist in managed environments, the specificity of the command line can indicate exploitation of this process.
-
-  ---
+  This alert should be regarded with medium severity. If triggered on critical systems or by high-privileged accounts, it may indicate a higher likelihood of malicious activity. Executions using `SyncAppvPublishingServer.exe` are not typical, making this a notable candidate for further investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate applications using `SyncAppvPublishingServer.exe` for valid purposes without arousing suspicion. Accurate log configurations are essential for reliable detection; absence or misconfiguration of Windows security event logging may lead to missed detections. Additionally, common administrative tasks may trigger similar alerts. A related detection to consider is monitoring direct PowerShell execution via standard logs to strengthen coverage over PowerShell abuse in general.
+  The detection may miss instances where attackers employ alternate encodings, obfuscation, or invoke PowerShell indirectly. Ensure that audit settings are appropriately configured to capture all necessary process creation logs. Legitimate automated processes, such as App-V clients running their applications, can trigger this alert. A companion detection to consider is monitoring for unusual PowerShell command executions across the environment (Technique T1059.001).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

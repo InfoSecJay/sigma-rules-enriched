@@ -10,7 +10,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-01-25
 tags:
 - attack.execution
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: process_creation
   product: linux
@@ -29,30 +29,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of commands used to enable BPF kprobes tracing on Linux systems. The likely attacker objective behind enabling kprobes may include detailed surveillance of kernel and process behavior, which can facilitate further exploitation or lateral movement. This detection maps to the MITRE ATT&CK tactics of **Execution** (TA0002) and **Defense Evasion** (TA0005) with techniques including **Command and Scripting Interpreter** (T1059) and **Process Injection** (T1505).
+  This Sigma rule detects the execution of commands used to enable eBPF kprobes tracing on Linux systems. This action can be part of an adversary's toolkit for stealthy observability or data exfiltration, allowing them to inject probes into the kernel for monitoring system calls or modifying kernel behavior. The relevant MITRE ATT&CK tactics and techniques are Execution (TA0002) and System Interactions (T1557.001).
 
-  The primary telemetry sources are Linux process creation logs, specifically focusing on the command line fields that show the execution of kprobes commands. If malicious, this could indicate an attempt to gain deeper insight into system operations or to manipulate system behavior undetected. Importantly, this detection does not confirm malicious behavior on its own, as legitimate system administrators may enable tracing for debugging purposes.
+  The primary telemetry source is Linux process creation logs, specifically focusing on command execution details captured within the system's process auditing framework. If malicious, enabling kprobes could allow an attacker to eavesdrop on system operations, thus collecting sensitive data or facilitating further malicious activities. It’s critical to note that this detection does NOT confirm malicious intent on its own; legitimate system monitoring or debugging by administrators may also generate similar command executions.
 
   ### Investigation Steps
 
-  - **Examine command history for the process**: Review the command line arguments for processes associated with any alerts. Look for commands containing `echo 1 > /sys/kernel/debug/tracing/events/kprobes/...`. Expected benign activity could involve administrative tasks that aim to debug or analyze kernel functions.
+  - **Check process creation logs:** Review `auditd` logs or syslog for Process Creation Events containing CommandLine arguments matching `echo 1 > /sys/kernel/debug/tracing/events/kprobes/`. Look for unusual execution from non-administrative users.
 
-  - **Validate user account conducting the activity**: Assess the user ID (UID) of the executing command. If the UID is that of a service account, assess if there are legitimate purposes for running this activity. Elevated privilege abuse increases the concern for malicious intent.
+  - **Validate enabling of kprobe commands:** Identify whether commands like `/myprobe/enable` or `/myretprobe/enable` were executed. This may be seen in `dmesg` output or `/var/log/syslog`; any unexpected context or origin warrants further investigation.
 
-  - **Correlate with system logs**: Inspect `syslog` or `dmesg` logs for any kernel messages indicating changes in the tracing state or other suspicious kernel-level actions occurring around the same time as the detected command.
+  - **Assess the user context:** Determine the user and role executing these commands. Legitimate usage is typically limited to security or performance engineers; anything from standard user accounts should raise red flags.
 
-  - **Identify unusual parent processes**: Investigate the parent process ID (PPID) using `ps` or equivalent for processes executing kprobes. Legitimate commands would generally come from known administrative tools or scripts rather than obfuscated or unknown parent processes.
+  - **Correlate with network activity:** Review network logs for potential data exfiltration or suspicious outbound connections initiated shortly after kprobe commands were run, especially looking for connections to untrusted IPs or unusual ports.
 
-  - **Monitor for file modifications**: Check the Linux filesystem for changes under `/sys/kernel/debug/tracing/events/kprobes/`, especially files labeled with snippets of code or configurations that indicate a manipulation was executed recently.
-
-  - **Identify network activity from the affected host**: Look for outbound connections or unusual network traffic patterns originating from the host where kprobes were enabled. This could include connections to C2 servers if exploitation is ongoing.
+  - **Check for other kernel probing activities:** Examples include usage of tools like `bpftrace`. Review logs for related command executions and check for unexpected load modules in kernel space.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential security impact of unauthorized kernel tracing, which can be abused for reconnaissance or evasion. The likelihood of adversaries utilizing kprobes for malicious purposes is moderate, and while not ubiquitous, it is recognized in the context of sophisticated attacks.
+  The severity of this alert is medium, as it may indicate a targeted attempt to manipulate kernel-level processes for malicious purposes. The impact can be significant if sensitive data is exposed, and while enabling kprobes is a legitimate operation, it is often weaponized in modern attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques such as using alternative methods to enable kprobes which are not captured by this rule, or concealing command executions through encoded scripts. The detection requires appropriate logging configurations to capture real-time process creation events. Legitimate activities may include authorized performance diagnostics by system administrators. Related detections that bolster coverage may involve monitoring suspicious process creation behaviors or command executions stemming from atypical user sessions.
+  Evasion techniques may include running commands in a shell or using benign processes to mask their activity. The necessity for sufficient logging configurations, such as enabling process auditing (auditd), is critical for reliable detection. Legitimate kernel debugging activities may trigger this alert; however, correlating system roles and historical behavior can provide additional context. Related detections include unusual kernel module loads, which may further strengthen the overall coverage of kernel manipulation activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

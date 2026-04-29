@@ -10,9 +10,10 @@ author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and
 date: 2022-08-17
 modified: 2025-10-07
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -106,30 +107,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential DLL sideloading involving antivirus software by monitoring for the loading of specific DLLs that are part of known antivirus packages, such as McAfee or Avast, in unexpected or unauthorized contexts. Adversaries may aim to exploit legitimate DLL paths to load malicious payloads, thereby bypassing traditional security measures. This behavior aligns with the MITRE ATT&CK framework, specifically under the tactics of Defense Evasion (TA0005) and Persistence (TA0003), utilizing techniques such as DLL Search Order Hijacking (T1574.001).
+  This Sigma rule detects potential DLL sideloading attempts for various antivirus software, such as McAfee, Symantec, and others. DLL sideloading is a technique where a malicious actor places a malicious DLL in a directory where a legitimate application expects to find its own DLL, thus enabling the execution of malicious code under the guise of a trusted application. The likely attacker objective is to maintain persistence or escalate privileges on a system by exploiting trusted applications.
 
-  The primary telemetry source for this detection is Windows image load events, specifically those indicating which DLLs are being loaded by executable processes. If this behavior is confirmed to be malicious, it can lead to privilege escalation, unauthorized access to systems, or data breaches via malware disguising itself as legitimate software. Notably, this detection does NOT confirm that a malicious action has occurred without further corroborating evidence, such as the detection of abnormal process behavior or network communications.
+  The detection aligns with the MITRE ATT&CK framework under the tactics of Persistence (T1547) and Privilege Escalation (T1068), specific to the technique of DLL Side-Loading (T1574.001). Primary telemetry sources include Windows Event Logs related to image loads, particularly focusing on the `ImageLoaded` field associated with security event logs for process executions and C2 behavior. If successfully executed, this could lead to significant security impacts, including full system compromise. However, this detection does NOT confirm that the software being hijacked is indeed malicious on its own; further context and investigation are necessary.
 
   ### Investigation Steps
 
-  - **Verify the source of the alert:** Check Security Event ID 4688 for details on the process that triggered the DLL load, focusing on the parent process, command line, and user context. Specifically, examine the Image field for unexpected execution paths that diverge from standard antivirus execution paths.
+  - **Review Process Creation Logs:** Check Windows Event ID 4688 logs for associated process creations around the time of the alert. Look for parent processes, especially legitimate antivirus executables, as potential benign indicators.
 
-  - **Correlate DLL loads with known paths:** Review the image load telemetry (Sysmon Event ID 10 or equivalent) to confirm if the DLLs were loaded from expected directories. Compare against standard paths such as `C:\Program Files\McAfee\` or `C:\Program Files\Avast Software\` to identify discrepancies.
+  - **Correlate Image Loaded Events:** Identify relevant `ImageLoaded` events from Windows Security logs where the path ends with known potentially malicious DLLs (e.g., `log.dll`, `ashldres.dll`). Focus on `Event ID 4104` from Sysmon to verify chains of execution related to the detected DLLs.
 
-  - **Assess the legitimacy of activities:** Compare current activity against expected antivirus operations. For instance, legitimate antivirus functions may execute with parent processes indicating expected malware analysis tasks rather than atypical parent processes, like command line utilities or unusual scripts.
+  - **Examine DLL Path Validity:** Confirm that any detected DLL loads are consistent with known trusted installation paths of the antivirus software as per the detection criteria. If the DLL is loaded from atypical directories, this may indicate malicious activity.
 
-  - **Identify high-confidence malicious indicators:** Look for unusual DLL loading patterns in the telemetry, such as `\ashldres.dll` or `\lockdown.dll` loaded outside of designated directories, which should raise suspicion of potential sideloading.
+  - **Cross-Reference with Known DLLs:** Use the list of known benign DLLs from a resource like hijacklibs.net to filter legitimate software applications that might be flagged and eliminate false positive cases.
 
-  - **Determine the asset criticality:** Assess the role of the affected system within the organization (e.g., endpoint, server) and its standard software configurations to understand the implications of a potential compromise.
+  - **Investigate Endpoint Activity:** Analyze the behavior of the host from which the alert originated. Consider asset criticality; higher value endpoints running sensitive tasks (e.g., domain controllers, financial systems) should be prioritized for in-depth investigation.
 
-  - **Examine for file creation or exfiltration artifacts:** If sideloading is confirmed, investigate Network Event Logs and Data Loss Prevention logs for any unexpected outbound communications or file accesses related to the activity, especially concerning potential data theft.
+  - **File Creation and Modification Checks:** Confirm if there are any recent file creations or modifications within the directories associated with the antivirus installations, focusing on suspicious log files or DLLs that could indicate an attempted manipulation or sideloading (e.g., `C:\Program Files\Antivirus\`).
 
   ### Prioritization
 
-  This alert should be regarded with medium severity as it indicates potential abuse of legitimate antivirus software, which can lead to significant impact if malicious. The likelihood of exploitation through DLL sideloading is substantial as it is a common tactic among adversaries to evade detection and escalate privileges, making this behavior critical to investigate promptly.
+  This alert has medium severity in an enterprise context due to the potential for significant impact if a benign antivirus process is leveraged for malicious activity. The likelihood of malicious abuse is elevated given that DLL sideloading is a known evasion technique. However, the behavior may occur in legitimate applications that utilize similar DLLs, necessitating careful triage.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the presence of legitimate applications that load the same DLLs, which could trigger false positives; hence, context is crucial in analysis. The rule relies on accurate and comprehensive telemetry from image load events, and configurations must ensure all relevant directories and processes are logged thoroughly. Legitimate applications, such as Dell SARemediation or Canon MyPrinter, may produce similar alerts, necessitating additional review. A related detection to strengthen monitoring efforts is the tracking of unusual process creation patterns associated with the identified legitimate antivirus processes.
+  Detection limitations exist if the antivirus software is configured improperly or if necessary logging levels are not set. Legitimate applications using similar DLL names may inadvertently trigger alerts, leading to false positives. Adversaries could also employ code obfuscation or operate outside of typical paths to evade detection. A related detection is monitoring for unusual parent-child process relationships that involve known antivirus processes, further enhancing visibility on potential malfeasance.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

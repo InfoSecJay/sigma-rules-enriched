@@ -10,7 +10,7 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-06-01
 modified: 2025-10-07
 tags:
-- attack.defense-evasion
+- attack.defense-impairment
 logsource:
   category: image_load
   product: windows
@@ -30,26 +30,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of "Amsi.dll" by various living-off-the-land binaries (LOLBINs), such as `ExtExport.exe` and `rundll32.exe`. The likely attacker objective is to bypass embedded security features in Windows, specifically the Windows AntiMalware Scan Interface (AMSI), often to execute malicious scripts or payloads without triggering a security alert. This behavior primarily falls under the MITRE ATT&CK tactic of Defense Evasion and the associated technique "TA0005 - Defense Evasion" (T1562).
-
-  The primary telemetry source is Windows image load events, specifically focusing on processes that load the "Amsi.dll" library through suspicious binaries. If this behavior is malicious, it could indicate an effective evasion tactic used to bypass anti-malware detection. This detection rule does NOT confirm malicious intent on its own; it must be corroborated with further context and evidence.
+  This rule detects the loading of the Amsi.dll library via a "living off the land" (LOLBIN) process, specifically targeting processes commonly used by attackers to bypass security controls such as the Windows AntiMalware Scan Interface (AMSI). The likely attacker objective is to execute malicious payloads without raising suspicion, typically for credential dumping or privilege escalation. Relevant MITRE ATT&CK tactics include "Defense Evasion" (TA0005) and the techniques "Bypass Anti-Malware Tools" (T1203) and "Living off the Land" (T1218). The primary telemetry source includes Windows image load events, particularly the Event ID 400, which captures the loading of dynamic link libraries (DLLs). If this behavior is confirmed as malicious, it could indicate a serious compromise of the system, allowing the attacker to effectively operate undetected. Importantly, this detection does NOT confirm actual malicious activity or the success of any attack on its own; further investigation is necessary.
 
   ### Investigation Steps
 
-  - **Check process lineage for LOLBIN usage**: Review the process creation logs (Security Event ID 4688 or Sysmon Event ID 1) related to the detected `Amsi.dll` load. Determine if these processes were invoked by other malicious or suspicious processes, as legitimate apps typically won’t invoke Amsi.dll through these LOLBINs.
+  - **Check for Amsi.dll loaded by LOLBIN processes:** Review Windows Event ID 400 logs for instances where Amsi.dll is loaded by processes such as ExtExport.exe, odbcconf.exe, or rundll32.exe. Focus on the ImageLoaded field for '/amsi.dll' and correlate with surrounding process execution timestamps.
 
-  - **Analyze command-line arguments**: Investigate the command-line arguments of the parent processes to identify any suspicious parameters (e.g., encoded scripts) that might indicate malicious intent, specifically using Sysmon Event ID 1 or PowerShell logging (Event ID 4104).
+  - **Identify known legitimate usages:** Investigate whether the identified LOLBIN processes (e.g., ExtExport.exe) are part of normal operation for the affected host role, such as a database server or legacy application server. Check expected execution patterns documented in system configuration.
 
-  - **Review related event timestamps**: Confirm the timeline of execution for `Amsi.dll` loading by correlating timestamps with other alerts or logs, such as those from Windows Defender (Event ID 1116). Suspicious behavior often occurs in proximity to other alerts or confirmed breaches.
+  - **Gather contextual information from Sysmon logs:** Query Sysmon Event ID 7 for network connectivity related to the identified LOLBIN processes. Look for unexpected outbound connections, which could indicate malware communication.
 
-  - **Identify usage patterns**: Determine if `ExtExport.exe` or `rundll32.exe` are being used in a known and benign context, such as by IT or support personnel managing database connections or executing necessary system tasks, particularly in environments that frequently use these tools.
+  - **Correlate with other indicators of compromise (IoCs):** Verify if the behavior correlates with other known malicious indicators, such as unusual user account activity or alterations in permissions that may have occurred around the same time.
+
+  - **Validate process integrity:** Review the file properties of the associated processes (e.g., integrity checks, signatures) to distinguish between benign and potentially malicious versions. Ensure files have not been altered or replaced.
+
+  - **Monitor for follow-up execution steps:** If malicious activity is suspected, check subsequent logs (e.g., Windows Event ID 4688 for process creation) to track additional commands executed via PowerShell or other scripting engines.
 
   ### Prioritization
 
-  This alert is prioritized as medium severity given the affected process's potential role in executing scripts that bypass security measures. The likelihood of malicious abuse is moderate, as attackers often employ LOLBINs to evade detection, with the behavior being somewhat commonly weaponized.
+  This alert has medium severity due to the potential impact on critical systems, especially those performing sensitive functions. The likelihood of abuse is moderate, as LOLBIN processes are often leveraged in attacks. While detection of Amsi.dll loaded via these means is concerning, it is not necessarily indicative of a fully realized compromise without further evidence.
 
   ### Blind Spots and Assumptions
 
-  This detection has limitations, as legitimate administrative activities could trigger it, particularly in environments where `rundll32.exe` or `ExtExport.exe` are used for routine tasks. Additionally, complete telemetry from the necessary log sources, particularly for PowerShell activity and Sysmon logs, is required for reliable detection. A related detection, such as monitoring for unusual PowerShell execution (T1059.001), could enhance coverage and context for potential threats.
+  Detection limitations may arise if Amsi.dll is invoked by legitimate processes, which can create false positives. Reliable detection requires that image load event logging is fully enabled and monitored. Legitimate activities, such as administrative maintenance tasks involving database utilities, may occur and trigger this alert. Companion detections could include monitoring for PowerShell execution events (e.g., Event ID 4104) in unusual contexts to augment the analysis of potential blending abuse through LOLBIN processes.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

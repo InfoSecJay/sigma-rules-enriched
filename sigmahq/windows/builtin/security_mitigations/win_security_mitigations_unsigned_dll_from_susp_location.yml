@@ -11,7 +11,8 @@ modified: 2022-09-28
 tags:
 - attack.privilege-escalation
 - attack.persistence
-- attack.defense-evasion
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   product: windows
@@ -35,30 +36,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to load unsigned DLLs from suspicious directories such as user public folders or temporary directories by monitoring Code Integrity (CI) events. The likely attacker objective is to execute untrusted code to maintain persistence or escalate privileges on a compromised system. This behavior aligns with the MITRE ATT&CK technique for "Signed Binary Modification" (T1574.001), which indicates an evasion technique by leveraging unsigned binaries to bypass security measures.
+  This rule detects attempts to load unsigned DLLs from suspicious locations on Windows systems, specifically when the Code Integrity (CI) engine blocks the process. The behavior indicates a potential exploitation attempt, where an adversary seeks to execute unauthorized code that may lead to privilege escalation or persistence. This detection aligns with the MITRE ATT&CK technique for "Signed Binary Proxy Execution" (T1574.001).
 
-  Primary telemetry sources include Windows Security Mitigation events, specifically Event IDs 11 and 12. If successful, such loading could facilitate malicious operations without raising immediate alarms. However, this detection does NOT confirm malicious intent on its own; it merely indicates the presence of unsigned binaries being loaded from suspicious locations.
+  The primary telemetry sources for this detection include Windows Security Event Logs, specifically Event IDs 11 and 12 related to code integrity violations, which reveal attempts to enforce robust execution policies. If confirmed malicious, this behavior could compromise system integrity and provide unauthorized access to sensitive resources. It's essential to note that this detection does NOT confirm active compromise on its own; further contextual analysis is required.
 
   ### Investigation Steps
 
-  - **Review Event IDs 11 and 12 for image load attempts:** Check Windows Security logs (Event Viewer > Applications and Services Logs > Microsoft > Windows > Security-Mitigations) for Event IDs 11 and 12 that correspond to blocked DLLs.
+  - **Check recent process activities**: Review Security Event ID 4688 for process creation events around the same time as Event IDs 11 and 12. Focus on processes attempting to load unsigned DLLs from the paths listed in the Sigma rule. Legitimate applications typically load DLLs from system or application directories, not user directories.
 
-  - **Analyze the ImageName field for common malicious paths:** Look for DLLs loaded from paths such as `C:\Users\Public\` or `C:\Windows\TEMP\`, as these locations are often used by adversaries for dropping malicious payloads.
+  - **Identify the specific DLLs**: Examine the events for the names of the DLLs being blocked. Compare these against known software to see if they belong to legitimate applications. Unsigned DLLs from suspicious directories are high-confidence malicious indicators.
 
-  - **Correlate with existing whitelists:** Cross-reference the DLLs with known legitimate software to identify benign activity. Legitimate applications should not load unsigned DLLs from these directories.
+  - **Correlate user activity**: Investigate the user account associated with the flagged events by examining Event ID 4624 for account logon details. High-risk activities, such as Administrator accounts performing routine tasks in unusual non-system directories, may indicate malicious behavior.
 
-  - **Investigate execution context and parent processes:** Identify the parent process of any blocked execution using Sysmon Event ID 1. A legitimate parent (e.g., `explorer.exe`) may suggest benign behavior, whereas system processes or suspicious parent processes should raise flags.
+  - **Review file creation records**: For systems using Sysmon, validate File Creation events (Sysmon Event ID 11) around the timestamp of the detected block to see if any unsigned and potentially malicious DLLs were created or altered in suspicious locations.
 
-  - **Check system integrity and previously executed commands:** Review PowerShell history (Event ID 4104 if enabled) for suspicious commands leading to the execution of unsigned binaries, focusing on common PowerShell usage patterns for persistence.
-
-  - **Assess system role and criticality while responding:** Determine if the affected system is a high-value target (e.g., domain controller) to prioritize immediate investigation and remediation actions.
+  - **Assess application whitelisting**: Analyze Group Policy settings and local security policies regarding application control to determine if software restriction policies are effectively in place. An absence of controls may allow such suspicious activities to occur unchecked.
 
   ### Prioritization
 
-  This alert should be treated with high severity, particularly on critical systems where unsigned binaries pose significant risks of privilege escalation or persistence mechanisms. The likelihood of misuse is heightened given adversaries frequently exploit temporary and user directories for malicious payloads.
+  This alert is high priority due to the potential impact on the integrity of enterprise systems, especially if the affected system is critical infrastructure. The likelihood of malicious abuse is significant, given the common tactics employed by adversaries to deliver payloads using unsigned binaries from user-accessible directories. This behavior is frequently weaponized in attacks.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by systems configured not to log certain security events, making its reliability contingent on proper logging configurations. Legitimate software updates, plugins, or misuse of admin tools can trigger alerts as well. Companion detections for file creation or modification events in the same suspicious directories would enhance coverage and mitigate false positives.
+  The detection may not capture instances where signed binaries are misused or when legitimate unsigned binaries are used in a company-managed setting, posing a risk of false positives. Required log sources for reliable detection include the full capture of Windows Security event logs and Sysmon logs for comprehensive telemetry. Legitimate administrative tasks or automated updates may trigger alerts if they involve loading DLLs from the specified directories. A related detection to consider would be monitoring for unusual process creation events that could signal malicious actions beyond just unsigned DLL loading.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

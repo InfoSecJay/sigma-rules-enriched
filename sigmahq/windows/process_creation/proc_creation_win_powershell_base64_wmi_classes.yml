@@ -13,8 +13,8 @@ author: Christian Burkard (Nextron Systems), Nasreddine Bencherchali (Nextron
 date: 2023-01-30
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059.001
-- attack.defense-evasion
 - attack.t1027
 logsource:
   category: process_creation
@@ -79,32 +79,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects potentially malicious usage of PowerShell that executes Base64 encoded commands targeting specific Windows Management Instrumentation (WMI) classes. This technique is commonly employed by adversaries to execute commands stealthily, leveraging WMI to perform actions like creating shadow copies or scheduling jobs without attracting immediate attention.
+  This Sigma rule detects the execution of PowerShell commands that contain base64-encoded strings corresponding to Windows Management Instrumentation (WMI) classes like `Win32_ShadowCopy`, `Win32_ScheduledJob`, etc. Such behavior is typically associated with adversarial activity, where attackers use obfuscation techniques to hide malicious intents, such as creating system snapshots, scheduling tasks, or performing lateral movement. The likely attacker objective is to leverage these capabilities to persist within a network or exfiltrate data.
 
-  The likely attacker objective is to manipulate system configurations or gather information to further their attack goals, fitting within the MITRE ATT&CK framework under tactics such as Execution (T1059.001) and Defense Evasion (T1027). The primary telemetry source for this detection is process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1, which capture details about the invoked PowerShell process and its command line arguments.
-
-  If malicious, this behavior could allow adversaries to create unauthorized backups, modify system settings, or gain persistence on the system. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate administrative actions may also utilize these PowerShell commands.
+  This detection relates to the MITRE ATT&CK tactic: Execution (T1059.001: PowerShell) and may also relate to Anti-Detection Techniques (T1027: Obfuscated Files or Information). The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If the detected behavior is indeed malicious, it poses a significant security threat, potentially allowing an attacker to create unauthorized backups or execute scheduled tasks. However, this detection does NOT confirm malicious activity on its own, as there may be legitimate uses for these commands within operational environments.
 
   ### Investigation Steps
 
-  - **Review the PowerShell command line:** Check the command line arguments in Event ID 4688 (Windows Security) or Sysmon Event ID 1 for Base64 encoded strings, particularly those containing known patterns related to WMI classes like `Win32_ShadowCopy` or `Win32_ScheduledJob`.
+  - **Review Process Creation Logs**: Examine Windows Security Event ID 4688 and Sysmon Event ID 1 for processes related to `powershell.exe` or `pwsh.exe`. Note command lines that include base64-encoded strings indicating WMI class usage. Benign command lines may involve legitimate administrative tasks or scripts.
 
-  - **Identify abnormal process parents:** Analyze the parent process for the detected PowerShell instance. Legitimate PowerShell usage is often initiated from trusted processes such as `explorer.exe` or other administrative tools. Requests initiated from unusual parent processes (e.g., unknown executables) could indicate malicious activity.
+  - **Decode Base64 Command Line Parameters**: Decode the base64 strings extracted from the alert to analyze their content. This can reveal whether the commands correspond to legitimate administrative tasks or possible malicious activity.
 
-  - **Check for recent user activity:** Cross-reference the logged-on user from the detected PowerShell execution with user activity logs (e.g., Event ID 4624). Verify if this user has a legitimate reason to perform these operations, as unauthorized user accounts executing such commands can be a strong indicator of compromise.
+  - **Correlate with Recent Changes**: Check for recent changes in system settings or scheduled tasks using Windows Event ID 4697 (Service Created) and Task Scheduler logs. Unscheduled tasks that match the decoded commands can indicate malicious activity.
 
-  - **Investigate related log artifacts:** Examine the WMI logs (Windows Event ID 5857) for any execution of commands related to `Win32_ShadowCopy`, `Win32_ScheduledJob`, or other WMI classes to establish a timeline of events and potential system manipulation.
+  - **Investigate User Context**: Identify the user context from which the PowerShell command was executed using the `SubjectUserName` field in relevant logs. Legitimate administrators may use these commands, whereas anomalous accounts or service accounts should be scrutinized further.
 
-  - **Validate permissions and system state:** Assess the permissions of the executing user and the criticality of the affected system. If the system is a backup server or critical asset, the security impact of malicious actions is heightened.
+  - **Assess Host Role**: Consider the criticality of the asset where the activity was detected. For example, if these commands were executed on domain controllers or database servers, prioritize them for immediate investigation.
 
-  - **Look for associated malicious indicators:** Search through other logs (e.g., EDR solutions, firewall logs) to identify any additional anomalous activities or known malicious indicators associated with the detected PowerShell commands, using threat intelligence feeds where available.
+  - **Monitor for Evasion Techniques**: Look for signs of masking or redeclaration via aliases or obscured script execution paths. Check logs for patterns an attacker may use to bypass detection, such as non-standard encodings or unexpected parent processes.
 
   ### Prioritization
 
-  The alert should be considered high severity, particularly on critical systems, as it indicates potential abuse of administrative capabilities that could lead to substantial data exfiltration or further compromise. The likelihood of malicious abuse is significant, given the stealthy nature of WMI and Base64 encoding, both of which are techniques frequently weaponized in post-exploitation scenarios by threat actors.
+  The alert is considered high severity due to the critical impact of potentially malicious WMI interactions, especially on sensitive systems like servers and domain controllers. The likelihood of malicious abuse is high, as the use of base64-encoded PowerShell commands is often observed in real-world attacks, including ransomware deployment and lateral movement strategies.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments where WMI is heavily utilized for legitimate administrative purposes, potentially leading to false positives. Ensure that logging for PowerShell and WMI is comprehensively configured to capture all necessary details, including command line arguments. Legitimate administrative tasks may also trigger this alert, particularly during routine maintenance. A related detection to strengthen coverage can include monitoring for unusual WMI event subscriptions (MITRE ATT&CK technique T1046), which can indicate similar nefarious persistence mechanisms.
+  There are limitations in detecting truly stealthy operations; an attacker might employ additional obfuscation techniques that can evade this detection. Reliable logging of process creations is necessary; ensure Sysmon is configured appropriately to capture process creation events. Legitimate administrative tools and scripts can trigger this alert, so understanding context is crucial. A related detection that strengthens coverage is monitoring for suspicious user credential misuse via Windows Event ID 4624 (Logon).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

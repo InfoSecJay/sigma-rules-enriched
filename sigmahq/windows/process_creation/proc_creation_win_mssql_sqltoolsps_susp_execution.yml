@@ -12,8 +12,8 @@ date: 2020-10-13
 modified: 2022-02-25
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059.001
-- attack.defense-evasion
 - attack.t1127
 logsource:
   category: process_creation
@@ -33,28 +33,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects executions of PowerShell code initiated through the `sqltoolsps.exe` utility, which is part of Microsoft SQL Server Management Studio. This tool can be misused by attackers to execute arbitrary PowerShell scripts while circumventing typical logging mechanisms that monitor script block logging. The likely objective for an attacker is to perform unauthorized operations against SQL databases or exfiltrate information while remaining under the radar of security monitoring solutions.
+  This detection rule identifies the execution of PowerShell code through the `sqltoolsps.exe` utility associated with Microsoft SQL Server Management Studio (SSMS). Attackers may utilize this utility to execute malicious PowerShell scripts due to its stealthy nature, circumventing traditional logging mechanisms that might not capture the content of script blocks. The likely objective of an attacker employing this technique is to exfiltrate data, pivot within the environment, or perform lateral movement.
 
-  The rule corresponds primarily to the MITRE ATT&CK technique for PowerShell execution (T1059.001) and involves evasion tactics (T1127). The primary telemetry sources required for effective detection include Windows process creation logs (Event ID 4688) and potential Sysmon logs. Malicious behavior could lead to unauthorized data access or manipulation within databases, while this detection alone does not confirm malicious intent, as the execution may be part of legitimate SQL management activities.
+  This behavior aligns with the MITRE ATT&CK technique for Execution (T1059.001 - PowerShell) and Persistence (T1127 - Trusted Developer Utilities). The primary telemetry sources for this detection are Windows event logs, specifically focusing on process creation events (Event ID 4688 for process creation and Sysmon Event ID 1 for detailed analysis). Malicious exploitation of this behavior can lead to unauthorized data access or system compromise. Importantly, this detection does not confirm malicious intent on its own, as legitimate uses of `sqltoolsps.exe` can occur in normal operational contexts.
 
   ### Investigation Steps
 
-  - **Check the process execution source**: Review Event ID 4688 for `sqltoolsps.exe` and determine the ParentImage. Confirm that it does not originate from unusual or high-risk processes (e.g., `smss.exe` is legitimate under specific scenarios).
+  - **Check for process creation events:** Review Windows Security Event ID 4688 logs for processes initiated with `sqltoolsps.exe`, paying attention to suspicious parent processes.
 
-  - **Examine command line parameters**: Review command line fields associated with the execution to identify any anomalous or unexpected operations indicative of malware or data exfiltration attempts, such as data export commands.
+  - **Analyze parent process relationships:** Validate that the parent process is not `smss.exe` unless justified by expected behavior; legitimate execution typically involves a more common parent process like `powershell.exe` or SQL Server-related utilities.
 
-  - **Validate the context of the execution**: For expected behavior, verify that `sqltoolsps.exe` is executed during scheduled maintenance windows or by known administrative accounts, as opposed to anomalous times or from non-administrative roles.
+  - **Identify command-line arguments:** Look at the command-line arguments in Event ID 4688 or Sysmon Event ID 1 associated with the `sqltoolsps.exe` process. Malicious indicators can include unusual PowerShell commands or encoded scripts.
 
-  - **Identify linked processes**: Investigate any child processes spawned by `sqltoolsps.exe` that may indicate further malicious activities, focusing on Event ID 4688 for unexpected children processes or lateral movement indicators.
+  - **Evaluate execution frequency:** Determine if `sqltoolsps.exe` has been executed multiple times recently on critical assets, which may suggest an ongoing malicious campaign as opposed to isolated legitimate activity.
 
-  - **Check for frequency of execution**: Review the number of times `sqltoolsps.exe` has executed recently. A spike in these events could signal either an attack in progress or a misconfigured automation task needing further investigation.
+  - **Correlate with known benign usage:** Cross-check with system documentation or previous investigations to identify expected workflows that involve `sqltoolsps.exe`, infer context, and validate legitimacy.
+
+  - **Review for file creation or exfiltration:** Look for related file operations in Windows XML Application Event logs or Sysmon Event ID 11 (file creation), as attackers may attempt to stage data for exfiltration post-execution.
 
   ### Prioritization
 
-  This alert is considered medium severity. The impact could be significant if an attacker is using `sqltoolsps.exe` to perform unauthorized database activities. However, the likelihood of malicious abuse depends on the context of use, including whether the execution aligns with normal administrative operations. While the tool can be weaponized, its legitimate uses in database management reduce the urgency of every alert.
+  This alert holds a medium severity due to the potential impact on critical systems using SQL Server. The likelihood of abuse is moderate, as this attack vector is relatively rare but can be weaponized by threat actors aiming for stealthy execution. Close monitoring of systems handling sensitive data is recommended due to the sensitive nature of potential operations originating from this utility.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited as experienced adversaries could employ other legitimate tools or scripts to execute malicious code, bypassing this detection. Ensuring proper logging levels and settings for PowerShell script execution is critical for reliable coverage. Legitimate activities that may trigger this alert include automated SQL management scripts or valid administrative actions using SQL tools. A related detection rule monitoring direct PowerShell execution could enhance the overall visibility of potential misuse.
+  Legitimate usage of SQL tools or PowerShell scripts may inadvertently trigger this alert, particularly during administrative tasks or scheduled jobs. Detection may be limited if specific logging configurations are not enabled, such as ensuring detailed process creation logs are captured. Also, attackers may employ various evasion techniques, such as altering command-line arguments to make the activity appear benign. A companion detection of PowerShell activity via `Get-Command` or `Invoke-Expression` (T1059.001) would bolster the overall visibility into script execution in the enterprise environment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -8,8 +8,9 @@ author: '@SerkinValery'
 date: 2023-06-08
 tags:
 - attack.privilege-escalation
-- attack.defense-evasion
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -27,28 +28,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of unsigned modules by ClickOnce applications, specifically targeting any executable loaded from the `\AppData\Local\Apps\2.0\` path. Attackers may exploit ClickOnce deployment mechanisms to execute unsigned or malicious code, often bypassing standard security measures. The rule aligns with the MITRE ATT&CK technique of "Trusted Developer Utilities" (T1574.001), which enables adversaries to leverage trusted execution frameworks to maintain persistence or facilitate privilege escalation.
+  This rule detects the loading of unsigned modules by ClickOnce applications, which is a method used by adversaries to execute code with user permissions. The likely objective is to bypass security mechanisms such as Windows SmartScreen, enabling the execution of potentially malicious payloads without alerts or warnings. This behavior maps to MITRE ATT&CK techniques including Privilege Escalation (T1574.001) and Application Layer Protocol (T1071.001).
 
-  The primary telemetry source for this detection is Windows image load events, specifically monitoring the loading of executables within user profiles. If malicious, the loading of such unsigned modules could allow attackers to execute arbitrary code or implant malware on a targeted system. However, this detection alone does NOT confirm malicious intent; unsigned modules can also appear in legitimate software, particularly in development or testing scenarios.
+  The primary telemetry source is Windows image load events recorded under the Windows Event Log (specifically within the Application log), as well as Sysmon logs if configured. If malicious, this behavior could result in unauthorized code execution, leading to potential system compromise. It is important to note that the detection of this behavior does NOT alone confirm malicious intent; it requires further contextual investigation.
 
   ### Investigation Steps
 
-  - **Verify event logs for image loads:** Check Windows Event ID 4104 (from Sysmon) for details on any module loaded from `\AppData\Local\Apps\2.0\`. Look for the `Image` field containing this path.
+  - **Check the loading application source: **Verify the path for the loaded module against known installations, focusing on `C:\Users\<username>\AppData\Local\Apps\2.0\`. Legitimate ClickOnce apps usually load from this directory.
 
-  - **Check the signature status of the module:** Identify the `SignatureStatus` in the logs to establish if it is marked as 'false' or has an 'Expired' signature, which indicates non-compliance with security standards typical of legitimate software.
+  - **Review signature status: **In Windows Event ID 4658 (Image Load), inspect the `SignatureStatus` field for any entries marked as `Unsigned` or `Expired`. These statuses indicate potential risks, especially if paired with suspicious application behavior.
 
-  - **Correlate user behavior:** Match the loading event with user activity logs. If the user had recently initiated a ClickOnce application download or installation, this may suggest benign activity.
+  - **Assess the execution environment: **Investigate the context of the ClickOnce application execution. Use Sysmon Event ID 1 to trace the parent process ID and confirm whether it originated from a trusted application.
 
-  - **Identify known benign ClickOnce applications:** Prepare a list of expected applications within the organization that utilize ClickOnce for updates or installation. Compare logs against this list to differentiate between legit and suspicious activities.
+  - **Correlate with other alerts: **Cross-reference this event with potential related logs (such as AppLocker or Device Guard logs) for additional signs of policy violations or other suspicious loading events.
 
-  - **Review host impact:** Consider the criticality of the systems affected. If the ClickOnce application runs on critical infrastructure or servers, raise the urgency of the investigation due to potential severe impact.
+  - **Evaluate system impact: **Determine the criticality of the affected system. For example, loading unsigned ClickOnce applications on a domain controller could result in higher risks than loading them on a user workstation.
+
+  - **Collect further telemetry: **Look for file creation events (using Windows Event ID 4663) for any files created by the ClickOnce application. This can indicate whether the application is attempting to modify the system or escalate privileges.
 
   ### Prioritization
 
-  This alert warrants medium severity due to the potential for privilege escalation and persistence in an enterprise environment. The likelihood of misuse is notable, given that the behavior aligns with known exploitation techniques. Unsigned module executions are less common in legitimate enterprise contexts, increasing concern for potential malicious activity.
+  This alert holds medium severity due to its potential for impacting user workstations or servers when executing unsigned applications. The likelihood of malicious abuse is moderate, as attackers often weaponize vulnerabilities in trusted application environments. This detection, however, is not commonly seen in benign user behavior.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the lack of visibility into all ClickOnce applications executed in the environment, particularly if some instances rely on custom executables. It assumes proper logging configurations are in place to capture relevant telemetry. A common legitimate activity that may trigger this alert includes the installation of internal applications by developers or IT staff. Related detections, such as monitoring for new installations or updates of ClickOnce applications, can provide enhanced context and strengthen overall coverage against this technique.
+  Detection may be limited if logging is not adequately configured to capture image loads and associated event IDs. Legitimate corporate applications may load unsigned modules for functionality, particularly during initial installations. Additionally, obtaining companion detections from process creation or network connections may provide a more comprehensive view of the application's behavior and intent.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

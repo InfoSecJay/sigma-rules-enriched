@@ -15,8 +15,8 @@ author: frack113, elhoim, Tim Shelton (fps, alias support), Swachchhanda Shrawan
 date: 2022-01-16
 modified: 2024-01-02
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   product: windows
   category: ps_script
@@ -91,28 +91,30 @@ level: high
 note: |
   ### Technical Context
 
-  This detection identifies attempts to disable or alter the operational settings of Windows Defender using PowerShell commands, specifically through the command Set-MpPreference. The likely objective is to weaken system defenses, thereby facilitating further malicious activities such as installing malware or maintaining persistence. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1562.001).
+  This rule detects PowerShell commands aimed at modifying Windows Defender's settings, specifically those that disable key components such as scheduled scanning, real-time monitoring, and various protective features. The likely attacker objective is to disable or bypass security controls to facilitate further malicious activities, such as executing malware without interference from antivirus software. This behavior aligns with the MITRE ATT&CK framework under the tactic of Defense Evasion (T1562.001).
 
-  Primary telemetry sources include PowerShell script logs (specifically, Script Block Logging), which must be enabled for effective detection. If malicious, the impact could lead to unmonitored system activity, allowing threats to execute undetected. This detection alone does not confirm a successful compromise but indicates potential malicious activities requiring further investigation.
+  Primary telemetry sources include PowerShell script block logging, which captures the `ScriptBlockText` events when actions like `Set-MpPreference` are executed. If these commands are indeed malicious, it could lead to significant security risks, such as unprotected systems vulnerable to attacks or malware infections. This detection does not confirm that the action is malicious on its own, as it may also be triggered by legitimate troubleshooting activities.
 
   ### Investigation Steps
 
-  - **Review PowerShell logs for alterations:** Check logs for Event ID 4103 or relevant entries indicating PowerShell script execution, particularly for entries containing 'Set-MpPreference' and the various flags mentioned in the detection. Compare against historical logs to identify anomalies.
+  - **Review PowerShell Execution:** Check for relevant PowerShell script block logs (Event ID 4104) in Windows Event Viewer. Look for commands containing `Set-MpPreference` followed by parameters that disable Windows Defender features. Legitimate activities may include parameters specifically for troubleshooting purposes, such as `-DisableRealtimeMonitoring $true`.
 
-  - **Examine command parameters for intent:** Investigate which parameters were used with Set-MpPreference; particularly look for parameters that disable critical functions (e.g., `-DisableRealtimeMonitoring $true`). These indicate an intent to weaken security measures.
+  - **Analyze Source of Command:** Identify the user context and process initiating the PowerShell script using `Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PowerShell/Operational'; Id=4104}`. Confirm if the account executing this command has a history of legitimate administrative tasks or if it's unusual.
 
-  - **Identify context of PowerShell script execution:** Determine the user context and the machine from which the script was executed. Check for Event ID 4688 for process creation details, ensuring the script was not run by a trusted administrator for legitimate purposes.
+  - **Identify Malicious Indicators:** Focus on specific flagged options in the script block that indicate malicious intent, such as `-DisableRealtimeMonitoring $true` or `HighThreatDefaultAction Allow`. Cross-reference these parameters against known threat actor behaviors reported in threat intelligence feeds.
 
-  - **Validate against known benign PowerShell uses:** Compare the script against legitimate administration tasks to verify if it was part of regular maintenance activities (e.g., updating security configurations). Legitimate activity may involve clear documentation or structured change requests.
+  - **Contextualize in Historical Data:** Verify if similar commands were executed previously. Look for patterns of PowerShell usage that might indicate persistent behavior. Utilize logs from `Sysmon` (Event ID 1) to correlate process creation with unusual PowerShell activity.
 
-  - **Check for additional artifacts of compromise:** Look for signs of further compromise, such as unusual process behavior (Sysmon Event ID 1), unexpected file creations, or modifications in Windows Defender logs found in Event ID 5000, which could indicate successful evasion.
+  - **Assess Asset Criticality:** Determine the role of the affected system within the organizational environment (e.g., domain controller, application server). Critical systems are likely targets for disabling security protections, heightening the urgency of the investigation.
+
+  - **File Creation and Exfiltration Checks:** Monitor for any suspicious file creations or data exfiltration following the execution of the PowerShell commands. Utilize logs from file servers or endpoint security logs to detect any unusual file activities during or after the script execution.
 
   ### Prioritization
 
-  This alert is high severity due to the potential to disable critical system defenses on high-value assets, which may be targets for attackers. The techniques used to disable Windows Defender are commonly weaponized by adversaries to facilitate malware installation or persistence.
+  This alert is high priority due to its impact on system security and the potential for exploitation. The likelihood of abuse is significant, as disabling security controls is commonly leveraged by adversaries during attacks. Activities to tamper with Windows Defender are frequently weaponized in various malware campaigns.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if PowerShell logging is not properly configured or enabled. Adversaries might use obfuscation techniques to evade detection. Legitimate troubleshooting scripts might also trigger this alert. A related detection to consider is monitoring for new Windows services or scheduled tasks created shortly after a script execution, which could indicate further malicious activity.
+  Detection may be limited by the need for Script Block Logging to be enabled on monitored endpoints. Attackers could bypass detection using methods like obfuscation or by executing the command from an already trusted process. Additionally, legitimate administrative tasks, such as executable installation or troubleshooting, may trigger alerts, necessitating context for proper assessment. Related detections may include monitoring for unusual script execution patterns or anomalies in Windows Management Instrumentation (WMI) queries, reinforcing coverage for defense evasion tactics.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

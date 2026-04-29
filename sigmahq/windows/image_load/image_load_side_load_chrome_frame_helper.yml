@@ -9,9 +9,10 @@ author: Nasreddine Bencherchali (Nextron Systems), Wietze Beukema (project and
 date: 2022-08-17
 modified: 2023-05-15
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -32,28 +33,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects potential DLL sideloading of the `chrome_frame_helper.dll` file, which could indicate an attempt to load malicious code under the guise of a legitimate Chrome component. An adversary may aim to maintain persistence on a system by using this tactic to execute arbitrary code without raising suspicion. This behavior fits within the MITRE ATT&CK tactic for Defense Evasion and the technique of DLL sideloading (T1574.001). The primary telemetry source used is Windows event logging related to image loads, particularly from ImageLoad events. If malicious, this can lead to unauthorized code execution and possible system compromise. Notably, this detection does NOT confirm that malicious activity has occurred on its own; further investigation is required to validate intent and impact.
+  This rule detects attempts to load the "chrome_frame_helper.dll" from locations that are not legitimate, indicating potential DLL sideloading, a technique commonly used by attackers to execute malicious code. The likely attacker objective is to gain persistence and escalate privileges by injecting malicious code into legitimate application processes. This behavior correlates with the MITRE ATT&CK tactic of **Persistence** (T1547) and specifically technique **DLL Search Order Hijacking** (T1574.001).
+
+  The primary telemetry sources include image load events from Windows, specifically focusing on the paths through which "chrome_frame_helper.dll" is loaded. If the DLL is loaded from any unauthorized directory, it can signify a compromise. A malicious event could give an attacker a foothold in the environment, leading to further exploitation. It is important to note that this detection does NOT confirm that a successful compromise has occurred on its own; it only indicates suspicious behavior that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Validate image load event:** Examine Windows Event ID 4657 and Sysmon Event ID 7 for instances of `chrome_frame_helper.dll` being loaded from unusual paths (e.g., non-standard application directories). Legitimate loads typically occur from `C:\Program Files\Google\Chrome\Application\` or its corresponding program files.
+  - **Review event logs for suspicious DLL loads:** Check Windows Event ID 4104 (PowerShell), Event ID 4688 (Process Creation), and Sysmon Event ID 7 (Image loaded) for references to "chrome_frame_helper.dll" and log file paths. Look for baselines in legitimate processes that load this DLL as a comparison point.
 
-  - **Check for file integrity:** Investigate the file properties of `chrome_frame_helper.dll` using Windows Explorer or PowerShell. Look for digital signatures and creation dates. A legitimate file should be signed by Google, with recent creation dates correlating to standard Chrome updates.
+  - **Validate loaded image paths:** Investigate the paths from which "chrome_frame_helper.dll" is being loaded. If found under `C:\Program Files\Google\Chrome\Application\` or similar trusted directories, the event may be benign; otherwise, it may require deeper investigation.
 
-  - **Review parent process context:** Analyze Event ID 4688 to identify what process initiated the DLL load. A suspicious parent process (like `cmd.exe` or a non-browser executable) can indicate malicious intent. Legitimate loads typically originate from processes like `chrome.exe`.
+  - **Check for known malicious indicators:** Look for high-confidence malicious indicators such as a recently modified timestamp or unusual parent processes in the Event ID 4688 logs that initiated the loading of this DLL.
 
-  - **Correlate user activity:** Examine user access logs to verify if there was legitimate user interaction with the Chrome application around the time of the alert. Look for user agent strings and browsing history that match expected behavior.
+  - **Investigate user context:** Determine the user and their role associated with the process loading the DLL. For example, if a standard user account initiates a process that loads "chrome_frame_helper.dll" from an unexpected directory, this raises suspicion.
 
-  - **Assess file system changes:** Check for additional artifacts in the user's AppData directory or temporary directories that could indicate malicious persistence mechanisms, such as scheduled tasks or scripts left behind.
+  - **Document any associated artifacts:** Check for other potentially malicious downloaded files in the user's temporary or application data folders, including logs or data indicating unauthorized downloads or file executions during the timeframe around the alert.
 
-  - **Identify known malicious artifacts:** Cross-reference the file path and hash of `chrome_frame_helper.dll` against threat intelligence sources to identify any confirmed associations with malware campaigns or known exploits.
+  - **Compare against baseline legitimate behavior:** Reference legitimate instances of "chrome_frame_helper.dll" loading in your environment to establish a baseline. Review for expected behavior related to Chrome updates or system interactions.
 
   ### Prioritization
 
-  This alert is of medium severity in a corporate environment, given that it targets a commonly used software component and could indicate an attempt to exploit browser vulnerabilities. The likelihood of malicious abuse is moderate, as DLL sideloading techniques are sometimes weaponized in real-world attacks, but they may also result from benign misconfigurations or legitimate application updates.
+  This alert has medium severity due to the potential impact on system integrity if the malicious DLL is successfully executed. The likelihood of abuse is moderate, as DLL sideloading is a known technique utilized in various cyber attacks. This behavior can be commonly weaponized, particularly in targeted phishing or malware distribution campaigns.
 
   ### Blind Spots and Assumptions
 
-  This detection may have evasion limitations, as sophisticated adversaries may employ techniques to mask the DLL's true source or modify it to appear benign. Required log sources include Sysmon and Windows event logging enabled for comprehensive coverage. Legitimate application installations or updates may trigger this alert, particularly if file paths deviate due to misconfigured environments. A related detection to strengthen coverage includes monitoring for abnormal process creation (Event ID 4688) adjacent to DLL loads.
+  Detection may be limited by the adversary's ability to obfuscate DLL paths or by their use of alternative file names. Ensuring comprehensive logging for user activities, including application path access, is vital for reliable detection. Legitimate applications, such as software updates or user actions related to Chrome extensions, may trigger this alert inadvertently. Companion detections such as process injection or unusual network requests should be in place to bolster monitoring and context around the initial alert.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

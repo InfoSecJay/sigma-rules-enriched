@@ -9,7 +9,7 @@ author: frack113, Florian Roth (Nextron Systems)
 date: 2022-08-21
 modified: 2023-06-22
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218
 logsource:
   product: windows
@@ -46,36 +46,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects processes on Windows systems that are typically not designed to drop executable files to disk, such as Microsoft Office applications and other well-known legitimate applications. The likely attacker objective is to use these trusted processes (often referred to as LOLBins or Living Off The Land Binaries) to evade detection and facilitate malicious activities, such as downloading or executing malware. Relevant MITRE ATT&CK tactics include Defense Evasion (T1562) and the use of LOLBins (T1218).
+  This Sigma rule detects the creation of executable files on Windows systems by applications known for not typically generating such files. The behavior can indicate attempts to download or deploy malware using legitimate applications such as Microsoft Office or other commonly installed tools, potentially serving as a staging mechanism for further compromise. The behavior aligns with the MITRE ATT&CK technique **T1218: Signed Binary Proxy Execution**.
 
-  The primary telemetry source is Windows file event logs, capturing process activity that includes the creation of executable files (Event ID 4663 or Sysmon Event ID 11). If malicious, this behavior can lead to malware execution, system compromise, or further exploitation within the environment. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate applications can behave in ways that trigger this rule.
+  The primary telemetry sources for this detection are file event logs from Windows, specifically focusing on executable file creation activities. If the detection is confirmed as malicious, the security impact can be significant, possibly resulting in a successful malware infection, data exfiltration, or system compromise. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may trigger the rule under specific circumstances.
 
   ### Investigation Steps
 
-  - **Review process creation logs:**
-    Examine Security Event ID 4688 or Sysmon Event ID 1 for the processes mentioned in the rule. Look for unexpected instances of Microsoft Office applications or LOLBins attempting to drop executable files to disk.
+  - **Review the source application launching the executable creation**: Cross-reference the Application name (Image field) in the logs with known benign processes. Look for Event ID 4663 or Sysmon Event ID 11, especially when the source is from a legitimate office application like `wordpad.exe` or `mshta.exe`.
 
-  - **Verify dropped file locations:**
-    Check for Event ID 4663 or Sysmon Event ID 11 focusing on file creation in critical directories (e.g., C:\Windows\Temp, C:\Users\{username}\Downloads). Legitimate applications rarely create executables in these locations.
+  - **Analyze the created executable file attributes**: Check the file creation logs (TargetFilename) for any additional contextual data indicating the file's origin, like Event ID 4663 for file creation, confirming if it is a new `.exe`, `.dll`, or `.ocx` file that corresponds to suspicious activity.
 
-  - **Analyze command line activity:**
-    Investigate the command line arguments for the detected parent processes (using Sysmon Process Create Events) to identify any suspicious flags or URLs that indicate the downloading or execution of additional payloads.
+  - **Identify parental process details**: Extract details of the parent process from Sysmon Event ID 1 to assess if the behavior is initiated by a known benign process or an unexpected source that could indicate compromise.
 
-  - **Assess file types and permissions:**
-    Check the dropped file's properties to confirm the file extensions are as reported (.exe, .dll, .ocx) and evaluate their digital signatures. Legitimate software should have valid publisher signatures.
+  - **Check for network activity related to the executable**: Validate if there were any outbound connection attempts associated with the timestamp of file creation using Event ID 5156 from Windows Filtering Platform logs, which could show if the executable is trying to communicate externally.
 
-  - **Determine historical behavior:**
-    Investigate the history of the applications involved by checking Windows Event Logs for previous instances of these applications dropping files. Frequent triggers could indicate benign internal usage versus unusual behavior.
+  - **Establish legitimate behavior benchmarks**: Document normal scenarios where applications such as `wordpad.exe` legitimately create temporary files during operations. Compare the findings against the executed commands or dropped files linked to the alert.
 
-  - **Identify additional indicators of compromise (IoCs):**
-    Look for other alerts in SIEM correlating to the same host or user account, especially any prior suspicious network connections or abnormal behavior linked to the reported process.
+  - **Investigate for known associated indicators of compromise (IoCs)**: Conduct a search for established IOCs related to malicious use of the flagged executables, including MD5 hashes of known trojanized versions or links to malware campaigns leveraging them.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on critical systems where unauthorized executables could lead to data breaches or network compromise. The likelihood of malicious abuse is elevated given the use of trusted binaries to execute malicious actions. This behavior is common in sophisticated attacks designed to blend in and avoid detection.
+  This alert has a high severity due to the risk of malware installation through common applications, potentially exposing sensitive enterprise data. The likelihood of abuse is significant given that attackers often exploit trusted applications to bypass security controls. This method is a known tactic in the adversary's playbook, making immediate investigation essential.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by the legitimate use of software that can also invoke these behaviors, leading to false positives. Additionally, without endpoint monitoring in place, crucial logs (like file creation events) might not be captured reliably. Legitimate applications, such as Microsoft Office or utilities like CertUtil, can trigger this rule under specific conditions. A related detection may include monitoring for anomalous network activity from the same process, which strengthens detection coverage of potential exfiltration or command-and-control communication.
+  The detection may generate false positives due to legitimate application behavior, particularly in environments where the flagged executables are used for legitimate purposes (e.g., file conversion). Reliable detection depends on comprehensive log configurations for Windows file events as well as Sysmon instrumentation. Additionally, legitimate updates and patches may trigger similar behaviors, while companion detections for malware downloads from anomalous URLs would strengthen overall coverage and context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

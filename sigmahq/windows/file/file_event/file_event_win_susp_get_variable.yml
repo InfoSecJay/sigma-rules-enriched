@@ -13,8 +13,8 @@ date: 2022-04-23
 tags:
 - attack.privilege-escalation
 - attack.persistence
+- attack.stealth
 - attack.t1546
-- attack.defense-evasion
 - attack.t1027
 logsource:
   product: windows
@@ -29,28 +29,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of a file named `Get-Variable.exe` in the `Local\Microsoft\WindowsApps` directory, where PowerShell is executed. This filename is typically associated with legitimate PowerShell functionality, but adversaries may use it to evade detection by masquerading malicious binaries as valid commands. The likely attacker objective is to achieve persistence or elevate privileges by leveraging a trusted environment (PowerShell) while executing malicious code under the guise of a legitimate cmdlet.
+  This rule detects the creation of a malicious binary named `Get-Variable.exe`, which is executed by PowerShell. Attackers may use this technique to circumvent PowerShell's inherent security mechanisms by deploying a file that masquerades as a legitimate PowerShell cmdlet, fulfilling an objective of establishing persistence or executing commands stealthily. This behavior aligns with MITRE ATT&CK tactic "Persistence" (TA0003) and technique "Masquerading" (T1036).
 
-  The relevant MITRE ATT&CK tactics and techniques include T1546 (Event Triggered Execution) and T1027 (Obfuscated Files or Information). The primary telemetry sources required for this detection are Windows file event logs. The security impact is significant, as a malicious binary executed in this way can lead to further exploitation or data compromise. However, this detection does NOT confirm that the binary is malicious; further investigation is required to determine intent.
+  The primary telemetry source is Windows file event logs that capture file creation events. Specifically, the detection relies on monitoring local Microsoft Windows application directories where the malicious executable might reside. If malicious, this behavior indicates an elevated risk of unauthorized access and potentially further malware deployment. However, this detection does NOT confirm actual execution of the binary or any specific malicious activity beyond its creation.
 
   ### Investigation Steps
 
-  - **Check file attributes:** Review the file creation time and metadata for `Get-Variable.exe` in `Local\Microsoft\WindowsApps` (e.g., using PowerShell `Get-Item` or File Explorer). Legitimate files in this location should be time-correlated with system updates, not abnormal timestamps.
+  - **Verify file creation event:** Check Windows Security Event ID 4663 for 'Get-Variable.exe' creation within 'Local\Microsoft\WindowsApps'. Confirm timestamps aligning with the alert.
 
-  - **Analyze process activity:** Investigate process creation events (Security Event ID 4688 or Sysmon Event ID 1) related to `Get-Variable.exe`. Look for parent processes that indicate a potentially suspicious command line execution, such as PowerShell commands that invoke `Get-Variable`.
+  - **Analyze file properties:** Inspect the file properties of `Get-Variable.exe` for irregularities such as an atypical author or manipulation dates using a command like `Get-Item "C:\Users\<Username>\AppData\Local\Microsoft\WindowsApps\Get-Variable.exe"` in PowerShell.
 
-  - **Cross-reference with known malicious hashes:** Verify the hash of `Get-Variable.exe` against threat intelligence feeds or internal blacklist databases. Specific hashes associated with known malware should raise a high-confidence alert.
+  - **Determine PowerShell invocation context:** Examine PowerShell command history or logs, focusing on suspicious command execution around the time the file was created (Event ID 4104, where you can check for any commands that resemble an obfuscation pattern).
 
-  - **Identify PowerShell command usage:** Check PowerShell command invocation logs (e.g., PowerShell transcription logs or Event ID 4104). Legitimate use cases include typical administrative scripts and user activity; deviations may suggest exploitation attempts.
+  - **Assess legitimate usage patterns:** Confirm if legitimate applications or services commonly use `Get-Variable.exe`, and document typical behavior. For instance, legitimate PowerShell users typically access defined cmdlets without creating binaries.
 
-  - **Review security solutions alerts:** Collect alerts from endpoint protection solutions for additional context on this file's behavior or any detections related to `Get-Variable.exe`. Malware detection efforts may have triggered alerts that assist in determining malice.
+  - **Identify malicious indicators:** Look for anomaly patterns indicating malicious behavior, such as a subsequent execution of the `Get-Variable.exe` file using a command like `Get-Process | Where-Object { $_.Path -like "*Get-Variable.exe*" }`.
+
+  - **Monitor for persistence mechanisms:** Investigate if `Get-Variable.exe` is involved in task scheduling (via Event ID 4698), which may indicate attempts to maintain persistence and affect system integrity.
 
   ### Prioritization
 
-  This alert should be treated as high severity due to the likelihood of privilege escalation and the potential for unauthorized persistence mechanisms via a commonly used administrative tool (PowerShell). The behavior is indicative of advanced threats that often utilize obfuscation and evasion techniques, heightening the risk.
+  This alert carries high severity due to the potential impact on the affected system, particularly if it’s a critical endpoint. The likelihood of malicious abuse is significant, given the tactical use of masquerading techniques for exploitation and lateral movement. This behavior is often used in real-world attacks, making timely investigation crucial.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by the possibility of file renaming or hiding malicious actions that do not involve file creation. Additionally, if the logging level is inadequate, events may not be captured. Legitimate software installations or updates may create similar files that could trigger this rule without malicious intent. A related detection to consider is monitoring for suspicious PowerShell command execution patterns that could align with `Get-Variable.exe` usage, enhancing overall coverage against exploitation attempts.
+  Detection may be limited by the lack of comprehensive logging for file system activities; if file auditing is not enabled, creation events may not be captured effectively. Legitimate activities, such as software installations or updates, may also create executables with similar patterns. A related detection for improved coverage would be monitoring scheduled tasks for suspicious entries that could leverage the presence of `Get-Variable.exe` in known application paths.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

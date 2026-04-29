@@ -9,7 +9,7 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2024-06-24
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.005
 logsource:
   category: file_event
@@ -39,48 +39,28 @@ level: medium
 regression_tests_path: 
   regression_data/rules/windows/file/file_event/file_event_win_creation_system_dll_files/info.yml
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the creation of files with a ".dll" extension that use the names of system DLLs but are located in unexpected directories outside the standard system locations (e.g., "System32" or "SysWOW64"). The primary objective of an attacker in this context is likely to execute malicious code through DLL sideloading, attempting to evade detection by placing these files in less scrutinized locations.
-
-  This behavior maps to the MITRE ATT&CK tactic "Defense Evasion" and the technique T1036.005 (Masquerading: Duration). The primary telemetry source for this detection is Windows file event logs that capture file creation activities (Event ID 4663 or Sysmon Event ID 10). If malicious, such activities can lead to system compromise, unauthorized access, or persistence strategies.
-
-  It is important to note that this detection does NOT confirm malicious intent on its own; legitimate applications may also create these files in unusual locations for non-malicious reasons.
-
-  ---
+  This Sigma rule detects the creation of files with a ".dll" extension that have names identical to known system DLLs but are located in unusual or unexpected directories (e.g., outside of "System32" and "SysWOW64"). Such behavior suggests an adversary attempting to execute malicious code by sideloading DLLs, which is often targeted for stealth and evasion purposes. The primary MITRE ATT&CK tactic relevant here is "Defense Evasion" (ID: TA0005), specifically the technique of "DLL Sideloading" (ID: T1036.005). The primary telemetry sources are Windows file event logs indicating file creations, particularly focusing on directories that are atypical for legitimate system DLLs. The security impact of this behavior is significant; if malicious, it could allow an attacker to execute unauthorized code within the context of a trusted system process. However, this detection does NOT confirm that the detected file is being executed or utilized maliciously; further investigation is required.
 
   ### Investigation Steps
 
-  - **Review the creation path of the DLL:**
-    Verify the `TargetFilename` field in Event ID 4663 logs to ensure the DLL is created in a suspicious directory. Legitimate DLLs typically reside in "C:\Windows\System32\" or "C:\Windows\SysWOW64\".
+  - **Check event logs for DLL creations:** Examine Windows Security Event ID 4663 and File System event logs for file creation events, specifically filtering for ".dll" files in unexpected locations such as "C:\Users," "C:\Temp," or any user profile directory.
 
-  - **Correlate with process creation logs:**
-    Check Sysmon Event ID 1 logs around the same time to identify the parent process that created the suspicious DLL. A process like `powershell.exe` or `cmd.exe` may indicate malicious intent.
+  - **Validate against known good:** Compare the detected filenames against a hash database of legitimate system DLLs to determine if it registers as malicious or benign. Known hashes for legitimate versions can be cross-referenced using tools like VirusTotal or internal threat repositories.
 
-  - **Identify file size and hash:**
-    Calculate and analyze the hash (e.g., SHA256) of the suspicious DLL file. Compare it against known malicious DLL hashes from threat intelligence sources and local baselines.
+  - **Identify execution context of the file:** Investigate any related process creation logs (Event ID 4688) to see if the newly created DLL file is loaded by any executable. Pay close attention to processes with abnormal parents or command-line arguments.
 
-  - **Examine user context:**
-    Investigate the user context that created the DLL using Event ID 4688 (process creation log). Unusual user accounts, especially those with limited access rights, can indicate potential misuse.
+  - **Assess asset vulnerabilities:** If detected on critical hosts (e.g., domain controllers or financial servers), prioritize analysis due to the high risk and potential impact of any malicious files created on these systems.
 
-  - **Assess recent software installations or updates:**
-    Review logs from Windows Installer events (Event ID 1033) or any recent installations. Third-party software might bundle versioned system DLLs in their own directories, leading to legitimate file creation.
-
-  - **Check for execution or access attempts:**
-    Confirm if there have been attempts to execute or access the affected DLL file using Windows Security Event ID 4688 or Sysmon Event ID 11. Legitimate files may not have been executed or frequently accessed.
-
-  ---
+  - **Review installation or update software behaviors:** Document and evaluate if third-party software installations recently occurred that could explain the file creation legitimately; review installation event logs (Event ID 11707) for installations that may generate such DLLs.
 
   ### Prioritization
 
-  In an enterprise context, this alert is of medium severity. The likelihood of malicious abuse is moderate since attackers commonly leverage DLL sideloading techniques to execute payloads. However, the impact is elevated on critical systems where malicious DLLs could lead to significant breaches or system failures.
-
-  ---
+  The alert's severity is medium. While the behavior can indicate malicious activity, it may also reflect benign actions by legitimate software installations. The likelihood of abuse is moderate as DLL side-loading techniques are commonplace among advanced threat actors, but initial baseline data is necessary to filter false positives effectively.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded if attackers mask their activities by using obscure directory names that aren't commonly monitored. The necessity of correct and comprehensive logging is essential; without capturing file events adequately, detection could fail. Additionally, legitimate software updates or installations may trigger these alerts. A related detection rule for monitoring process injection (T1055) would complement this coverage and enhance overall forensic insight into malicious activities.
+  Detection may miss instances where an attacker invokes legitimate processes to load the DLL. Ensuring all relevant file system monitoring is in place is crucial; some environments may lack comprehensive logging configurations. Legitimate applications may occasionally trigger this rule when updating or creating required components, such as by third-party installations from trusted vendors. A related detection to consider involves monitoring for process injections or unusual command lines in Event ID 4688 to supplement DLL detection efforts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

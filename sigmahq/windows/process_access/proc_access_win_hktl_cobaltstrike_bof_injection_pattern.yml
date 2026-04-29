@@ -11,9 +11,9 @@ date: 2021-08-04
 modified: 2023-11-28
 tags:
 - attack.execution
+- attack.defense-impairment
 - attack.t1106
-- attack.defense-evasion
-- attack.t1562.001
+- attack.t1685
 logsource:
   category: process_access
   product: windows
@@ -30,30 +30,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the injection of Cobalt Strike's beacon payload, specifically monitoring for calls to Windows system libraries (ntdll.dll and KERNELBASE.dll) that exhibit patterns consistent with process injection techniques commonly used by adversaries. The primary attacker objective is to gain persistence or execute arbitrary code within the context of another process, aiding in further exploitation or lateral movement.
+  This Sigma rule detects process injection attempts characteristic of Cobalt Strike, specifically through its use of certain system DLLs (ntdll.dll and KERNELBASE.dll) to inject into other processes. The likely attacker objective is to execute malicious payloads within the context of legitimate processes, facilitating evasion of security controls and persistence within the environment. This behavior corresponds to MITRE ATT&CK tactics: Execution (T1106) and Defense Evasion (T1685).
 
-  Relevant MITRE ATT&CK tactics include **Execution** (TA0002) and **Defense Evasion** (TA0005), particularly techniques **T1106: Execution through API** and **T1562.001: Impair Defenses via Process Injection**. Primary telemetry sources include event logs related to process access, particularly leveraging Event ID 4672 (Special Privileges Assigned to New Logon) in conjunction with execution traces for injection activity. If confirmed malicious, this behavior can allow significant unauthorized control over targeted systems. However, this detection does NOT confirm that an attack is in progress; it merely indicates suspicious process interactions.
+  The primary telemetry source is Windows process access logs, specifically monitoring the CallTrace of process injection activities along with access control rights. If malicious, such behavior poses significant security risks, including potential data exfiltration or lateral movement within the network. Importantly, this detection does NOT prove the presence of a Cobalt Strike incident on its own; it merely indicates that suspicious process access behavior has occurred.
 
   ### Investigation Steps
 
-  - **Verify process injection patterns:** Examine the CallTrace in the logs for any calls that match the regex pattern `^C:\\Windows\\SYSTEM32\\ntdll\.dll\+[a-z0-9]{4,6}\|C:\\Windows\\System32\\KERNELBASE\.dll\+[a-z0-9]{4,6}` in process_access logs. Look for transferred control between ntdll.dll and KERNELBASE.dll indicating attempted injection.
+  - **Check recent process activities:** Review Security Event ID 4688 for processes created around the time of the alert. Identify any processes that exhibit unusual parent-child relationships or untrusted executables. Look for processes created by known system processes (e.g., svchost.exe).
 
-  - **Check granted access levels:** Review the `GrantedAccess` field for values such as `0x1028` or `0x1fffff`, which indicate elevated privileges typically required for injecting into other processes, especially against high-value targets.
+  - **Validate CallTrace details:** Inspect the CallTrace logs for entries matching the patterns defined in the rule. Specifically, look for any calls to `ntdll.dll` or `KERNELBASE.dll` with GrantedAccess values of `0x1028` or `0x1fffff`, which indicate high levels of privilege.
 
-  - **Identify legitimate process behaviors:** Observe standard application behaviors where similar process calls might occur without injection attempts. For instance, legitimate software updates or security scanning applications may trigger similar logs.
+  - **Identify high-confidence malicious indicators:** Look for interplay with Cobalt Strike related artifacts, such as the loading of known Cobalt Strike DLLs or shellcode patterns documented in sources like the provided GitHub links. This would indicate potentially malicious activity linked to known threat actors.
 
-  - **Monitor for high-confidence malicious indicators:** Investigate related process activity where parent processes exhibit suspicious behavior, such as spawning from uncommon executables or utilizing command-line arguments indicative of a Cobalt Strike beacon.
+  - **Review system activity pre- and post-alert:** Examine System Event logs (Event ID 5156 for Windows Filtering Platform) to assess if there are abnormal network connections made by the process in question following the injection attempt.
 
-  - **Cross-reference with threat intelligence:** Utilize external threat intelligence resources matching the identified patterns against known Cobalt Strike indicators, validating if there are any continuous communications to known malicious IPs or domains.
+  - **Establish baseline for expected behavior:** Document typical business applications running on the affected systems to assess what legitimate process injection behavior may look like. For example, legitimate software update processes might interact with system DLLs without necessarily indicating malicious intent.
 
-  - **Confirm system criticality and risks:** Assess the asset's role in the organization. If the affected host is part of critical infrastructure or a high-value asset, escalate the investigation immediately due to the potential for significant impact.
+  - **Correlate with threat intelligence feeds:** Cross-reference the affected host behavior against threat intelligence sources to identify if the related IPs, domains, or file hashes are linked to known Cobalt Strike campaigns.
 
   ### Prioritization
 
-  This alert is considered high severity due to the potential impact on sensitive systems and the likelihood of successful exploitation by adversaries, particularly since process injection techniques are frequently utilized for further attacks. This behavior is a fundamental component of certain APT tactics and should be treated with urgency.
+  The alert severity is high due to the potential impact on critical systems and the likelihood that this behavior is part of a broader malicious campaign. Given the common usage of Cobalt Strike in penetration tests and real-world attacks, timely response is required to assess and mitigate potential threats.
 
   ### Blind Spots and Assumptions
 
-  This detection is limited by potential evasion techniques such as anti-virus or security software that can obfuscate malicious behavior or legitimate applications that might use similar process interactions. Reliable detection requires comprehensive logging enabled for process access, particularly with Sysmon or equivalent tools. Whitelist scenarios, such as development environments or software debugging operations, may also generate similar alerts, potentially causing false positives. Companion detections involving outbound network traffic to Cobalt Strike command and control servers would further enhance overall security posture.
+  False positives may arise from legitimate software or configuration changes that involve injection techniques. Effective detection relies on comprehensive process access logs and ensuring that real-time monitoring is enabled. Additionally, benign administrative activities or internal testing scenarios may unintentionally trigger this alert. Companion detections based on abnormal file modification patterns may further enhance coverage against this threat vector.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

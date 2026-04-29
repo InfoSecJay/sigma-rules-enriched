@@ -10,7 +10,8 @@ date: 2022-02-24
 modified: 2023-08-17
 tags:
 - attack.persistence
-- attack.defense-evasion
+- attack.stealth
+- attack.defense-impairment
 - attack.t1564
 - attack.t1112
 logsource:
@@ -27,30 +28,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects changes to the Windows registry that disable crash dump generation by modifying the `CrashControl` settings. Attackers may pursue this to obstruct forensic analysis and hinder incident response efforts, particularly during wiper attacks like HermeticWiper. This behavior aligns with the MITRE ATT&CK technique for “Indicator Removal on Host” (T1112) and “Depriving the Victim of Potential Evidence” (T1564).
+  This rule detects alterations to the Windows registry that disable CrashDump functionality, specifically changes to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CrashControl` where the `CrashDump` value is set to `DWORD (0x00000000)`. Attackers may aim to disable crash dumps to hinder incident response efforts, ensuring that any malicious actions taken on a system are not captured for forensic analysis. This behavior aligns with the MITRE ATT&CK tactic of Persistence (T1547) and Defense Evasion (T1564). The primary telemetry sources include Windows registry change events, specifically from Event IDs 4657 (Registry value modified) and relevant Windows API calls for registry manipulation.
 
-  The primary telemetry source for this detection is Windows Registry logs, specifically looking for modifications to `SYSTEM\CurrentControlSet\Control\CrashControl`. If malicious, this action could impede recovery efforts following a targeted attack. Notably, this detection does not confirm the presence of an active threat; legitimate administrative activities may also disable crash dumps for various operational reasons.
+  If this behavior is confirmed as malicious, it poses a significant risk as it can prevent the collection of critical system memory snapshots needed during an investigation, facilitating further malware installation or data exfiltration. However, this detection alone cannot confirm malicious activity without additional context, as legitimate system administration may also involve disabling crash dumps.
 
   ### Investigation Steps
 
-  - **Verify the Registry Change:** Check the Windows Registry for modifications to `SYSTEM\CurrentControlSet\Control\CrashControl`. Look for `CrashDumpEnabled` set to `0` (DWORD) and note the timestamp of the change alongside the user account making the change.
+  - **Check for the specific registry modification:** Query the Windows registry for changes to `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\CrashControl` focusing on the `CrashDump` value (DWORD 0). Use Event ID 4657 to see if this modification was logged.
 
-  - **Review User Account Activity:** Investigate recent actions by the account responsible for the change via Security Event ID 4624 (Logon) and 4740 (Account Locked Out), identifying any suspicious login patterns or geographical anomalies.
+  - **Correlate related events:** Review near-time Event ID 4688 (Process Creation) to identify processes that made registry modifications. Look for unusual parent-child process relationships that may indicate malicious behavior. Pay attention to unexpected executables like PowerShell or cmd.exe.
 
-  - **Assess System Role and Functionality:** Determine whether the affected system is a critical server or a standard endpoint. In critical systems, this behavior is more concerning, while standard endpoints may warrant a lower threat level if legitimate use is established.
+  - **Identify high-confidence malicious indicators:** Look for additional evidence of behavior consistent with HermeticWiper or similar attack tools. Check for signs of file system changes or unusual network behavior associated with the timeline of registry modifications.
 
-  - **Correlate with Previous Alerts:** Examine past alerts related to suspicious activity, such as process creation or script execution that could relate to an attacker trying to evade detection mechanisms. Focus on Event ID 4688 (Process Creation) for context.
+  - **Validate system roles:** Identify the affected system's criticality and role. Determine if the action taken (disabling CrashDump) aligns with standard operational procedures for servers like application hosts or domain controllers.
 
-  - **Check for Related Files:** Search for changes in known sensitive files, audit logs, or abnormal file creations in directories typically associated with application data or logs related to crash reports. Investigate the presence of any files created or modified around the same time as the registry entry.
-
-  - **Identify Legitimate Behavior:** Understand that system administrators may disable crash dumps for maintenance or performance tuning. Identify logged activity confirming regulated updates or settings changes in operational procedures.
+  - **Establish a baseline of legitimate behavior:** Determine if there was a scheduled maintenance event or normal administrative action that justified disabling crash dumps. Consult the change management log for any documented justifications by IT staff.
 
   ### Prioritization
 
-  This alert is of medium severity due to its potential impact on forensic investigation capabilities, particularly if disabling crash dumps coincides with other suspicious activities. The likelihood of malicious abuse is elevated given the association with persistent threats using denial-of-evidence techniques.
+  This alert should be treated with medium severity given its potential to impair the organization's defensive capabilities following a breach. Disabling crash dumps is often a step taken by adversaries to obfuscate their actions, making it a relevant point of concern in the context of known attacks. The likelihood of abuse is high, particularly if this behavior is spotted in environments with elevated privileges.
 
   ### Blind Spots and Assumptions
 
-  Detection relies on consistent Windows Registry logging; if logs are misconfigured or incomplete, it may lead to missed detections. Legitimate administrative processes can trigger this alert, requiring careful context consideration to avoid false positives. Incorporating companion detections for other registry modifications (like service settings or critical system alterations) may enhance overall visibility against evasion tactics.
+  Detection may be limited by changes in logging configurations or if registry logs are not enabled consistently across all endpoints. Legitimate system administration activities can also trigger the alert, especially during complex OS updates or while configuring systems. A related detection to strengthen overall coverage includes monitoring for unusual PowerShell commands or script executions that could correlate with potential registry modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -12,7 +12,7 @@ author: Nasreddine Bencherchali (Nextron Systems), oscd.community, Natalia
 date: 2020-10-14
 modified: 2023-08-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1216
 logsource:
   category: process_creation
@@ -28,30 +28,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `SyncInvoke` function from the `CL_Invocation.ps1` PowerShell script, which is a method used to proxy process execution through the .NET `System.Diagnostics.Process` class. The likely objective of an attacker leveraging this technique is to execute malicious commands or scripts under the guise of legitimate PowerShell operations, thereby evading detection mechanisms. The relevant MITRE ATT&CK tactic is "Defense Evasion" (ID: T1216).
+  This Sigma rule detects the use of the `SyncInvoke` method from the `CL_Invocation.ps1` PowerShell script to proxy process execution through `System.Diagnostics.Process`. The primary attacker objective in this scenario is to execute arbitrary code, potentially allowing malware delivery or lateral movement within a network. This behavior falls under the MITRE ATT&CK technique "PowerShell" (T1086) and "Application Layer Protocol" (T1216), as it exploits legitimate scripting tools to bypass security controls.
 
-  The primary telemetry source for this detection is Windows process creation logs, specifically targeting command line arguments used in PowerShell. If malicious, this behavior can lead to unauthorized process execution, data exfiltration, or deployment of additional malware. However, this detection does NOT confirm that malicious activity has occurred on its own, as legitimate PowerShell usage may include this method in normal operations.
+  The primary telemetry source for this detection is Windows process creation events, especially those logged under PowerShell command executions (Event ID 4688). If detected as malicious, the impact could be significant, enabling unauthorized actions on a server or endpoint. However, it is crucial to note that this detection does NOT confirm malicious intent on its own; further analysis is needed to assess the context and legitimacy of the process execution.
 
   ### Investigation Steps
 
-  - **Identify command line details**: Review the process creation logs, specifically focusing on Event ID 4688. Check whether the command line includes `SyncInvoke` and analyze parameters passed to it for suspicious activity.
+  - **Check process creation logs:** Review Windows Security Event ID 4688 for details on the process creation. Look for the parent process and command line that includes "SyncInvoke" as this indicates potential malicious activity.
 
-  - **Determine parent-child relationships**: Utilize Sysmon Event ID 10 to inspect any parent process associated with the detected execution. Legitimate use will often have benign parent processes, whereas malicious activity may have unusual parent-child hierarchies.
+  - **Analyze PowerShell execution context:** Investigate related PowerShell logs (Event ID 4104), focusing on any script blocks or command lines executed around the same time. Expected behavior would include legitimate administrative scripts or scheduled tasks.
 
-  - **Monitor for known malicious indicators**: Cross-reference the detected command line with established malware indicators within your threat intelligence platform, focusing on previously associated behavior with `CL_Invocation.ps1`.
+  - **Verify command line parameters:** Examine `CommandLine` fields for unusual parameters or encoding methods that might indicate an obfuscation attempt. Malicious indicators often include unexpected switches or invocation of scripts not normally associated with the host's role.
 
-  - **Assess user context**: Investigate the user account that executed the command. Check for any prior behavioral anomalies, particularly if a non-administrative user account executed this command, which may be indicative of suspicious activity.
+  - **Correlate with network activity:** Identify any network connections made by the affected process using Windows Event ID 5156 or firewall logs. Look for unusual outbound connections, especially to known command-and-control IPs or domains.
 
-  - **Evaluate legitimate usage patterns**: Confirm legitimate execution of PowerShell scripts that might utilize `SyncInvoke`. Typically, authorized software deployments or maintenance tasks will log actions that include `SyncInvoke` with clear business justifications.
-
-  - **Check for artifacts of persistence**: Review locations such as `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\` for any scripts or executables that could indicate a persistence mechanism related to this PowerShell activity.
+  - **Assess script source and integrity:** Investigate the source and integrity of the `CL_Invocation.ps1` script. Verify its location and modify timestamps to assess for unauthorized changes. Valid instances would come from trusted paths and show no recent alterations.
 
   ### Prioritization
 
-  The alert severity is medium due to the potential impact on critical systems if exploited. The likelihood of malicious abuse is concerning, given that power users and attackers often rely on such methods to evade defenses. This behavior is not widely weaponized, but its use may indicate sophisticated attempts at process execution evasion.
+  This alert should be considered medium severity. The impact largely depends on the affected system’s role (e.g., if it's a server versus a workstation) and the likelihood of misuse is elevated due to the common use of PowerShell in exploitation scenarios. This method leverages a legitimate script to conduct potentially stealthy operations, making it a frequently weaponized tactic.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded if the attacker modifies command line arguments to avoid detection signatures or uses obfuscated scripts. Reliable detection requires monitoring of suitable log sources, ensuring PowerShell logging is enabled, including script block logging. Legitimate activities may include automated scripts or administrative tasks. A related detection to consider is monitoring for unusual PowerShell module loading or execution via Event ID 4104 (PowerShell script block logging), which would strengthen overall visibility of potentially malicious behavior.
+  This detection is limited by the potential for legitimate use of `SyncInvoke`, such as in automated scripts or scheduled tasks. Depending on the organization's logging policies, Event ID 4688 may not capture all PowerShell executions if filtered incorrectly. Additionally, benign scripts may trigger this alert if they use the same process invocation methods, making context vital for accurate assessment. For additional coverage, monitoring for unusual PowerShell activity (T1064) can help identify broader exploitation attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

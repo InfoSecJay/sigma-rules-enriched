@@ -10,9 +10,10 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-01-22
 modified: 2023-03-15
 tags:
-- attack.defense-evasion
 - attack.privilege-escalation
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -48,30 +49,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects potential DLL sideloading activity related to the `arubanetsvc.exe` process, which could indicate an attempt to load malicious DLLs in a manner that exploits the Windows search order for dynamic link libraries. The likely attacker objective is to execute arbitrary code in the context of a trusted service, which may facilitate privilege escalation or persistence within the environment. This behavior is mapped to the MITRE ATT&CK tactic of Defense Evasion (T1203), specifically DLL Search Order Hijacking (T1574.001).
+  This rule detects potential DLL sideloading activity involving the "arubanetsvc.exe" process, which is part of Aruba Networks' Virtual Intranet Access. The behavior indicates that an adversary may be attempting to load malicious DLLs using legitimate processes to evade detection. The relevant MITRE ATT&CK tactics include Persistence and Execution (TA0003, TA0002) and the technique specifically associated is DLL Search Order Hijacking (T1574.001).
 
-  The primary telemetry source for this detection is Windows process execution logs, specifically the image load events which capture details about which DLLs are loaded into a process. If successful, this behavior can lead to significant security impacts, including unauthorized access to sensitive data and disruption of service integrity. Notably, while the detection indicates potential malicious behavior, it does NOT confirm that the loaded DLL is indeed malicious or that exploitation has occurred.
+  Primary telemetry sources include Windows Event logs for image load events that capture details about process execution and library loading. If this detection corresponds to malicious activity, it poses a significant risk of privilege escalation, as successful DLL sideloading can allow attackers to execute malicious code with the privileges of the targeted process. This detection does not confirm that the activity is malicious on its own, as legitimate software updates or misconfigurations can also result in similar behaviors.
 
   ### Investigation Steps
 
-  - **Check process execution:** Review Windows Security Event ID 4688 for the execution of `arubanetsvc.exe`. Verify the user context and parent process to determine if it aligns with expected behaviors.
+  - **Verify process legitimacy:** Check if "arubanetsvc.exe" is running under expected parent processes (e.g., `services.exe` for system services). Use Security Event ID 4688 (process creation) to validate the process lineage and ensure it is not being spawned by an unusual or malicious parent.
 
-  - **Analyze loaded DLLs:** Cross-reference Sysmon Event ID 7 logs for `arubanetsvc.exe` to see which DLLs were loaded. Look for any DLLs loaded from unexpected directories (e.g., any directory other than `C:\Windows\System32\`, `C:\Windows\SysWOW64\`, or `C:\Windows\WinSxS\`) which could indicate malicious activity.
+  - **Check loaded DLLs:** Investigate the DLLs loaded by "arubanetsvc.exe" using Sysmon Event ID 7 (Image load). Look specifically for any instances of the specified DLLs loaded from unauthorized paths, such as those not included in the typical Windows directory structure.
 
-  - **Identify legitimate use cases:** Determine if `arubanetsvc.exe` and the loaded modules are part of normal operations for your organization. Investigate recent changes in user behavior or system configuration that could explain benign use.
+  - **Look for indicators of compromise:** Identify if any of the loaded DLLs (e.g., `msvcr100.dll`, `cryptsp.dll`) are executed from suspicious locations (e.g., user directories, application data). Validate this with FileCreationTime and Path fields from Event ID 5140 (File Share Access) to see if any DLLs were recently created in these locations.
 
-  - **Assess for high-confidence indicators:** Look for DLLs like `wtsapi32.dll`, `msvcr100.dll`, or `dbghelp.dll` being loaded within the context of `arubanetsvc.exe`. If found, check their paths; DLLs originating from non-standard paths are credible indicators of a malicious exploit.
+  - **Review system roles and context:** Confirm that the affected system has a legitimate use case for "arubanetsvc.exe" (e.g., on networking devices). Systems without a valid reason to have this service should be prioritized for review.
 
-  - **Evaluate system criticality:** Consider the role of the affected host in your network (e.g., critical infrastructure vs. standard user workstation). Higher criticality systems should prompt immediate investigation and response.
+  - **Assess user activity:** Cross-reference user activity around the detected events. Review User Logon Events (Event ID 4624) to establish if there were recent administrative or unusual logon patterns corresponding with the alert timeline.
 
-  - **Correlate with other detection mechanisms:** Review for additional detection signals in your environment that may relate to DLL sideloading, such as alerts for unusual process parents or execution from non-whitelisted paths.
+  - **Document legitimate usage:** Note expected operations of "arubanetsvc.exe," which should primarily involve communication to manage VPN sessions rather than unusual file access or network traffic patterns outside normal operational hours.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on sensitive systems and data integrity. The methodology behind DLL sideloading is commonly exploited by adversaries for privilege escalation and persistence, making it a likely candidate for malicious behavior within the enterprise.
+  This alert is of high severity due to the potential impact on system integrity and the likelihood of harm if malicious behavior is confirmed. The presence of the "arubanetsvc.exe" alongside DLL sideloading patterns indicates possible exploitation scenarios, which are often weaponized by adversaries seeking persistence or privilege escalation on affected systems.
 
   ### Blind Spots and Assumptions
 
-  Detection may be evaded using well-known legitimate DLLs or by utilizing system-level DLLs that are signed and commonly present on Windows systems. Consequently, ensuring comprehensive logging from Sysmon or equivalent agent is critical for reliable detection. Legitimate activity may occur if `arubanetsvc.exe` is used in a regular operational context, such as remote access solutions. One related detection to consider is monitoring for abnormal process creation patterns indicative of defense evasion techniques that leverage service executable paths.
+  This detection is limited by potential evasion techniques, such as encrypted or obfuscated DLLs that may not be identified during standard analysis. Complete coverage relies on ensuring Sysmon and relevant Windows logging configurations are enabled. Legitimate applications that may trigger this alert include other network services that utilize similar DLLs but are not related to Aruba Networks. Complementary detections include monitoring for unusual process parent-child relationships as another layer of context in evaluating potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

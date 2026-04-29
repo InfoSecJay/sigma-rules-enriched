@@ -13,12 +13,13 @@ date: 2022-10-21
 tags:
 - attack.privilege-escalation
 - attack.persistence
+- attack.execution
+- attack.stealth
 - attack.t1566
 - attack.t1566.001
 - attack.initial-access
 - attack.t1574
 - attack.t1574.001
-- attack.defense-evasion
 logsource:
   product: windows
   category: file_event
@@ -65,33 +66,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to create DLL files in sensitive application dependency directories, such as Microsoft OneDrive, Slack, and Microsoft Teams. The likely attacker objective is to execute a malicious module through DLL search order hijacking, exploiting the common behavior of these applications to load dynamic-link libraries from specified locations. This behavior aligns with the MITRE ATT&CK techniques T1574.001 (DLL Search Order Hijacking) and T1566.001 (Phishing: Spearphishing Attachment).
+  This rule detects the creation of a DLL file in known application dependency folders (e.g., Slack, Teams, OneDrive) triggered by unusual processes, indicating a potential DLL search order hijacking attack. This behavior may be employed by attackers looking to execute malicious code when a user opens a legitimate application. It aligns with the MITRE ATT&CK techniques T1574.001 (DLL Search Order Hijacking) and T1566 (Phishing), often confirmed by malicious tasks that leverage such hijacking for persistence or privilege escalation.
 
-  The primary telemetry sources involve Windows file event logs, specifically tracking file creation or modification events within targeted directories. If malicious, this activity may lead to privilege escalation or persistence on the compromised system, compromising user data and application integrity. Importantly, this rule does NOT confirm malicious intent on its own; further validation through context and additional investigations is necessary.
+  Primary telemetry sources include Windows file event logs, particularly monitoring the creation of DLL files (Event IDs 4663/4660) in user directories. If successful, an attacker could gain unauthorized access to a user account or escalate privileges through the loaded malicious DLL. However, this detection does not confirm that the DLL is malicious or that the attack has succeeded; further investigation is needed.
 
   ### Investigation Steps
 
-  - **Check process details:**
-    - Investigate the parent process of the detected cmd.exe instance using Security Event ID 4688 to identify how the command prompt was invoked. A legitimate invocation might originate from user activity, while suspicious activity could stem from automation or unusual applications.
+  - **Identify the triggering process:** Review the originating executable process by correlating event logs (Event ID 4688 or Sysmon Event ID 1) to check if it corresponds to benign applications (e.g., Word, Teams). Investigate the command-line arguments for atypical behavior.
 
-  - **Verify DLL file creation:**
-    - Confirm the creation of the DLL file in the target path by examining Windows Event ID 4663 (File Access) and checking for `CreateFile` operations in paths such as `C:\Users\<username>\AppData\Local\Microsoft\OneDrive\`. Look for a file being created with a suspicious name or hash.
+  - **Check DLL creation logs:** Validate the creation of the DLL by searching for file event logs (Event ID 4663) focusing on the target paths. The presence of DLL files in user profile directories under suspicious applications should be noted.
 
-  - **Assess application context:**
-    - Review the execution context of the detected command to determine if it aligns with legitimate user activity. Validate if the user possesses authorization to create files in the respective application folders (e.g., OneDrive, Teams). Legitimate user activity should correlate with business operations.
+  - **Correlate with parent process:** Cross-reference the PID of the created DLL with the parent (likely the suspicious executable) in Sysmon (Process creation log) to determine if it was initiated by a legitimate or known malicious process.
 
-  - **Identify malicious indicators:**
-    - Analyze the properties of the DLL file created, including its hash and digital signature, to identify known malicious artifacts or deviations from expected application behavior. Any hash that matches a known threat should trigger further investigation.
+  - **Review installed applications:** Verify the legitimacy of the installed applications by checking relevant context in installed programs and their dependencies. Ensure that applications leading to DLL creation are authorized and expected in the enterprise environment.
 
-  - **Review previous logs for anomalies:**
-    - Query previous file event logs (Event IDs 4663 and 4660) leading up to the alert and check for any unusual deletions or modifications of DLL files. This may indicate prior reconnaissance or preparation for the hijacking attempt.
+  - **Analyze the DLL file:** If possible, retrieve the suspicious DLL file and conduct a static/dynamic analysis. Look for signatures known to be used by adversaries or indicators (e.g., checksum matches for known malicious files).
+
+  - **Expected behavior verification:** Document expected behavior of triggering applications and their normal file creation patterns, comparing it to the created DLL for anomalies indicating a potential threat.
 
   ### Prioritization
 
-  This alert carries medium severity due to the potential impact on sensitive applications and user data. The likelihood of malicious abuse is significant, as DLL hijacking is a known tactic utilized by attackers to execute payloads stealthily. Although the exploitation of this vector is not as commonly weaponized as others, the presence of identifiable patterns increases the importance of timely and thorough analysis.
+  The alert is medium severity due to the potential impact on user systems, particularly if the involved applications are critical for business operations. The likelihood of malicious activity is notable, as DLL hijacking is a common technique used by attackers, making it crucial to address promptly.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include evasion techniques such as altering file paths or using legitimate applications for DLL creation, potentially obfuscating malicious intent. Reliable detection requires comprehensive Windows file logging configurations, and the absence of certain log sources can lead to missed alerts. Legitimate activities like updates to application configurations or legitimate user scripts may trigger the alert. A related detection to consider is monitoring for unusual command line arguments or parent-child process relationships involving cmd.exe and other administrative tools, thereby enriching the analysis context.
+  Detection may be limited by scenarios where legitimate applications perform actions mimicking this rule, for example, third-party updates or authorized scripts. Required logs such as file creation events must be actively monitored and configured correctly. There could be false positives triggered by legitimate user actions in development environments or software installations. A related detection to strengthen coverage could be monitoring for abnormal process behavior within these applications (e.g., Sysmon Process Creation Events) to identify additional suspicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

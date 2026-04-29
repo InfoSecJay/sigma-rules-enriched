@@ -11,7 +11,7 @@ references:
 - https://admx.help/?Category=Office2016&Policy=office16.Office.Microsoft.Policies.Windows::L_MacroRuntimeScanScope
 - https://github.com/S3cur3Th1sSh1t/OffensiveVBA/blob/28cc6a2802d8176195ac19b3c8e9a749009a82a3/src/AMSIbypasses.vba
 tags:
-- attack.defense-evasion
+- attack.defense-impairment
 logsource:
   product: windows
   category: registry_set
@@ -30,28 +30,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts to disable the Macro Runtime Scan Scope registry key, which is used by Microsoft Office applications to enable runtime scanning of macros for malicious content. By modifying this key, an attacker seeks to bypass security mechanisms, increasing the likelihood of executing malicious macros that could download and execute further payloads or malware. This behavior is aligned with the MITRE ATT&CK framework, specifically under the tactic "Defense Evasion" (T1562) and technique "Modify Registry" (T1112).
+  This Sigma rule detects modifications to the `MacroRuntimeScanScope` registry key in Windows, which is a configuration setting that controls the runtime scanning of macros within Microsoft Office applications. The likely attacker objective is to disable protections against malicious macros, allowing them to run without triggering alerts from Microsoft’s Antimalware Scan Interface (AMSI). This behavior corresponds to the MITRE ATT&CK technique **T1203 - Exploitation for Client Execution** under the tactic of **Defense Evasion**.
 
-  Primary telemetry sources include Windows registry modifications, particularly those tracked in Event ID 4657 (Registry Value modified) or relevant Sysmon Event ID 13 (Registry modification). If successful, this behavior can significantly impact security, allowing the execution of potentially harmful macro code undetected. Importantly, the detection of this registry change does NOT confirm that malicious macros are currently being executed; it only suggests an attempt to disable a protective measure.
+  The primary telemetry source for this detection is Windows registry changes tracked through event logs. Specifically, it targets the registry path `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\Common\Security` and looks for a DWORD value change indicating runtime scanning has been disabled (value set to `0`). If left unaddressed, such modifications could enable the execution of malicious macros, which can lead to data breaches or system compromises. This detection does NOT confirm that malicious macros have executed, only that a disabling action has taken place.
 
   ### Investigation Steps
 
-  - **Verify the Registry Key Change:** Check for Event ID 4657 indicating the modification of the registry key at `HKEY_CURRENT_USER\Software\Microsoft\Office\Common\Security\MacroRuntimeScanScope` to a DWORD value of 0. Confirm if the change was made without proper administrative authorization.
+  - **Check for Registry Modification:** Review Windows Event Logs for registry changes, specifically **Security Event ID 4657**. Identify the target object `HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\Common\Security\MacroRuntimeScanScope` being set to `0`.
 
-  - **Identify User Context:** Look for the user account making the registry change. Check if the account has legitimate business needs involving macros or if it’s a non-admin/user account with unusual activity patterns.
+  - **Correlate User and Host Context:** Validate the user account making the change. If the account does not have a legitimate need to modify these settings (e.g., an administrative account performing updates), this raises a flag for further investigation.
 
-  - **Review Recent Office Activity:** Analyze user activity logs related to Microsoft Office around the time of the registry change. Look for Event ID 4688 (Process Creation) to identify if Office applications like Word or Excel were recently launched, especially in conjunction with macro execution contexts.
+  - **Identify Recent Macro Activity:** Search for recent Microsoft Office macro executions using **Microsoft Office Application logs**. Look for logs indicating macro execution, especially those that were executed shortly after the registry change.
 
-  - **Document Expected Business Use Cases:** Note common instances where macro functionality is typically enabled and evaluate if the registry modification aligns with legitimate macro use cases in your environment, such as automated reports or internal tools.
+  - **Baseline Legitimate Behavior:** Determine baseline configurations for the organization's Office installations by verifying the expected `MacroRuntimeScanScope` values. Normally, this value should be `1` for enabled scanning. Compare against known environments to highlight anomalies.
 
-  - **Investigate for High-Confidence Malicious Indicators:** Use endpoint monitoring tools to check for known malicious macro scripts executed in conjunction with the registry modification. Look for file paths leading to temporary or AppData folders where malicious scripts may be stored (e.g., check for indicators relating to VBA scripting in Excel files).
+  - **Review System Integrity:** Check for the presence of known malicious macros or VBA scripts in `C:\Users\<username>\AppData\Roaming\Microsoft\Word\` or similar folders. Utilize investigation tools to analyze any files marked for execution.
+
+  - **Investigate Companion Detectors:** Look for alerts related to **T1059.001 - Command and Scripting Interpreter: PowerShell** or any other alerts indicating suspicious PowerShell command execution that may accompany macro exploitation.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the potential for widespread impact. Modifying this registry key significantly enhances an attacker’s ability to deliver and execute malware through macros, an act commonly exploited in environments where Office applications are prevalent. The likelihood of malicious exploitation is high given the commonality of weaponized macros in attacks.
+  This alert is classified as high severity due to the potential impact on critical systems that rely on Microsoft Office, where disabling security controls can lead to widespread malware infection. The likelihood of malicious abuse is significant, as attackers often leverage this technique to escalate privileges and achieve persistence through malicious macros, a method commonly weaponized in phishing campaigns.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded by more sophisticated actors employing alternate registry paths or by utilizing tools designed to alter registry settings stealthily. Reliable detection relies on comprehensive logging for registry modifications, which must be correctly configured across all endpoints using Microsoft Office. Legitimate administrative changes for macro settings or user-initiated adjustments may trigger similar alerts. Companion detections, such as identifying unusual PowerShell or command line script execution (T1059.001), would provide additional context for confirming potential adverse activities.
+  Detection may be limited by the potential for legitimate administrative changes made in a routine maintenance context, which could trigger false positives. Reliable detection requires comprehensive logging of registry changes, particularly across user sessions. This alert could also be triggered legitimately by software installations or updates that alter security settings. Related detections include monitoring for abnormal Office macro execution patterns, which can help strengthen overall security visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

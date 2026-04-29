@@ -9,7 +9,7 @@ author: Florian Roth (Nextron Systems)
 date: 2022-03-14
 modified: 2022-07-26
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1140
 logsource:
   product: linux
@@ -37,32 +37,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the execution of commands in a Linux environment where a shell process (sh or bash) is used to pipe output to another shell instance. This behavior is often indicative of attempts to obfuscate command execution or evade detection mechanisms, a tactic aligned with MITRE ATT&CK's Defense Evasion (T1140). Attackers may use such command constructs to execute malicious scripts or commands in a more covert fashion.
+  This rule detects processes on Linux systems where a shell command makes use of piping to execute another shell, specifically looking for command lines that start with "sh -c" or "bash -c" and contain a pipe to another shell instance. The likely attacker objective is to obfuscate malicious command execution or to chain multiple commands in a single execution context, which can aid in stealth and evasion from detection mechanisms. This behavior correlates with the MITRE ATT&CK technique for "Command and Scripting Interpreter: Shell Scripting" (T1140).
 
-  The primary telemetry sources for detecting this behavior are process creation logs from the Linux operating system, specifically focusing on command line executions of processes. If malicious, this behavior would enable an attacker to execute commands in a way that could compromise system integrity, collect sensitive information, or establish persistence.
-
-  It is important to note that this detection does NOT confirm malicious activity on its own; further context is required to determine the intent behind the command invocation.
+  The primary telemetry sources for this detection are Linux process creation logs, particularly focusing on fields that capture the command-line parameters used during process initialization (e.g., syslog or auditd logs). If malicious, this behavior could indicate an attempted compromise, data exfiltration, or executing payloads. However, this detection does NOT confirm that malicious activity is occurring solely based on the detection, as similar command structures can occur in legitimate use cases.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Check for Security Event ID relevant to process creation on the Linux host. Search for command lines containing `sh -c` or `bash -c` along with pipes to another shell (`| bash` or `| sh`). Focus on identifying the parent process for context.
+  - **Review command line arguments:** Analyze process creation logs (e.g., `/var/log/audit/audit.log` or `/var/log/syslog`) for Event IDs related to process creation. Look for command lines starting with "sh -c" or "bash -c" and containing "| bash" or "| sh". Compare with known benign processes and scripts to establish legitimacy.
 
-  - **Assess the command context:** Identify what command is being executed prior to the pipe and assess if it's known or expected behavior. Legitimate uses may include script execution in controlled environments (e.g., automated tasks, software installations).
+  - **Correlate with user activity:** Check last login timestamps and user activities around the time of the alert. Use `last` command or check user session logs to identify if the user had legitimate reasons to execute piping commands.
 
-  - **Correlate with user activity:** Match the time of the alert with user activity logs (e.g., `/var/log/auth.log`). Look for user logins and their command history to determine if the user had a legitimate reason to execute the command.
+  - **Identify high-confidence malicious indicators:** Look for unusual user accounts or elevated privileges initiating these command lines. Check for multiple chained command executions that could suggest obfuscation attempts, especially if followed shortly by suspicious file creation or network connections.
 
-  - **Monitor for known bad indicators:** Identify if the command line contained any known malicious artifacts or patterns (e.g., encoded payloads, suspicious parameters). Particular attention should be given to recent vulnerabilities associated with any executed commands.
+  - **Compare with known benign software usage:** Investigate if any legitimate applications or scripts are utilizing shell pipelines. Reference corporate software inventories to identify expected behaviors versus the current alert.
 
-  - **Determine host role and criticality:** Assess whether the Linux system is in a sensitive role (e.g., a web server, database server). A process execution in critical roles poses higher risks and may require immediate escalation.
-
-  - **Check for additional indicators of compromise (IoCs):** Investigate if there are any unusual outbound network connections or file modifications occurring around the same time as the alert, which may indicate malicious intent.
+  - **Check for concurrent network connections:** Review network logs (e.g., firewall logs or `netstat` output) to identify any unexpected outbound connections initiated post-process creation. Analyzing the source process IDs can correlate network activity directly back to the alerting process.
 
   ### Prioritization
 
-  The alert is classified as medium severity. Given that it involves command execution patterns capable of evading detection, there is a reasonable likelihood of malicious abuse, particularly on critical systems. This behavior is likely weaponized in specific attack scenarios, making it imperative to investigate.
+  This alert holds medium severity due to the potential impact on critical Linux systems where command execution could lead to data compromise or lateral movement. The likelihood of abuse is moderate, as attackers often leverage shell scripts and pipelines for stealthy command execution. However, this behavior can also occur during legitimate software operations, which necessitates thorough investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if command logging is not uniformly enabled or if the event logs are aggregated incorrectly. Legitimate software operations, such as automated deployment scripts, may trigger false positives. To strengthen coverage, consider companion detections for abnormal network activity or process injection patterns that may accompany this command execution behavior.
+  Detection may miss encoded or obfuscated commands that can bypass simple pattern matching. Continuous logging and configurations for process monitoring are crucial for reliable detection, including retaining logs with command line arguments. Legitimate activities, such as administrative scripts or software updates, may trigger this alert. A complementary detection could involve monitoring for unauthorized access to sensitive files or auditing command execution as part of a broader analysis suite.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

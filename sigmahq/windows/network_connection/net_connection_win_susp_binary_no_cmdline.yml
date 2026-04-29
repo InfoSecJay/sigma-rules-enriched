@@ -8,7 +8,7 @@ references:
 author: Florian Roth (Nextron Systems)
 date: 2022-07-03
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   category: network_connection
   product: windows
@@ -34,28 +34,36 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious network connections initiated by specific Windows binaries (regsvr32.exe, rundll32.exe, dllhost.exe) when no command-line parameters are present. The likely objective of the attacker is to leverage these legitimate binaries for malicious purposes, such as executing payloads or establishing connections without typical indicators of compromise. In the context of the MITRE ATT&CK framework, this behavior aligns with the technique **Process Injection (T1055)** and **Defense Evasion (T1560)**.
+  This detection rule identifies suspicious network connections initiated by known Windows binaries (`regsvr32.exe`, `rundll32.exe`, `dllhost.exe`) that lack an accompanying command line. Attackers often use these binaries in stealthy ways to execute malicious code without drawing attention, aiming to infiltrate a network, exfiltrate data, or establish persistence. This behavior aligns with the MITRE ATT&CK tactic of **Execution (TA0002)**, particularly technique **Windows Command Shell (T1059.003)** for stealthy executions via trusted binaries.
 
-  The primary telemetry sources are network connection logs from endpoints, particularly looking for Windows event logs that indicate network activities associated with the specified binaries, notably with an empty or null command line. If malicious, this activity could lead to data exfiltration, lateral movement, or the establishment of command-and-control channels. Importantly, it is crucial to note that this detection does NOT confirm malicious activity on its own, as benign operations may also exhibit similar characteristics.
+  The primary telemetry sources required for this detection are network traffic logs capturing connection initiation events, notably those from Sysmon (Event ID 3) or Windows Firewall logs. Malicious activity could pose significant risks, including data theft, system compromise, or lateral movement. It is crucial to note that this detection does NOT confirm malicious activity on its own, as legitimate software behavior may also trigger the same alert.
 
   ### Investigation Steps
 
-  - **Examine network connection logs:** Review logs corresponding to Event ID 5156 from Windows Security logs to inspect the remote IP addresses and ports used by the identified binaries. Look for connections that are unusual for the normal operations of the host.
+  - **Check Process Initiation Context:**
+    Look at Sysmon Event ID 1 for process creation details. Verify if the initiating processes (`regsvr32.exe`, `rundll32.exe`, or `dllhost.exe`) were invoked by a suspicious parent process (e.g., powershell.exe or cmd.exe). Legitimate processes should have clear intended parent processes.
 
-  - **Check command line usage:** Verify if the command line fields for the same process are indeed empty or null in Sysmon Event ID 3 logs. Legitimate instances may include non-interactive uses of these binaries, whereas unexpected empty command lines suggest possible misuse.
+  - **Review Network Connection Details:**
+    Examine Sysmon Event ID 3 for outgoing connection logs. Focus on the destination IP, port, and whether the connection matches known or expected behavior for the actively running services or applications.
 
-  - **Correlate with process activity:** Cross-reference these network connection events with process creation logs (Event ID 4688 or Sysmon Event ID 1) to identify when and how these processes were started. Look for signs such as unusual parent processes or pathways not typical for organizational use.
+  - **Analyze Command Line Parameters:**
+    Investigate the absence of command line parameters in the alert. Legitimate executions will typically include a command line, whereas this behavior suggests potential exploitation tactics.
 
-  - **Identify malicious indicators:** Investigate any recorded remote IP addresses against threat intelligence sources to discern known malicious entities. A high-confidence indicator would be connections to backlisted IPs, especially if these connections are infrequent within usual network patterns.
+  - **Identify Anomalous Traffic Patterns:**
+    Analyze network flow logs (e.g., from your network monitoring tool) for unusual outbound traffic corresponding to the detected source. Look for high-volume data transfers or previously uncommunicated external IP addresses.
 
-  - **Review host roles and expected behavior:** Analyze the asset's criticality and role. For highly sensitive servers, connections from these binaries might be more worrisome, especially if they deviate from baseline connection patterns. Evaluate normal operations to contextualize the suspicious behavior.
+  - **Correlate with Threat Intelligence:**
+    Validate any involved IP addresses or domains against threat intelligence sources for prior malicious activity related to this binary execution context.
+
+  - **Assess Asset Criticality:**
+    Consider the role of the asset initiating the connection. If it’s a sensitive server or a high-value endpoint, prioritize the investigation due to increased potential impact from detected behavior.
 
   ### Prioritization
 
-  This alert warrants high priority due to the potential compromise of critical systems, especially considering that Windows binaries are commonly abused by threat actors. The likelihood of abuse is elevated given the stealthy nature of these processes, which are routinely weaponized in malware campaigns to evade detection.
+  This alert has high severity due to the potential for critical systems to be compromised through common Windows binaries. The likelihood of malicious misuse is notable given the stealthy nature of these binaries and their frequent use in exploit chains. This behavior is often weaponized in attacks aiming for initial access or lateral movement.
 
   ### Blind Spots and Assumptions
 
-  This detection may suffer from evasion techniques such as using command-line obfuscation or employing surgical timing to avoid detection. Reliable detection is contingent upon having complete logging enabled, particularly Sysmon for process creation and command line parameter events. Legitimate administrative tasks or system updates may sometimes trigger this alert. A related detection includes monitoring for abnormal parent-child relationships in process creation logs to strengthen coverage on potential execution chains.
+  Detection may be limited by systems not forwarding the necessary logs or instances where legitimate software relies on `regsvr32.exe`, `rundll32.exe`, or `dllhost.exe` without command line inputs. False positives may arise in controlled environments where these binaries perform permissible tasks. Companion detections, such as monitoring for parent-child process relationships in Sysmon or correlating with known malicious execution patterns, can enhance coverage and context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

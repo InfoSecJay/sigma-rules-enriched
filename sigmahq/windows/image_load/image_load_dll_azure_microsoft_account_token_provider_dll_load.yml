@@ -11,8 +11,9 @@ date: 2020-07-15
 modified: 2023-04-18
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -60,33 +61,31 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects unauthorized attempts to request OAuth 2.0 refresh tokens through the MicrosoftAccountTokenProvider.dll, typically utilized by Azure AD-authenticated users for Single Sign-On (SSO) authentication in the browser. The probable objective for an attacker is credential theft or unauthorized access to Azure resources, leveraging the victim’s session. This behavior maps to the MITRE ATT&CK tactics of Persistence (TA0003), Defense Evasion (TA0005), and the Privilege Escalation technique (T1574.001).
-
-  The primary telemetry sources for this detection are Windows event logs tied to image loads, specifically targeting the loading of MicrosoftAccountTokenProvider.dll by potential malicious processes. If successfully exploited, this can enable an adversary to impersonate the user and gain access to sensitive data and resources. However, it is crucial to note that this detection alone does not confirm malicious intent, as legitimate applications may trigger similar events under normal operations.
+  This rule detects unauthorized requests for OAuth 2.0 refresh tokens made by processes that have loaded the `MicrosoftAccountTokenProvider.dll` on Azure AD-joined Windows machines. The likely attacker objective is to gain access to Azure AD resources by impersonating an authenticated user through browser Single Sign-On (SSO). This behavior aligns with the MITRE ATT&CK technique for account manipulation (T1574.001). The primary telemetry source includes Windows event logs capturing DLL load activities, specifically targeting ImageLoaded events. If malicious, this can lead to unauthorized access and data exfiltration. This detection does NOT confirm whether the attack is successful or if legitimate processes are incorrectly flagged.
 
   ### Investigation Steps
 
-  - **Review loaded DLLs:**
-    Check for instances of MicrosoftAccountTokenProvider.dll being loaded using Security Event ID 4688 or Sysmon Event ID 7. Focus on processes that should not normally load this DLL.
+  - **Check process details:**
+    Examine the process associated with the ImageLoaded event capturing `MicrosoftAccountTokenProvider.dll` (Event ID 4688 or Sysmon Event ID 1) to determine the user context and command line arguments used. Legitimate processes will typically involve standard user applications without suspicious command-line options.
 
-  - **Analyze command line arguments:**
-    Inspect the command line of the parent process related to the invocation. Look for specific arguments indicating a possible malicious intent, such as `-ServerNameBackgroundTaskHost.WebAccountProvider`.
+  - **Identify unusual process behavior**:
+    Review process creation events (Event ID 4688) for any unexpected child processes spawned from browser applications like ‘iexplore.exe’ or ‘msedge.exe’ that were not initiated by a user action, indicating possible malicious activity.
 
-  - **Validate user context:**
-    Identify the user associated with the process invoking the DLL load. Cross-reference against user login times and behavior for authentic Azure AD users. This can help distinguish between legitimate use versus potential abuse.
+  - **Validate Azure AD authentication events:**
+    Query Azure AD sign-in logs (via Azure Monitor or Azure Portal) to identify successful sign-ins from the affected machine, checking for unusual sign-in locations, times, or devices. Indicators of compromise would include sign-ins from unauthorized geographical locations or unusual times.
 
-  - **Identify normal behavior:**
-    Understand the expected processes that should be using MicrosoftAccountTokenProvider.dll, such as Microsoft Edge or OneDrive during standard SSO logins. Any loading outside of these expected applications may indicate malicious activity.
+  - **Inspect parallel DCOM and authentication errors:**
+    Look for DCOM (Event ID 10009) and authentication failure logs in the Security event log to identify if other unauthorized access attempts correlate with the detected event, indicating a potential broad attack.
 
-  - **Cross-check other security logs:**
-    Examine related logs, such as Azure AD sign-in logs and Sysmon Event ID 23 (Process Termination) to identify if there has been any unusual activity in conjunction with the DLL loading. Look for failed login attempts or abnormal usage patterns.
+  - **Investigate user account behavior:**
+    Analyze the behavior and access patterns of the subject Azure AD account in Azure AD logs for unusual activities or excessive token requests around the time of the alert. Ensure legitimate access patterns are maintained, such as collaborating on files relevant to the user’s job function.
 
   ### Prioritization
 
-  This alert should be treated with a moderate severity level in the enterprise context. The impact could potentially be significant as it may open pathways for unauthorized access to sensitive Azure resources. The likelihood of abuse is plausible, given the method is known to be weaponized for credential harvesting.
+  This alert should be considered low severity due to its context in an enterprise environment, as it may arise from legitimate application behavior. However, since the abuse of SSO can result in unauthorized access to critical resources, it demands timely review to ensure that the detected behavior does not indicate an active compromise, especially in environments where Azure AD is heavily utilized.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss obfuscated methods that attackers employ to load the DLL, such as through process hollowing or using alternative DLLs. Reliable detection relies on proper logging configurations for Windows Event IDs and Sysmon events. Legitimate actions, such as SSO requests by internal users or automated services, may inadvertently trigger this alert. Companion detections, such as monitoring for unusual OAuth token requests or suspicious user sign-ins in Azure AD, can enhance overall coverage and context.
+  The detection may be limited due to legitimate applications that load `MicrosoftAccountTokenProvider.dll`, which can result in false positives linked to user behavior or application updates. Required log sources include Windows event logs and Azure AD logs, which must be configured for proper collection and analysis. Legitimate activities that may trigger this alert include standard application updates or authentications during routine user tasks. A related detection to strengthen coverage could involve monitoring for unusual OAuth token usages or requests outside of normal access patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

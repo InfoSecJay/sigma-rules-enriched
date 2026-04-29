@@ -9,7 +9,7 @@ references:
 - https://twitter.com/fr0s7_/status/1712780207105404948
 author: Florian Roth (Nextron Systems), X__Junior (Nextron Systems)
 date: 2022-08-03
-modified: 2025-07-18
+modified: 2026-03-16
 tags:
 - attack.discovery
 logsource:
@@ -44,13 +44,13 @@ detection:
         # http://1359248394
   - CommandLine|re: 'https?://0[0-9]{3,11}'
         # http://0121.04.0174.012
-  - CommandLine|re: 'https?://(0[0-9]{1,11}\.){3}0[0-9]{1,11}'
+  - CommandLine|re: 'https?://(?:0[0-9]{1,11}\.){3}0[0-9]{1,11}'
         # http://012101076012
   - CommandLine|re: 'https?://0[0-9]{1,11}'
         # For octal format
   - CommandLine|re: ' [0-7]{7,13}'
   filter_main_valid_ip:
-    CommandLine|re: 'https?://((25[0-5]|(2[0-4]|1\d|[1-9])?\d)(\.|\b)){4}'
+    CommandLine|re: 'https?://(?:(?:25[0-5]|(?:2[0-4]|1\d|[1-9])?\d)(?:\.|\b)){4}'
   condition: selection_command and 1 of selection_ip_* and not 1 of 
     filter_main_*
 falsepositives:
@@ -59,30 +59,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects potentially malicious attempts to download files by using obfuscated IP addresses in command-line execution contexts, such as PowerShell and curl. The likely attacker objective is to hide the destination of a file download to evade detection. This behavior may indicate the initial stages of exploitation or the delivery of payloads post-exploitation, fitting within the "Command and Control" (T1071) tactic of the MITRE ATT&CK framework.
+  This rule detects instances where encoded or obfuscated IP addresses are included in command-line requests intended for downloading files, utilizing common tools such as PowerShell’s Invoke-WebRequest or curl. The likely attacker objective is to download malicious payloads from remote servers while obscuring their true destination to evade detection mechanisms. This behavior aligns with the MITRE ATT&CK tactic of "Command and Control" (T1071) and the technique "Application Layer Protocol" (T1071.001).
 
-  Primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture command-line execution details. If the detected activity is malicious, it can lead to unauthorized file execution, data breaches, or further compromise of the environment. Importantly, this detection does NOT confirm a successful compromise; it only highlights the use of obfuscated commands that could be benign or malicious.
+  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on Security Event ID 4688. If successful, this attack could allow an adversary to introduce malware into the environment, thereby compromising the integrity and confidentiality of systems. However, this detection does NOT confirm that a malicious action was definitively taken, as legitimate use of these commands can also be commonplace for system administration or software retrieval.
 
   ### Investigation Steps
 
-  - **Review command history:** Examine relevant Security Event ID 4688 logs to find instances of "Invoke-WebRequest", "Invoke-RestMethod", "wget", or "curl" commands. Check if they are being run by unexpected users or on non-standard endpoints.
+  - **Review command-line arguments:** Investigate Event ID 4688 for commands containing 'Invoke-WebRequest', 'wget', or 'curl'. Note any encoded or obfuscated IPs. Legitimate usage often involves clear text URLs without obfuscation.
 
-  - **Analyze obfuscation pattern:** Look for command-line arguments containing obfuscated IPs (e.g., `'0x'`, `%2e`). Focus on Sysmon Event ID 1 that shows the `CommandLine` field for signs of encoded behavior that diverges from typical organizational usage.
+  - **Check parent process:** Assess the parent process IDs (PPID) reported in Event ID 4688. Investigate whether they originate from legitimate processes (e.g., PowerShell ISE) or from suspicious executables (e.g., cmd.exe launched from a non-standard location).
 
-  - **Identify legitimate activities:** Cross-reference the command execution with known good patterns used by internal scripts or applications, particularly those executed by legitimate processes. For example, validate whether `Invoke-WebRequest` is used for internal network operations.
+  - **Evaluate download completion:** For successful downloads, review file creation timestamps and paths created in the system's $TEMP directory or PowerShell's execution context (e.g., Check for files created within a short timeframe after the command execution).
 
-  - **Correlate with known malicious indicators:** Check the command context against threat intelligence databases or internal logs for similar obfuscation techniques that have been previously linked to malicious behavior.
+  - **Cross-reference URL reputation:** Use external threat intelligence sources to determine the reputation of the IP address or domain associated with the downloads. Check logs for requests making calls to known malicious indicators.
 
-  - **Track file download activities:** Monitor for corresponding file system events (such as Security Event ID 4663) that indicate file creation or modification in the directories where the downloads might occur. Look for unexpected file types or unusual timestamps matching the command execution.
-
-  - **Assess process parentage:** Use Sysmon Event ID 1 to investigate parent processes of the detected commands, identifying suspicious origins. Investigate if the process tree indicates an initial script execution by tools commonly involved in data exfiltration or system manipulation.
+  - **Identify additional network activity:** Analyze network flow logs or proxy logs within the timeframe of the alarm to determine if outbound connections were made to the obfuscated IPs. Consider the timestamps of connection attempts for correlation with the command execution time.
 
   ### Prioritization
 
-  This alert should be considered medium priority due to its potential impact on system integrity and data security. Given that obfuscated IP downloads are less common in legitimate operations, there is a moderate likelihood of malicious activity, especially if detected on critical assets. This behavior is often weaponized in various exploit scenarios, necessitating timely investigation.
+  This alert has medium severity due to the potential impact of downloading malicious software onto a system, particularly if the affected asset is a high-value target (e.g., domain controllers or administrative workstations). Given that obfuscated IP addresses are a red flag for C2 communication, there is a significant likelihood of malicious use in such activities.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate benign activity triggering the alert, such as software updates or the use of scripts by authorized personnel. A requirement for reliable detection is the configuration of comprehensive logging through Windows Security and Sysmon to ensure all relevant command-line executions are captured. A related detection to consider is for unusual PowerShell commands (such as invocation of encoded commands), which can further enhance visibility into potentially malicious behaviors.
+  Detection limitations may arise from aggressive obfuscation techniques that evade simple pattern matching, which malicious actors often employ. Required log sources include comprehensive process creation logs and network monitoring for effective detection. Legitimate administrative activities (like system updates or software installations) could trigger this alert if they use similar commands. Companion detections, such as monitoring for the installation of newly created files in conjunction with this detection, could enhance investigative success.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

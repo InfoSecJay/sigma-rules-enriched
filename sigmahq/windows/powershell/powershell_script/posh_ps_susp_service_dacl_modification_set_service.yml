@@ -14,8 +14,9 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-24
 tags:
 - attack.persistence
-- attack.defense-evasion
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.011
 logsource:
   product: windows
@@ -44,30 +45,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the usage of the "Set-Service" PowerShell cmdlet to modify the Security Descriptor of a Windows service, specifically allowing it to become hidden from standard service management utilities like "sc.exe" and "Get-Service." The likely attacker objective is to conceal malicious services that could be leveraged for persistence or initial access, evading detection by both security tools and system administrators. This behavior aligns with the MITRE ATT&CK technique for persistence through "Service Registry Permissions Weakness" (T1574.011).
+  This rule detects the execution of the PowerShell `Set-Service` cmdlet that modifies the Security Descriptor of a Windows service, specifically allowing the service to be hidden from common service management utilities, such as `sc.exe` and `Get-Service`. This behavior is typically indicative of an attempt to create or modify a service in a way that conceals it from legitimate oversight, potentially enabling persistence mechanisms favored by attackers.
 
-  The primary telemetry sources are Windows PowerShell logs, specifically the Script Block Logging feature that captures the textual content of PowerShell scripts executed. If malicious, such modifications can enable an attacker to maintain their presence on a system without easy detection. However, this detection does NOT confirm that malicious activity is occurring by itself; legitimate administrative actions could invoke similar behavior.
+  The likely attacker objective is to achieve stealthy persistence on a compromised system, making it more difficult for security teams to detect malicious services. This activity relates to the MITRE ATT&CK tactic of **Persistence** (TA0003) and the technique **Windows Service Permissions** (T1574.011). The primary telemetry sources for this detection are PowerShell Script Block Logging events, which must be enabled for effective monitoring.
+
+  If successful, this action can allow an adversary to maintain access undetected, posing significant security risks. It is important to note that the detection of this behavior does NOT definitively prove malicious intent; it may also occur during rare legitimate administrative tasks.
 
   ### Investigation Steps
 
-  - **Review the PowerShell Script Block logs:** Check the Security log for Event ID 4104 related to Script Block Logging. Look for entries that include "Set-Service" and reference a Security Descriptor (e.g., "D;;"). Compare against known benign service modifications.
+  - **Review PowerShell Execution Logs**: Check PowerShell logs (Event ID 4104) for entries indicating suspicious `Set-Service` command usage with Security Descriptor modifications, especially looking for `-SecurityDescriptorSddl` or `-sd` flags.
 
-  - **Identify High-Confidence Malicious Indicators:** Look for the presence of "D;;" combined with ";;;IU", ";;;SU", ";;;BA", ";;;SY", or ";;;WD" in the ScriptBlockText. If these elements are present, it is indicative of an attempt to hide services.
+  - **Investigate Service Security Descriptors**: Use the command `Get-Service | Get-WmiObject Win32_Service | Select-Object Name, StartType, SecurityDescriptor` to review current service configurations and verify if any have suspicious descriptors; particularly services with hidden settings (e.g., `D;;...`).
 
-  - **Confirm Legitimate Activities:** Compare service modifications against recent administrative changes. For example, verify if a known service was updated for intended purposes (e.g., service updates or configuration changes).
+  - **Look for Anomalous Service Behavior**: Identify services associated with recent `Set-Service` commands. Check if their status changes frequently or if they are non-standard services (i.e., services that do not match expected naming conventions or are not commonly used in the environment).
 
-  - **Examine system state for hidden services:** Utilize PowerShell commands (Get-Service or sc query) to check if services are running obfuscated. Presence with standard tools but absent from normal queries could indicate evasion efforts.
+  - **Analyze Script Block Log Non-linearity**: Since PowerShell Script Block logging can contain non-linear information, ensure the analysis accounts for this. For any detected scripts, cross-reference the legitimate administrative use cases, which often involve non-hidden service configurations.
 
-  - **Review Asset Context:** Focus on critical system roles, such as domain controllers or endpoint protection servers, where service manipulation would pose a higher risk due to their importance in the security infrastructure.
-
-  - **Investigate service creation or modification timing:** Cross-reference timestamps of the detected modification with other logs (such as Event ID 116) to determine orchestration with any suspicious login or process execution events.
+  - **Correlate with Endpoint Anomaly Detection**: Validate the behavior against endpoint detection logs for unusual patterns in service creation or modification that align with the timestamps of the detected event.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential impact on critical systems if an attacker conceals persistence mechanisms. The likelihood of abuse is significant as this technique is commonly weaponized in real-world attacks aimed at maintaining unauthorized access.
+  This alert should be considered high severity due to the potential impact on system integrity and detection evasion capabilities of an attacker. The likelihood of malicious abuse is significant, as the ability to hide services is commonly weaponized in various attacks for persistence.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques may include using alternative PowerShell versions or direct API calls to change service descriptors without generating Script Block logs. Ensuring that Script Block Logging is enabled is critical for reliable detection, as lacking this configuration may lead to missed alerts. Legitimate activities such as system updates might trigger the alert, particularly in environments that leverage automation for service management. Related detections include monitoring for abnormal process behavior related to service execution (e.g., Service Control Manager events) to enhance alert coverage.
+  The detection may struggle against evasion techniques such as PowerShell obfuscation or using alternate tools to modify service configurations without detection. Reliable detection requires that Script Block Logging is enabled across all relevant systems. Legitimate activities, such as creating hidden services for specialized applications (though rare), may trigger this alert. A companion detection that strengthens coverage is monitoring of service creation and modification events via Windows Event Logs (Event ID 4697).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

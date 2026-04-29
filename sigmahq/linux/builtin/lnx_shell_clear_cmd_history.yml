@@ -12,15 +12,8 @@ author: Patrick Bareiss
 date: 2019-03-24
 modified: 2024-04-17
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070.003
-# Example config for this one (place it in .bash_profile):
-#  (is_empty=false; inotifywait -m .bash_history | while read file; do if [ $(wc -l <.bash_history) -lt 1  ]; then if  [ "$is_empty" = false ]; then logger -i -p local5.info -t empty_bash_history "$USER : ~/.bash_history is empty "; is_empty=true; fi; else is_empty=false;  fi;  done ) &
-#  It monitors the size of .bash_history and log the words "empty_bash_history" whenever a previously not empty bash_history becomes empty
-#  We define an empty file as a document with 0 or 1 lines (it can be a line with only one space character for example)
-#  It has two advantages over the version suggested by Patrick Bareiss  :
-#    - it is not relative to the exact command used to clear .bash_history : for instance Caldera uses "> .bash_history" to clear the history and this is not one the commands listed here. We can't be exhaustive for all the possibilities !
-#    - the method suggested by Patrick Bareiss logs all the commands entered directly in a bash shell. therefore it may miss some events (for instance it doesn't log the commands launched from a Caldera agent). Here if .bash_history is cleared, it will always be detected
 logsource:
   product: linux
 detection:
@@ -48,28 +41,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects anomalous behaviors associated with tampering Linux command history files, such as clearing or altering `.bash_history` and similar shell history files. Attackers often employ these techniques as part of their efforts to evade detection, concealing their activities after executing malicious commands. The detected actions align with the MITRE ATT&CK framework under the tactic of Defense Evasion (T1070.003).
+  This detection rule flags suspicious commands executed in Linux that manipulate or clear command history files, targeting files like "bash_history" or "zsh_history." The primary goal of this behavior is to hinder forensic analysis or detection of malicious actions taken during a session. Such tactics are commonly employed in post-exploitation scenarios by attackers aiming to maintain access while avoiding detection. This activity maps to MITRE ATT&CK technique T1070.003 – "Timestomp" under the "Defense Evasion" tactic.
 
-  The primary telemetry source for this rule includes Linux log files where executed shell commands are recorded, particularly focusing on any alterations to the content of history files. If successfully executed by an adversary, such actions can lead to significant security risks, including unobserved malicious activities that compromise system integrity. It is critical to note that this detection rule only indicates the occurrence of suspect commands; it does not confirm that an intrusion has occurred without further context or supporting evidence.
+  The primary telemetry source is the Linux shell command execution log, which records commands run by users. This includes details on the invoked commands, the user initiating those commands, and the timestamp. If malicious, such behavior can indicate a compromised system with rogue activity. Importantly, this detection alone does not confirm malicious intent or compromise, as legitimate users may also execute these commands during routine administration.
 
   ### Investigation Steps
 
-  - **Identify command history alterations**: Review logs for command executions that include keywords like `cat /dev/null >*sh_history`, `history -c`, or `rm *sh_history`. Focus on Syslog entries related to command execution within `/var/log/syslog` or similar where history modifications are logged.
+  - **Identify command history manipulations**: Search the shell command audit logs for evidence of commands involving history manipulation, especially focusing on keywords such as `history -c`, `echo "" >*sh_history`, or `rm *sh_history`. Check Event ID 4720 or similar for potential command history edits.
 
-  - **Correlate user activities**: Look for a sudden spike in `bash` or `sh` sessions leading up to the execution of suspicious commands. Cross-reference `bash` process events (e.g., Event ID 2003, syslog entry for `bash`) to establish user patterns and determine if this aligns with normal user behavior or indicates potential malfeasance.
+  - **Correlate with user privileges**: Validate the user context by checking the UID associated with the command history tampering. Administrative users executing these commands may suggest benign activity; however, unauthorized users doing so should raise concern.
 
-  - **Analyze system logging configurations**: Ensure logging of suspicious commands is appropriately configured. Validate that relevant history and command execution logs (like `/var/log/auth.log` or `/root/.bash_history`) are being collected, as historical logs may provide context around unexpected behavior.
+  - **Review post-execution behavior**: Examine subsequent executed commands within the same session to assess if malicious activity occurred before the history was cleared. Focus on commands related to sensitive data access, privilege escalation, or lateral movement.
 
-  - **Review legitimate command usage patterns**: Compare the detected command executions against known legitimate activities, such as system maintenance or troubleshooting efforts. Confirm if these commands match operational documentation of expected admin tasks that may use similar commands.
+  - **Look for related logs and artifacts**: Check for system logs in `/var/log/auth.log` to see if there were any recent login attempts or escalations beside the history manipulations. Investigate timestamps closely around the history-clearing commands.
 
-  - **Identify high-confidence malicious indicators**: Observe sequences of commands that follow the history tampering events. Look for unusual network connections or file manipulations that may indicate exploitation, particularly if commands are executed with `sudo` or as root, which raises the potential for malicious intent.
+  - **Identify legitimate activity patterns**: Common administrative behaviors such as regular history truncation over time for maintenance or running scripts that automatically clear history should be noted. Compare these with the context of the user’s role or job function.
+
+  - **Check for high-confidence malicious indicators**: Identify any commands executed after history clearing that relate to known attack patterns, such as downloading files or executing network connections using tools like `curl` or `wget`.
 
   ### Prioritization
 
-  The alert severity is high because it entails potential manipulation of logging information by a user or process that could signify an active intrusion. Given the critical nature of command history for forensic investigations, the likelihood of malicious intent associated with these behaviors is elevated, as such techniques are often employed by threat actors to cover their tracks.
+  This alert should be treated with high severity, particularly on critical systems like servers or databases. The likelihood of malicious abuse is significant when unauthorized users attempt to hide their activities, especially if the environment is under active threat. Such behavior is characteristic of advanced adversaries and indicates a potential compromise, necessitating immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by the need for comprehensive logging configurations, as insufficient logging can lead to missed instances of command history modifications. Legitimate maintenance scripts or backups may inadvertently trigger alerts, including those from automated processes. A companion detection rule that monitors for unauthorized root access (e.g., unexpected `sudo` usage) could enhance overall coverage and offer additional context during investigations.
+  Detection can be limited by users with legitimate reasons to clear history, such as system administrators conducting maintenance. Additionally, ineffective logging configurations may lead to missed events if command execution logs are not captured correctly. Other commands, such as `unset HISTFILE`, are frequent false positives and may not indicate malicious activity. Deploying companion detection methods, like monitoring for unusual login patterns or command executions outside expected hours, can provide stronger coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

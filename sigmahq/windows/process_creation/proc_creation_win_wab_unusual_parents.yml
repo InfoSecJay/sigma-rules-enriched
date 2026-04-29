@@ -12,8 +12,8 @@ author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-12
 modified: 2022-09-27
 tags:
-- attack.defense-evasion
 - attack.execution
+- attack.stealth
 logsource:
   category: process_creation
   product: windows
@@ -39,28 +39,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects unusual parent and child process relationships involving `wab.exe` (Windows Contacts) and `wabmig.exe` (Microsoft Address Book Import Tool). Attackers leveraging the Bumblebee malware loader often exploit these processes to achieve persistence or execute secondary payloads. This behavior indicates a potential lateral movement or credential harvesting objective. The relevant MITRE ATT&CK tactics are Execution (TA0002) and Defense Evasion (TA0005), specifically techniques T1203 (Exploitation for Client Execution) and T1136 (Create Account).
+  This Sigma rule detects unusual parent or child processes associated with `wab.exe` (Windows Contacts) and `wabmig.exe` (Microsoft Address Book Import Tool) processes. It specifically looks for instances where these processes are spawned by uncommon parent processes like `WmiPrvSE.exe`, `svchost.exe`, or `dllhost.exe`, or where they spawn suspicious child processes such as `cmd.exe` or `powershell.exe`. The likely objective of an attacker deploying these tools is to execute payloads and establish persistence, particularly in targeted environments, leveraging the Bumblebee malware framework.
 
-  Primary telemetry sources include Windows process creation logs, specifically focusing on Security Event ID 4688 and Sysmon Event ID 1 for detailed process lineage. If malicious, this activity could lead to unauthorized access and exfiltration of sensitive data. However, this detection does NOT confirm a breach—further investigation is needed to establish intent and context.
+  The relevant MITRE ATT&CK tactics for this detection are **Execution (TA0002)**, specifically the technique **Execution through API (T1203)**, where process creation patterns suggest malicious intent. Primary telemetry sources include Windows Security Event ID 4688 (process creation), Sysmon Event ID 1 (process creation events) with fields like `Image`, `ParentImage`, and `CommandLine`. If confirmed malicious, the security impact could be severe, leading to unauthorized access, data exfiltration, or full domain control. However, this detection does NOT confirm maliciousness by itself; it only suggests a need for further investigation.
 
   ### Investigation Steps
 
-  - **Check parent processes for anomalies:** Review Security Event ID 4688 for `wab.exe` and `wabmig.exe` parent processes, ensuring they do not originate from legitimate services (`explorer.exe` for typical user activities), which indicates benign behavior.
+  - **Review process creation logs**: Check Windows Security Event ID 4688 and Sysmon Event ID 1 for process creation activities related to `wab.exe` and `wabmig.exe`. Observe the `ParentImage` for any unusual sources like `WmiPrvSE.exe` or `svchost.exe`.
 
-  - **Identify malicious child processes:** Look for child processes spawned by `wab.exe` or `wabmig.exe` such as `cmd.exe` or `powershell.exe` in Sysmon Event ID 1 to confirm potential malicious activity.
+  - **Investigate command line arguments**: Analyze the `CommandLine` field in the logs for malicious parameters or commands when `wab.exe` or `wabmig.exe` are executed. Legitimate usage typically won't include suspicious arguments or commands related to file execution.
 
-  - **Verify process creation time:** Correlate process creation timestamps with any recent suspicious activities or alerts (e.g., login attempts) within the past 72 hours to establish context for the alert.
+  - **Correlate with known malware behaviors**: Cross-reference findings with known indicators of compromise (IoCs) from malware reports like Bumblebee to identify if the parent or child processes match known malicious patterns.
 
-  - **Examine user activity context:** Check Windows Event Log for user logins (Event ID 4624) around the same time as process creation to determine if the activity aligns with authorized user behavior.
+  - **Assess file and memory activity**: Look for signs of file creation or modification in related directories (such as `%AppData%` or `%LocalAppData%`) that might indicate a successful payload execution. Consider checking for suspicious DLLs or artifacts created during the time of the process invocation.
 
-  - **Assess asset criticality:** Determine if the device exhibiting this behavior belongs to a critical asset (e.g., a domain controller) to prioritize investigation based on the potential impact.
+  - **Identify unusual process hierarchies**: Document any instances where `wab.exe` or `wabmig.exe` is run as children of commonly legitimate processes. Note the uniqueness of the parent processes as potential indicators of compromise.
+
+  - **Evaluate host asset sensitivity**: Determine the criticality of the affected host. If it’s a server or administrative workstation, escalate to Tier 3 for potential threat actor involvement, especially if combined with other anomalous activities.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential impact on sensitive systems, particularly if they are critical infrastructure or domain controllers. The likelihood of adversaries using Bumblebee to exploit `wab.exe` and `wabmig.exe` processes for lateral movement is notable, as this technique has been weaponized in recent attacks.
+  This alert is high-severity due to the potential exposure and impact on critical systems, especially given that Bumblebee is known for sophisticated execution techniques. The likelihood of abuse is significant, as attackers frequently leverage these processes for malicious purposes, especially in targeted or enterprise environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss obfuscation techniques such as process name spoofing by legitimate software. Proper log sources, including Sysmon and Windows process creation logs, must be configured and monitored for reliable detection. Legitimate activities could include authorized use of `wab.exe` for contact management or backups. Related detections include monitoring for known Bumblebee execution patterns (e.g., direct executions of potentially malicious processes) to strengthen overall coverage.
+  Detection is limited by potential evasions, such as process hollowing or the use of legitimate scripts that may trigger similar parent/child relationships without malicious intent. Required log sources such as Sysmon must be properly configured to ensure visibility; without them, detection reliability diminishes. Legitimate administrative processes might trigger this alert due to normal operational activities. Related detections could include tracking `cmd.exe` or `powershell.exe` spawn events linked to `wab.exe`, bolstering overall detection efficacy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

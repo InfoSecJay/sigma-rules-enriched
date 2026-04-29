@@ -8,9 +8,9 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-10
 tags:
-- attack.defense-evasion
 - attack.execution
 - attack.lateral-movement
+- attack.stealth
 - attack.t1021.002
 - attack.t1218.011
 logsource:
@@ -30,34 +30,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of `rundll32.exe` with a command line that specifies a DLL located on a remote location (UNC path). Such behavior is typically employed by attackers as a method for executing malicious code stored on a shared network resource, often as a means of lateral movement within a network. The likely attacker objective is to leverage `rundll32` to run malicious payloads without directly writing to local disk, evading some conventional defenses.
+  This Sigma rule detects the execution of `rundll32.exe` with a command line argument pointing to a DLL located on a remote UNC path. This behavior is indicative of an attacker using `rundll32` to execute potentially malicious code hosted on a remote server, often as part of lateral movement or to evade local security controls. The likely objective of an attacker executing this command is to run malicious code on a target system without alerting traditional security solutions.
 
-  The relevant MITRE ATT&CK techniques are **Execution (T1203)** and **Lateral Movement (T1021.002)**. The primary telemetry sources are Windows process creation logs, specifically focusing on Security Event ID 4688 for process creation events and Sysmon Event ID 1 for detailed process and command line tracking. If malicious, this behavior can lead to unauthorized access, data exfiltration, or further incursions into the environment. This detection does not confirm whether the executed command is indeed malicious, as `rundll32.exe` can also be utilized for legitimate administrative tasks.
-
-  ---
+  This behavior aligns with the MITRE ATT&CK tactic for "Execution" (TA0002) and the technique "Remote Services: UNC Path Execution" (T1021.002), as well as the technique for "Dll Sideloading" (T1218.011). The primary telemetry sources are Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, focusing on the command-line arguments. If the detected behavior is malicious, it could potentially lead to unauthorized access, data exfiltration, or a complete system compromise. However, this detection does NOT confirm that the behavior is malicious alone, as it could be initiated by legitimate applications under certain conditions.
 
   ### Investigation Steps
 
-  - **Examine process creation details:** Review Security Event ID 4688 and Sysmon Event ID 1 logs. Verify if `rundll32.exe` command line arguments contain a UNC path (e.g., `\\server\share\file.dll`). Malicious: Uses UNC paths. Benign: Direct local paths only.
+  - **Examine the Command Line Arguments:** Check for UNC paths in the command line of Security Event ID 4688 or Sysmon Event ID 1. Look for patterns like `\\servername\share\malicious.dll`. Legitimate use typically involves local paths or known trusted directories.
 
-  - **Identify associated network activity:** Look at network logs (e.g., Firewall rules, IDS logs) for connections made to the UNC destination during the time of execution. Malicious: Unexpected outbound connections to infrequently accessed shares; Benign: Standard business-related traffic to known UNC paths.
+  - **Review the Source of the Executable:** Validate the integrity of `rundll32.exe` by checking its file properties. Look for OriginalFileName being 'RUNDLL32.EXE', and confirm that it resides in the `C:\Windows\System32` or trusted directories. Any other location warrants further investigation.
 
-  - **Inspect user context for execution:** Confirm the user account running the `rundll32.exe` process. Correlate this with expected operational behavior. Malicious: Execution by non-privileged or anomalous user accounts; Benign: Executed by administrative accounts during normal operations.
+  - **Collect Network Activity Logs:** Inspect network logs for connections to the UNC path referenced in the command line. Look for unusual SMB traffic towards unusual hosts or shares, which may indicate a system trying to pull malicious code from a remote server.
 
-  - **Check for suspicious DLLs:** Review the DLL being executed with `rundll32.exe`. Validate the source and integrity of this DLL against known lists. Malicious: Unrecognized or known malicious DLLs; Benign: Authorized and regularly used libraries.
+  - **Check Process Hierarchy:** Use tools such as Sysinternals’ Process Explorer to examine parent-child relationships. Determine if `rundll32.exe` was spawned by a known process (e.g., a legitimate system process) or a suspicious one. Malicious invocations often have unexpected parent processes.
 
-  - **Assess temporal patterns:** Determine the timing of the `rundll32.exe` executions relative to other security events. A concerted attack might manifest with this command around the same time as other suspicious activities.
-
-  ---
+  - **Identify System Impact:** Assess the importance of the affected host in your environment. Critical systems executing `rundll32` with UNC paths should be prioritized for immediate investigation.
 
   ### Prioritization
 
-  This alert should be considered high severity due to its potential impact on the organization’s security posture. The use of `rundll32.exe` with a remote DLL could indicate an active compromise of a network resource, and such behaviors are often weaponized in real-world attacks. The likelihood of malicious abuse is significant, especially in mature enterprise environments where lateral movement is a common goal for threat actors.
-
-  ---
+  This alert should be treated as high severity due to the potential for significant systemic impact. The execution of code from a remote location using `rundll32` is a tactic commonly used by adversaries for lateral movement and deploying payloads, suggesting a high likelihood of malicious intent.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by environments where process execution logging is not properly configured. Attackers may use different executable names or obfuscate command lines to avoid detection. Legitimate administrative actions or business operations may result in similar command usage with `rundll32.exe`, especially in environments supporting shared resources. A related detection to strengthen coverage could be monitoring for unusual SMB activity, as it often accompanies unauthorized access.
+  There are inherent limitations as attackers may use encoding or obfuscation techniques to conceal the command line, which can evade detection. Ensure that relevant logging (e.g., Sysmon, Windows Security logs for process creation) is correctly configured to capture necessary telemetry. Legitimate administrative tasks may result in similar alerts, such as IT management activities involving remote scripts. A related detection rule for "Windows Process Creation with Suspicious Parent/Child Relationships" could strengthen coverage against exploitation behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

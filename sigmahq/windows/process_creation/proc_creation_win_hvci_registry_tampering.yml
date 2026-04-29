@@ -15,8 +15,8 @@ references:
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2026-01-26
 tags:
-- attack.defense-evasion
-- attack.t1562.001
+- attack.defense-impairment
+- attack.t1685
 logsource:
   category: process_creation
   product: windows
@@ -58,30 +58,30 @@ simulation:
 note: |
   ### Technical Context
 
-  This rule detects attempts to tamper with Hypervisor-Protected Code Integrity (HVCI) registry settings using command line tools such as `reg.exe` and PowerShell. The behavior indicates an attempt by an attacker to modify critical security settings, potentially allowing the loading of unsigned drivers for privilege escalation, persistence, or evasion of security mechanisms. This detection aligns with the MITRE ATT&CK tactic of Defense Evasion, specifically technique T1562.001 (Impair Defenses).
+  This rule detects attempts to tamper with Hypervisor-protected Code Integrity (HVCI) registry settings using command-line tools like reg.exe and PowerShell. The likely objective of the attacker is to disable HVCI, facilitating the loading of malicious or unsigned code, which could lead to privilege escalation or evading security controls. This behavior maps to the MITRE ATT&CK techniques of Defense Evasion (T1562.001 - Disable or Modify Security Tools) and Defense Impairment (T1685 - Manipulate Security Tools).
 
-  The primary telemetry source includes process creation logs from Windows, notably Security Event ID 4688, and Sysmon Event ID 1, which will capture the execution of suspicious commands targeting HVCI registry keys. If the detected activity is malicious, it could undermine system integrity, exposing the environment to further compromise. However, this detection alone does not confirm that the actions were executed with malicious intent, as they may occur during legitimate troubleshooting or maintenance activities.
+  The primary telemetry source for this alert is Windows process creation logs, specifically Event ID 4688, detailing command-line activity that modifies registry entries related to HVCI. A successful tamper would compromise the integrity of kernel mode operations, leading to potential exploitation. Importantly, this detection does NOT confirm malicious activity on its own; legitimate system administration operations may also trigger this alert.
 
   ### Investigation Steps
 
-  - **Review command line arguments:** Evaluate the `CommandLine` field in Security Event ID 4688 or Sysmon Event ID 1 logs for keywords like 'EnableVirtualizationBasedSecurity' or 'HypervisorEnforcedCodeIntegrity'. Presence of these commands in association with `reg.exe` indicates potential malicious activity.
+  - **Check Event ID 4688 for process creation logs:** Review for execution of reg.exe or PowerShell commands with command lines containing "add", "New-ItemProperty", "Set-ItemProperty", or their aliases.
 
-  - **Identify recent administrative changes:** Check for legitimate administrative tasks performed prior to the alert. Cross-reference with the Windows Event Logs for Event ID 4616 (System Time Changed) or Event ID 4634 (An account was logged off) for expected activities that align with routine system updates or adjustments.
+  - **Review specific command line patterns:** Look for keywords tied to HVCI such as 'EnableVirtualizationBasedSecurity' and 'HypervisorEnforcedCodeIntegrity' in the command-line arguments of the detected process.
 
-  - **Correlate process parent-child relationships:** Investigate the process creation chain by examining Sysmon Event ID 1 logs. Look for `reg.exe` or PowerShell instances spawned from recent user-initiated activities. Benign relationships often originate from authorized scripting or local admin actions rather than escalated or unexpected sources.
+  - **Identify benign administrative activity:** Legitimate changes often occur during troubleshooting and should come from trusted administrative accounts. Check the user context executing the command; expected roles include domain admins or system administrators in service accounts.
 
-  - **Check system integrity states:** Review the `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\DeviceGuard` registry path. If legitimate administrative actions were performed, the registry values should reflect expected configurations of HVCI settings instead of unexpected changes that would suggest a breach.
+  - **Correlate with sensitive registry path:** Monitor the registry under HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System and verify if the tampering corresponds with unscheduled administrative tasks or alerts from an endpoint management solution.
 
-  - **Assess log configurations for completeness:** Ensure that critical logging settings are enabled to capture all necessary registry modifications. Validate Windows Audit Policy settings for registry access events (Audit Registry) to strengthen detection capabilities.
+  - **Establish a malicious indicator:** Any command lines modifying HVCI settings without an appropriate business justification or outside of established maintenance windows should be flagged as high-confidence malicious behavior.
 
-  - **Validate HVCI operational status:** Query the state of HVCI by checking the `Get-WindowsFeature -Name DeviceGuard` PowerShell command output. If HVCI is operational but registry changes were recent, further investigation may be warranted to ascertain the legitimacy of those changes.
+  - **Check for additional Windows Event Log channels:** Look for related anomalies in Security Event ID 4732 (Member added to a group), which may indicate lateral movement or privilege escalation attempts following the registry tampering.
 
   ### Prioritization
 
-  Given the potential impact on system integrity and the likelihood of these behaviors being exploited by adversaries targeting kernel drivers, this alert should be regarded as high priority. The common use of similar tactics by attackers to disable security features makes immediate investigation crucial to maintain protection against further exploits.
+  This alert should be considered high priority due to the potential impact of tampering with HVCI settings, as compromising this security feature can allow malware to execute at kernel level, greatly increasing the adversary's control over the affected system. The likelihood of such behavior being weaponized is high, given its association with privilege escalation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the need for comprehensive logging; if Windows auditing isn't configured adequately, malicious tampering may remain undetected. Some legitimate activities, like troubleshooting driver issues, may inadvertently trigger alerts, which can complicate triage. Related detections such as monitoring for `CreateFile` access to critical registry paths associated with HVCI—using Sysmon logs—can enhance overall coverage and insight into potential threats.
+  Detection may fail if logging is incomplete or if tools that mask the command-line output are used (e.g., obfuscation tools). Reliable detection requires proper configuration of Windows Auditing Policies to capture all command-line arguments. Legitimate activities that could trigger this alert include troubleshooting by IT staff. A related detection to strengthen coverage is monitoring for unusual driver installations or modifications (Event ID 2003).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

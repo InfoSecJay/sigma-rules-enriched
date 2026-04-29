@@ -8,7 +8,7 @@ references:
 author: Max Altgelt (Nextron Systems)
 date: 2024-09-03
 tags:
-- attack.defense-evasion
+- attack.stealth
 logsource:
   product: windows
   category: file_delete
@@ -20,40 +20,32 @@ falsepositives:
 - Some false positives are to be expected from uninstallers.
 level: medium
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects instances where a process deletes its own executable file, a behavior typically associated with malware that seeks to eliminate traces of its presence. The primary objective of this behavior is to evade detection and maintain persistence by removing executable files after execution. Relevant MITRE ATT&CK tactics include "Defense Evasion" (TA0005) and the technique "File Deletion" (T1070.004). The rule primarily involves Windows file deletion logs, particularly focusing on the specific telemetry indicating deletions executed by processes themselves. If malicious, this behavior can significantly compromise system integrity, potentially enabling further exploitation or lateral movement within the network. However, this detection does NOT confirm malicious intent on its own, as legitimate uninstaller applications may also exhibit similar behavior.
+  This Sigma rule detects the deletion of a process's executable file by the process itself. This behavior is atypical and generally indicates an attempt to conceal malicious activity, possibly to avoid detection during or after executing a payload. Common attacker objectives include maintaining persistence while evading detection and securely removing traces of malicious actions. This activity maps to the MITRE ATT&CK technique **T1036: Masquerading** and **T1070: Indicator Removal on Host**.
 
-  ---
+  The primary telemetry sources for this detection include Windows file deletion events logged as Security Event ID 4663, which indicate file deletions, and potentially Sysmon Event ID 23, which logs delete operations with process linkage. If malicious, the security impact can be significant, as this behavior may reflect an active compromise. Importantly, this detection does NOT confirm that the process was malicious on its own; it merely indicates anomalous behavior that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Review deletion events:** Check Windows Event ID 4663 for file delete operations by processes, looking specifically for events where the `Object Type` is an executable file and the `Process ID` matches the `Process` reporting the deletion.
+  - **Review Event Logs for Deletion Events**: Check for Security Event ID 4663 and Sysmon Event ID 23 for the target executable to confirm the deletion action. Look for unusual process owners or parent processes associated with these events.
 
-  - **Determine context of deletion:** Investigate the process that initiated the deletion. Use Sysmon Event ID 1 (Process Creation) to identify the command line used, checking for suspicious arguments, such as "delete," or unusual behavior in parent-child process relationships.
+  - **Correlate Process Activity**: Identify the process ID (PID) of the executable before deletion by analyzing prior Sysmon Event ID 1 (Process Creation). Compare the PIDs against known processes to establish a baseline for expected behavior.
 
-  - **Identify benign software interactions:** Look for known uninstaller signatures or legitimate software behavior. Note if processes like "msiexec.exe" or "setup.exe" correlate with the deletion event, indicating a standard software uninstall process rather than potential malicious activity.
+  - **Validate Legitimate Uninstallation**: Investigate whether the deletion is linked to a legitimate uninstaller process (e.g., MSI installations). Check associated application logs for evidence of uninstallations or updates.
 
-  - **Correlate with file integrity monitoring:** Validate whether the executable was previously observed for malicious behavior or listed in threat intelligence feeds. Review any associated hashes against known malware databases to assess risk.
+  - **Check for Known Malicious Indicators**: Use threat intelligence to verify if the process involved in the deletion is associated with known malware. Cross-reference the filename or hash with recent threat reports for any hits.
 
-  - **Check for other related artifacts:** Look for potential persistence mechanisms or additional file manipulations. Investigate if new executables appear immediately after deletion, such as through monitoring file creation events (e.g., Event ID 1001 for file creation).
+  - **Examine File Permissions and Ownership**: Analyze file permissions and ownership of the deleted executable prior to deletion. Legitimate applications usually follow standard permission patterns; deviations may indicate evasion tactics.
 
-  - **Assess endpoint protection status:** Review EDR logs and any existing alerts to determine if existing security controls flagged the process during execution, establishing a baseline of expected activity versus anomalous deletions.
-
-  ---
+  - **Monitor Related Artifacts**: Validate any new file creation associated with the same PID shortly after the deletion, which might indicate creation of an alternate payload or attempt to re-establish persistence.
 
   ### Prioritization
 
-  This alert is rated as medium severity due to the potential impact on system integrity and the likelihood of malicious abuse via self-deleting malware techniques. While the behavior is not exceedingly rare, it typically suggests an evasion tactic commonly weaponized by sophisticated threats in targeted environments.
-
-  ---
+  This alert should be treated with medium severity due to its correlation with potential evasive malware behavior. The affected systems' criticality should also factor in, as compromised hosts may lead to further network-wide impacts. This behavior, while uncommon, can be weaponized, particularly in sophisticated attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of false positives from legitimate uninstallation processes that may trigger the same alerts. Reliable detection relies on comprehensive logging of file deletions and process activities, specifically from EDR tools or Sysmon configurations. Legitimate applications such as uninstallers or cleanup utilities can trigger this alert, necessitating careful review of the context surrounding the action. A related detection to strengthen coverage includes monitoring for unusual process creation patterns leading to file deletions, assisting in differentiating between legitimate and questionable behavior.
-
-  ---
+  Detection may be limited by the absence of complete log sources—specifically, Sysmon needs to be deployed and configured correctly to capture detailed process-related telemetry. Additionally, legitimate uninstallation processes may erroneously trigger this alert. Companion detections, such as monitoring for abnormal process creation or using heuristics on command-line arguments, can enhance coverage and improve context during investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -17,8 +17,8 @@ modified: 2022-12-18
 tags:
 - attack.privilege-escalation
 - attack.initial-access
-- attack.defense-evasion
 - attack.persistence
+- attack.stealth
 - attack.t1078
 - attack.credential-access
 - attack.t1552
@@ -43,30 +43,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications related to Kubernetes admission controllers, specifically when a user creates or modifies MutatingAdmissionWebhook or ValidatingAdmissionWebhook configurations in Azure Kubernetes Service. The likely attacker objective is to gain persistence or compromise the security of the Kubernetes cluster by manipulating pod creation requests, either to introduce malicious containers or to capture sensitive information such as secrets. This behavior aligns with the MITRE ATT&CK tactics and techniques of Privilege Escalation (T1078) and Credential Access (T1552).
+  This Sigma rule detects the execution of admission controllers within Azure Kubernetes environments, specifically focusing on the actions related to MutatingAdmissionWebhook and ValidatingAdmissionWebhook configurations. Attackers may leverage these webhooks to manipulate Kubernetes API requests, gaining persistence by ensuring malicious containers are injected into newly created pods, or intercepting and stealing sensitive information such as access credentials. The relevant MITRE ATT&CK tactics include Persistence (TA0003), Credential Access (TA0006), and Privilege Escalation (TA0004), specifically techniques T1078 (Valid Accounts) and T1552 (Credential Access).
 
-  The primary telemetry source for this detection is Azure Activity Logs, specifically looking for events related to the operation of admission registration in Kubernetes. If the actions are malicious, they could lead to unauthorized access or data breaches. However, this detection does not confirm the intent behind the changes to the admission webhooks without additional context; legitimate configuration changes by authorized personnel can also trigger the rule.
+  The primary telemetry source for this detection comes from Azure activity logs, particularly those events associated with Kubernetes admission controller configurations (read/write actions). If malicious, such behavior could compromise the integrity of Kubernetes workloads and expose sensitive information or infrastructure. Importantly, this detection alone does not confirm adversarial intent, as legitimate administrators may perform similar actions for valid operational reasons.
 
   ### Investigation Steps
 
-  - **Check Azure Activity Logs:** Review Azure Activity Logs for Event Type: “Operation” and filter for `operationName` entries starting with `MICROSOFT.KUBERNETES/CONNECTEDCLUSTERS` or `MICROSOFT.CONTAINERSERVICE/MANAGEDCLUSTERS`. Look for entries involving `MUTATINGWEBHOOKCONFIGURATIONS/WRITE` or `VALIDATINGWEBHOOKCONFIGURATIONS/WRITE`.
+  - **Check admission configuration activity logs**: Review Azure activity logs for Event Type: "Write" on "/MUTATINGWEBHOOKCONFIGURATIONS" and "/VALIDATINGWEBHOOKCONFIGURATIONS". Look specifically for operation names beginning with 'MICROSOFT.KUBERNETES/CONNECTEDCLUSTERS/ADMISSIONREGISTRATION.K8S.IO'.
 
-  - **Identify suspicious modifications:** Assess the `properties` field in the logs to identify whether the webhook configurations include unrecognized or potentially malicious container images, or if they are targeting sensitive namespaces.
+  - **Assess administrator credentials**: Confirm if the users making these modifications have elevated permissions. Review Azure's Role-Based Access Control (RBAC) settings for any users with roles such as "Kubernetes Cluster Admin" or "Kubernetes Cluster User".
 
-  - **Review access controls:** Evaluate any changes in Role-Based Access Control (RBAC) linked to the SANDBOX environment. Identify whether any unauthorized principal has been granted write access to webhook configurations through `RoleAssignments`.
+  - **Identify known benign activities**: Validate if the operation correlates with known legitimate administrative changes, such as scheduled pods or application deployments involving admission controllers. Contextualize the changes based on recent changes in Kubernetes manifest files or CI/CD pipeline activities.
 
-  - **Examine legitimate behavior patterns:** Compare recent webhook creation/modification logs against known system administrator behavior. Identify expected patterns, such as typical JSON configurations or timestamps aligning with maintenance windows.
+  - **Examine webhook behavior**: Analyze current webhook configurations for any anomalies. Malicious webhooks might include external endpoints or suspicious code snippets that do not match the organization's typical deployment patterns.
 
-  - **Correlate with known indicators:** Look for signs of malicious activity such as known bad container images in the webhook configuration data, or correlate with threat intelligence feeds for identification of malicious webhook patterns.
+  - **Query connection history**: Investigate logs for unusual access patterns or source IPs associated with Kubernetes API requests from services outside of the expected administrative networks. Check Activity Log entries for any suspicious source IPs or excessive write operations.
 
-  - **Check for additional security configurations:** Review any related detections or alerts in your Security Information and Event Management (SIEM) platform that may indicate broader Kubernetes-related threats, such as unusual API calls or unexpected deployment activities in the cluster.
+  - **Look for sensitive data exposure**: Query logs for API request activities that involve sensitive information, such as secrets or config maps. Check if any entries exhibit anomalies or high-risk operations, particularly during unexpected timeframes.
 
   ### Prioritization
 
-  This alert should be treated with medium priority because unauthorized modifications to admission controllers can significantly compromise the integrity of the Kubernetes environment. While the likelihood of abuse is moderate, the potential impact on sensitive data and services is critical, making this behavior warrant further investigation. Admission controllers are commonly targeted by adversaries for persistence and access, increasing the overall risk.
+  This alert warrants medium severity due to the potential impact of unauthorized modifications in Kubernetes environments, which can lead to persistence, malicious code execution, or credential theft. The likelihood of adversarial use is moderate, as this method has been weaponized in various attack campaigns targeting Kubernetes infrastructure.
 
   ### Blind Spots and Assumptions
 
-  This detection may struggle against evasion techniques such as legitimate privilege escalation or misconfigured RBAC rules that allow unauthorized users to modify webhook configurations unnoticed. Reliable detection requires full access to Azure Activity Logs and appropriate monitoring of account permissions within the cluster environment. Legitimate activities such as routine updates by vetted system admins could trigger this alert mistakenly. Companion detections should include alerting on unusual deployment patterns or changes in Kubernetes API interactions to strengthen coverage against potential abuse.
+  Detection is limited by scenarios where legitimate administrative actions may trigger the rule, such as routine updates or configurations by trusted users. Required logs must be configured to capture Kubernetes admission controller activities comprehensively, with risk that misconfigured environments may underreport relevant events. Common evasion techniques include legitimate users creating webhooks under normal operational parameters, thus camouflaging malicious changes. A related detection to enhance coverage could include monitoring for unusual patterns in Linux process executions (e.g., execution of a container runtime), potentially indicating exploitation of identified vulnerabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

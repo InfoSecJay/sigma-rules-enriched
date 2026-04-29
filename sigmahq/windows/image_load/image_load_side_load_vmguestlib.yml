@@ -7,9 +7,10 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-12-01
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 logsource:
   category: image_load
@@ -30,26 +31,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection rule identifies the loading of the `vmGuestLib.dll` file by the `WmiApSrv.exe` service, which is likely an indication of DLL sideloading. The attacker may aim to leverage this behavior to execute malicious payloads or maintain persistence on the system by hijacking a legitimate service. Relevant MITRE ATT&CK tactics include **Defense Evasion** (TA0005) and **Persistence** (TA0003), specifically under the technique **DLL Search Order Hijacking** (T1574.001). The primary telemetry sources involved are image load events from Windows, particularly focusing on the paths and signatures of loaded DLLs. If malicious, the security impact could be severe, including unauthorized access or system compromise. However, this detection does NOT confirm malicious intent alone, as it can trigger from legitimate applications under specific conditions.
+  This rule detects the DLL sideloading of `VMGuestLib.dll`, specifically when loaded by the `WmiApSrv.exe` service. This behavior is indicative of an adversary attempting to leverage a trusted process to execute potentially malicious code, facilitating persistence and possibly privilege escalation in a Windows environment. The relevant MITRE ATT&CK tactic is **Persistence** and the technique is **DLL Side-Loading (T1574.001)**.
+
+  The primary telemetry sources are Windows event logs related to image loading, particularly `ImageLoad` events that contain the specific paths for the DLL and the executable. If malicious, this could lead to unauthorized access or control over the system, potentially allowing further attacks within the network. However, it’s important to note that this detection does not confirm that malicious behavior has occurred; it merely indicates a suspicious loading of the DLL that requires further investigation.
 
   ### Investigation Steps
 
-  - **Review WmiApSrv service behavior:** Check Windows Service logs (Event ID 7036) for unusual start or stop events related to `WmiApSrv.exe`. Legitimate behavior includes a regular operational schedule and interaction with VMware Tools if installed.
+  - **Verify the loading process: ** Check Windows Event ID 4104 for the loading of `vmGuestLib.dll` by `WmiApSrv.exe`. Analyze the timestamp and context to understand if the loading corresponds with unusual activity or known legitimate operations.
 
-  - **Analyze DLL loading instances:** Examine image load events; specifically, look for Event ID 1102 from Microsoft-Windows-Kernel-Process. Malicious indicators include `vmGuestLib.dll` being loaded by `WmiApSrv.exe` without a valid signature.
+  - **Review DLL signature: ** Investigate the digital signature of the `vmGuestLib.dll` using PowerShell command `Get-AuthenticodeSignature 'PATH_TO_VMGuestLib.dll'`. Legitimate versions should be signed by VMware, while unauthorized versions may not be signed or have altered signatures.
 
-  - **Verify DLL signatures:** Use PowerShell or a similar tool to check the signature of `vmGuestLib.dll` loaded during the incident. A legitimate signature from VMware is expected; absence of a valid signature strongly indicates malicious manipulation.
+  - **Identify legitimate WmiApSrv.exe behavior: ** Determine baseline activity for `WmiApSrv.exe`. It typically communicates with VMware tools and might have legitimate DLL loads. Document its behavior under normal conditions, such as the timing and content of its interactions with other services.
 
-  - **Inspect system for existing VMGuestLib:** Confirm the presence of a legitimate version of `vmGuestLib.dll` in the expected path (`C:\Program Files\VMware\VMware Tools\vmStatsProvider\win32`). If the file is absent, deeper investigation is warranted.
+  - **Correlate with other telemetry: ** Cross-reference Event ID 4688 for process creation events and Event ID 4689 for process termination linked to `WmiApSrv.exe`. Look for unusual parent-child relationships that may suggest evasion techniques (e.g., loaded DLLs from non-standard locations).
 
-  - **Correlate with other telemetry:** Meld findings with endpoint detection logs (Sysmon Event ID 7) to understand context. Look for simultaneous suspicious behaviors such as unexpected network connections or process creations.
+  - **Check for known IOCs: ** Compare the hash of `vmGuestLib.dll` against known malicious indicators from threat intelligence sources. Use tools like Windows Security’s built-in capabilities or third-party solutions to automate this process.
 
   ### Prioritization
 
-  This alert is of medium severity due to the critical nature of the WMI service in Windows and its potential to be leveraged for persistence by an adversary. The likelihood of malicious abuse is significant, particularly as sideloading techniques are common in targeted attacks against enterprise environments.
+  The alert severity is medium due to the potential impact on enterprise systems. Given that DLL sideloading is an established technique used by attackers for persistence and privilege escalation, there is a moderate likelihood of malicious activity being evident. This behavior, although uncommon in standard operations, can be weaponized effectively by adversaries.
 
   ### Blind Spots and Assumptions
 
-  Detection may inaccurately trigger in cases where legitimate versions of `vmGuestLib.dll` are already present on the system, particularly in environments using VMware. Reliable detection depends on complete logging from image load events and service behavior. Legitimate application installations or updates from VMware can inadvertently trigger this alert. Companion detections such as unusual process creation events associated with `WmiApSrv.exe` would further strengthen coverage and accuracy.
+  This detection may miss evasion tactics if legitimate `vmGuestLib.dll` already exists on the system prior to an attack. Reliable detection requires logging of image load events, and if this logging is not appropriately configured, the system could overlook important alerts. Legitimate administrative activities involving VMware utilities may also trigger these alerts. A companion detection for a more robust approach could include monitoring suspicious parent processes using Event ID 4688 to observe the usage of `WmiApSrv.exe`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

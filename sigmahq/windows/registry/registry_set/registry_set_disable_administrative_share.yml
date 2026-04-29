@@ -10,7 +10,7 @@ author: frack113
 date: 2022-01-16
 modified: 2024-03-25
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1070.005
 logsource:
   category: registry_set
@@ -36,28 +36,30 @@ simulation:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the modification of registry keys associated with administrative shares, specifically the disabling of `AutoShareWks` and `AutoShareServer` at system startup. This behavior typically indicates an attempt by an attacker to hide their actions or reduce risk of exposure by disabling administrative network shares that could allow remote access. The relevant MITRE ATT&CK tactic is **Defense Evasion** (T1070.005).
+  This Sigma rule detects unauthorized modifications to system registry settings that disable the creation of administrative shares on Windows systems. These shares, such as C$ and ADMIN$, typically allow remote access and management, making them a target for attackers seeking to maintain persistence or escalate privileges. The likely objective of an adversary triggering this rule is to prevent legitimate administrative access while permitting their own remote exploitation. This behavior relates to the MITRE ATT&CK technique for "Indicator Removal on Host" (T1070.005).
 
-  The primary telemetry source for this detection is Windows registry change logs, specifically targeting the registry path `\Services\LanmanServer\Parameters\`. If successful, this modification could significantly impact security by limiting legitimate administrative access, thereby enabling persistent and covert malicious activities. Importantly, this detection does not, on its own, confirm malicious intent; disabling administrative shares can also be a part of standard operating procedure or security hardening.
+  Primary telemetry sources include Windows Registry logs, specifically focusing on changes under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters`. The security impact could be significant, limiting the detection and response capabilities of administrative users and potentially allowing for extended unauthorized access. It is crucial to note this detection does NOT confirm that a compromise has occurred; rather, it indicates a change that requires further investigation.
 
   ### Investigation Steps
 
-  - **Review registry modification logs:** Check for Event ID 4657 in Security logs to identify changes made to the registry keys `\Services\LanmanServer\Parameters\AutoShareWks` or `AutoShareServer`. Legitimate changes may include re-enabling these shares for system management.
+  - **Check the Registry Path for Modifications:** Review Windows Registry logs for changes under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters` (Event ID for Registry modifications). Look specifically for `AutoShareWks` and `AutoShareServer` settings showing a value of `0`, indicating shares are disabled.
 
-  - **Correlate with recent user activity:** Investigate the user account performing the registry modification by looking at Event ID 4660 (object deletion) and 4663 (access to an object) in Security logs. Any unexpected accounts, particularly non-administrative users, raise suspicion.
+  - **Identify the Account Responsible for Changes:** Cross-reference the change event with the Windows Security logs (Event ID 4663). Look for the user account that made the registry change, identifying if it is an administrative account or a potentially compromised account.
 
-  - **Validate system roles and configurations:** Ensure the system is intended to have administrative shares. On a workgroup machine or in isolated environments, these shares might be disabled for compliance or isolation, indicating benign behavior.
+  - **Validate with Baseline Configurations:** Compare the current registry value against standard system configurations established for your environment. Legitimate systems typically have these shares enabled for administrative purposes.
 
-  - **Identify concurrent suspicious actions:** Check for related behaviors, such as unusual service installations or account creations, using Sysmon Event ID 1 (Process Creation). Look for processes that could indicate lateral movement or backdoor establishment.
+  - **Analyze the Timing of Changes:** Review Event ID 5140 (Object Access) logs to understand when these registry changes occurred. Look for unusual access patterns or correlating events (such as logins from unfamiliar accounts or locations) preceding the registry changes.
 
-  - **Look for evidence of lateral movement:** Investigate the presence of remote access tools (RATs) or anomalous SMB connections initiated after the registry change. Review System logs for unexpected inbound connections.
+  - **Correlate with Endpoint Behavior:** Examine processes running at the time of the registry modification using Sysmon Event ID 1 (Process Creation) to identify potential malicious executables associated with the change.
+
+  - **Determine Potential for Evasion Techniques:** Note that malware could have automation to disable administrative share creation preemptively. Investigate any scripts or automation tools that could have inadvertently made these changes.
 
   ### Prioritization
 
-  This alert should be treated with medium severity given the critical nature of administrative shares in an enterprise environment. The likelihood of abuse is moderate, as disabling these shares may be part of tactics used by adversaries to establish persistence or evade detection during an attack.
+  This alert has a medium severity level due to the potential impact on administrative functionalities and the high likelihood of exploitation in scenarios where adversaries seek to cover their tracks. The behavior is not commonly seen in benign administrative tasks, suggesting a need for further investigation.
 
   ### Blind Spots and Assumptions
 
-  Limitations of this detection include evasion techniques like using legitimate administrative tools to modify settings without triggering alerts. It relies heavily on accurate log collection from the Windows registry; if these logs are not preserved or monitored, detection may fail. Common legitimate activities might involve system administrators disabling shares to tighten security in response to specific threats. A related detection to strengthen coverage would be monitoring for changes in Group Policies affecting administrative shares, which could provide further insight into the environment's security posture.
+  Detection limitations exist as advanced adversaries might implement stealth techniques to modify registry settings without triggering alerts. Ensure that logging for Registry modifications is enabled enterprise-wide to avoid gaps in visibility. Legitimate software or maintenance tasks may also disable shares during updates or migrations. As a companion detection, consider monitoring for lateral movement activity alongside this rule to enhance situational awareness of potential compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -18,9 +18,9 @@ references:
 author: Nischal Khadgi
 date: 2024-07-11
 tags:
-- attack.defense-evasion
 - attack.credential-access
 - attack.persistence
+- attack.defense-impairment
 - attack.t1556
 logsource:
   category: registry_set
@@ -37,28 +37,37 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects unauthorized changes to the "DsrmAdminLogonBehavior" registry value on a Windows Domain Controller. Such modifications may indicate malicious activity aimed at gaining persistent access to the organization's Active Directory through the Directory Services Restore Mode (DSRM) account. The likely attacker objective is to manipulate DSRM behavior to enable unfettered access to Domain Controller functionalities, facilitating data exfiltration or lateral movement in the network. The relevant MITRE ATT&CK tactic is **Persistence** (TA0003) and the technique is **Application Layer Protocol** (T1556).
+  This rule detects modifications to the `DsrmAdminLogonBehavior` registry value on Windows Domain Controllers, which can indicate potential attempts to undermine security controls or establish persistence within Active Directory. Specifically, attackers may alter this value to facilitate unauthorized access to the Directory Services Restore Mode (DSRM) environment, enabling them to bypass standard authentication mechanisms.
 
-  The primary telemetry source for this detection is Windows Registry change monitoring. Specifically, the required log type is from the registry set category, capturing modifications to the specified registry path. If the detected behavior is malicious, it could lead to significant security impacts such as unauthorized access to sensitive accounts, potential data breaches, or complete administrative control over Active Directory. Importantly, this detection does NOT confirm malicious intent on its own; it only indicates that a change was made to a critical registry value.
+  The relevant MITRE ATT&CK techniques impacted are:
+
+  - **Tactic:** Credential Access
+  - **Technique:** T1556 - Compromise Credentials
+
+  Primary telemetry sources include Windows Registry logs, specifically monitoring changes to the registry key located at `\Control\Lsa\DsrmAdminLogonBehavior`. If malicious, altering this registry value can significantly increase the risk of unauthorized access to Active Directory environments, impacting the integrity of critical systems.
+
+  This detection does NOT confirm actual exploitation; it merely identifies a change that could be indicative of malicious intent.
 
   ### Investigation Steps
 
-  - **Check the registry value change timestamp:** Review the System Event Log (Event ID 4663) to correlate the registry modification timestamp with other system activity to identify potentially anomalous behavior or an associated login event.
+  - **Check Registry Value: ** Review the `DsrmAdminLogonBehavior` value in the Windows Registry to determine if it's been set to `2`, which allows DSRM access under any circumstance. Look for this value at `HKEY_LOCAL_MACHINE\ControlSet001\Services\Lsa\` in Security Event ID 4657 logs.
 
-  - **Validate the registry path and content:** Query the registry for the "DsrmAdminLogonBehavior" value under `HKEY_LOCAL_MACHINE\Control\Lsa\` to confirm its current value. If it was changed to "2", this is a high-confidence malicious indicator as it enables unrestricted access to the DSRM account.
+  - **Examine System Context: ** Identify if this change occurred on a Domain Controller by verifying the hostname and role. Use Event ID 4104 from PowerShell logs, focusing on if the change coincides with expected maintenance activities.
 
-  - **Review account activity for the DSRM account:** Inspect the Security Event Log (Event ID 4624) for any login attempts using the DSRM account to detect unexpected or unauthorized use, particularly from non-administrator users or atypical locations.
+  - **Investigate User Account Activity: ** Query Security Event logs (Event ID 4624) to review logon activities related to the DSRM account since the registry change. Look for any anomalous logons, especially from unexpected IP addresses or high-risk time periods.
 
-  - **Identify benign configuration changes:** Understand the typical operational behavior of the DSRM account within your organization. If authorized personnel routinely adjust this value for maintenance purposes, document these occurrences to differentiate between benign and suspicious activity.
+  - **Cross-Validate Previous Logon Behavior: ** Compare current values with historical data. Collect registry snapshots (if available) to confirm if the `DsrmAdminLogonBehavior` has been altered during incident window.
 
-  - **Correlate with related alerts or logs:** Cross-reference this detection with similar Sigma rules that monitor for changes in administrative accounts or privilege escalation, such as Event ID 4672, which indicates special privileges assigned to a new logon.
+  - **Review for Expected Maintenance Activities: ** Determine if legitimate system maintenance or backup actions coincided with the modification. Assessment of the schedule and authorization for such changes can indicate benign intent.
+
+  - **Identify Malicious Indicators: ** Look for indications of lateral movement or privilege escalation attempts by checking for failed logon attempts (Event ID 4625) by non-administrative accounts around the same timeframe as the registry alteration.
 
   ### Prioritization
 
-  This alert is considered high severity due to the critical nature of the affected system, namely the Domain Controller, which can lead to enterprise-wide impacts if compromised. Given that the behavior is a tactic often employed by attackers for persistence, there is a significant likelihood of malicious exploitation.
+  This alert is of high severity as it pertains to changes that can weaken the security posture of Domain Controllers. The likelihood of abuse is significant given that such alterations are often employed by threat actors to gain persistent access to critical systems. Moreover, this behavior is commonly weaponized in targeted attacks against Active Directory.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations exist considering potential evasion techniques like direct registry manipulation using PowerShell or third-party tools that may not generate logs. Reliable detection requires that Windows Event Logging is properly configured to capture registry changes. Additionally, legitimate maintenance activities by system administrators may trigger this alert, which must be reviewed against specific organizational practices. A relevant companion detection would be monitoring for privilege escalation events on Domain Controllers to enhance visibility into possible abuse of modified access paths.
+  Evasion techniques may include restoring the registry value post-attack, which can hide malicious activity. Log sources must be properly configured to ensure Registry Auditing is enabled, as it is crucial for capturing relevant events accurately. Legitimate administrative activity, particularly during system maintenance or upgrades, may trigger this alert. A related detection to enhance coverage would be monitoring for unusual logon patterns associated with the DSRM account, which could indicate misuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

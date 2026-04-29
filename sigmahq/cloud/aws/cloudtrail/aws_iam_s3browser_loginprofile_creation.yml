@@ -11,9 +11,9 @@ date: 2023-05-17
 tags:
 - attack.execution
 - attack.persistence
-- attack.defense-evasion
 - attack.initial-access
 - attack.privilege-escalation
+- attack.stealth
 - attack.t1059.009
 - attack.t1078.004
 logsource:
@@ -33,36 +33,28 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects activity from the S3 Browser tool where an attacker attempts to enumerate IAM users who do not have a LoginProfile and subsequently creates one for these users. This behavior is indicative of a reconnaissance stage followed by a potential privilege escalation tactic, allowing the attacker to control user access to S3 resources. The relevant MITRE ATT&CK tactics and techniques include: **Initial Access (TA0001)** and **Privilege Escalation (TA0004)**, specifically **Valid Accounts (T1078.004)**.
-
-  The primary telemetry source is Amazon CloudTrail logs, captured through the `iam.amazonaws.com` service, specifically the events `GetLoginProfile` and `CreateLoginProfile`. If malicious, this activity could lead to unauthorized access and management of cloud resources, enabling further exploitation. Importantly, this detection does NOT confirm that malicious activity occurred without additional context or validation of the user's intent and legitimacy.
+  This rule detects the use of the S3 Browser tool performing reconnaissance on AWS IAM users to identify those without a defined LoginProfile. The attacker may aim to create a LoginProfile for compromised or unauthorized IAM users to gain persistent access to resources. This behavior fits within the MITRE ATT&CK framework, specifically under the tactics of Persistence (T1078.004) and Execution (T1059.009). The primary telemetry source is AWS CloudTrail logs, capturing events related to IAM API calls such as `GetLoginProfile` and `CreateLoginProfile`. If malicious, this behavior could lead to unauthorized access and potential data exfiltration. It’s important to note that this detection does NOT confirm malicious activity on its own, as legitimate use of S3 Browser for IAM management can produce similar events.
 
   ### Investigation Steps
 
-  - **Check for suspicious user accounts:**
-    Review IAM user details in the AWS Management Console for accounts associated with the detected event. Specifically, verify user account status (e.g., "Active" vs "Inactive") to confirm if unexpected or unknown accounts attempted to create LoginProfiles.
+  - **Review CloudTrail Logs for Relevant Events:** Check AWS CloudTrail logs for `eventName` entries of `GetLoginProfile` and `CreateLoginProfile`. Focus on the `userAgent` field containing 'S3 Browser' for potential misuse.
 
-  - **Validate the user agent:**
-    Cross-reference the CloudTrail logs (`eventSource` and `userAgent` fields) to confirm that the detected `userAgent` contains 'S3 Browser'. Validate expected using scenarios for S3 Browser in your environment.
+  - **Correlate User Activity with IAM Policies:** Examine the IAM policies associated with the user executing these actions. Ensure that the user has legitimate roles that necessitate use of the S3 Browser.
 
-  - **Identify LoginProfile creation events:**
-    Examine CloudTrail logs for `CreateLoginProfile` events within the past 30 minutes (Event ID must be specified by the user for exact event filtering). Look for anomalies such as multiple accounts being affected in rapid succession.
+  - **Analyze Frequency of API Calls:** Identify patterns in how frequently `GetLoginProfile` and `CreateLoginProfile` API calls are made in a certain time range, as excessive or out-of-hours calls may indicate malicious activity.
 
-  - **Assess typical benign usage patterns:**
-    Document typical use cases of S3 Browser in your enterprise, including which accounts regularly create LoginProfiles. A high degree of variance from this baseline indicates potential malicious activity.
+  - **Identify Existing LoginProfiles:** For users identified by `GetLoginProfile`, determine their current state of having a LoginProfile set and verify legitimate activity. Legitimate user accounts typically will have a LoginProfile configured if frequent access is required.
 
-  - **Review access to S3 buckets:**
-    Investigate privileges assigned to accounts found in the previous steps, particularly focusing on IAM policies. Look for indicators of excessive permissions being granted just after a LoginProfile is created.
+  - **Assess Malicious Indicators on User Context:** Look for users that have had no prior LoginProfile but show attempts to create one rapidly after the `GetLoginProfile`. This is a high-confidence indicator of potential malicious activity.
 
-  - **Correlate with other suspicious activities:**
-    Check for related IAM operations (e.g., `iam:ListUsers`, `iam:CreateUser`, `iam:DeleteUser`) in the same time frame to identify potential coordinated actions indicative of an intrusion attempt.
+  - **Monitor for Exfiltration Artifacts:** If a LoginProfile is created, validate any immediate file creation or access activity associated with that account that could indicate ongoing malicious actions, such as unauthorized data downloads from S3 buckets.
 
   ### Prioritization
 
-  The alert is categorized as high severity due to its capacity for exploitation of IAM configurations directly linked to user access control, making it a prime target for attackers looking to gain persistence and escalate privileges in AWS environments. The likelihood of malicious abuse is significant given the explicit functionality of the S3 Browser tool identified in attack narratives.
+  This alert is considered high severity due to the significant impact potential on AWS resources and the likelihood that the behavior may indicate an attempt to exploit IAM vulnerabilities. The use of recognized tools like S3 Browser is common among attackers, making it a notable risk for credential-related exploitation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be evaded through the use of other legitimate client tools that do not identify as 'S3 Browser' in the user agent, or if relevant CloudTrail logging is not enabled for all necessary IAM events. Legitimate activities such as administrative IAM configuration changes may spur the same alert. A companion detection to strengthen your defenses would include monitoring for unusual `iam:ChangePassword` actions that could indicate compromised accounts following the creation of LoginProfiles.
+  Detection may have limitations if CloudTrail logging is not fully enabled for IAM actions; thus, review IAM configuration for logging policies. Legitimate account management practices may trigger the alert, especially from third-party tools like the S3 Browser that are used for maintenance and operations. A related detection could include monitoring for unusual S3 bucket access patterns, which may indicate malicious activity following the creation of a LoginProfile.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

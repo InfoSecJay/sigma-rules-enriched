@@ -10,8 +10,8 @@ author: X__Junior (Nextron Systems)
 date: 2024-03-11
 tags:
 - attack.execution
+- attack.stealth
 - attack.t1059
-- attack.defense-evasion
 - attack.t1202
 logsource:
   category: process_creation
@@ -30,28 +30,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of a renamed "NirCmd.exe" binary, a versatile command-line utility often misused by attackers for executing potentially harmful actions on a compromised host. The behavior indicates a strong likelihood of an adversary attempting to leverage built-in functionalities such as executing commands, manipulating files, or gathering system information without raising immediate alarm. This aligns with the MITRE ATT&CK tactics: Execution (TA0002) and the relevant techniques: Command-Line Interface (T1059) and Abuse Elevation Control Mechanism (T1202).
+  This Sigma rule detects the execution of a renamed instance of the "NirCmd.exe" utility on Windows systems. NirCmd is a command-line tool that can perform various system tasks and is often abused by attackers for malicious purposes, including executing further payloads, obtaining system information, and performing actions unnoticed by users. The likely attacker objective is to use this tool for lateral movement, data exfiltration, or other malicious operations while evading detection under the guise of legitimate system processes.
 
-  The primary telemetry source is Windows process creation logs, specifically focusing on event data that track the creation of processes and the associated executable metadata. If malicious, the execution of a renamed "NirCmd.exe" poses a substantial security risk, potentially allowing unauthorized actions on high-value targets. It’s crucial to note that this detection does NOT confirm malicious intent on its own; legitimate uses of the utility for administrative tasks may also trigger this rule.
+  This detection correlates with the MITRE ATT&CK framework under "Execution" (TA0002) and "User Execution" (T1202). The primary telemetry source required for this detection includes Windows process creation logs, specifically Security Event ID 4688, which captures detailed information about process creation events, including the full command line and the image name. If this behavior is indeed malicious, it could lead to unauthorized access, system compromise, or loss of data integrity. It is essential to state that this detection alone does NOT confirm malicious intent; further investigation is required to establish whether the behavior is legitimate or part of a broader malicious campaign.
 
   ### Investigation Steps
 
-  - **Check process creation logs for NirCmd execution:** Review Security Event ID 4688 and Sysmon Event ID 1 for entries where the `New Process Name` contains “nircmd.exe” or “nircmdc.exe.” Focus on the `Command Line` field for suspicious arguments.
+  - **Collect process creation logs:** Retrieve Windows Security Event ID 4688 logs from the host to analyze the command line parameters used to execute NirCmd. Look for suspicious parameters that may indicate malicious use, such as remote execution flags or command constructions that alter system settings.
 
-  - **Identify parent process relationships:** Investigate the parent process of the detected NirCmd execution. Look for unusual or unauthorized processes (i.e., not common administrative tools) in the `Parent Process ID` field. Legitimate executions may involve trusted administrative tools or scripts.
+  - **Identify the binary location:** Validate the path of the executed binary. Legitimate paths typically include `C:\Windows\System32\nircmd.exe`. If the file is located in atypical directories (e.g., user profile directories), this is a strong indicator of a potential compromise.
 
-  - **Review execution context:** Analyze the user context (User Name and Logon ID fields) under which the process initiated. Events triggered by administrative or SYSTEM accounts may suggest benign usage, while user-initiated commands on standard user accounts are more suspicious.
+  - **Check associated processes:** Monitor for parent processes that initiated the NirCmd execution. A legitimate execution often stems from system administration tools or scripts (e.g., PowerShell, CMD). Malicious executions may have unusual parent processes, such as Explorer.exe initiated by a suspicious user process.
 
-  - **Explore related system changes:** Examine for file modifications or deletions around the time of the detected event. Check for unusual file paths or creation of executables in `%TEMP%` or other user directories, perhaps related to the commands executed with NirCmd.
+  - **Review command line parameters:** Analyze the command line arguments of the NirCmd execution to identify the specific actions taken. For example, the use of network commands (`nircmd.exe connect` or `nircmd.exe exec`) indicates potential malicious activity, while benign usage may involve system utility functions.
 
-  - **Correlate with other telemetry sources:** Cross-reference with EDR telemetry or Windows Event Logs (Event IDs 5145, 4663) for unusual file access or network activity that may resonate with known malicious behavior patterns.
+  - **Correlate with other alerts:** Cross-reference this detection with other related alerts or behaviors, such as unauthorized RDP access or abnormal outbound connections. This correlation can indicate a larger, ongoing malicious operation.
+
+  - **Investigate host roles and criticality:** If the alerted host is a critical asset (e.g., domain controller, database server), prioritize this investigation, as the use of NirCmd in such environments significantly raises the alert severity and potential impact.
 
   ### Prioritization
 
-  Given the potential impact on critical systems, the execution of renamed NirCmd can indicate targeted exploitation. The likelihood of malicious abuse is high, particularly in enterprise environments where adversaries often weaponize toolsets that provide command and control capabilities. Attacks are frequently observed in specific threat actor campaigns.
+  Given the high-risk nature of NirCmd being utilized as a stealthy execution tool, this alert warrants immediate investigation. If confirmed malicious, it can lead to severe security incidents, especially on critical infrastructure or sensitive data repositories. This behavior is not only concerning due to its technical capabilities but also due to its increasing usage by adversaries during campaigns targeting organizations.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded if an attacker uses another legitimate tool or further renames the binary without triggering similar logging events. Full coverage also requires Sysmon for granular process detection; without it, visibility is limited. Additionally, legitimate administrative actions using NirCmd for automation may still result in a false positive, necessitating context-aware investigation. Implementing companion detections for event ID 4688 based on abnormal parent-child relationships could enhance incident response efficacy.
+  Detection may be limited due to potential modifications or obfuscation of the binary name, as attackers may rename the executable further to avoid detection, making it imperative to maintain comprehensive logging and alert configurations. Reliance on process creation logs alone may overlook scenarios where NirCmd is executed through an alternate method or via scripts. Ensure that Windows Event Forwarding is enabled for complete visibility of process creations. A companion detection rule could monitor for other common abuse scenarios involving scripting languages, such as PowerShell executions that may leverage similar tools.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

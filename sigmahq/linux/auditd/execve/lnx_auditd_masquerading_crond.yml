@@ -10,7 +10,7 @@ author: Timur Zinniatullin, oscd.community
 date: 2019-10-21
 modified: 2023-08-22
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1036.003
 logsource:
   product: linux
@@ -26,28 +26,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects instances of executables being renamed or placed in locations that mimic legitimate system processes, specifically targeting the Linux `crond` service. The likely objective of an attacker employing this technique is to execute malicious commands while evading detection measures that focus on monitoring known execution patterns and locations. This behavior aligns with the MITRE ATT&CK technique for masquerading, identified as T1036.003.
+  This Sigma rule detects attempts to masquerade as the Linux cron daemon (crond) by using the `cp` command to execute a shell with a pathname ending in `crond`. The likely attacker objective is to evade detection mechanisms by mimicking legitimate system processes, potentially to schedule malicious tasks or execute malicious scripts. This behavior fits into the MITRE ATT&CK framework under the tactic "Defense Evasion" and the technique "Masquerading" (T1036.003).
 
-  The primary telemetry source for this detection is the `auditd` logs capturing execution events through the `execve` syscall, specifically monitoring commands like `cp` executed in the context of `/bin/sh` that end in `/crond`. If confirmed malicious, such activity may facilitate unauthorized actions or persistence on the system. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate scripts may also replicate this behavior.
+  The primary telemetry source for this detection is Linux audit logs, specifically capturing `execve` syscall activity (Audit Event Type). If malicious, this behavior could lead to unauthorized task scheduling or script execution with elevated privileges, potentially compromising system integrity. This detection does NOT confirm that the process is indeed malicious on its own; further investigation is needed to understand the context and intent behind the activity.
 
   ### Investigation Steps
 
-  - **Review executed commands**: Check `auditd` logs for Event IDs related to `execve` focusing on log fields for `a0`, `a1`, and `a2` to verify command execution. Benign executions should show expected patterns, such as users invoking `crontab` commands without unusual file paths.
+  - **Verify the command execution context:** Review `/var/log/audit/audit.log` for entries with `execve` syscall related to `cp`, noting timestamps and originating users. Look for user accounts that may indicate suspicious behavior (e.g., non-admin users executing system-level commands).
 
-  - **Identify anomalies in paths**: Investigate for any anomalies wherein the executable's path of `crond` deviates from `/usr/sbin/crond` or `/usr/bin/crond`. Malicious attempts often involve paths like `/tmp/crond` or user directories.
+  - **Assess the file being accessed:** Check if the target `/bin/sh/crond` exists using `ls -la /bin/sh/crond`. If it does not exist, this is a strong indicator of malicious behavior, as legitimate processes should not reference this path.
 
-  - **Correlate with process attributes**: Review associated Sysmon Event ID 1 (if Sysmon is deployed) for process creation events to analyze parent and child processes of `sh` executing `cp`. Legitimate usage will generally involve known administrative commands or scheduled jobs.
+  - **Evaluate expected cron behavior:** Review scheduled cron jobs for the user account in question using `crontab -l -u [username]`. Normalize this against known benign jobs to determine whether recent changes have been made that align with the alert.
 
-  - **Assess user context and permissions**: Assess the user account invoking the `cp` command to determine if they have legitimate permissions. Uncommon user accounts performing this operation may indicate potential compromise.
+  - **Identify high-confidence malicious indicators:** Cross-reference the timestamp of the event with creation/modification times of any scripts or binaries in `/tmp` or other temp directories, looking for unexpected file modifications or creations indicative of a malicious payload being introduced.
 
-  - **Validate integrity of system binaries**: Use checksum verification against known-good versions for `crond` and other critical system binaries. Unauthorized modifications or unexpected file states put the system at higher risk.
+  - **Check for running processes:** Use `ps aux | grep crond` to verify whether any legitimate `crond` processes are currently running. Legitimate crond processes should have their usual paths and argument structures.
+
+  - **Log source validation:** Ensure that audit logging is enabled and configured properly to capture `execve` calls. Lack of comprehensive audit coverage may lead to missed detections.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential impact on the Linux system, especially if it involves privileged processes like `crond`. While the activity itself is not commonly weaponized, it presents a clear risk for exploitation if left unchecked.
+  This alert has medium severity due to the potential impact on system functions, particularly if a compromised cron process schedules other malicious activities. The likelihood of malicious abuse is significant since attackers commonly exploit masquerading techniques to bypass defenses. This behavior is recognized as weaponized in threat actor tactics.
 
   ### Blind Spots and Assumptions
 
-  Potential evasion techniques include an attacker renaming their malicious executable to blend in more effectively with legitimate processes. The detection relies heavily on the correct configuration of the `auditd` service for effective logging. Legitimate activities that could trigger this alert may include configurations by SysAdmins using scripts that manipulate cron jobs. A related detection rule for checking for process injection or child process matching could enhance overall coverage against this tactic.
+  Detection limitations include the potential for attackers to employ variant command executions or obscure arguments, which may evade this specific rule. Reliable detection requires proper audit configurations that capture `execve` syscall data throughout the environment. Legitimate script executions or scheduled tasks may trigger this alert, particularly if they use similar naming conventions. Related detections include monitoring for unauthorized cron job modifications or added entries, enhancing overall coverage against malicious scheduling attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

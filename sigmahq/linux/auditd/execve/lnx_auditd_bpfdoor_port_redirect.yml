@@ -10,8 +10,8 @@ references:
 author: Rafal Piasecki
 date: 2022-08-10
 tags:
-- attack.defense-evasion
-- attack.t1562.004
+- attack.defense-impairment
+- attack.t1686
 logsource:
   product: linux
   service: auditd
@@ -31,30 +31,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects instances where an attacker manipulates TCP traffic on a Linux system using the `iptables` command to redirect traffic intended for common services like SSH (port 22) to a different port associated with a backdoor (e.g., 42392). The likely objective is to obfuscate malicious communication, allowing unauthorized access while evading detection. This behavior falls under the MITRE ATT&CK tactic of Defense Evasion (T1562.004).
+  This Sigma rule detects unauthorized modifications to iptables configurations, specifically looking for traffic redirection on TCP ports typically used for services like SSH. The likely attacker objective is to obfuscate their command and control (C2) communication by routing it through ports that would normally appear legitimate to casual monitoring, effectively bypassing security controls. The relevant MITRE ATT&CK tactics and techniques include Defense Evasion (T1203 - Exploitation for Client Execution) and Command and Control (T1043 - Commonly Used Port).
 
-  The primary telemetry source is Linux audit logs captured by `auditd`, specifically focusing on command execution events involving `iptables`. If malicious, such manipulation could enable persistent backdoor access or unauthorized data exfiltration. Notably, this detection does NOT confirm that a compromise has occurred by itself; it merely indicates an attempt to alter network traffic which may be legitimate in some configurations.
+  The primary telemetry source is the Linux audit daemon (auditd), with the required log type being audit logs reflecting the execution of the `iptables` command. If malicious in nature, this behavior indicates an active compromise with potential backdoor access to the system. However, this detection does NOT confirm that the traffic is malicious on its own, as legitimate use of port redirection could also trigger this rule.
 
   ### Investigation Steps
 
-  - **Review audit logs for command execution:** Check for entries with `Event ID` relevant to `auditd` commands where `cmd` matches `iptables` and contains `-t nat`. Focus specifically on commands that include `--to-ports 42392` or similar suspicious ports.
+  - **Review executed commands:** Check Audit logs (Audit Event ID 1304) for execution of `iptables` commands. Look for evidence of redirection using `--to-ports`. Valid commands should relate to expected networking practices and not redirect critical ports like 22 or others associated with common services.
 
-  - **Correlate with network traffic analysis:** Examine network traffic logs for unusual connections to the specified redirected ports. Look for indicators of SSH communications that have unusual patterns or encryption that does not conform to expected behavior.
+  - **Identify associated network activity:** Analyze network traffic logs (e.g., NetFlow or Suricata logs) for suspicious outgoing connections on redirected ports detected in the `iptables` command. Look for unexpected communication patterns, particularly to external IPs not associated with legitimate company domains.
 
-  - **Identify legitimate use cases:** Validate the presence of documented and authorized uses of `iptables`, especially for port redirection. Compare against internal network architecture documentation to ensure no unexpected changes have been made.
+  - **Validate legitimate configurations:** Compare the current iptables configuration using `iptables -L -t nat` output against baseline configurations. Any unapproved changes should raise further investigations, especially if they involve commonly used services.
 
-  - **Search for backdoor signatures:** Validate the existence of processes listening on the redirected ports like 42392. Use process listing commands or `netstat` to confirm whether these processes are commonly known backdoors or binaries related to legitimate applications.
+  - **Check for other signs of compromise:** Monitor system logs (e.g., /var/log/syslog) for related events or anomalies around the time of the detected iptables command. Look for previously unknown users or sessions that may correlate with the timing of the rule triggering.
 
-  - **Check for system integrity:** Review logs and file integrity monitoring alerts for changes made around the time of the `iptables` command execution. Look for unexpected modifications to the system or executables indicative of malicious actions.
-
-  - **Evaluate asset criticality:** Prioritize alert analysis on critical systems (e.g., production servers or those accessible over the public internet) where unauthorized access could lead to severe breaches or data loss.
+  - **Correlate with host indication:** Verify the role and criticality of the affected system. If it's a server exposed to the internet (e.g., a web server), prioritize it higher over internal or less critical assets.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential for leading to unauthorized access or data exfiltration. Given the ability of attackers to misuse legitimate commands to redirect traffic, the likelihood of exploitation is notable, making this behavior a known technique in advanced persistence scenarios.
+  The alert severity is medium due to the potential impact on security if a critical server is compromised through backdoor access. The likelihood of malicious abuse is significant, as redirects on otherwise secure ports can typically indicate exploitation tactics used by advanced adversaries. The behavior is not uncommon in targeted environments where stealth and persistence are key strategies for attackers.
 
   ### Blind Spots and Assumptions
 
-  The main detection limitation lies in the possibility of legitimate administrative actions that may trigger this alert, such as authorized port redirection for maintenance. Reliable detection requires that `auditd` logging is properly configured and enabled on all relevant systems. Additionally, users with strong knowledge of `iptables` might modify system settings to avoid detection, making it valuable to pair this detection with peer log monitoring for unusual outbound traffic patterns or failed login attempts.
+  Detection is limited by the effectiveness and configuration of auditd logging, meaning misconfigurations or lack of logging may lead to missed detections. Legitimate administration tasks, such as maintenance or troubleshooting, may create false positives if port redirection is validly applied. A related detection could include monitoring for unexpected outbound connections on ephemeral ports (like 42392) to strengthen coverage against potential misuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
