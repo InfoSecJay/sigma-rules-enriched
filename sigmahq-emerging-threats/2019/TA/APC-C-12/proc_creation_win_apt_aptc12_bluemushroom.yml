@@ -10,7 +10,7 @@ author: Florian Roth (Nextron Systems), Tim Shelton, Nasreddine Bencherchali
 date: 2019-10-02
 modified: 2023-03-29
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.010
 - detection.emerging-threats
 logsource:
@@ -30,28 +30,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `regsvr32` to load DLL files from the user's AppData local directory, specifically those containing the substring `,DllEntry` in their command line. This behavior is often exploited by attackers to load malicious or non-standard libraries in a way that may evade detection. The likely objective is to run a payload associated with APT-C-12 (BlueMushroom), which typically focuses on stealthy lateral movement and persistence within an environment.
+  This rule detects the use of `regsvr32` to load a DLL located in the AppData Local directory, which is a behavior often associated with loading malicious DLLs for persistence or execution. The likely attacker objective is to execute malicious code without raising suspicion, potentially for data exfiltration, lateral movement, or establishing persistence. This behavior corresponds to the MITRE ATT&CK technique T1218.010: **Signed Binary Proxy Execution (regsvr32)**.
 
-  This activity aligns with the MITRE ATT&CK tactic of Defense Evasion (T1203) via the technique of Functionality Abuse (T1218.010). Primary telemetry sources include Windows process creation events, specifically Security Event ID 4688 for process creation details and Sysmon Event ID 1 for command line options. If successful, this could allow an attacker to establish a foothold or execute further malicious activities. However, this detection does not confirm malicious intent on its own, as `regsvr32` can also be used legitimately by IT personnel.
+  The primary telemetry source is Windows process creation logs, specifically looking for Event ID 4688 entries that indicate the execution of the `regsvr32` command with specific command-line arguments. If this activity is malicious, it could lead to unauthorized access, data theft, or a compromised system. This detection does NOT confirm that the loaded DLL is malicious on its own; further investigation is required to analyze the DLL and its source.
 
   ### Investigation Steps
 
-  - **Examine process creation logs:** Review Security Event ID 4688 or Sysmon Event ID 1 for commands containing `regsvr32` and DLLs located in `C:\Users\<username>\AppData\Local\`. Validate whether the command line includes `,DllEntry`.
+  - **Identify the command execution details:** Review Event ID 4688 in the Security logs to find the `regsvr32` command execution. Look for command-line arguments referencing DLLs in the `C:\Users\<username>\AppData\Local\` directory.
 
-  - **Identify high-confidence malicious indicators:** Look for unusual DLL paths that are not common in your environment and contain strings indicative of known malware. Check for files that were created or modified within the AppData directory during unusual hours or outside of expected user activity.
+  - **Check for known malicious DLLs:** Validate any loaded DLLs against threat intelligence sources. Malicious indicators include names or hashes associated with known threats in the BlueMushroom family.
 
-  - **Review related activities:** Check for additional signs of lateral movement or persistence, such as new scheduled tasks or unusual registry changes within `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+  - **Review related process activity:** Check for parent-child process relationships surrounding the `regsvr32` execution. Use Sysmon Event ID  Processes (Event ID 1) to assess if unusual parent processes (e.g., script engines) executed `regsvr32`.
 
-  - **Establish baseline behavior:** Compare the identified execution against expected usage of `regsvr32` by legitimate applications or administrators. Confirm it is not related to normal application deployments or updates that might require DLL registration.
+  - **Identify legitimate usage patterns:** Cross-reference typical software that might legitimately use `regsvr32` for DLL registration, especially applications requiring COM components in user profiles. Investigate standard application install logs or SCCM/Intune for expected installations.
 
-  - **Monitor for preceding suspicious activity:** Correlate this detection with recent logins or other unusual access patterns, such as failed login attempts, that may indicate a compromised user account.
+  - **Examine file system changes:** Look for file operations related to the DLL, including creation/modification timestamps and file integrity monitoring logs. High confidence in malicious behavior may be established if the file was created within a suspicious context.
 
   ### Prioritization
 
-  The alert is of medium severity due to the potential impact on critical systems if exploited, given that the AppData directory is often overlooked. The likelihood of malicious actors using this technique is considerable as it is a common method for executing payloads while masking their activity.
+  This alert is considered medium severity due to its potential impact if executed on critical assets; loading malicious DLLs can grant attackers high-level access and persistence. Historically, `regsvr32` loading has been weaponized by various adversarial groups, increasing the likelihood of malicious abuse.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by administrative actions that genuinely require `regsvr32` to operate from the AppData directory, resulting in false positives. It is vital to ensure logging for System and Security event sources, particularly for process creation, is properly configured. Additionally, malicious use of this technique may be accompanied by other indicators such as unusual network activity or file modifications, making companion detections focused on those behaviors valuable for corroborating investigations.
+  Detection may be limited by the evasion techniques such as modifying the DLL file signature or placing DLLs in other directories. It is essential to ensure that logging for process creation (Event ID 4688) and file system activity is enabled and properly configured. Legitimate activities like software installations or system updates may also trigger this alert. Companion detections that strengthen coverage include monitoring for unusual DLL creations in the user’s AppData directory or flagged execution of PowerShell scripts that invoke `regsvr32`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

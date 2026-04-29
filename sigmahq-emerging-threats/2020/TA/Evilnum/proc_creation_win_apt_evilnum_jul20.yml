@@ -10,7 +10,7 @@ author: Florian Roth (Nextron Systems)
 date: 2020-07-10
 modified: 2023-03-09
 tags:
-- attack.defense-evasion
+- attack.stealth
 - attack.t1218.011
 - detection.emerging-threats
 logsource:
@@ -31,28 +31,30 @@ level: critical
 note: |
   ### Technical Context
 
-  This Sigma rule detects the usage of `regsvr32` to register OCX files from the user's AppData folder, a method known to be employed by the EvilNum APT group for deploying malicious payloads. The attacker’s objective is typically to gain persistence or execute malicious code without raising immediate suspicion. This behavior falls under the MITRE ATT&CK tactic of Execution and specifically the technique T1218.011 (Signed Binary Proxy Execution).
+  This Sigma rule detects the execution of a command that utilizes `regsvr32` to load OCX files, specifically targeting those located in the user's AppData\Roaming directory. This behavior is indicative of the EvilNum APT group's deployment method known as "Golden Chickens", where attackers aim to deploy malware by leveraging legitimate Windows processes to avoid detection. The relevant MITRE ATT&CK tactic is "Execution" (TA0002), with the technique being "Script Execution" (T1218.011).
 
-  The primary telemetry source is Windows process creation logs, particularly focusing on Event ID 4688, which records process creation events and includes details such as command lines. If the behavior is malicious, it can lead to data exfiltration or the deployment of additional malicious software. Importantly, this detection does NOT confirm that the process is malicious on its own; it requires further investigation of the context and outputs of the command.
+  The primary telemetry sources for this detection are Windows process creation logs, specifically Event ID 4688 and Sysmon Event ID 1, which provide details on command-line arguments used during process creation. If the detected behavior is indeed malicious, it could lead to unauthorized access to sensitive data or systems. It is important to note that this detection does NOT confirm that the OCX file in question is malicious by itself, as it may be a legitimate usage of regsvr32.
 
   ### Investigation Steps
 
-  - **Identify the process and command line used:** Check Windows Security Event ID 4688 for any instances of `regsvr32` being executed with arguments containing `/s`, `/i`, and the OCX file path. Look for indicators of malicious activity such as unexpected OCX file names or unusual paths under `AppData\Roaming`.
+  - **Review process creation details:** Check Windows Event ID 4688 and Sysmon Event ID 1 for the process creation involving `regsvr32`. Look for command line signatures that include the `/s`, `/i`, and `.ocx` file in paths like `C:\Users\<username>\AppData\Roaming\`. This combination is suspicious and may indicate malicious activity.
 
-  - **Review file existence and properties:** Validate whether the OCX files exist in the specified directory. Use File Properties (right-click > Properties) to check the file's digital signature. If the file is unsigned or has a poor reputation, this could indicate a malicious payload.
+  - **Validate the OCX file origin:** Identify the file path of the .ocx file invoked by `regsvr32`. Look for unusual or unexpected file names or origins. Files from temporary locations or unfamiliar paths like the AppData\Roaming folder could indicate malicious intent.
 
-  - **Analyze parent-child process relationships:** Look for Event ID 4688 logs that indicate what process initiated the `regsvr32` command. A legitimate process usually shares characteristics of normal system administration tasks; any suspicious parent processes should be closely examined for signs of compromise.
+  - **Compare with legitimate activity:** Identify any known benign usage of OCX files within your environment. Legitimate software may use OCX files, and understanding this can help contextualize the alert. Reference software inventory to correlate expected behavior.
 
-  - **Check for additional suspicious activity:** Review Windows logs for other related activities, such as other components of the EvilNum toolset being executed, which may include unusual outbound connections or the modification of executables in the startup directory.
+  - **Examine user context and privileges:** Determine the user account executing the command. Any execution from high-privilege accounts not associated with known software or current operations should be flagged for further analysis.
 
-  - **Validate other instances of OCX execution:** Cross-reference with historical logs for repeated occurrences of the same OCX file being registered or executed, especially those that deviate from standard user behavior.
+  - **Monitor outlier behaviors in file creation:** Investigate for any recent file creations in the AppData\Roaming directory, especially those related to the same time as the command execution. Use File Creation Event logs to detect unrecognized or unauthorized .ocx files created during that timeframe.
+
+  - **Cross-reference with threat intelligence:** Use threat intelligence feeds to see if the detected file, process, or user behavior aligns with known bad indicators associated with EvilNum or other ransomware APTs. Any match should escalate further investigation.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the critical nature of the system potentially being impacted and the high likelihood of malicious usage related to the EvilNum APT techniques. The specific behavior detected is commonly exploited for persistence and exploitation, making it a significant threat vector.
+  This alert is critical due to the potential severe impact if the behavior is malicious, as it targets regression of system integrity and may lead to data exfiltration. The likelihood of adversaries utilizing regsvr32 for malicious purposes is high, as it is commonly weaponized in sophisticated attacks.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss variations of the command or obfuscated strings that achieve similar functionality. Reliable detection requires proper logging configurations for process creation. Legitimate uses of OCX files, such as software updates or system maintenance, could trigger the alert without malicious intent. A companion detection, such as monitoring for unusual outbound connections post-execution, would enhance contextual awareness and coverage.
+  Detection may be limited by the potential use of alternative file paths or different execution methods that do not utilize `regsvr32`. Ensure that Windows command line logging is properly configured; if not, crucial evidence may be missing. Additionally, legitimate software may invoke OCX files, so context is critical in interpretation. Related detections, such as monitoring for abnormal task execution or file downloads, can provide better coverage against this threat type.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

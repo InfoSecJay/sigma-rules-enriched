@@ -7,9 +7,10 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-10-24
 tags:
-- attack.defense-evasion
 - attack.persistence
 - attack.privilege-escalation
+- attack.execution
+- attack.stealth
 - attack.t1574.001
 - detection.emerging-threats
 logsource:
@@ -29,28 +30,26 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects DLL sideloading, a technique where a malicious DLL is loaded through a trusted executable, circumventing security controls. The likely attacker objective is to execute arbitrary code on a compromised host while maintaining camouflage by utilizing legitimate binaries. This behavior is positioned in the MITRE ATT&CK framework under Tactics such as Defense Evasion (TA0005) and Persistence (TA0003), specifically targeting techniques T1574.001 (DLL Sideloading).
-
-  The primary telemetry sources are Windows Image Load events, specifically targeting the loading of DLLs associated with benign executables located in the ProgramData directory. If successful, this could lead to privilege escalation or system compromise. However, the detection alone does not confirm malicious intent; it must be investigated further in the context of additional activities and indicators of compromise.
+  This Sigma rule detects DLL sideloading, a technique where an attacker loads a malicious DLL into a legitimate application, bypassing standard security checks. The likely objective of the attacker is to establish persistence and execute malicious code while maintaining stealth. The relevant MITRE ATT&CK tactic is "Persistence" (TA0003), and the technique is "DLL Side-Loading" (T1574.001). The primary telemetry source is Windows image load events, specifically tracking process creations and DLL loads, particularly through Event ID .audit. The security impact, if confirmed as malicious, could lead to unauthorized access or control over the affected system. This detection does NOT confirm that the activity is inherently malicious without further investigation.
 
   ### Investigation Steps
 
-  - **Identify the initial suspicious executable:** Check for Event ID 4104 (PowerShell logs) for any preceding scripts that may invoke `clip.exe` or `wsmprovhost.exe`. Confirm if these processes are being executed without prior legitimate use.
+  - **Check process creation logs: ** Review windows security logs for Event ID 4688 to identify processes: specifically look for `clip.exe` in conjunction with the loading of `Version.dll` or `wsmprovhost.exe` loading `DSROLE.dll`. Compare the user context to expected behavior for these binaries.
 
-  - **Assess loaded DLLs:** Review Event ID 4624 (logon events) and correlate with Sysmon Event ID 7 (Image loaded). Look for `Version.dll` and `DSROLE.dll` loaded within the context of the detected executables. Compare timestamps related to their execution to identify timing anomalies.
+  - **Validate DLL origins: ** Use PowerShell or Sysinternals tools to inspect the file properties of `Version.dll` and `DSROLE.dll`. Verify if the digital signatures are legitimate, and check if their paths correspond to typical application installations.
 
-  - **Review persistence mechanisms:** Investigate the Windows Startup folder and Task Scheduler for any scheduled tasks or shortcuts that may attempt to relaunch `clip.exe` or `wsmprovhost.exe`, noting creation dates. Legitimate tasks or shortcuts should reference signed binaries.
+  - **Identify network connections: ** Investigate for any network activity linked to the identified processes by checking for outbound connections in Windows Firewall logs. Malicious activity may exhibit unusual connections to external hosts (unrelated to the expected application behavior).
 
-  - **Evaluate process hierarchy:** Use Sysmon Event ID 1 (Process creation) to analyze parent-child relationships of the detected processes. A significant deviation from typical system processes may indicate malicious activity (e.g., `clip.exe` being launched by an uncommon parent process).
+  - **Document legitimate vs. malicious patterns: ** Note that `clip.exe` is typically a benign clipboard manager. However, if it's running in an unusual context or with unusual arguments (such as trying to load non-standard DLLs), it raises suspicion.
 
-  - **Check for suspicious network activity:** Evaluate network logs (like Windows Firewall logs or proxy logs) for outbound connections initiated by `clip.exe` or `wsmprovhost.exe`, which are uncommon for these executables. Look for unexpected domains or IPs that the processes may be communicating with.
+  - **Search for additional indicators: ** Review Windows Event ID 4104 (PowerShell script block logging) for any executed commands that may drop or interact with the DLLs in question. Look for scripts that invoke system binaries with unusual parameters.
 
   ### Prioritization
 
-  This alert should be considered high-priority due to its association with sophisticated APT tactics, like DLL sideloading, which can facilitate lateral movement and persistence within the network. The likelihood of malicious exploitation is high, particularly given the rising profiles of similar threats. Also, this technique is commonly weaponized against enterprise infrastructures.
+  This alert should be considered high severity due to the potential compromise of systems typically involved in sensitive operations. DLL sideloading is a known technique among threat actors, particularly in advanced persistent threat (APT) groups, making the likelihood of malicious abuse significant if confirmed.
 
   ### Blind Spots and Assumptions
 
-  Detection capabilities may be limited by misconfigured logging settings that do not capture all relevant events for DLL loading or process creation. Legitimate applications may also load similar DLLs, creating a challenge in distinguishing malicious from benign activity. Additionally, attackers might use code obfuscation or benign executables for related evasion. A complementary detection to consider is monitoring for abnormal process parent-child relationships, which may indicate misuse of trusted applications.
+  The main detection limitation lies in the possibility of legitimate applications also sideloading DLLs and the potential for them to trigger false positives. Required log sources include enhanced process logging and file creation events for reliable detection. Legitimate activities that may trigger the alert include application updates that involve unloading and loading of DLLs in legitimate contexts. A related detection to strengthen coverage is monitoring for unusual changes to application binaries through file integrity monitoring solutions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
