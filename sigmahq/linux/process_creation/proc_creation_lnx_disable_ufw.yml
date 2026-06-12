@@ -1,12 +1,17 @@
-title: Ufw Force Stop Using Ufw-Init
+title: UFW Disable Attempt
 id: 84c9e83c-599a-458a-a0cb-0ecce44e807a
 status: test
-description: Detects attempts to force stop the ufw using ufw-init
+description: |
+  Detects attempts to disable the Uncomplicated Firewall (UFW) on Linux systems.
+  UFW is a popular firewall management tool that provides an easy-to-use interface for configuring firewall rules.
+  Disabling UFW can leave a system vulnerable to attacks, as it may allow unauthorized access to network services and resources.
 references:
-- https://blogs.blackberry.com/
 - https://twitter.com/Joseliyo_Jstnk/status/1620131033474822144
+- https://manpages.debian.org/unstable/ufw/ufw-framework.8.en.html
+- https://www.cyberciti.biz/faq/linux-disable-firewall-command/
 author: Joseliyo Sanchez, @Joseliyo_Jstnk
 date: 2023-01-18
+modified: 2026-05-04
 tags:
 - attack.defense-impairment
 - attack.t1686
@@ -14,45 +19,50 @@ logsource:
   product: linux
   category: process_creation
 detection:
-  selection_init:
+  selection_ufw_init:
+    Image|endswith: '/ufw-init'
+    CommandLine|contains:
+    - ' force-stop'         # same as stop, except does not check if the firewall is already loaded
+    - ' stop'         # unloads the firewall
+    - ' flush'         # flushes the built-in chains, deletes all non-built-in chains and resets the policy to ACCEPT
+  selection_ufw_disable:
     CommandLine|contains|all:
-    - '-ufw-init'
-    - 'force-stop'
-  selection_ufw:
-    CommandLine|contains|all:
-    - 'ufw'
+            # Covers both ufw disable and systemctl disable ufw
+            # systemctl disable ufw -- prevents UFW starting at boot, but does not stop the currently running instance of UFW
+            # ufw disable -- stops the currently running instance of UFW and prevents it from starting at boot
+    - 'ufw '
     - 'disable'
   condition: 1 of selection_*
 falsepositives:
-- Network administrators
+- Legitimate actions by system administrators to disable UFW.
 level: medium
 note: |
   ### Technical Context
 
-  This rule detects attempts to forcefully stop the Uncomplicated Firewall (UFW) service on a Linux system using the `ufw-init` command. The likely objective of the attacker is to disable network security controls, allowing for unauthorized access to sensitive systems or data, thereby facilitating a subsequent attack. This behavior aligns with the MITRE ATT&CK techniques of Defense Evasion, specifically T1686 (Disable or Tamper with Security Tools).
+  This rule detects attempts to disable the Uncomplicated Firewall (UFW) on Linux systems, specifically through process creation events that invoke commands to stop, flush, or disable UFW. An attacker may aim to disable the firewall to allow unauthorized inbound access to the system, potentially leading to data exfiltration, repository modification, or unauthorized remote access. This behavior corresponds with the MITRE ATT&CK technique for Defense Evasion (T1686), as disabling UFW bypasses security controls.
 
-  The primary telemetry source is Linux process creation logs, specifically capturing commands executed with associated arguments. If malicious, the security impact could be significant, as this action could leave the system vulnerable to external threats. It is crucial to note that this detection on its own does not confirm malicious intent, as legitimate network administrators may also execute this command.
+  The primary telemetry sources include Linux process creation logs, particularly monitoring for specific command lines associated with UFW. If successful, the implications could range from a minor risk to severe vulnerability, depending on the exposed services. It is important to note that this detection does NOT confirm malicious intent on its own; legitimate administrative actions may also disable UFW for maintenance or troubleshooting purposes.
 
   ### Investigation Steps
 
-  - **Check recent process activity:** Review Syslog or audit logs (e.g., `/var/log/syslog`) for `ufw-init` commands within the last 24 hours, correlating them with the alert timestamp to identify the user and context.
+  - **Check command history:** Review user command history (e.g., `.bash_history`) for the invoking user to see if they issued `ufw disable` or `systemctl disable ufw` commands intentionally. Legitimate admin actions are recorded in user history, likely paired with other maintenance commands.
 
-  - **Identify the user context:** Investigate the user account executing the command by examining the `USER` field in event logs or using `who` command output. Legitimate administrative users may invoke this command for maintenance.
+  - **Review process creation logs:** Analyze Linux process creation logs (e.g., `auditd` logs or `/var/log/syslog`) for Event IDs tied to UFW operations, specifically looking for processes with command lines like `ufw force-stop` or `ufw disable`. Document the user and time for context.
 
-  - **Assess UFW service status:** Verify the UFW status by running `sudo ufw status` on the affected system. A disabled status immediately following the alert may indicate malicious behavior.
+  - **Validate UFW status post-command:** Execute `ufw status` on the system to verify if UFW is indeed disabled or remains active. A disabled firewall indicates potential malicious activity, especially if the command was not executed by a known admin.
 
-  - **Review command history:** Check the `.bash_history` for the executing user's profile to determine if the command `ufw-init force-stop` was part of a larger script or unusual command sequence.
+  - **Identify related processes:** Investigate any subsequent processes spawned after the disabling command that may indicate further attempts to exploit the system, such as unauthorized script executions, by monitoring logs like `/var/log/auth.log`.
 
-  - **Validate host role:** Confirm the criticality of the affected host. If it is a production server or exposes sensitive data, the urgency of investigation increases significantly.
+  - **Assess system roles and context:** Determine the role of the affected system (e.g., web server, database server) and its exposure to the internet. Higher criticality systems should be prioritized during the investigation.
 
-  - **Correlate with additional incidents:** Look for patterns by examining if other related alerts tied to security tampering or disabling occurred concurrently (e.g., alerts for command execution that disable other security services).
+  - **Monitor for unusual outbound connections:** Use network monitoring tools to check for new or unusual outbound traffic that could indicate data exfiltration or follow-on attacks following the rule violation.
 
   ### Prioritization
 
-  This alert is of medium severity, especially on critical infrastructure systems. The potential impact of disabling firewall services is high, and while this could be part of routine maintenance by administrators, it is also a technique frequently used by adversaries to set up for an intrusion.
+  The alert has medium severity. Disabling UFW poses a significant risk, particularly on internet-facing systems, as it can expose the system to various attacks. While not all disable attempts are malicious, the likelihood of perceived abuse is high in contexts where UFW is expected to provide baseline security.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by legitimate administrative actions taken during maintenance or troubleshooting. Required log sources include Syslog or auditd logs that must be configured to capture detailed process execution. Additionally, benign situations, such as planned UFW reconfigurations by network admins, may trigger this alert. A related detection for UFW service status changes provides enhanced coverage against potential malicious activity.
+  This detection could be evaded by attackers using privilege escalation to disable UFW without logs or purchasing time before any logging mechanism captures the command. Proper logging configurations, with a focus on privileged commands and user actions, are necessary for reliable detection. Legitimate activities, such as system maintenance by administrators, may also trigger this alert. A related detection that enhances coverage would be monitoring for unauthorized changes to firewall rules or toggling of other security services.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

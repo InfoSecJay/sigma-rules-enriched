@@ -12,7 +12,7 @@ references:
 - https://learn.microsoft.com/en-us/windows/security/application-security/application-control/app-control-for-business/deployment/deploy-appcontrol-policies-with-memcm
 author: X__Junior
 date: 2025-02-07
-modified: 2025-12-03
+modified: 2026-05-18
 tags:
 - attack.defense-impairment
 logsource:
@@ -46,9 +46,11 @@ detection:
   filter_main_system:
     Image: 'System'
   filter_main_wuauclt:
+    Image: 'C:\Windows\System32\wuauclt.exe'
+  filter_main_wuaucltcore:
     Image:
-    - 'C:\Windows\System32\wuauclt.exe'
     - 'C:\Windows\UUS\arm64\wuaucltcore.exe'
+    - 'C:\Windows\UUS\Packages\Preview\arm64\wuaucltcore.exe'
   condition: selection_target and not 1 of filter_main_*
 falsepositives:
 - Administrators and security vendors could leverage WDAC, apply additional 
@@ -57,30 +59,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of potentially malicious Windows Defender Application Control (WDAC) policy files, particularly when initiated from abnormal or unexpected processes. The primary aim of this behavior is to manipulate system controls to block security measures like Endpoint Detection and Response (EDR) or antivirus solutions while enabling the execution of unauthorized code by an attacker. Relevant MITRE ATT&CK techniques include "T1218 - Signed Binary Proxy Execution" and "T1562.001 - Impair Defenses: Disable or Modify Tools."
+  This rule detects the creation of Windows Defender Application Control (WDAC) policy files from potentially harmful processes. Attackers may use this technique to create policies that disable security measures, such as EDR or antivirus software, while allowing their malware to execute unrestricted. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1562) and related techniques like Application Layer Manipulation (T1573).
 
-  The primary telemetry sources include File Creation Events from Windows with an emphasis on event types involving the manipulation of files in the `C:\Windows\System32\CodeIntegrity\` directory. If malicious, this behavior could allow attackers to evade security measures, making it critical for incident response. However, this detection alone does not confirm a successful compromise; it only indicates potential malicious activity requiring further investigation.
+  The primary telemetry source for this detection is Windows file events, specifically tracking file creations in the `C:\Windows\System32\CodeIntegrity\` directory. If this behavior is confirmed to be malicious, it poses a significant risk, potentially allowing an adversary to fully compromise the system's defenses. However, it must be noted that this detection alone does not confirm the intent or success of an attack, as legitimate administrative activities can also generate similar file creations.
 
   ### Investigation Steps
 
-  - **Examine file creation events**: Look for File Creation events (e.g., Windows Security Event ID 4663) specifically targeting `C:\Windows\System32\CodeIntegrity\`. Identify the process responsible for the file creation to determine if it’s an expected system process or an anomalous one.
+  - **Identify the process creating the WDAC policy file:** Review Event IDs 4663 (File system access) and 4656 (Handle request) in Security logs to trace the origin of the process creating the file. Ensure the process is not among listed exempt processes from the Sigma rule.
 
-  - **Verify command line usage**: Check CommandLine fields in the event logs for strings such as `ConvertFrom-CIPolicy -XmlFilePath` or `CiTool --update-policy`. These specific command usages in combination with unusual parent processes could indicate malicious intent.
+  - **Examine the command-line arguments:** Check for command line entries related to `CiTool --update-policy` or `ConvertFrom-CIPolicy -XmlFilePath` in Event ID 4688 (Process Creation). Suspicious command lines that include terms for policy alteration warrant further scrutiny.
 
-  - **Identify legitimate activities**: Confirm if typical administrative tasks involving WDAC parameters are logged from trusted management tools, like SCCM or PowerShell scripts run by system administrators. Validate user accounts and timestamps for consistency with known management activities.
+  - **Correlate with legitimate usage:** Confirm if any recent administrative actions involve the execution of `Microsoft.ConfigurationManagement.exe` or `powershell.exe`, typically indicating legitimate changes. If this activity is observed during unauthorized hours or by non-administrative users, its legitimacy may be questioned.
 
-  - **Cross-reference legitimate software signatures**: Look for process images originating from trusted sources like `C:\Windows\System32\` or `C:\Program Files\PowerShell\`. Anomalies in known file paths or unexpected file signatures should be treated as malicious indicators.
+  - **Analyze associated file attributes:** Retrieve and evaluate details from the created policy files (e.g., hashes, creation time) to see if they correlate with known vulnerabilities or attack frameworks, focusing on properties from the file system event logs.
 
-  - **Assess process ancestry**: Investigate the parent processes of any suspicious file creations to identify unusual parent-child relationships. Legitimate WDAC management tools, such as `Microsoft.ConfigurationManagement.exe`, should remain the source of such file operations.
+  - **Review system impact assessment:** Assess the system, if critical, to understand potential implications if malicious usage is confirmed; raise the severity of the alert's response protocol accordingly.
 
-  - **Search for indicators of compromise (IoCs)**: Check for any previously established IoCs linked to malicious WDAC configurations or other execution artifacts. Look for unusual network traffic patterns or suspicious connections formed after the creation of these policy files.
+  - **Look for additional confirmations:** Check for other alerts or logs that indicate similar suspicious activities in proximity to the WDAC file creation, particularly instances of `PowerShell` or commands executed by `System` or `wuauclt.exe` that might show abuse pathways.
 
   ### Prioritization
 
-  This alert should be treated with medium priority given that the impacted system may utilize WDAC to enforce strict application control. There is a significant risk if this tactic is weaponized, as it directly targets the impairment of endpoint security tools. The likelihood of malicious abuse is concerning, particularly in environments where advanced evasion techniques are commonplace.
+  This alert should be treated as a medium severity due to its potential to impair application control defenses on a system. The risk escalates based on the criticality of the affected asset and the sophistication typically associated with similar evasion techniques. The likelihood of this behavior being weaponized in an attack is notable, making timely investigation essential.
 
   ### Blind Spots and Assumptions
 
-  This detection may be bypassed if attackers disable logging or use legitimate administrative tools to execute their plans in stealth. Required logs must be properly configured for file events related to WDAC; without them, detection will be incomplete. Additionally, legitimate administrative actions could trigger this alert, particularly during updates or configuration changes. Companion detections, such as monitoring for changes in Group Policy Objects (GPO) related to application control, can enhance overall coverage and reduce false positive rates.
+  Detection may miss scenarios where attackers use alternative methods or legitimate tools not covered by this rule to interfere with WDAC policies. The completeness of logs must be ensured, as missing events could lead to oversight in detection. Administrative activities, such as legitimate policy updates via Group Policy, may generate similar alerts. Correlating this rule with companion detections focused on `PowerShell` activity (e.g., TTPs involving PowerShell scripting) will enhance overall security monitoring and incident response strategies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

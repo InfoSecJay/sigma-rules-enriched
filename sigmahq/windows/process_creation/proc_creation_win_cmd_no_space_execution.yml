@@ -9,7 +9,7 @@ references:
 - https://ss64.com/nt/cmd.html
 author: Florian Roth (Nextron Systems)
 date: 2022-08-23
-modified: 2023-03-06
+modified: 2026-05-13
 tags:
 - attack.execution
 - attack.t1059.001
@@ -60,35 +60,37 @@ detection:
   - CommandLine|contains: 'AppData\Local\Programs\Microsoft VS Code\resources\app\node_modules'
   - CommandLine|endswith: 'cmd.exe/c .'
   - CommandLine: 'cmd.exe /c'
+  - CommandLine: 'cmd /c'
   condition: 1 of selection* and not 1 of filter_*
 falsepositives:
-- Unknown
+- Legitimate use of cmd.exe with no arguments e.g. via system("") in C to enable
+  ANSI escape codes
 level: high
 note: |
   ### Technical Context
 
-  This rule detects anomalies in command line executions that lack the necessary space character before or after the `/c`, `/k`, or `/r` flags when invoking `cmd.exe`. This behavior may indicate an attacker attempting to obfuscate their activities or reflect careless errors made by an automated script. The likely objective of this technique is to execute commands surreptitiously, leading to potential system compromise or information theft. This aligns with the MITRE ATT&CK technique: **Command and Scripting Interpreter (Windows) - T1059.001**.
+  This Sigma rule detects the execution of `cmd.exe` commands with no space before or after the `/c`, `/k`, or `/r` flags, indicating potential obfuscation or syntax errors rather than typical command execution. Attackers may leverage such anomalies to mask malicious command executions, aiming to execute processes for reconnaissance or other harmful activities. The relevant MITRE ATT&CK tactic is **Execution** and the technique is **Command and Scripting Interpreter: Windows Command Shell (T1059.001)**.
 
-  The primary telemetry sources include Windows Security Event ID **4688**, which logs process creation events, and potentially Sysmon **Event ID 1**. If malicious, the security impact could range from command execution leading to further exploitation of the system to data exfiltration. Importantly, this detection alone does not confirm an attack; it merely indicates suspicious command execution which requires further investigation.
+  The primary telemetry source is process creation logs, specifically Windows Security Event ID 4688, which captures command line invocations. If malicious, the impact could extend to unauthorized access or system compromise. However, this detection alone does not confirm malicious activity; a benign usage scenario might involve legitimate scripts or applications misconfigured to generate such command lines.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID **4688** for instances of `cmd.exe /c` without expected spaces. Focus on any associated user session IDs or process IDs that are non-standard for typical user executions.
+  - **Review process creation logs:** Filter for Security Event ID 4688 with command lines containing ‘cmd.exe/c’, ‘cmd.exe/k’, or ‘cmd.exe/r’ in the last hour to identify potential suspect executions.
 
-  - **Analyze command line arguments:** Evaluate the full command line under investigation for unusual patterns or commands. Compare against legitimate administrative tasks, which typically would include more structured arguments (e.g., `cmd.exe /c <command>` that have spaced arguments).
+  - **Identify high-confidence malicious indicators:** Look for command line arguments that include known tools or actions like `/cpowershell` or `/cwhoami` which could signal an attempt to leverage PowerShell or perform reconnaissance.
 
-  - **Cross-reference known attacks:** Look for flagged command line strings that match known malicious patterns, such as those listed in the detection rule (e.g., `/cpowershell`). Presence of such strings can indicate high-confidence malicious activity.
+  - **Verify legitimate command usage:** Cross-reference command lines involving `cmd.exe` without additional command syntax errors to confirm regular applications, such as processes initiated by legitimate automation scripts or development tools.
 
-  - **Identify legitimate context:** Investigate context around common administrative tasks. For instance, users executing `cmd.exe` for legitimate purposes might frequently run commands like `cmd.exe /c ipconfig` or administrative scripts where proper space usage is adhered to.
+  - **Assess command context:** Investigate the parent process of the identified commands in Event ID 4688 to determine if they were initiated by a trusted application (e.g., a system utility) or suspicious executable.
 
-  - **Correlate with other logs:** Check Sysmon Event ID **1** for additional context around the executed commands. Look for unusual parent process relationships which may indicate a malicious process spawning legitimate looking commands.
+  - **Check for script execution artifacts:** If the command line suggests the execution of a script or batch file, inspect the associated file paths and creation timestamps in the Windows file system to ascertain unexpected file modifications or execution.
 
   ### Prioritization
 
-  This alert should be treated as high severity due to the potential for misuse of system privileges combined with the likelihood that this technique is weaponized in various attack scenarios. Affected systems, particularly domain controllers or critical infrastructure, warrant immediate attention due to the risk of broad network impact should exploitation be confirmed.
+  The severity of this alert is high due to the potential for exploitation impacting critical enterprise systems. The likelihood of abuse is considerable, especially as command execution anomalies are common in exploitation techniques. The behavior flagged is routinely weaponized in various attack vectors, warranting prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the lack of sufficient context in some logging configurations. Attackers may use space manipulation and alternative encoding to evade this detection, leading to potential misses. Legitimate activities, such as script errors during development or automated maintenance tasks, can also trigger this rule. Strengthening coverage can be achieved by integrating detections for known misuse of PowerShell (`T1059.001` and similar execution methods) which may be used in conjunction with or in place of CMD-based executions.
+  Evasion techniques may include disguising malicious command invocations using encoded strings or legitimate command patterns to bypass this detection. Reliable detection hinges on the accurate capturing of command line inputs in process creation events; misconfigurations could lead to missed detection. Legitimate activities may include automated scripts or software development tools running commands that inadvertently trigger the rule. A related detection to consider is monitoring for unusual script executions or PowerShell invocation patterns to strengthen overall coverage against execution threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

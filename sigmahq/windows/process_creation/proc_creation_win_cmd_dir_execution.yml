@@ -7,7 +7,7 @@ references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1217/T1217.md
 author: frack113
 date: 2021-12-13
-modified: 2024-04-14
+modified: 2026-05-18
 tags:
 - attack.discovery
 - attack.t1217
@@ -19,8 +19,11 @@ detection:
   - Image|endswith: '\cmd.exe'
   - OriginalFileName: Cmd.Exe
   selection_cli:
-    CommandLine|contains|windash: 'dir*-s'
-  condition: all of selection_*
+    CommandLine|contains|windash: '-s'
+    CommandLine|contains: 'dir '
+  filter_main_rmdir:
+    CommandLine|contains: 'rmdir'
+  condition: all of selection_* and not 1 of filter_main_*
 falsepositives:
 - Likely
 level: low
@@ -34,28 +37,30 @@ simulation:
 note: |
   ### Technical Context
 
-  This rule detects the execution of the "dir" command with the "/S" flag via `cmd.exe`, which lists files in a specified directory and its subdirectories. The likely objective of an attacker using this command is to identify files of interest, such as sensitive information or executables for lateral movement and exfiltration. The relevant MITRE ATT&CK tactic is **Discovery** and the technique is **T1217: File and Directory Discovery**.
+  This Sigma rule detects the execution of the Windows command-line utility `cmd.exe` using the `dir` command with the `/S` switch, which is indicative of an adversary enumerating files within a directory and its subdirectories. The likely objective is reconnaissance, where an attacker seeks to identify valuable files or directories that may contain sensitive information or further pathways for exploitation. This behavior aligns with the MITRE ATT&CK technique T1217 (External Remote Services), specifically under the Discovery tactic.
 
-  The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1 that capture the command line arguments of executed processes. If malicious, this behavior may indicate reconnaissance efforts by an adversary. However, this detection alone does NOT confirm malicious intent, as the command can be used legitimately by system administrators or users to explore file systems.
+  The primary telemetry source for this detection is Windows process creation logs, specifically Event ID 4688 for process creation via task scheduler or command line. If this behavior is malicious, it may signal a prelude to data exfiltration or lateral movement within the network. However, this detection does NOT confirm that malicious intentions are present; legitimate administrators may also run similar commands for routine maintenance.
 
   ### Investigation Steps
 
-  - **Identify the process creation event:** Review Security Event ID 4688 or Sysmon Event ID 1 for `cmd.exe` executions. Look for command line arguments containing "dir" and "/S". This indicates potential curiosity or exploration of the file system.
+  - **Review process creation logs:** Inspect Security Event ID 4688 logs for instances where `cmd.exe` was spawned, focusing on the `CommandLine` field for any occurrences of `dir /S`. Legitimate administrative tasks may use similar commands but typically for managing system files.
 
-  - **Assess user context:** Confirm the user account running the command. If it’s a privileged or administrative account, correlate with recent unauthorized access attempts, leveraging User Account Logon IDs from Event ID 4624. Legitimate users may execute such commands, particularly on file server roles.
+  - **Validate the command usage:** Identify any file paths specified in the command line output and cross-reference them with known legitimate use cases (e.g., scanning a user’s directory structure). Legitimate examples may include paths that are accessed routinely, such as user profile folders (`C:\Users\<UserName>\Documents`).
 
-  - **Verify the target directory:** Check the directory specified in the command. High-value folders (e.g., `C:\Users`, `C:\Program Files`) may suggest malicious intent, while common paths (e.g., `C:\Users\Public`) typically reflect benign usage.
+  - **Identify high-confidence malicious indicators:** Look for unusual or unexpected directories being enumerated, particularly those associated with sensitive user data (e.g., `C:\Users\*` or `C:\ProgramData`). Such paths, especially when accessed in bulk, can indicate malicious enumeration efforts.
 
-  - **Cross-reference with activity logs:** Look for any related abnormal file access events around the same timeframe (Event ID 4663) that may indicate file sensitivity or unauthorized modification attempts, reinforcing the malicious nature of the behavior.
+  - **Check for related commands in execution:** Investigate any subsequent command executions following the `dir` command. For example, if extraction commands (like `copy` or `robocopy`) are executed afterward, this may indicate an intended data exfiltration event.
 
-  - **Monitor subsequent actions:** Investigate any following commands to ensure no additional reconnaissance or data exfiltration actions (e.g., usage of `copy` or `move` commands), which may indicate a higher-level exploit attempt.
+  - **Examine user context:** Determine the user who executed the command. If run under service accounts or users without a direct need to perform directory enumeration, this could point to suspicious behavior.
+
+  - **Review for lateral movement:** Monitor logs for subsequent access to network shares or other systems following the command execution. This can provide context on whether system enumeration was part of a broader attack strategy.
 
   ### Prioritization
 
-  This alert presents a low severity due to the relatively benign nature of the command; however, its context may indicate potential malicious behavior depending on system criticality and the nature of the directory accessed. The likelihood of abuse exists, especially when performed by elevated privileges or targeting sensitive directories.
+  This alert is classified as low severity primarily because the directories enumerated may not have a direct impact on all systems. However, given that attackers often weaponize data enumeration, the likelihood of abuse remains a concern, especially on critical assets or servers containing sensitive information.
 
   ### Blind Spots and Assumptions
 
-  There are limitations to detecting tools or scripts that obfuscate command execution, such as PowerShell alternatives or encoded commands. Effective detection requires event logging for process creation to be enabled at adequate levels (Sysmon or native Windows Auditing). Legitimate administrative scripting activities may inadvertently trigger this alert, such as IT maintenance operations. A related detection could include monitoring for unexpected `powershell.exe` commands with similar file enumeration capabilities.
+  Detection limitations include evasion tactics such as disguising the command through batch scripts or running within an environment that generates minimal logging. Effective detection requires relevant Windows Event Logs to be configured correctly, especially ensuring process creation events are collected. Legitimate activities that may trigger this alert include system maintenance by IT staff or during software installations. A related detection that may enhance coverage is monitoring for bulk file access events, such as audit logs around file reads/writes (e.g., Event ID 4663), which may correlate with exploratory or exfiltration activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
