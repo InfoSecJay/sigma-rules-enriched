@@ -1,14 +1,17 @@
-title: New ActiveScriptEventConsumer Created Via Wmic.EXE
+title: NewActiveScriptEventConsumer Creation Attempt via Wmic.EXE
 id: ebef4391-1a81-4761-a40a-1db446c0e625
 status: test
-description: Detects WMIC executions in which an event consumer gets created. 
-  This could be used to establish persistence
+description: |
+  Detects the attempt to create an ActiveScriptEventConsumer via WMIC.EXE.
+  An ActiveScriptEventConsumer is a built-in Windows Management Instrumentation (WMI) class that
+  automatically executes a predefined script (in VBScript or JScript) whenever a specific system event occurs.
+  Adversaries often abuse ActiveScriptEventConsumer to maintain persistence on a compromised host by executing a malicious script whenever a specific event occurs.
 references:
 - https://twitter.com/johnlatwc/status/1408062131321270282?s=12
 - https://www.fireeye.com/content/dam/fireeye-www/global/en/current-threats/pdfs/wp-windows-management-instrumentation.pdf
 author: Florian Roth (Nextron Systems)
 date: 2021-06-25
-modified: 2023-02-14
+modified: 2026-06-19
 tags:
 - attack.privilege-escalation
 - attack.persistence
@@ -17,37 +20,44 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection:
+  selection_img:
+  - OriginalFileName: 'wmic.exe'
+  - Image|endswith: '\WMIC.exe'
+  selection_cli:
     CommandLine|contains|all:
     - 'ActiveScriptEventConsumer'
     - ' CREATE '
-  condition: selection
+  condition: all of selection_*
 falsepositives:
 - Legitimate software creating script event consumers
 level: high
 note: |
   ### Technical Context
 
-  This detection rule identifies the creation of an `ActiveScriptEventConsumer` using `WMIC.EXE`, a method often employed by attackers to establish persistence. The likely attacker objective is to enable unauthorized scripts to execute in response to system events, allowing them to maintain access after an initial compromise. This behavior maps to the MITRE ATT&CK technique `T1546.003 - Event Triggered Execution`. The primary telemetry source is Windows process creation events, focusing on event types related to WMIC executions. If successful, this action can lead to significant security implications, such as continuous unauthorized access and data exfiltration. Importantly, this detection does NOT confirm that the event consumer created is malicious, as legitimate applications may also use similar mechanisms.
+  This rule detects attempts to create an ActiveScriptEventConsumer using WMIC.EXE, a common method for adversaries to establish persistence on a compromised system. The likely objective of the attacker is to execute a malicious script automatically in response to specific system events, thereby maintaining control over the target environment after initial access. This behavior maps to the MITRE ATT&CK tactic for Privilege Escalation (TA0004) and the technique for Using Windows Management Instrumentation (WMI) for Persistence (T1546.003).
+
+  The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, indicating process lifecycle events. If successful, the creation of such a consumer could lead to automatic execution of malicious scripts. This detection does NOT confirm that the created consumer is malicious on its own; it merely indicates that an attempt was made via WMIC.
 
   ### Investigation Steps
 
-  - **Review WMIC command execution: ** Check for Event ID 4688 for processes running `WMIC.EXE`. Validate the command line arguments to confirm if `ActiveScriptEventConsumer` and `CREATE` are present.
+  - **Review process creation logs**: Check Security Event ID 4688 and Sysmon Event ID 1 for processes where `OriginalFileName` is `wmic.exe` and `CommandLine` contains `ActiveScriptEventConsumer` and `CREATE`. Look for unusual execution contexts.
 
-  - **Identify anomalous parent processes: ** Look at the parent process for the `WMIC.EXE` instance. Legitimate instances typically originate from trusted applications or administrators, while suspicious ones may have unexpected origins (e.g., cmd.exe or PowerShell).
+  - **Analyze command line arguments**: Investigate the full command line used with WMIC.EXE. A legitimate use case might not include invoking `ActiveScriptEventConsumer` in relation to expected administrative tasks, which typically involve querying rather than creating consumers.
 
-  - **Correlate with script execution history: ** Examine logs for Event ID 4688 or Event ID 4104 (PowerShell) for any corresponding script executions triggered by the newly created event consumer, focusing on unusual timeframes and scripts that are not standard operational tasks.
+  - **Correlate with existing scripts**: Look for existing ActiveScriptEventConsumers using `Get-WmiObject -Class ActiveScriptEventConsumer`. Investigate any that may have been modified or created around the same timestamp as the alert.
 
-  - **Check for user privileges: ** Ensure that the user executing `WMIC.EXE` possesses valid administrative rights. This action may only be benign if performed by trusted personnel; otherwise, it may indicate escalation activities.
+  - **Identify victim host role**: Determine if the affected system has a critical role (e.g., domain controller, file server). The impact of persistence on critical systems warrants a more urgent response.
 
-  - **Assess for persistence mechanisms: ** Investigate the Windows registry for any new entries under `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` or specific script execution locations related to the event consumer to confirm ongoing persistence strategies.
+  - **Check for known indicators**: Look for behavior commonly noted in malicious activity, such as execution of scripts that perform unusual file operations (e.g., unexpected file creation or modifications) or network connections outside of normal patterns.
+
+  - **Filter legitimate software**: Identify any previously approved applications or system processes that typically create script event consumers. If a known and vetted application is responsible, this might indicate a false positive.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential for significant impact on system security through unauthorized persistence. The likelihood of malicious abuse is elevated, as the creation of an `ActiveScriptEventConsumer` is not common in typical enterprise environments. This technique is often weaponized for ongoing access in targeted attacks.
+  This alert is high severity due to the potential for an attacker to sustain access and execute arbitrary code on a critical system. Given that this technique is frequently weaponized by adversaries for persistence, immediate investigation is warranted.
 
   ### Blind Spots and Assumptions
 
-  Detection may be circumvented if attackers employ obfuscation techniques or use non-standard utilities that do not trigger standard process creation logs. Reliable detection requires that Windows Management Instrumentation (WMI) logging be enabled to capture all relevant events. Legitimate software that creates event consumers in response to user interactions may generate false positives, and at least one companion detection, such as monitoring for suspicious tasks created via Task Scheduler (part of `T1053`), could enhance overall coverage against persistence mechanisms.
+  Detection may miss events if legitimate processes create ActiveScriptEventConsumers without generating alerts. It relies heavily on comprehensive logging from the Windows environment; ensure Sysmon is configured appropriately. Legitimate administrative actions or software installations can trigger this alert. Complementary detections, such as monitoring for unusual WMI queries (e.g., Event ID 4688 related to `Get-WmiObject` commands), can enhance coverage against misuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

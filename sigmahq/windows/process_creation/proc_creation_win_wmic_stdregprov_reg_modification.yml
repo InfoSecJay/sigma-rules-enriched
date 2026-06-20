@@ -1,24 +1,27 @@
 title: Registry Manipulation via WMI Stdregprov
 id: c453ab7a-1f5c-4716-a3b4-dea8135fb43a
 status: experimental
+related:
+- id: a0e417e2-2fa1-40da-b6d2-e094cd5e1191     # Registry Enumeration via WMI Stdregprov
+  type: similar
 description: |
-  Detects the usage of wmic.exe to manipulate Windows registry via the WMI StdRegProv class.
+  Detects the usage of wmic.exe to modify Windows registry via the WMI StdRegProv class write methods (CreateKey, DeleteKey, SetStringValue, etc.).
   This behaviour could be potentially suspicious because it uses an alternative method to modify registry keys instead of legitimate registry tools like reg.exe or regedit.exe.
   Attackers specifically choose this technique to evade detection and bypass security monitoring focused on traditional registry modification commands.
 references:
 - https://www.bitdefender.com/en-us/blog/businessinsights/shrinklocker-decryptor-from-friend-to-foe-and-back-again
 - https://trustedsec.com/blog/command-line-underdog-wmic-in-action
 - https://trustedsec.com/blog/wmi-for-script-kiddies
+- https://learn.microsoft.com/en-us/previous-versions/windows/desktop/regprov/stdregprov
 author: Daniel Koifman (KoifSec)
 date: 2025-07-30
+modified: 2026-06-19
 tags:
-- attack.persistence
 - attack.execution
-- attack.discovery
-- attack.defense-impairment
 - attack.t1047
+- attack.persistence
+- attack.defense-impairment
 - attack.t1112
-- attack.t1012
 logsource:
   category: process_creation
   product: windows
@@ -28,8 +31,19 @@ detection:
   - OriginalFileName: 'wmic.exe'
   selection_cli:
     CommandLine|contains|all:
-    - 'call'
     - 'stdregprov'
+    - 'call'
+    CommandLine|contains:
+    - 'CreateKey'
+    - 'DeleteKey'
+    - 'DeleteValue'
+    - 'SetBinaryValue'
+    - 'SetDWORDValue'
+    - 'SetExpandedStringValue'
+    - 'SetMultiStringValue'
+    - 'SetQWORDValue'
+    - 'SetSecurityDescriptor'
+    - 'SetStringValue'
   condition: all of selection_*
 falsepositives:
 - Legitimate administrative activity
@@ -37,36 +51,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of `wmic.exe` to manipulate the Windows registry through the WMI StdRegProv class. This behavior indicates an attempt to modify registry keys using a method not typically monitored, enabling potential evasion of standard detection mechanisms that focus on native tools like `reg.exe` or `regedit.exe`. The likely attacker objective is to alter system settings, potentially persisting malicious control, hiding activities, or disabling security mechanisms.
+  This Sigma rule detects the usage of `wmic.exe` to modify the Windows registry utilizing the WMI StdRegProv class, specifically through methods such as CreateKey, DeleteKey, and SetStringValue. The likely attacker objective is to manipulate registry settings for persistence or to evade detection, as these actions may remain unnoticed by traditional monitoring tools that focus on `reg.exe` or `regedit.exe`. Relevant MITRE ATT&CK tactics include Execution (T1047) and Persistence (T1112). The primary telemetry sources include process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1 that capture `wmic.exe` execution and command-line usage.
 
-  The relevant MITRE ATT&CK tactics and techniques include:
-  - **Persistence** (TA0003): Techniques for maintaining access to systems.
-  - **Execution** (TA0002): Techniques that allow an attacker to run their code or commands.
-  - **Discovery** (TA0007): Techniques used for gathering information about the system or network.
-  - **Defense Evasion** (TA0005): Techniques aimed at evading detection and mitigating defenses.
-
-  The primary telemetry source for this detection is Windows process creation event logs (Event ID 4688) that include specific command line arguments associated with `wmic.exe`. If malicious, actions could lead to unauthorized changes to critical system configurations or user environments. Notably, this detection does NOT confirm that malicious activity occurred; it merely indicates that an alternative registry manipulation method was used.
+  If such manipulation is malicious, it could lead to persistence methods that allow continued access to the compromised system, potentially altering its configuration for further exploitation. However, this detection does NOT confirm malicious intent on its own; legitimate administrative activities could use similar methods for valid purposes.
 
   ### Investigation Steps
 
-  - **Review `wmic.exe` execution context**: Look for Event ID 4688 for `wmic.exe`. Validate whether the command line contains terms like `call` and `stdregprov` to assess if abnormal registry interactions were attempted.
+  - **Check process creation logs:** Review Security Event ID 4688 or Sysmon Event ID 1 for instances where `wmic.exe` is executed. Look for unusual command lines invoking StdRegProv functions such as CreateKey or DeleteKey. Legitimate use will typically involve standard administrative or system maintenance tasks.
 
-  - **Check user context of the command**: Examine the `SubjectUserName` in the process creation logs. Anomalous activity from non-admin users could indicate malicious intent, whereas expected administrative user activity may be benign.
+  - **Analyze command-line parameters:** Specifically examine the CommandLine field for the presence of `stdregprov` and registry alteration commands (e.g., CreateKey, SetStringValue). A high-confidence malicious indicator is the sequential use of multiple registry modification calls without proper administrative context.
 
-  - **Analyze registry changes**: Monitor Windows Registry for any changes associated with the subkeys that were potentially altered, particularly under `HKEY_LOCAL_MACHINE` or `HKEY_CURRENT_USER`. Compare the timestamps with the execution time of the `wmic.exe`.
+  - **Investigate parent processes:** Identify the parent process of `wmic.exe` execution to determine its legitimacy. Common administrative processes (e.g., `powershell.exe`, `cmd.exe`) can indicate benign usage, while unknown or unexpected parent processes may suggest malicious intent.
 
-  - **Identify associated processes**: Correlate the behavior with other processes spawned before or after the incident. Look for any unusual processes that may indicate a follow-up action or other malicious activity (e.g., Event ID 4688 for potential child processes).
+  - **Check for recent registry modifications:** Validate altered registry keys using tools like `reg.exe` or reviewing the Registry logs. Investigate whether the modifications align with known malicious behavior or if they are part of an authorized configuration change.
 
-  - **Check for known evasion attempts**: Investigate historical logs for similar usage of WMI and `wmic.exe` in the environment. If such usage deviates from established baselines, it strengthens the case for malicious action.
-
-  - **Validate legitimate usage**: Identify known administrative scripts and processes that utilize `wmic.exe` for legitimate purposes. Examples may include automated management tasks in enterprise environments; document their use cases to aid in differentiating benign from malicious activities.
+  - **Correlate with user activity logs:** Review user activity logs to determine if the user associated with the `wmic.exe` execution was performing legitimate administrative actions or if there were signs of unauthorized access.
 
   ### Prioritization
 
-  This alert is considered medium severity because the potential for system compromise through unauthorized registry manipulation exists. The likelihood of this behavior being abused is moderate, as attackers may leverage `wmic.exe` to conduct stealthy modifications. Though not common as a standalone tactic, this method can assist in broader exploitation efforts.
+  This alert is of medium severity due to the potential for significant impact if registry modifications are exploited for persistence or evasion. While the likelihood of malicious abuse exists, it is essential to note that this method can also be used in legitimate administrative contexts, making careful investigation critical. The behavior detected is commonly weaponized in sophisticated attacks.
 
   ### Blind Spots and Assumptions
 
-  One limitation is that attackers may employ obfuscation techniques or variations that could evade this detection, such as renaming `wmic.exe` or using other scripting languages. Successful detection relies on having appropriate logging configurations in place, especially for process creation. Moreover, legitimate administrative activities, such as system housekeeping or configuration management using WMI, may also trigger this alert. A companion detection to strengthen coverage would be to monitor for scheduled tasks or scripts that invoke `wmic.exe` in a usual administrative context.
+  Detection limitations exist as attackers could obfuscate commands or use alternative methods to modify the registry that would not trigger this rule. Reliable detection requires configuration of Windows process creation logs (Event ID 4688 or Sysmon Event ID 1), ensuring logging is enabled. Legitimate administrative scripts that use `wmic.exe` for registry modifications may trigger the alert. A related detection would be monitoring unauthorized registry reads (e.g., Registry Enumeration via WMI StdRegProv) to enhance coverage and context surrounding potentially malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,8 +1,15 @@
 title: WMI Persistence - Script Event Consumer
 id: ec1d5e28-8f3b-4188-a6f8-6e8df81dc28e
 status: test
-description: Detects WMI script event consumers
+description: |
+  Detects the execution of a script event consumer. When scrcons.exe launches, it does so in response to the creation of an ActiveScriptEventConsumer instance
+  and will execute registered JScript or VBScript code as a result.
+  Script event consumers are a built-in Windows Management Instrumentation (WMI) class that
+  automatically executes a predefined script (in VBScript or JScript) whenever a specific system event occurs.
+  Adversaries often abuse script event consumers to maintain persistence on a compromised host
+  by executing a malicious script whenever a specific event occurs.
 references:
+- https://redcanary.com/blog/threat-detection/child-processes/
 - https://www.eideon.com/2018-03-02-THL03-WMIBackdoors/
 author: Thomas Patzke
 date: 2018-03-07
@@ -28,30 +35,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of a WMI Script Event Consumer, a potential persistence mechanism commonly used by attackers. The likely objective is to maintain long-term access to the system, often enabling the execution of malicious scripts in response to specific events, effectively allowing for covert operations without detection. The relevant MITRE ATT&CK tactic is **Persistence**, specifically technique **T1546.003** (Event Triggered Execution: WMI Event Subscription).
+  This rule detects the execution of `scrcons.exe`, which is the WMI Script Event Consumer. This executable is invoked in response to the creation of an ActiveScriptEventConsumer instance, subsequently executing predefined scripts in VBScript or JScript. Attackers may leverage script event consumers to establish persistence on compromised hosts by triggering malicious scripts based on specific system events.
 
-  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on event ID **4688** (Process Creation) and potentially related Sysmon logs if deployed (Event ID **1**). If this behavior is malicious, it can facilitate ongoing compromise of the affected host, allowing attackers to execute arbitrary code. However, it is crucial to note that the detection of a WMI Script Event Consumer does not inherently confirm malicious intent, as legitimate applications may also create similar event consumers.
+  The relevant MITRE ATT&CK technique is **T1546.003: WMI Event Subscription**. Primary telemetry sources include Windows Process Creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1. If this detection is confirmed as malicious, it may indicate an ongoing compromise that can allow unauthorized access to sensitive information or control over the system. However, it’s crucial to note that this detection alone does not confirm malicious intent; legitimate administrative tasks may also involve `scrcons.exe`.
 
   ### Investigation Steps
 
-  - **Examine process creation logs**: Review Windows Security Event ID **4688** logs to identify instances of `scrcons.exe` being initiated by `svchost.exe`. A legitimate process creation would typically originate from `wscript.exe` or `cscript.exe` rather than directly from `svchost.exe`.
+  - **Review Process Creation Events:** Examine Security Event ID 4688 or Sysmon Event ID 1 for processes related to `C:\WINDOWS\system32\wbem\scrcons.exe`. Look for suspicious parent processes, especially if the parent is `C:\Windows\System32\svchost.exe`.
 
-  - **Verify event consumer properties**: Use WMI queries (`wmic`) to check the properties of the detected event consumer. Look for suspicious script paths or parameters; benign consumers typically reference legitimate scripts or applications known to your environment.
+  - **Check Event Consumer Configurations:** Query WMI for the ActiveScriptEventConsumer instances using `wmic /namespace:\\root\subscription path __eventConsumer`. Identify any consumers that execute scripts not recognized as benign or that appear out of context.
 
-  - **Correlate with historical changes**: Investigate if any recent changes to WMI namespaces or classes have occurred that correlate with the detection. This can be done using Event ID **15** (WMI) logs to look for unauthorized modifications that may indicate an adversary attempting to establish persistence.
+  - **Identify Legitimate Use Cases:** Confirm with IT or system admins whether event consumers are configured as expected on the affected system. Specifically, note any consumers related to legitimate applications or system management operations.
 
-  - **Analyze network connections**: Check for anomalous outbound connections from the affected host during the execution period of the `scrcons.exe` process, particularly from Event ID **5156** (Windows Filtering Platform), indicating potential exfiltration or command and control (C2) communications.
+  - **Analyze Stored Scripts:** Inspect the active scripts (JScript or VBScript) executed by the event consumer. Validate these scripts against authorized signatures or hashes to determine if they may contain malicious code.
 
-  - **Identify legitimate usage**: Review any documented uses of WMI event consumers for legitimate business applications within your organization. If an internal team leverages `scrcons.exe` without malicious intent, this should be noted as a benign indicator.
+  - **Correlate with Additional Logs:** Review Windows Event Logs related to the event being consumed (e.g., Security, Application, or System logs) for indications of abnormal activity occurring around the same time `scrcons.exe` was executed.
 
-  - **Look for known malicious indicators**: If the path to the script executed by the WMI consumer is obfuscated or references unknown third-party applications, this could signal a malicious intent. Compare the script paths against threat intelligence databases for any known malicious signatures.
+  - **Look for Evasive Behavior:** Investigate the execution context and environment. Check if `scrcons.exe` is being run with elevated privileges or in a suspicious manner, possibly indicating a bypass of standard controls or auditing.
 
   ### Prioritization
 
-  The severity of this alert is medium, as the system impacted may have critical functions, and WMI event consumers could be leveraged for persistent access by adversaries. The likelihood of malicious abuse is heightened due to the covert nature of WMI manipulation, which aligns with common exploitation tactics employed by threat actors.
+  This alert should be considered medium priority due to the potential for significant impact on the affected system through persistence mechanisms. The likelihood of malicious abuse is moderate, as script event consumers can be repurposed by adversaries, but they are also commonly used in legitimate administrative tasks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if WMI logging is not fully enabled, as legitimate scripts may also trigger the rule. Additionally, adversaries might use legitimate system processes to bypass detection. False positives can occur with known software (e.g., Dell brightness controls) that create WMI event consumers. Companion detections relating to abnormal child processes or unexpected WMI script execution (e.g., via **Event ID 4688**, looking for scripts run without user interaction) could strengthen coverage.
+  Detection may be limited if logging for WMI events is not adequately configured. Adversaries may utilize obfuscation techniques to mask malicious scripts. Additionally, legitimate administrative practices, such as software updates or changes to hardware settings, could trigger this alert. Companion detections, such as monitoring WMI for abnormal event subscriptions or observing parent process chains starting from `svchost.exe`, can enhance overall detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

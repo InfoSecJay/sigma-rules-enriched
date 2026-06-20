@@ -13,7 +13,7 @@ references:
 - https://gist.github.com/MHaggis/6c600e524045a6d49c35291a21e10752
 author: Florian Roth (Nextron Systems)
 date: 2021-07-30
-modified: 2022-12-31
+modified: 2026-06-18
 tags:
 - attack.privilege-escalation
 - attack.stealth
@@ -46,7 +46,7 @@ detection:
   - PipeName|re: '\\fullduplex_[0-9a-f]{2}'
   - PipeName|re: '\\msrpc_[0-9a-f]{4}'
   - PipeName|re: '\\win\\msrpc_[0-9a-f]{2}'
-  - PipeName|re: '\\f53f[0-9a-f]{2}'
+  - PipeName|re: '\\f53f[0-9a-f]{2}$'        # https://docs.limacharlie.io/3-detection-response/unit-tests/#example
   - PipeName|re: '\\rpc_[0-9a-f]{2}'
   - PipeName|re: '\\spoolss_[0-9a-f]{2}'
   - PipeName|re: '\\Winsock2\\CatalogChangeListener-[0-9a-f]{3}-0,'
@@ -57,30 +57,30 @@ level: critical
 note: |
   ### Technical Context
 
-  The rule detects the creation of named pipes that match specific patterns commonly associated with Cobalt Strike's Malleable C2 profiles. These patterns may indicate efforts by attackers to establish covert communication channels for command and control or other malicious purposes. The primary MITRE ATT&CK technique relevant here is T1055 (Process Injection), utilized by adversaries to inject malicious code into legitimate processes.
+  This Sigma rule detects the creation of named pipes that match patterns typically associated with the Cobalt Strike framework, specifically its Malleable Command and Control (C2) profiles. The primary objective for the attacker is to establish a covert communication channel for command execution or exfiltration of data. This activity aligns with the MITRE ATT&CK tactic **Command and Control** (ID: T1055), specifically leveraging named pipes as a technique for maintaining persistence and communication.
 
-  The primary telemetry source for this detection is Sysmon's Named Pipe Event logs (Event ID 17 for creation and Event ID 18 for deletion). If an alert is triggered, the presence of these specific named pipes may signal abnormally elevated privilege escalation attempts or stealthy operations that compromise the integrity of the affected systems. However, it's crucial to clarify that detection of these named pipes alone does not automatically indicate malicious activity; further context is required to confirm the intent.
+  The primary telemetry source for this detection is Sysmon, specifically Event ID 17 and Event ID 18, which log named pipe creation events. If malicious, such behavior could result in unauthorized code execution or data exfiltration. Importantly, this detection does NOT confirm active malicious activity on its own; it requires context from additional telemetry to ascertain intent.
 
   ### Investigation Steps
 
-  - **Verify Sysmon configuration for logging:** Ensure Sysmon is properly configured to capture Named Pipe Events (Event ID 17 and 18). This is critical as the rule relies on accurate logging to detect potentially malicious activity.
+  - **Review Sysmon Event Logs for Named Pipes:** Check Sysmon Event ID 17 for creation events. Look for PipeName matching the regex patterns specified in the Sigma rule. Verify any unusual pipe names created, particularly those following "mojo" or "DserNamePipe."
 
-  - **Examine the named pipe creation events:** Check Sysmon logs for Event ID 17 that show the creation of pipes matching the detection patterns (e.g., `\\mojo\.5688\.8052\.`). Compare them against known Cobalt Strike profiles from resources like the provided Medium article.
+  - **Validate the Service Context of the Creation:** Examine the associated Event ID 21 (Process Connect) in Sysmon to determine which process created the named pipe. Common benign processes that may create named pipes include `svchost.exe`. Check for unusual parent-child process relationships that could indicate malicious behavior.
 
-  - **Assess associated processes:** Investigate the parent process of the event by examining Sysmon Event ID 1 (Process Create). Look for known malicious executables or PowerShell scripts responsible for invoking these named pipes to identify high-confidence malicious indicators.
+  - **Identify Process Command Lines:** For the processes that created the named pipes (based on Event ID 17), gather command line arguments from Sysmon Event ID 4697. Look for obfuscation or unusual parameters that indicate potential exploitation or lateral movement.
 
-  - **Identify legitimate usage patterns:** Review typical application logs that may legitimately create named pipes, such as service installations. Systems with legitimate software, like Windows services, may show expected behavior around named pipes that do not match the identified patterns in the rule.
+  - **Correlate with Network Activity:** If named pipes are found, review network logs for any associated outbound or suspicious internal connections. Events such as those logged by the Windows Filtering Platform or firewall rules can illuminate potential lateral movement or command and control traffic.
 
-  - **Map affected systems for criticality:** Confirm the role of the host where the event originated. High-value assets (e.g., domain controllers) warrant immediate escalation due to increased impact potential.
+  - **Contextualize with User Activity:** Review user activity logs (e.g., Event IDs 4624 and 4634) during the time of the named pipe creation. Establish a timeline to assess whether actions taken align with legitimate administrative tasks or if they appear unauthorized.
 
-  - **Evaluate network communications diagrams:** Cross-reference any outgoing connections from the identified processes. Exfiltration or unusual outbound traffic associated with the detected process may indicate a compromised system.
+  - **Examine Known Legitimacy for the Environment:** Benchmark the pipe creation against known legitimate applications or scripts used within your organization. Identifying typical patterns can assist in ruling out false positives and sharpening focus on anomalous entries.
 
   ### Prioritization
 
-  This alert is of critical severity given that it could indicate an adversary operating undetected within the network, particularly if it involves high-value targets. The likelihood of malicious abuse is significant, as Cobalt Strike is a commonly used tool by attackers for establishing persistent command and control infrastructures.
+  Given that the behavior detected targets named pipes commonly used for command and control, the alert severity is critical. The potential exploitation of these pipes poses a significant risk, as attackers frequently leverage this technique for persistence and lateral movement within networks. Furthermore, the covert nature of named pipe communication increases the likelihood of malicious activity.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the accuracy of Sysmon’s configuration; without proper logging, relevant events may go unnoticed. Evasion techniques could include altering the named pipe patterns to avoid detection. Legitimate activities could also inadvertently trigger this alert, particularly custom applications that utilize named pipes. Another detection rule for process injection techniques (e.g., T1055) could enhance overall coverage against related threats.
+  Detection limitations include the possibility of evasion techniques where attackers may use generic named pipes, thereby reducing the effectiveness of regex-based detection. Additionally, Sysmon must be properly configured to capture named pipe events (Event IDs 17 and 18); missing this data may lead to undetected malicious actions. Legitimate activities, such as interaction with Windows services, may inadvertently trigger the alert. A companion detection to consider is monitoring for API calls associated with named pipes, which provides further insights into process interactions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

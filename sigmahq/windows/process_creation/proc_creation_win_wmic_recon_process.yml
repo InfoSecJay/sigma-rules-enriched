@@ -1,18 +1,20 @@
-title: Process Reconnaissance Via Wmic.EXE
+title: Potential Process Reconnaissance via Wmic.EXE
 id: 221b251a-357a-49a9-920a-271802777cc0
 status: test
-description: Detects the execution of "wmic" with the "process" flag, which 
-  adversary might use to list processes running on the compromised host or list 
-  installed software hotfixes and patches.
+description: |
+  Detects the execution of "wmic" with the "process" flag, which might indicate an attempt to perform reconnaissance on running processes.
+  Adversaries may use wmic to query for running processes and their details as part of their reconnaissance efforts.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1047/T1047.md
 - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wmic
 author: frack113
 date: 2022-01-01
-modified: 2023-02-14
+modified: 2025-06-10
 tags:
 - attack.execution
 - attack.t1047
+- attack.discovery
+- attack.t1057
 logsource:
   category: process_creation
   product: windows
@@ -27,6 +29,11 @@ detection:
             # Rule id 526be59f-a573-4eea-b5f7-f0973207634d for `wmic process call create #{process_to_execute}`
     - 'call'
     - 'create'
+  filter_main_terminate:
+    CommandLine|contains|all:
+            # Rule id 49d9671b-0a0a-4c09-8280-d215bfd30662 for `wmic path win32_process where processid=#{processid_to_terminate} call terminate`
+    - 'call'
+    - 'terminate'
   condition: all of selection* and not 1 of filter_*
 falsepositives:
 - Unknown
@@ -34,30 +41,30 @@ level: medium
 note: |
   ### Technical Context
 
-  The Sigma rule detects the execution of `wmic.exe` with the `process` flag, which is often leveraged by adversaries to gather information about running processes or installed software on compromised Windows hosts. The likely attacker objective is to perform reconnaissance for further exploitation or lateral movement within the environment. This behavior aligns with MITRE ATT&CK technique T1047 (Windows Management Instrumentation).
+  This rule detects the execution of `wmic.exe` with the "process" flag, indicative of reconnaissance activities targeting running processes on a Windows system. Attackers typically utilize this command-line tool to gather information about processes in an environment which aids in further exploitation or evasion. This behavior falls under the MITRE ATT&CK tactic of Discovery, specifically the technique T1047 (Windows Management Instrumentation).
 
-  The primary telemetry source for this detection is Windows process creation logs, specifically monitoring for events related to the execution of `wmic.exe`. If malicious, this activity could indicate an adversary seeking critical information that may facilitate further actions, such as privilege escalation or lateral movement. However, this detection does NOT confirm that malicious activity is occurring on its own; it merely indicates that a potentially suspicious command was executed.
+  Primary telemetry sources include Windows process creation logs (Security Event ID 4688) and Sysmon Event ID 1 logs that capture process creation events. If the behavior is malicious, the security impact could include unauthorized access to sensitive process information, which may lead to further compromise of the environment. This detection does NOT confirm malicious intent outright; it only indicates that an elevated privilege action was performed which may warrant further investigation.
 
   ### Investigation Steps
 
-  - **Check recent `wmic.exe` process creation events:** Review Security Event ID 4688 to identify `(New Process Created)` events involving `wmic.exe`. Investigate the user account used and process parent processes for context.
+  - **Review process creation logs:** Identify instances of `wmic.exe` being executed via Security Event ID 4688 or Sysmon Event ID 1. Look for command lines that include the term "process" to confirm the match to this alert.
 
-  - **Analyze the command line arguments:** Look for `CommandLine` field details in the process creation logs. A command line containing "process" without additional filtering parameters may indicate a benign user check.
+  - **Correlate with user and time context:** Analyze the user account associated with the `wmic.exe` execution. Legitimate administrative accounts may execute this command during routine maintenance, while unusual accounts (e.g., service accounts) could indicate potential misuse.
 
-  - **Identify the user account:** Cross-reference the user executing the command against normal user behavior. If it was run by a non-administrative account or from an unexpected location, it may indicate malicious intent.
+  - **Check for additional suspicious flags:** Look for command line arguments that follow "process" such as "call create" or "call terminate." This may indicate more targeted actions against discovered processes, which are common in advanced adversary techniques.
 
-  - **Review historical activity:** Query Sysmon Event ID 1 logs to determine if `wmic.exe` has been executed previously on the same host, specifically looking for repetitive or automated calls that could indicate malicious behavior.
+  - **Identify execution context:** Determine if the command was run in a context that suggests normal administrative behavior (System or Administrator account) versus a user context that may represent an anomalous activity.
 
-  - **Monitor for subsequent process creation:** Check for additional processes spawned by `wmic.exe` that would indicate further exploration or exploitation, especially involving toolsets commonly used in attacks.
+  - **Investigate recent changes in system state:** Examine recent changes or anomalies in running processes before and after the execution to uncover any disruptive actions taken post-reconnaissance.
 
-  - **Log for benign activities:** Document legitimate use cases of `wmic` such as system maintenance tasks conducted by the IT staff. Knowing expected commands and environments can help differentiate normal activity from potential threats.
+  - **Monitor the presence of malicious indicators:** Check for any running processes that stood out during the reconnaissance, such as known malware signatures or processes that shouldn't be running within the environment context.
 
   ### Prioritization
 
-  The severity of this alert is medium due to the potential for an attacker to gather sensitive information that may lead to a broader compromise. The behavior is indicative of reconnaissance, which is a common precursor to further exploitative actions. While the execution of `wmic.exe` itself is not inherently malicious, its usage in this context merits immediate investigation.
+  This alert should be treated with medium severity. The affected system's criticality and the use of `wmic.exe` imply a potential reconnaissance stage in an attack lifecycle. While not all uses of WMIC are malicious, adversaries often exploit this tool to gather essential information for further exploitation.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by the execution of legitimate administrative tasks or scripted activities running `wmic`, which can generate false positives. Ensure that Windows Event Forwarding or Sysmon are correctly configured to capture the necessary telemetry for accurate detections. Additionally, consider companion detections such as unusual service creation (Sysmon Event ID 7030) to enhance visibility of potential lateral movement or reconnaissance efforts.
+  Detection may miss `wmic.exe` executions that are obfuscated or altered to evade detection. Without proper logging configurations for process creation events, critical telemetry that aids detection could be absent. Additionally, legitimate administrative tasks, such as system monitoring by IT teams, could trigger this alert. Companion detections like monitoring for unusual process creation patterns (e.g., escalation patterns identified by MITRE ATT&CK T1068) can provide stronger coverage against these behaviors.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
