@@ -1,0 +1,61 @@
+title: Process Execution From Shared Memory Directory
+id: 5cd16c8f-44a6-4654-81e7-a84d6db507d4
+status: experimental
+description: |
+  Detects the execution of a binary from the Linux shared memory directory /dev/shm.
+  This directory is a tmpfs mount backed entirely by RAM and is abused by attackers for fileless malware staging because files written there never touch physical disk and may evade disk-based detection.
+references:
+- https://www.sysdig.com/blog/containers-read-only-fileless-malware
+- https://unfinished.bike/fun-with-the-new-bpfdoor-2023
+- https://asiapacificdefencereporter.com/wp-content/uploads/2023/08/Final-CRWD-2023-Threat-Hunting-Report.pdf
+- https://www.crowdstrike.com/en-us/blog/how-to-hunt-for-decisivearchitect-and-justforfun-implant/
+- https://www.linkedin.com/posts/avradeep_malware-apt-infostealer-activity-7373203959697719296-JR-7
+- https://www.stormshield.com/news/orbit-analysis-of-a-linux-dedicated-malware/
+author: Stan Beukers
+date: 2026-06-20
+tags:
+- attack.stealth
+- attack.execution
+- attack.t1027.011
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection:
+    Image|startswith: '/dev/shm/'
+  condition: selection
+falsepositives:
+- Unlikely in production environments; some container runtimes or IPC frameworks
+  may use /dev/shm for inter-process communication but should not spawn 
+  executables.
+level: high
+note: |
+  ### Technical Context
+
+  This rule detects the execution of binaries from the Linux shared memory directory `/dev/shm`, which is commonly exploited by attackers to execute fileless malware and evade traditional disk-based detection mechanisms. The likely attacker objective is to execute malicious payloads without leaving traces on disk, thereby bypassing security measures focused on file monitoring. This behavior relates to the MITRE ATT&CK framework, specifically the tactic of Execution (TA0002) and the technique for Process Injection (T1027.011).
+
+  The primary telemetry source for this detection is process creation logs from the Linux host, which track commands executed and the locations of the binaries. If successful, this behavior may lead to significant security impacts, including data exfiltration, system compromise, or lateral movement within the network. However, this detection does NOT confirm the intent or effect of the executed process, as some legitimate applications might utilize `/dev/shm` for valid purposes.
+
+  ### Investigation Steps
+
+  - **Review process creation logs for `/dev/shm` executions**: Check process creation logs (such as Syslog entries or audit logs) for Events related to `/dev/shm/`, focusing on fields such as `exe`, `pid`, and `args` to identify the executing command.
+
+  - **Identify any associated parent processes**: Look for parent processes that spawned the suspicious processes. Investigate whether the parent process is a known benign application or a potentially malicious one, using accounts or services like `ps` or logging from `auditd`.
+
+  - **Correlate with user activity logs**: Match the execution event with user login and activity logs (e.g., `/var/log/auth.log`). Verify that the user executing the process is expected, and determine if the timing aligns with legitimate activities, such as maintenance tasks or authorized deployments.
+
+  - **Check for high-confidence malicious indicators**: Verify whether the executed binary or script is known to be associated with malicious behavior by cross-referencing it against threat intelligence sources or hash databases. This may include checking against common Linux malware signatures.
+
+  - **Examine container runtime logs**: If applicable, analyze logs from container runtimes (like Docker) that may also interact with `/dev/shm`, ensuring that no unauthorized processes are spawned from containers, potentially indicating a container escape or compromise.
+
+  - **Document expected legitimate behaviors**: Understand and document legitimate use cases of `/dev/shm` in your environment, such as specific applications using it for inter-process communication (IPC). Highlight any deviations from established norms when reviewing alerts.
+
+  ### Prioritization
+
+  This alert should be prioritized as high due to the potential impact on critical systems where fileless malware execution can lead to data breaches or access to sensitive resources. The likelihood of malicious misuse is significant, given the evasion techniques employed, particularly for high-value targets where stealth is paramount.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be evaded by legitimate use of `/dev/shm`, such as in certain container or IPC scenarios, leading to false positives. Ensure that the log sources (e.g., process creation logs) are correctly configured and comprehensive. Additionally, be aware that certain legitimate applications in your environment may trigger this alert if they utilize shared memory for execution. To enhance detection coverage, consider a companion rule that monitors the general use of `/dev/shm` for any file writes or modifications, which may indicate prior preparation for malicious execution.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

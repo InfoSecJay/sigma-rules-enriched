@@ -43,31 +43,38 @@ detection:
 falsepositives:
 - Unknown
 level: high
+simulation:
+- type: atomic red team
+  name: Create a Process using WMI Query and an Encoded Command
+  technique: T1047
+  atomic_guid: 7db7a7f9-9531-4840-9b30-46220135441c
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_base64_invoke/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of PowerShell commands utilizing Base64 encoding, specifically targeting `Invoke-` commands. Attackers often use this technique to obfuscate commands and avoid detection while executing potentially malicious scripts, such as those used in cyber attacks to establish persistence or exfiltrate data. This behavior aligns with the MITRE ATT&CK technique for Scripting (T1059.001) and Obfuscated Files or Information (T1027).
+  This Sigma rule detects the execution of PowerShell commands that use Base64 encoding to obfuscate the `Invoke-` keyword, which often indicates an attempt to execute malicious scripts or payloads. The likely attacker objective is to execute arbitrarily defined PowerShell commands while evading detection and analysis. This behavior falls under the MITRE ATT&CK technique "Command and Scripting Interpreter: Windows PowerShell (T1059.001)" and is also related to "Obfuscated Files or Information (T1027)."
 
-  The primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1 for process creation events. If this behavior is determined to be malicious, the impact could include unauthorized access, data exfiltration, or system compromise. It’s crucial to note that this detection does NOT definitively confirm that the activity is malicious; further investigation is required to ascertain intent and context.
+  The primary telemetry source for this detection is Windows process creation logs. Relevant log types include Security Event ID 4688 for process creation events, capturing command-line arguments where obfuscation may occur. If malicious, this behavior could signify a system compromise, leading to data exfiltration or lateral movement. This detection does NOT confirm that an attack has occurred; it may also flag benign encoded scripts that are used in legitimate administrative tasks.
 
   ### Investigation Steps
 
-  - **Review the process command line:** Check the `CommandLine` field within Security Event ID 4688 and Sysmon Event ID 1 logs for suspicious entries containing `-e` or for any Base64 encoded strings indicative of `Invoke-` commands. Malicious indicators include combinations of encoded strings, while benign indicators might involve standard administrative scripts or known internal processes.
+  - **Review the original process and command line evidence:** Check Security Event ID 4688 for any PowerShell processes (`powershell.exe` or `pwsh.exe`). Look for `CommandLine` entries containing ` -e`, `Invoke-`, or specific Base64 encoded strings noted in the detection logic (e.g., `SQBuAHYAbwBrAGUALQ`).
 
-  - **Correlate system role:** Identify the role of the affected system (e.g., server, workstation). Investigate whether PowerShell usage is typical for this system. This helps to contextualize the command; benign use may include authorized administrative tasks, while suspicious use could indicate exploitation.
+  - **Analyze historical behavior:** Validate past command-line usage on the affected asset by checking previous Event IDs from the Windows Event Log. Legitimate usage often involves expected commands from system administrators, scripts signed by trusted sources, or known maintenance scripts.
 
-  - **Analyze related PowerShell logs:** Look in the PowerShell operational logs (Event ID 4103) for executed script block logs that could provide additional context around the command, such as execution times and user details. This may reveal whether the activity is a common task or an anomaly.
+  - **Identify potential malicious indicators:** Look for unusual parent processes of the PowerShell command (e.g., spawned from a suspicious executable like `cmd.exe` or a non-administrative user context). High-confidence indicators include the execution of encoded scripts and frequent use of `Invoke-` commands with Base64 strings.
 
-  - **Identify user context:** Check the `AccountName` associated with the PowerShell execution in the logs to determine if it was initiated by a privileged account. An unusual account executing obfuscated commands should raise flags, particularly if the account is not known for using PowerShell heavily.
+  - **Collect file artifacts:** Verify if any obfuscated scripts or files were created or downloaded during the observed behavior. This could involve checking the file system for new files created in temporary directories (`%TEMP%`, etc.) or using Event ID 4663 to detect access to sensitive files.
 
-  - **Check for reportable attributes:** Validate if any log entries correlate with known indicators of compromise (IOCs) such as file hashes or specific Base64 patterns associated with past incidents. Cross-reference these with threat intelligence feeds.
+  - **Cross-reference user activity:** Look up the user account executing the PowerShell command against established user baselines. Determine if the user's recent activities correlate with standard operations for their role, assessing any deviations.
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential impact on security, especially if executed on critical systems. The use of obfuscated PowerShell commands indicates a likelihood of malicious activity, as this technique is commonly weaponized by adversaries to conceal their actions.
+  This alert should be considered high severity due to the potential for malicious activity leading to significant impacts such as data breaches or system exploitation. The likelihood of abuse is high, as attackers commonly use obfuscation techniques to embed malicious commands in a stealthier manner, making it a key tactic in modern attacks.
 
   ### Blind Spots and Assumptions
 
-  There are limitations to detection, including the possibility of API-based invocation that may bypass traditional logging. Additionally, PowerShell execution could be legitimate, especially in administrative operations or automated tasks. Ensure that logging for PowerShell and process creation is correctly configured to avoid gaps in visibility. Related detections such as monitoring unusual outbound connections after such commands are executed can enhance coverage against potential data exfiltration.
+  Detection may be limited by the absence of proper logging configurations, such as insufficient command-line parameter logging for PowerShell. It's possible that legitimate administrative scripts or automation tools may trigger this alert if they use Base64 encoding. A related detection could involve monitoring for suspicious file creations (e.g., unusual scripts or executables) in conjunction with PowerShell usage, which would provide a deeper context to this behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

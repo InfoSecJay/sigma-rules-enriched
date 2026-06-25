@@ -55,33 +55,40 @@ detection:
 falsepositives:
 - Unknown
 level: high
+simulation:
+- type: atomic red team
+  name: WMI Execute rundll32
+  technique: T1047
+  atomic_guid: 00738d2a-4651-4d76-adf2-c43a41dfb243
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_wmic_susp_process_creation/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of `WMIC.EXE` to create suspicious processes, indicating potential abuse of the Windows Management Instrumentation (WMI) framework. Attackers may use this technique to execute malware or perform various tasks stealthily while maintaining persistence within a target environment. This behavior corresponds to the MITRE ATT&CK technique for remote command execution (T1047).
+  This rule detects the execution of suspicious processes using WMIC (Windows Management Instrumentation Command-line) with specific commands that may indicate adversarial behavior, such as calling potentially harmful executables like `rundll32`, `regsvr32`, and others. The likely attacker objective is to execute payloads or perform registry manipulations while attempting to avoid detection via traditional methods. This aligns with the MITRE ATT&CK techniques T1047 (Windows Management Instrumentation) and T1059 (Command and Scripting Interpreter).
 
-  The primary telemetry sources for this detection include Security Event ID 4688 for process creation and Sysmon Event ID 1. If the rule triggers, it may indicate a security incident, as malicious actors often leverage WMI to orchestrate attacks silently, such as deploying ransomware or backdoors. However, it is important to note that an alert does not definitively confirm an attack; further investigation is necessary to assess context and intent.
+  The primary telemetry sources include process creation logs (e.g., Windows Event ID 4688, Sysmon Event ID 1). If malicious, this behavior can lead to execution of arbitrary code, data theft, or system compromise. However, this detection alone does not confirm that a compromise is occurring as legitimate administrative actions could also trigger similar processes.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID 4688 and Sysmon Event ID 1 logs for instances of `WMIC.EXE` executing command lines containing `process call create`. Filter for commands containing the suspicious executables (e.g., `rundll32`, `regsvr32`, `powershell`, etc.).
+  - **Check Event ID 4688 for Process Creation**: Review Windows Security Event ID 4688 logs for WMIC command execution. Look for CommandLine values containing `process call create` alongside suspicious process names and paths such as `rundll32`, `regsvr32`, or `cmd.exe`.
 
-  - **Identify the command line parameters:** Analyze the complete command line arguments associated with the process (e.g., the exact parameters passed to `cmd.exe`, `powershell`, etc.). Look for any parameter values that suggest malicious intent, such as obfuscated commands or encoded payloads.
+  - **Identify High-Confidence Malicious Indicators**: Look for the combination of WMIC invoking `cmd` with parameters (e.g., `/c`, `/k`) and suspicious paths like `%temp%` or `\Windows\Temp\`. Any instance where these parameters are included signals a higher likelihood of malicious activity.
 
-  - **Correlate with historical data:** Cross-reference with existing baselines of legitimate WMIC usage within your organization. Identify if similar WMIC commands have been executed by known, trusted system accounts.
+  - **Correlate with Sysmon Logs**: Cross-reference with Sysmon Event ID 1 to obtain additional context on the process creation. Assess the parent-child process relationships to observe if the detected WMIC command was spawned by a known malicious parent process.
 
-  - **Monitor for known malicious indicators:** Validate if the process path involved leads to non-standard directories (e.g., `%temp%`, `C:\Users\Public\`) and if the executed binary is known to be malicious or frequently invoked in recent incidents.
+  - **Review Legitimate Usage Patterns**: Validate that your environment typically uses WMIC for legitimate administrative tasks. Look for timestamps and processes initiated by trusted admin accounts, ensuring no unauthorized users executed WMIC commands recently.
 
-  - **Check for lateral movement artifacts:** Assess if the executed command contains network-related parameters or indicates attempts to reach remote hosts. Look for outbound connections from the host that triggered the alert, especially if they correspond to unexpected protocols or destinations.
+  - **Check Service and Scheduled Task Modifications**: Monitor for any recent changes to services or scheduled tasks through the Windows Event Logs (Event ID 4697 for service creation, Event ID 4698 for scheduled tasks) since these can often result from WMIC activity.
 
-  - **Review asset criticality and response:** Determine the role and importance of the affected host in the environment. If it is a critical asset, escalate the investigation according to your organization's incident response plan, ensuring immediate containment measures if warranted.
+  - **Assess Criticality of Affected Host**: Determine the role of the host that triggered the alert. Particularly, if it is an asset hosting sensitive data or critical applications, escalation may be warranted due to the heightened security risk.
 
   ### Prioritization
 
-  This alert is of high severity due to its potential implications on critical systems and data. The likelihood of malicious intent is significant since the use of WMIC for process creation is commonly exploited by attackers during reconnaissance and execution phases. Given the prevalence of these tactics in recent attacks, prompt investigation is essential.
+  This alert should be treated as high-severity, particularly if the affected host is critical to business operations or contains sensitive data. The behavior reflects a common tactic among adversaries, particularly in post-exploitation scenarios, making it a likely avenue for malicious activities.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss evasion techniques if the malicious actor disguises their intentions through legitimate WMIC usage or if they use alternative tools to execute similar commands. Accurate detection depends on the configuration of Sysmon or Security Event logs; logs must be enabled and collected correctly for full visibility. Legitimate administrative tasks or automated scripts may trigger the alert but should be distinguishable based on known good practices. Companion detections, such as those monitoring PowerShell execution (T1059.001), can provide additional context and strengthen coverage against malicious behavior.
+  Detection may be limited by the use of obfuscation techniques, such as command-line encoding or the use of different tools or methods to achieve similar outcomes. Ensure that all relevant event logging is enabled, notably for process creation via Sysmon and Windows Security. Legitimate administrative operations, such as system configuration changes by IT staff, may trigger this alert. Companion detections, such as monitoring PowerShell usage (T1059.001), strengthen coverage by identifying other attack vectors often utilized in conjunction with WMIC commands.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

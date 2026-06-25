@@ -9,7 +9,7 @@ references:
 - https://learn.microsoft.com/en-us/answers/questions/253555/software-list-inventory-wmic-product
 author: Nasreddine Bencherchali
 date: 2023-02-14
-modified: 2025-10-22
+modified: 2025-12-15
 tags:
 - attack.execution
 - attack.t1047
@@ -27,35 +27,39 @@ detection:
     CommandLine|contains:
     - ' uninstall'
     - ' install'
+  filter_main_csproduct:
+        # wmic /node:"#{node}" csproduct get name, identifyingnumber, uuid
+        # covered by 3e3ceccd-6c06-48b8-b5ff-ab1d25db8c1d
+    CommandLine|contains: 'csproduct'
   condition: all of selection_* and not 1 of filter_main_*
 falsepositives:
 - Unknown
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_wmic_recon_product/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of WMIC (Windows Management Instrumentation Command-line) with commands aimed at querying installed firewall and antivirus products. An attacker may utilize this to assess the defensive posture of a target environment, as identifying security solutions can inform subsequent evasion strategies or exploitation tactics. This behavior aligns with the MITRE ATT&CK technique for Command and Control under T1047 (Windows Management Instrumentation).
-
-  The primary telemetry sources include process creation logs, particularly looking for Event ID 4688 in Windows Security Event logs or Sysmon Event ID 1. If malicious, the security impact could involve an attacker gathering intelligence that enables them to bypass security measures, facilitating data exfiltration or lateral movement. Importantly, this detection does not confirm that WMIC execution indicates malicious intent on its own; legitimate administrative activities may also invoke it.
+  This rule detects the execution of `wmic.exe` with commands that query or modify installed software, specifically focusing on product reconnaissance via the `Product` keyword. Attackers may aim to gather information on firewall and antivirus products to identify potential security controls for evasion or exploitation, aligning with the MITRE ATT&CK technique of Execution (T1047). The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process execution and command line arguments. If malicious, successful reconnaissance could lead to a higher likelihood of compromising vulnerable systems. However, this detection does NOT alone confirm malicious intent or successful exploitation, as legitimate administrative tasks may utilize similar queries.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Filter for Security Event ID 4688 or Sysmon Event ID 1 for any instance of `wmic.exe`. Look for a CommandLine containing "Product". Assess the specific parameters used in the command; legitimate uses typically involve benign administrative tasks.
+  - **Check the command line arguments:** Validate the presence of `Product` in CommandLine logs (Event ID 4688 / Sysmon ID 1) to confirm the reconnaissance activity. Benign examples may include administrative scripts or inventories, while suspicious use would likely follow an unusual pattern for the user context.
 
-  - **Correlate execution with active incidents:** Check if the user account that executed WMIC has any current or past incidents linked to unauthorized access. Look for events like failed logins or anomalous account activity.
+  - **Assess user account behavior:** Review the user account initiating `wmic.exe`. If it is a non-administrative account with infrequent usage, this could indicate a potential compromise, whereas a known administrator executing such commands during maintenance is benign.
 
-  - **Identify high-confidence malicious indicators:** Focus on CommandLine arguments such as "uninstall" or "install" alongside "Product". This may indicate a potential threat actor attempting to alter, disable, or evade security products.
+  - **Inspect process parent-child relationships:** Analyze parent process information in process trees (via Sysmon's ProcessId or ParentProcessId fields) to see if `wmic.exe` was launched by a known and trusted process (e.g., `cmd.exe`). Any suspicious parent process could indicate malicious workflows.
 
-  - **Validate asset criticality:** Ensure the execution is assessed in the context of the asset's role within the enterprise. For example, WMIC usage on servers that host critical applications should raise higher alarm than on standard user workstations.
+  - **Review for subsequent actions:** Look for potential follow-on activities, particularly command lines involving `uninstall` or `install`, as indicated by the filter. High-confidence indicators would include any commands that suggest tampering with security software.
 
-  - **Check historical context:** Review past executions of WMIC commands on the host to establish baseline behavior. Frequent requests for installed products in a short timeframe may indicate reconnaissance activity rather than legitimate maintenance work.
+  - **Correlate with threat intelligence:** Refer to external intelligence sources or known IOCs for recent exploitation techniques or campaigns that utilize `wmic` for reconnaissance, validating the alert in the context of current threat trends.
 
   ### Prioritization
 
-  This alert should be prioritized as medium severity due to the potential impact on system security, especially if performed on critical assets. While WMIC execution can be benign, certain parameters can indicate reconnaissance probing from adversaries, making it a noteworthy activity that requires immediate attention.
+  The severity of this alert is medium due to the potential impact on systems running security products. The likelihood of malicious abuse is moderate, as product reconnaissance is a common tactic among attackers to aid lateral movement or initial access strategies. This behavior can be weaponized but is also present in legitimate administrative tasks.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative activities that also utilize WMIC for troubleshooting. Additionally, if logging is not consistently implemented across all endpoints, it may miss critical executions. Awareness of benign activities such as software inventory checks conducted by IT personnel is essential to avoid misinterpretation of the alert. A companion detection to consider is monitoring for abnormal access patterns to administrative tools, which can provide context to WMIC usage.
+  Detection may be limited by legitimate administrative activities that also utilize `wmic.exe`, causing potential false positives. Required log sources must be properly configured to cover all relevant process creation events and ensure comprehensive telemetry. Additionally, alerts could be triggered during standard maintenance or inventory operations, highlighting the need for context in analysis. A related detection to strengthen coverage would be monitoring for anomalous PowerShell usage (T1059.001) that may indicate script-based reconnaissance combined with `wmic` activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
