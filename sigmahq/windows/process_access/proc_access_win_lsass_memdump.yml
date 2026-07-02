@@ -11,7 +11,7 @@ references:
 - https://research.splunk.com/endpoint/windows_possible_credential_dumping/
 author: Samir Bousseaden, Michael Haag
 date: 2019-04-03
-modified: 2024-03-02
+modified: 2026-06-29
 tags:
 - attack.credential-access
 - attack.t1003.001
@@ -49,7 +49,9 @@ detection:
     - '|UNKNOWN('
     GrantedAccess: '0x103800'
   filter_optional_sysmon:
-    SourceImage|endswith: ':\Windows\Sysmon64.exe'
+    SourceImage|endswith:
+    - ':\Windows\Sysmon64.exe'
+    - ':\Windows\Sysmon64a.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
@@ -57,30 +59,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects access requests to the LSASS process, particularly monitoring for specific access masks and call traces associated with credential dumping activities. The likely attacker objective is to extract sensitive credentials from LSASS, which is commonly targeted by tools like Mimikatz during a post-exploitation phase. This behavior correlates with the MITRE ATT&CK technique T1003.001 (Credential Dumping: LSASS Memory), which is part of the broader credential access tactic.
-
-  Primary telemetry sources include Windows process access logs, specifically focusing on Event ID 4663 (Access to an Object) and relevant security log entries that indicate process interactions with LSASS. If executed maliciously, successful credential dumping could lead to lateral movement or access to sensitive accounts. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate processes might access LSASS for valid administrative purposes.
+  This rule detects unauthorized access requests to the LSASS process, which often indicates attempts at credential dumping. Attackers aim to extract sensitive account credentials to facilitate lateral movement within a network. This behavior aligns with MITRE ATT&CK tactic "Credential Access" (TA0006) and technique "Credential Dumping" (T1003.001). The primary telemetry source is process access logs from Windows, specifically targeting events related to LSASS (Local Security Authority Subsystem Service). If malicious, successful credential dumping can lead to unauthorized access to accounts and critical systems. It is important to note that this detection alone does not confirm that credential dumping has occurred; it only indicates potential attempts.
 
   ### Investigation Steps
 
-  - **Review process access logs:** Analyze Security Event ID 4663 for access to `lsass.exe`. Look for increased access masks indicative of credential dumping (e.g., 0x1038, 0x1438). Review timestamps and user accounts involved for unusual patterns.
+  - **Review process access events**: Check for specific Event ID 4663 (Access attempt) or Sysmon Event ID 10 (Process Access) related to `lsass.exe`. Look for access masks indicating dump operations (e.g., `0x1038`, `0x1438`).
 
-  - **Identify suspicious call traces:** Examine the `CallTrace` field for associated DLLs like `dbgcore.dll` and `ntdll.dll`. Access traces indicating these libraries alongside the LSASS access could suggest malicious payload execution.
+  - **Identify call traces**: Review the call trace for the same events to see if they include known libraries like `dbgcore.dll` or `kernel32.dll`, as these are commonly utilized in credential dumping activities.
 
-  - **Verify user legitimacy:** Check the `SourceUser` field to confirm if the access was made by common system accounts (local service, system) or an unusual user account. Legitimate access would typically include system or administrative users, whereas unusual accounts might indicate a compromised system.
+  - **Cross-reference source user**: Investigate the user context; any access attempts from sources that include "AUTHORI" or "AUTORI" may be legitimate actions, especially in non-English environments.
 
-  - **Cross-reference tools execution:** Investigate if any known credential dumping tools (e.g., Mimikatz, NanoDump) are running on the same asset. Check for execution logs or parent-child process relationships via Sysinternals or Sysmon logs (Event ID 1).
+  - **Check legitimate process behaviors**: Identify any expected behaviors, such as legitimate administrative tools accessing LSASS, including process names like `Taskmgr.exe` or `powershell.exe`, typically with lower access masks.
 
-  - **Evaluate system security posture:** Determine the role of the affected asset (e.g., domain controller, file server). High-value targets may warrant higher scrutiny and immediate action if signs of dumping are detected.
+  - **Highlight high-confidence indicators**: Access requests showing multiple high-value access masks (e.g., `0x1fffff`) occurring in short succession should be flagged as potentially malicious.
 
-  - **Assess for artifacts of data extraction:** Look for unusual file creation events in temporary directories, commonly constructed by tools performing dumps (e.g., `C:\Windows\Temp\`). Validate if any dumps or logs appear that could signify data exfiltration attempts.
+  - **Examine additional logs**: Look for related process creation events (Event ID 4688) for any suspicious binaries that may lead to LSASS access attempts. Correlate this against threat intelligence or known exploit usage.
 
   ### Prioritization
 
-  This alert carries medium severity due to its potential impact on sensitive credential access, especially in high-value environments like domain controllers. The likelihood of malicious exploitation is significant, as credential dumping techniques are often automated and routinely weaponized during attacks.
+  The severity of this alert is medium. The impact is significant when the affected system is a domain controller or a critical server. The likelihood of malicious actions is high due to the prevalence of credential dumping techniques being weaponized by attackers, and tools like Mimikatz are widely used to exploit these vulnerabilities.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by user actions that legitimately access LSASS for admin purposes, such as legitimate debugging activities. A requirement for reliable detection is correctly configured process access logging on the endpoint. This activity could also be a false positive generated by legitimate security tools (e.g., Sysinternals task manager). Companion detections could include monitoring for unusual LSASS memory access timings or privilege escalation attempts following access.
+  Detection relies on accurate and complete logging from Windows Process Access and may miss attempts if logs are misconfigured or if the attacker uses logging evasion techniques (e.g., clearing logs). Legitimate activities, such as system maintenance tasks or security assessments using admin tools, may trigger this alert. A companion detection to consider is monitoring for unusual user account behavior post-access attempts, such as unexpected logins or new administrative actions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

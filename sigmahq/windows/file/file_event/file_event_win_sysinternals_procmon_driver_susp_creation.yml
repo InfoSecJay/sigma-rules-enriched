@@ -7,6 +7,7 @@ references:
 - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-05-05
+modified: 2026-06-29
 tags:
 - attack.persistence
 - attack.privilege-escalation
@@ -22,6 +23,7 @@ detection:
     Image|endswith:
     - '\procmon.exe'
     - '\procmon64.exe'
+    - '\procmon64a.exe'
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - Some false positives may occur with legitimate renamed process monitor 
@@ -30,28 +32,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of the Process Monitor (ProcMon) driver (procmon.sys) by processes other than the legitimate ProcMon executable. The likely objective of an attacker using this technique is to establish persistence or escalate privileges by hooking the kernel for monitoring or controlling other processes without detection. This behavior aligns with the MITRE ATT&CK tactic of **Persistence** (T1547) and **Privilege Escalation** (T1068). The primary telemetry source for this detection includes Windows file event logs, specifically monitoring for attempts to create files in system directories that match the naming convention of ProcMon drivers. If the detection is confirmed to be malicious, it could indicate a significant security impact, as it suggests potential backdoor activities or attempts to circumvent security measures. However, this detection on its own does NOT confirm malice, as legitimate processes could also create these drivers if improperly configured or renamed.
+  This rule detects the creation of the Process Monitor driver (`procmon.sys`) by any process other than the official Process Monitor executable (e.g., `procmon.exe`). Malicious actors may attempt to create or manipulate this driver to gain persistence on a system or escalate privileges, as it allows them to monitor and log system activity covertly. The relevant MITRE ATT&CK tactic is Persistence, and the associated technique is T1068 (Exploitation for Client Execution).
+
+  The primary telemetry sources include Windows file creation events, specifically focusing on logs that indicate file activity around system drivers. If a non-standard process creates this driver, it suggests potential malicious activity, indicating an attacker could gain significant control over the host. However, this detection does NOT confirm that the driver creation was malicious without further investigation into the process that triggered it.
 
   ### Investigation Steps
 
-  - **Check process creation logs**: Review Windows Security Event ID 4688 to identify the parent process that initiated the creation of the procmon.sys file. Malicious behavior may exhibit unusual parent processes, such as uncommon system utilities or scripts, rather than operational tools like procmon.exe.
+  - **Identify the process that created the driver:** Check the Event ID 4663 logs (File System) for activity related to `procmon.sys`. Look for the `Subject User Name` field to identify which process initiated the creation.
 
-  - **Identify the creation source**: Look for Sysmon Event ID 11, which details file creation events, focusing on any processes that do not match the legitimate ProcMon binaries (procmon.exe or procmon64.exe). A match to other binaries could suggest evasion or an attempt to weaponize ProcMon.
+  - **Review the command line arguments of the process:** Obtain the command line used for the creating process from Security Event ID 4688 (Process Creation) logs. Legitimate `procmon.exe` execution typically includes specific arguments indicating monitoring, like `-ma` for "monitor all activity."
 
-  - **Review file attributes and paths**: Validate the creation path in relevant logs for known system directories (e.g., C:\Windows\System32\). Legitimate ProcMon operations typically occur during active monitoring sessions initiated by authorized users.
+  - **Verify the hash of the creating process:** Cross-reference the hash of the process that created `procmon.sys` using a threat intelligence database. Legitimate instances will typically correspond to known vendor hashes; non-standard or altered binaries may indicate malicious intent.
 
-  - **Monitor for related network activity**: Investigate any outbound connections from processes involved in creating the procmon.sys file using Windows Event ID 5156 to detect any suspicious behavior that may indicate data exfiltration or command and control communications.
+  - **Assess the file path for legitimacy:** Most legitimate copies of Process Monitor reside in `%ProgramFiles%\Sysinternals Suite\` or are executed from this location. Any deviation may warrant further scrutiny.
 
-  - **Assess asset criticality**: Identify the system where the alert was generated, focusing on critical assets (e.g., domain controllers or servers holding sensitive data) and the implications of possible malicious activity on those systems.
-
-  - **Verify legitimacy of renamed binaries**: Document any instances of processes that may have been renamed or are misconfigured versions of the legitimate ProcMon executable. This includes checking file hashes against known signatures to rule out benign activities.
+  - **Check for known user behavior:** Review user behavior against historical logs to identify whether invoking `procmon` aligns with standard operational practices for the affected asset. Look for prior usage in Security Event ID 4688.
 
   ### Prioritization
 
-  This alert should be treated with medium severity in the enterprise context. The affected systems' criticality will escalate the response; non-compliance in monitoring may indicate a higher likelihood of malicious actions being attempted. While creating Process Monitor drivers is not a common attack vector, its potential for weaponization during privilege escalation or persistence mechanisms makes it concerning.
+  This alert is of medium severity as the affected system may contain sensitive information or perform critical functions. The likelihood of exploitation is moderate since creating or manipulating the Process Monitor driver is a method often utilized by adversaries to maintain stealth and persistence. This behavior is not commonplace and indicates a potentially high-risk scenario that should be investigated promptly.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations may arise from legitimate processes intentionally renamed to mislead security systems. The alert requires accurate configuration of Windows file event logging to ensure all relevant actions are captured. Additionally, administrative tools or automated scripts may trigger this alert under normal operational conditions without malice. A related detection to support coverage includes monitoring for abnormal process injection techniques (T1055), which could further correlate with this activity and provide context on the potential threat landscape.
+  Detection efficacy is potentially limited by the use of alternative tools that may imitate or rename legitimate applications. Additionally, certain legitimate software could trigger similar alerts if they create drivers similarly. Comprehensive logging, including Driver Installation logs, is crucial for reliable detection. Companion detections, such as unusual persistence mechanisms or lateral movement attempts, can strengthen overall coverage against potential malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

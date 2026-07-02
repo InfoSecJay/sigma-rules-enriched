@@ -11,6 +11,7 @@ references:
 - https://news.sophos.com/en-us/2023/04/19/aukill-edr-killer-malware-abuses-process-explorer-driver/
 author: Florian Roth (Nextron Systems)
 date: 2023-05-05
+modified: 2026-06-29
 tags:
 - attack.persistence
 - attack.privilege-escalation
@@ -26,6 +27,7 @@ detection:
     Image|endswith:
     - '\procexp.exe'
     - '\procexp64.exe'
+    - '\procexp64a.exe'
   condition: selection and not 1 of filter_main_*
 falsepositives:
 - Some false positives may occur with legitimate renamed process explorer 
@@ -34,26 +36,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of drivers associated with Process Explorer (`PROCEXP`) by processes that are not the legitimate `procexp` binary. Malicious actors often exploit Process Explorer's drivers to elevate privileges, executing payloads without permission, or perform other malicious tasks. The relevant MITRE ATT&CK techniques are Persistence (T1547) and Privilege Escalation (T1068). Primary telemetry sources include Windows file event logs, specifically looking for file creations with target filenames containing `PROCEXP` and ending with `.sys`. If the detection is confirmed malicious, it potentially indicates a security breach with elevated privileges. Importantly, this detection does NOT confirm that all non-Process Explorer executable creations of these drivers are malicious, as legitimate use cases could exist.
+  This Sigma rule detects the creation of drivers associated with Process Explorer by any process other than the legitimate executable versions of Process Explorer itself. Malicious actors may exploit these drivers to gain elevated privileges or perform unauthorized actions on a system, as the drivers allow low-level access to system operations. This behavior typically falls under the MITRE ATT&CK tactic of Persistence (T1547) and Privilege Escalation (T1068).
+
+  The primary telemetry source includes Windows file event logs for driver creation, specifically monitoring for files that match the naming conventions for Process Explorer drivers (e.g., those containing '\PROCEXP' and ending with '.sys'). If exploited, the security impact could be severe, as attackers may leverage the driver to escalate privileges or maintain persistence on compromised systems. However, this detection does NOT confirm that malicious activity is occurring without further confirmation of intent and context.
 
   ### Investigation Steps
 
-  - **Check process origin:** Review the parent process of the detected event using Process ID and correlate it with Security Event ID 4688. Look for expected legitimate processes such as `procexp.exe` or system services creating drivers; suspicious origins could indicate malicious intent.
+  - **Identify the creating process**: Cross-reference the Event ID related to the driver creation (e.g., Security Event ID 4663 or Sysmon Event ID 10) with the ParentProcessName field to see what process attempted the driver creation. Expected behavior typically shows 'procexp.exe' as the parent process.
 
-  - **Validate the driver instance:** Examine the created files via Windows Event ID 4663 (Standard Audit: Access File) for created `*.sys` drivers in system directories. Check for timestamps indicating brief existence, as malicious drivers are often dropped, used, and then deleted quickly.
+  - **Inspect the target filename**: Check the TargetFilename field in file event logs for any recent creations of files matching the pattern '\PROCEXP*.sys'. Malicious indicators include non-'procexp' binaries attempting to create these drivers.
 
-  - **Identify high-confidence malicious indicators:** Cross-reference the event with known hashes of malicious drivers or malware (e.g., from threat intelligence platforms) that have been reported to use Process Explorer's driver.
+  - **Review process legitimacy**: Validate the legitimacy of the creating process against known good file hashes using VirusTotal or other reputation services. Confirm that any process listed has not been renamed or tampered with.
 
-  - **Review Windows Service creation events:** Inspect Service Control Manager logs (Event ID 7045 entries) post-detection for any new services tied to the created driver, which may suggest malicious persistence in system operations.
+  - **Examine timing of events**: Look for timing correlations between the driver creation and other suspicious activities (e.g., multiple process creations within seconds) to establish potential malicious workflows.
 
-  - **Assess legitimate use scenarios:** Identify if `procexp.exe` or `procexp64.exe` were executed as part of IT operations. Review change management logs or request systems to contextualize the use case for the driver creation.
+  - **Analyze for service creation**: If a service referencing the malicious driver is observed (via Event Logs for service creation like Event ID 7045), it could suggest an attempt to maintain persistence. Immediate follow-up on these services is necessary.
+
+  - **Look for driver deletion actions**: Investigate Events reflecting the deletion of the same driver files shortly after creation; this is a typical behavior for adversaries trying to cover their tracks once a privilege escalation has been executed.
 
   ### Prioritization
 
-  This alert should be considered high severity due to the potential impact on the affected system from privilege escalation tactics utilized by attackers. The likelihood of malicious abuse is elevated, as the behavior directly aligns with known exploitation techniques tied to malware utilizing Process Explorer's components. Moreover, this behavior is commonly weaponized in various attack vectors, heightening the urgency for investigation.
+  The alert has high severity due to the potential impact of the affected system. The ability to create or manipulate System drivers indicates a strong likelihood of malicious intent, especially since this behavior is commonly leveraged in privilege escalation attacks. Given that Process Explorer is a legitimate system tool, its misuse represents a critical security concern.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the renaming of legitimate binaries to disguise malicious activity. Required log sources include comprehensive event logs from Windows, specifically file events related to timing and process behavior. Legitimate activities such as software testing or administrative scripts could inadvertently trigger the alert. Companion detections such as monitoring for unusual service creation (Event ID 7045) or abnormal privilege escalations would strengthen coverage against such lateral movements.
+  Detection is limited as legitimate instances may arise from renamed or modified versions of Process Explorer, leading to false positives. The absence of specific Event IDs or log configurations can hinder visibility; thus, ensuring that file event logs are enabled and correctly configured is essential. Other benign activities that might trigger the alert include legitimate developer testing or updates involving the tools used for system diagnostics and performance analysis. Companion detections such as monitoring for attempts to uninstall or disable security tools could enhance coverage against such attacks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

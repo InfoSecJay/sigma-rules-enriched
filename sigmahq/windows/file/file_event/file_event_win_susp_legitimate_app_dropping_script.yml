@@ -1,13 +1,16 @@
 title: Legitimate Application Dropped Script
 id: 7d604714-e071-49ff-8726-edeb95a70679
 status: test
-description: Detects programs on a Windows system that should not write scripts 
-  to disk
+description: |
+  Detects LOLBINs and applications that should not legitimately drop script files to disk.
+  This may indicate malware staging or abuse of a trusted binary for script-based code execution.
 references:
 - https://github.com/Neo23x0/sysmon-config/blob/3f808d9c022c507aae21a9346afba4a59dd533b9/sysmonconfig-export-block.xml#L1326
+- https://dmpdump.github.io/posts/TelegramRat/
+- https://www.virustotal.com/gui/file/a0d5b30578acd1df9139e7a8a4bfc659dc2cf48f4dc0c5804b70890adeb9fa21/behavior
 author: frack113, Florian Roth (Nextron Systems)
 date: 2022-08-21
-modified: 2023-06-22
+modified: 2026-05-11
 tags:
 - attack.stealth
 - attack.t1218
@@ -36,49 +39,54 @@ detection:
     - '\hh.exe'
     - '\finger.exe'
     TargetFilename|endswith:
-    - '.ps1'
     - '.bat'
-    - '.vbs'
+    - '.chm'
+    - '.csproj'
+    - '.hta'
+    - '.js'
+    - '.jse'
+    - '.proj'
+    - '.ps1'
+    - '.py'
     - '.scf'
+    - '.vbe'
+    - '.vbs'
     - '.wsf'
     - '.wsh'
-  condition: selection
+  filter_main_mshta:
+    Image|endswith: '\mshta.exe'
+    TargetFilename|endswith: '.hta'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/file/file_event/file_event_win_susp_legitimate_app_dropping_script/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects instances where certain legitimate Windows applications (e.g., WordPad, AcroRd32.exe) are inappropriately creating script files on disk (.ps1, .bat, .vbs, etc.), which can indicate a malicious use case, such as script-based malware or lateral movement. The likely attacker objective is to drop scripts that could be used for post-exploitation activities, including data gathering or executing further payloads. This behavior aligns with the MITRE ATT&CK technique for “Script Execution” (T1218).
+  This Sigma rule detects the execution of certain legitimate applications, often referred to as LOLBINs (Living Off the Land Binaries), that inappropriately create script files (e.g., .bat, .ps1, .vbs) on disk. The detection aims to highlight potential malware staging or the misuse of trusted applications to facilitate script-based code execution. The likely attacker objective is to persistently execute malicious scripts without raising alarms by leveraging trusted tools.
 
-  Primary telemetry sources include Windows file event logs, with relevant log artifacts comprising Event IDs tied to file creation and modification activities. If this behavior is malicious, it can lead to unauthorized access, data exfiltration, or system compromise. Importantly, this detection does NOT confirm that the observed behavior is always malicious, as legitimate applications in some enterprise configurations may generate scripts for valid purposes.
+  The relevant MITRE ATT&CK tactics and techniques include Execution (T1203) and Abuse Elevation Control Mechanism (T1218). Primary telemetry sources include Windows File Event logs indicating process creation and file writes, specifically watching for Event ID 4663 (Access to an object) and Event ID 4688 (Process creation). If malicious, the impact could be significant, leading to unauthorized access, data exfiltration, or system compromise. However, this detection does NOT confirm malicious behavior on its own, as legitimate applications may perform similar actions under unusual circumstances.
 
   ### Investigation Steps
 
-  - **Check file creation timestamps:**
-    Review file creation timestamps for generated scripts in directories typically associated with legitimate applications. Look in C:\Users\<username>\AppData\Local\Temp and match timestamps with application usage patterns.
+  - **Check process creation logs:** Review Windows Security Event ID 4688 to confirm the process that spawned the script file. Look for any of the specified LOLBINs, such as `mshta.exe` or `certutil.exe`, initiating file creation. Benign behavior might show typical applications handling script files, while malicious indicators would show unexpected LOLBIN usage.
 
-  - **Verify application context:**
-    Confirm the process that generated the script file by examining Process Creation Events (Security Event ID 4688 or Sysmon Event ID 1). Check if the parent process is one of the listed applications (e.g., AcroRd32.exe). If the parent process is legitimate, this may indicate benign usage.
+  - **Review file creation details:** Examine Windows Security Event ID 4663 for logs involving file creation. Identify the process that dropped files with suspicious extensions (e.g., .ps1, .vbs) and look at the associated user account. Legitimate activity might include typical user scripts, while malicious activity often shows unusual file names or dropped files not commonly associated with standard operations.
 
-  - **Analyze script content:**
-    Inspect the content of the created script files using a text editor. Look for suspicious commands or PowerShell scripts that exhibit signs of scripting for malicious purposes, such as network connections or file downloads.
+  - **Correlate with user activity logs:** Investigate the user’s recent actions around the time of the alert using logs from Windows Event ID 4624 (Logon). Assess if users were engaged in legitimate tasks that require script file generation, such as automation, or if there’s a pattern of suspicious logins, such as unusual times or from unrecognized machines.
 
-  - **Identify high-confidence malicious indicators:**
-    Compare the identified script files against known malicious script hashes or patterns. Use threat intelligence feeds to lookup any indicators of compromise (IOCs) correlated with script activity stemming from these applications.
+  - **Validate the type of initiated scripts:** Check the contents of created scripts, if accessible, by scanning their filesystem paths. Malicious scripts may contain obfuscated or suspicious content, while legitimate files should typically have recognizable commands or be well-structured.
 
-  - **Review related file operations:**
-    Investigate if further activities follow the script creation, such as execution events (Security Event ID 4688) for scripts running immediately after files were dropped. Identify whether this activity correlates with unusual outbound network connections.
-
-  - **Assess legitimate activity:**
-    Understand if there are known business processes or developer tools that might cause these applications to legitimately create scripts. Document any relevant business unit processes that might explain the behavior without malicious intent.
+  - **Identify associated network activity:** Look for outbound connections or DNS requests that follow the triggering event in firewall or proxy logs. Investigate whether the process communicates with external servers or performs large data transfers shortly after script creation, which may indicate exfiltration attempts or command and control (C2) activities.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the potential for an affected system's compromise and the likelihood of malicious activity within the enterprise. The tools detected are commonly weaponized in attacks, making timely investigations crucial for organizational security.
+  Given that this alert involves sensitive applications that can enable script execution, its severity is high. The potential impact on critical system functions and the likelihood of misuse by adversaries makes it a serious concern. Additionally, the behavior of unexpected LOLBIN usage is becoming increasingly weaponized in the threat landscape.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by variations in application behavior across different environments; specific applications may create scripts in legitimate contexts depending on usage. Ensure comprehensive logging is enabled for file events and process creation to support reliable detection. Beware of legitimate activities like software updates or user-driven processes that could result in similar alarms, which necessitate a thorough review of context. A related detection to consider is monitoring PowerShell execution history, which can provide complementary insights into script executions following dropped files.
+  This detection may be limited by evasion techniques where attackers use legitimate applications that aren't covered in the rule or alter file behavior to mimic benign activity. Reliable detection requires proper logging configurations in place for Windows File Events and may miss action when users employ such applications for legitimate automation tasks. A related detection would be monitoring Windows Event ID 4104 (PowerShell Script Block Logging) to complement visibility into script execution activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

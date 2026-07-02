@@ -7,7 +7,7 @@ references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md#atomic-test-11---uninstall-sysmon
 author: frack113
 date: 2022-01-12
-modified: 2024-03-13
+modified: 2026-06-29
 tags:
 - attack.defense-impairment
 - attack.t1685
@@ -18,6 +18,7 @@ detection:
   selection_pe:
   - Image|endswith:
     - \Sysmon64.exe
+    - \Sysmon64a.exe
     - \Sysmon.exe
   - Description: 'System activity monitor'
   selection_cli:
@@ -30,28 +31,36 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the uninstallation of Sysinternals Sysmon, which is used for monitoring and logging system activity on Windows hosts. The likely attacker objective is to evade detection by security systems, as removing Sysmon could hinder the visibility of malicious activities. This behavior aligns with the MITRE ATT&CK tactic of "Defense Evasion" (ID T1562.001) and technique "Impair Defenses" (ID T1685). The primary telemetry sources for this detection are Windows process creation logs (Event ID 4688), specifically looking for processes related to Sysmon and indications of command line arguments used for uninstallation. If malicious, the security impact is significant as it may allow adversaries to operate undetected on compromised systems. It is important to note that while this detection indicates that Sysmon has been removed, it does NOT confirm malicious intent on its own; legitimate administrative actions may also result in the uninstallation.
+  This rule detects the uninstallation of Sysinternals Sysmon, which typically indicates a potential attempt at defense evasion by an attacker. The likely objective of the attacker is to disable a crucial visibility tool that collects detailed logs of system activity, thereby hindering monitoring efforts and reducing the likelihood of detection. This behavior fits within the MITRE ATT&CK framework under the Defense Evasion tactic (T1562.001: Disable Security Tools).
+
+  The primary telemetry source for this detection is Windows process creation logs, specifically focusing on the execution of Sysmon-related binaries. If an attacker successfully uninstalls Sysmon, this could significantly impact the organization’s ability to detect malicious activity, as valuable logging and telemetry data would be removed. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate administrators may uninstall Sysmon for debugging or maintenance reasons.
 
   ### Investigation Steps
 
-  - **Review process execution details:** Check Security Event ID 4688 for the creation of processes named "Sysmon.exe" or "Sysmon64.exe." Look for the associated User and Process GUID fields to identify the executing user context and evaluate if it aligns with normal administrative behavior.
+  - **Review Process Creation Events:**
+    Check Windows Security Event ID 4688 for any instances where a process name ends with `Sysmon.exe`, `Sysmon64.exe`, or `Sysmon64a.exe`. Cross-reference this with the user context to distinguish between legitimate administrative actions and potential malicious activity.
 
-  - **Examine command line arguments:** Analyze the CommandLine field for any instances containing " -u." Document when Sysmon was uninstalled and determine if this usage is consistent with administrative practices.
+  - **Examine Command Line Arguments:**
+    Query for Windows Security Event ID 4688 where the CommandLine contains `-u`, indicating an uninstall operation. Pay attention to the user account executing this command to determine if it aligns with normal administrative practices.
 
-  - **Assess recent administrative changes:** Check the System logs (Event ID 4697) for any modifications to installed services or processes, focusing on new entries around the same time as the Sysmon uninstallation.
+  - **Assess User Account Activity:**
+    Investigate the account associated with the uninstallation action. If the account is not recognized as an administrator or has had recent changes in privileges, this may suggest potential malicious behavior. Refer to User Account logs for role validation.
 
-  - **Identify typical usage:** Understand that legitimate administrators often uninstall Sysmon for updates or debugging. They typically use a GUI or tools like PowerShell for such tasks. Compare the timing and method of uninstallation against known IT maintenance schedules.
+  - **Identify Uninstallation Timing:**
+    Correlate the time of the uninstallation with other system activity logs (e.g., Windows Event ID 4616 - System Time Changed) to identify possible related suspicious events that may indicate a deliberate attempt to disrupt monitoring capabilities.
 
-  - **Look for system integrity checks:** Confirm there are no active Sysmon processes running post-uninstallation. Use Sysmon or other monitoring tools to verify if the uninstallation aligns with expected behavior of any standard IT practices in the organization.
+  - **Identify Legitimate Use Cases:**
+    Verify if any known admin personnel had a scheduled maintenance window involving Sysmon uninstallation, ensuring this action falls within expected operational procedures.
 
-  - **Correlate with other alerts:** Check for concurrent alerts indicating lateral movement (e.g., SMB or RDP usage) or remote access, as these can indicate potential malicious activity related to the uninstallation of Sysmon.
+  - **Check for File Creation or Deletion Events:**
+    Use Sysmon Event ID 10 to identify if the Sysmon executable was deleted. Look for any indication of log purging or executable alterations around the same time to assess the breadth of potential malicious activity.
 
   ### Prioritization
 
-  This alert is high priority since it can indicate potential malicious activity undermining security measures on critical systems. The likelihood of exploitation is moderate, as attackers commonly seek to disable monitoring tools in a compromised environment to facilitate further actions without detection.
+  This alert is high severity due to its significant impact on security monitoring, especially if Sysmon is uninstalled from critical systems. The likelihood of malicious abuse is high, as attackers often disable security tools to evade detection. This behavior is commonly used in the early stages of a compromise or during post-exploitation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques such as process hiding or using administrative tools that do not generate standard logs. Reliable detection requires logging of process creation events, but if such logs are not retained or secured, visibility may be compromised. Legitimate scenarios include IT staff uninstalling Sysmon for troubleshooting or reconfiguration. A related detection would be monitoring for the reinstallation of Sysmon, which can indicate a restoration attempt by the security team after a removal event.
+  Detection may be limited by legitimate administrative activities that could trigger the alert, leading to potential false positives. Key log sources include Windows Security logs and Sysmon logs; ensure both are configured and retained for thorough analysis. Common evasion techniques may involve using alternate administrative accounts or automating the uninstallation to avoid detection. A related detection to reinforce coverage is monitoring for the reinstallation of Sysmon (potentially using the “Sysmon installed” detection).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

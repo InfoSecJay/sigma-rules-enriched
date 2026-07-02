@@ -16,7 +16,7 @@ author: Florian Roth, Roberto Rodriguez, Dimitrios Slamaris, Mark Russinovich,
   Thomas Patzke, Teymur Kheirkhabarov, Sherif Eldeeb, James Dickenson, Aleksey 
   Potapov, oscd.community
 date: 2021-11-22
-modified: 2023-11-29
+modified: 2026-06-29
 tags:
 - attack.credential-access
 - attack.t1003.001
@@ -116,6 +116,7 @@ detection:
     SourceImage|endswith:
     - '\handle.exe'
     - '\handle64.exe'
+    - '\handle64a.exe'
     GrantedAccess: '0x40'
   filter_optional_webex:
     SourceImage|endswith: '\AppData\Local\WebEx\WebexHost.exe'
@@ -130,28 +131,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects potentially suspicious access requests to the Local Security Authority Subsystem Service (LSASS) process on Windows systems. The behavior indicates an attempt by an attacker to obtain sensitive information, such as credentials. The likely objective of an attacker triggering this rule is credential dumping, which falls under the MITRE ATT&CK tactic of Credential Access (T1003) and specifically the technique Credential Dumping: LSASS Memory (T1003.001). The primary telemetry sources for this detection include Windows process access logs, particularly focusing on the GrantedAccess flags utilized in access requests to "C:\Windows\System32\lsass.exe". If malicious, this behavior could lead to serious security breaches due to exposure of credentials and elevation of privileges.
+  This Sigma rule detects abnormal process access requests to the LSASS (Local Security Authority Subsystem Service) process using potentially suspicious access rights flags. An attacker may leverage these access requests to attempt to dump credentials stored in memory, which aligns with typical credential theft objectives. This activity is categorized under the MITRE ATT&CK framework as Tactic: Credential Access, Technique: Credential Dumping (T1003.001).
 
-  This detection does NOT confirm that an actual credential theft has occurred without additional corroborating evidence. The mere act of accessing LSASS with certain flags may also be part of benign activities conducted by legitimate applications.
+  The primary telemetry source comes from Windows process access logs that detail interactions with system processes, specifically Event ID 4656 (An attempt was made to access an object) or the equivalent Sysmon Event ID for process access events. If malicious, this could lead to unauthorized exposure of sensitive credentials, granting access to further compromise the environment. However, it is important to note that this detection alone does not confirm malicious activity without further context, as legitimate applications may also access LSASS for valid operational reasons.
 
   ### Investigation Steps
 
-  - **Review process access logs:** Investigate Security Event IDs related to process access requests, specifically those targeting `lsass.exe`. Look for Event ID 4663 to find granted access flags and correlate with system sources or processes.
+  - **Check Event Logs for Process Access:** Review Windows Security Event Log (Event ID 4656) or Sysmon Event Log (Event ID 10) for access requests targeting LSASS.exe. Compare the `GrantedAccess` flags against known malicious patterns.
 
-  - **Check for high-confidence malicious behavior:** Identify GrantedAccess values from the logs associated with LSASS access using the hexadecimal values specified in the rule (e.g., '30', '50', '70', etc.). Any suspicious access that corresponds with these values should prompt further scrutiny.
+  - **Analyze Source Processes:** Identify the `SourceImage` involved in the access attempts. Valid entries should mainly originate from system processes such as `C:\Windows\System32\`. Any access attempts from unusual or third-party applications may indicate compromise.
 
-  - **Validate legitimate applications:** Confirm expected behavior by checking for legitimate software interacting with LSASS. Common benign processes might include trusted endpoints like `explorer.exe`. If these processes have access flags that match the selection criteria, they may warrant a lower priority for investigation.
+  - **Investigate Timeframe of Access Requests:** Determine the timeframe of the alerts in relation to user activity logs. Do the alerts correlate with known active user sessions or administrative tasks? Anomalies here can indicate unauthorized access attempts.
 
-  - **Scrutinize source application paths:** Look into the `SourceImage` field of the access request logs to examine the application making the access request. Ensure that the initiating process isn’t associated with known benign software to rule out false positives.
+  - **Identify High-Risk Access Flags:** Pay special attention to `GrantedAccess` values like '30', '50', or '70' that indicate attempts to read process memory or perform more invasive actions. Document these flags for further risk assessment.
 
-  - **Correlate with user behavior analytics:** Review the user context of the process initiating the access. Look for unusual user behaviors or suspicious login patterns leading up to the alert, which could indicate a compromised account.
+  - **Search for Legitimate Software Behavior:** Look for commonly allowed applications like anti-virus or endpoint detection and response (EDR) tools that may have legitimate reasons to access LSASS with specific flags (e.g., '0x40'). Confirm these applications are up-to-date and operating as expected.
+
+  - **File Creation and Exfiltration Validation:** If the ML/AI tool used to triage data creates files for further processing, verify the creation timestamps and file paths, ensuring no suspicious exfiltration activities coincide with LSASS access attempts.
 
   ### Prioritization
 
-  This alert is of medium severity due to the critical role of LSASS in Windows security and its common targeting by malicious actors for credential theft. The likelihood of abuse is heightened as it aligns with common tactics used in credential dumping attacks, making it crucial to investigate quickly but with consideration of environmental context.
+  Given that LSASS holds critical credentials, any alerts related to its access should be treated with high priority. This behavior is commonly exploited by attackers for credential dumping, making the likelihood of malicious intent significant. The potential impact on the affected system is severe, warranting immediate investigation, especially on high-criticality assets.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited by the accuracy of logs capturing access requests and may miss instances where logging settings are misconfigured. Legitimate administrative tasks or authorized security software may also generate false positives by accessing LSASS. A related detection rule that enhances coverage is one that detects unusual access patterns to other critical processes in memory, further corroborating any suspicion raised by this rule.
+  Limitations in detecting malicious behaviors may arise due to sophisticated evasion techniques, such as use of trusted processes or legitimate software with modified behavior. It is crucial that all relevant Windows Security event logs and Sysmon logs are enabled and properly configured to ensure effective detection. Legitimate services like anti-virus tools may trigger similar alerts; therefore, it's necessary to cross-reference these events with application performance and legitimacy. Companion detections could include monitoring Windows Credential Manager access patterns (ATT&CK ID T1003.002) to enhance coverage of credential access activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

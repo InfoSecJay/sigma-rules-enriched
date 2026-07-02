@@ -4,17 +4,24 @@ related:
 - id: ba3f5c1b-6272-4119-9dbd-0bc8d21c2702
   type: similar
 status: test
-description: Detects use of WinAPI functions in PowerShell scripts
+description: |
+  Detects usage of WinAPI functions in PowerShell scripts.
+  It may indicate attempts to perform actions such as process injection, token stealing, or other malicious activities that leverage Windows API calls.
+  These techniques are commonly used to evade traditional file-based detections by loading and executing code directly in memory.
 references:
 - https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
+- https://github.com/PowerShellMafia/PowerSploit/blob/1980f403ee78234eae4d93b50890d02f827a099f/CodeExecution/Invoke-Shellcode.ps1
+- https://thedfirreport.com/2021/08/29/cobalt-strike-a-defenders-guide/
 author: Nasreddine Bencherchali (Nextron Systems), Nikita Nazarov, 
   oscd.community
 date: 2020-10-06
-modified: 2023-06-20
+modified: 2026-04-29
 tags:
 - attack.execution
 - attack.t1059.001
 - attack.t1106
+- attack.stealth
+- attack.t1620
 logsource:
   product: windows
   category: ps_script
@@ -43,6 +50,11 @@ detection:
     - 'VirtualAlloc'
     - 'ReadProcessMemory'
     - 'VirtualFree'
+  selection_local_shellcode_injection:
+    ScriptBlockText|contains|all:
+    - 'VirtualAlloc'
+    - 'GetDelegateForFunctionPointer'
+    - 'Marshal.Copy'
   condition: 1 of selection_*
 falsepositives:
 - Unknown
@@ -50,28 +62,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of Windows API calls via PowerShell scripts that may indicate malicious intent to manipulate process memory, escalate privileges, or perform token manipulation. The likely attacker objective is to execute code in the context of another process or manipulate user privileges, often as part of lateral movement or persistence strategies.
+  This Sigma rule detects the use of specific WinAPI functions in PowerShell scripts, indicating potential malicious activities such as process injection, token theft, or memory manipulation. Attackers may utilize these WinAPI calls to execute code directly in memory, evading traditional detection mechanisms based on file signatures or system-level changes. The relevant MITRE ATT&CK tactics include Execution (T1059.001) and Defense Evasion (T1106).
 
-  This detection aligns with the MITRE ATT&CK tactics of Execution (T1059.001) and Credential Access (T1106). The primary telemetry sources required for this rule include PowerShell Script Block Logging, specifically looking at the `ScriptBlockText` field. A malicious use of these APIs could lead to unauthorized access or data exfiltration, posing significant security risks. Importantly, this alert does NOT confirm malicious activity on its own, as legitimate administrative tasks may trigger similar behaviors.
+  The primary telemetry source is PowerShell Script Block Logging, which captures the executed script content, allowing the detection of suspicious function calls. If malicious, the impact can be severe, including unauthorized access, persistence mechanisms, or system compromise. Importantly, this detection does NOT confirm whether an attack has occurred on its own, as legitimate scripts may also use these API calls for valid purposes.
 
   ### Investigation Steps
 
-  - **Check PowerShell Script Block Logs:** Search for Security Event ID 4104 in Windows event logs. Review the `ScriptBlockText` to identify any usages of the flagged WinAPI calls such as `VirtualAlloc`, `OpenProcess`, or `WriteProcessMemory`.
+  - **Check PowerShell Execution Policy:** Verify the execution policy with `Get-ExecutionPolicy`. If set to "Unrestricted" or "Bypass," it may indicate a higher risk of malicious usage.
 
-  - **Review Context of PowerShell Execution:** Determine the context in which the PowerShell script was executed by investigating the parent process and the command line arguments in Security Event ID 4688 (Process Creation). Look for unusual parent processes or unexpected command-line usage.
+  - **Review Script Block Logs:** Examine PowerShell script logs for Event ID 4104, specifically filtering for entries that contain any of the suspicious API calls. Look for unusual contexts or combinations not typical in standard operations.
 
-  - **Identify Known Good vs. Malicious Patterns:** Compare the identified `ScriptBlockText` against known legitimate administrative scripts within your environment to establish a baseline of expected behaviors.
+  - **Identify Host Roles:** Assess the affected system's criticality and role (e.g., server, endpoint). Malicious usage is more concerning on critical infrastructure or domain-joined systems.
 
-  - **Analyze Event Logs for User Privilege Changes:** Depending on the usage of functions related to privilege escalation (e.g., `OpenProcessToken`, `AdjustTokenPrivileges`), check Security Event IDs 4670 or 4672 for any abnormal privilege assignments or token manipulations that align with these function calls.
+  - **Compare Against Legitimate Usage:** Search for known benign PowerShell scripts within the environment that utilize similar API calls but serve legitimate purposes, such as scripts for automation or administration.
 
-  - **Investigate Remediation Protocols:** If a malicious indicator is confirmed, such as the use of `CreateRemoteThread` with suspicious processes, initiate incident response procedures and isolate affected systems.
+  - **Correlate with Other Logs:** Investigate the surrounding logs (e.g., Event ID 4688 for process creation) to identify any parent-child process relationships that elucidate the context of the PowerShell execution. A command line with notable parameters should be considered suspicious.
+
+  - **Identify High-Confidence Malicious Indicators:** Look for script artifacts like file paths or unusual execution times (e.g., outside of business hours) in conjunction with the detected API calls, which serve as strong indicators of compromise.
 
   ### Prioritization
 
-  This alert is of high severity given that any detected usage of these functions typically indicates an attempt to exploit system processes or escalate privileges. The likelihood of malicious abuse is substantial, as these methods are commonly leveraged in attack scenarios to bypass defenses or carry out unauthorized actions.
+  This alert carries a high severity level due to the potential for severe impact on the compromised system, including system-level control. The likelihood of abuse is moderate to high, as many adversaries utilize these techniques to evade detection and maintain persistence. Additionally, process injection and token manipulation are commonly weaponized tactics in the current threat landscape.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques may involve obfuscation of scripts or using legitimate PowerShell functionality, making detection challenging. The reliability of this detection relies on having Script Block Logging enabled; without it, related activities may go undetected. Legitimate administrative actions or application updates could trigger the alert. Related detections, such as those for unusual process creations or anomalous user access patterns, can strengthen overall coverage and context.
+  Detection can be limited by the absence of Script Block Logging, which must be enabled for reliable coverage. Legitimate administrative scripts may trigger this alert, making careful context evaluation critical. Moreover, detection may not cover all variations of API calls or implementations. Companion detections, such as monitoring for abnormal parent-child process relations or additional logging from EDR solutions, enhance coverage and provide a better investigative context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

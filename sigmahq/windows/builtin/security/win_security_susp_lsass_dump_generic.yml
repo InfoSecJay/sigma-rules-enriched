@@ -8,7 +8,7 @@ references:
 author: Roberto Rodriguez, Teymur Kheirkhabarov, Dimitrios Slamaris, Mark 
   Russinovich, Aleksey Potapov, oscd.community (update)
 date: 2019-11-01
-modified: 2023-12-19
+modified: 2026-06-29
 tags:
 - attack.credential-access
 - car.2019-04-004
@@ -52,6 +52,7 @@ detection:
     - '\perfmon.exe'
     - '\procexp.exe'
     - '\procexp64.exe'
+    - '\procexp64a.exe'
     - '\svchost.exe'
     - '\taskmgr.exe'
     - '\thor.exe'                # THOR
@@ -77,7 +78,9 @@ detection:
     - ':\Windows\System32\msiexec.exe'
     - ':\Windows\CCM\CcmExec.exe'
   filter_main_sysmon:
-    ProcessName|endswith: ':\Windows\Sysmon64.exe'
+    ProcessName|endswith:
+    - ':\Windows\Sysmon64.exe'
+    - ':\Windows\Sysmon64a.exe'
     AccessList|contains: '%%4484'
   filter_main_aurora:
     ProcessName|contains: ':\Windows\Temp\asgard2-agent-sc\aurora\'
@@ -107,6 +110,7 @@ detection:
   filter_optional_procmon:
     ProcessName|endswith:
     - '\procmon64.exe'
+    - '\procmon64a.exe'
     - '\procmon.exe'
     AccessList|contains: '%%4484'
   condition: 1 of selection_* and not 1 of filter_main_* and not 1 of 
@@ -118,30 +122,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects suspicious access requests to the LSASS (Local Security Authority Subsystem Service) process with specific access masks associated with credential dumping activities. The likely attacker objective is to gain unauthorized access to sensitive security information, such as user credentials, thus facilitating lateral movement within the network. This behavior is associated with the MITRE ATT&CK technique T1003.001 (Credential Dumping: LSASS Memory).
+  This Sigma rule detects attempts to access the LSASS (Local Security Authority Subsystem Service) process with potentially suspicious access masks, indicating a high likelihood of credential dumping activities. Attackers often target LSASS to extract sensitive credentials, which can lead to further unauthorized access or lateral movement within the environment. This behavior aligns with the MITRE ATT&CK technique for Credential Dumping (T1003.001).
 
-  The primary telemetry sources include Windows Security Event logs, specifically Event IDs 4656 (handle request) and 4663 (object access attempt). The security impact of malicious access to LSASS is significant, as it may lead to credential theft. It is important to note that this detection alone does not confirm malicious activity; legitimate applications may also access LSASS for valid reasons.
+  The primary telemetry sources involved are Windows Security Event ID 4656 (a handle to an object was requested) and Event ID 4663 (an attempt was made to access an object), specifically focusing on access attempts to the LSASS executable's handle. If this activity is confirmed as malicious, it could lead to compromised user credentials and elevated privileges within the network. It is crucial to note that this detection does not confirm malicious activity on its own; further context must be gathered to assess intent.
 
   ### Investigation Steps
 
-  - **Identify the initiating process:** Review Security Event ID 4688 for process creation events related to the detected access to LSASS. Look for unusual or unrecognized process names that initiated the access attempts and correlate the timestamps with Event IDs 4656 and 4663.
+  - **Review Event IDs 4656 and 4663 for LSASS access:** Check the Security logs for Event ID 4656 or 4663 that indicates access to '\lsass.exe'. Focus on entries from unknown or unapproved processes that request rare access masks such as '0x40' or '0x1f0fff'.
 
-  - **Validate access masks in the context:** For each triggering event, check the AccessMask value to confirm high-confidence malicious indicators. Masks like '0x1400' or '0x1f0fff' indicate potentially malicious intent, whereas masks such as '0x1000' may denote legitimate access.
+  - **Identify legitimate process behavior:** Validate if common processes like 'svchost.exe' or Windows Defender components are attempting to access LSASS. These typically do not request high-security access masks, unlike potentially malicious processes.
 
-  - **Review recent changes in user permissions:** Examine the user accounts involved in the access attempts. Identify any recent elevation of privileges or account changes that could indicate malicious use. Use logs from Event ID 4704 (use of a privilege) for tracking such changes.
+  - **Look for high-confidence indicators of compromise:** Cross-reference any suspicious accesses from Event IDs with processes like 'csrss.exe' or 'GamingServices.exe' that are not typically expected to engage with LSASS. Document request attempts with masks not associated with standard operational activity.
 
-  - **Analyze legitimate access patterns:** Compare the detected access against known legitimate applications that interact with LSASS, such as system management tools and antivirus solutions. Ensuring these applications can be traced back to expected executables can help rule out false positives.
+  - **Examine process sourcing and context:** Investigate the path of the process making the request, verifying cleanliness and integrity of locations (noting any unapproved temporary directories, e.g., 'C:\Windows\Temp\asgard2-agent\').
 
-  - **Check for known malicious processes:** Investigate whether the access attempts originated from processes commonly associated with credential dumping tools, such as 'procmon64.exe' or any other executable in the previously provided filters.
+  - **Check for repeated patterns or failed access attempts:** Analyze any patterns of failed or reversed successes in accessing LSASS to reveal orchestration of credential dumping tools, such as known malware signatures requesting elevated permissions.
 
-  - **Correlate with historical data:** Review previous security events around the same time to identify other indicative behaviors or known patterns related to the entities triggering the alert. Leverage logs for unusual activity, such as failed login attempts or elevated execution privileges in proximity to the LSASS access.
+  - **Investigate network traffic for exfiltration attempts:** If credential dumping is confirmed, triangulate with network logs (e.g., proxies or firewalls) for unusual outbound connections, particularly to unfamiliar IPs or domains which could signify exfiltration of stolen credentials.
 
   ### Prioritization
 
-  This alert is rated as medium severity due to the sensitive nature of the LSASS process and its potential role in credential theft. The likelihood of abuse is notably high, as attacker tools commonly target this process for credential dumping. However, the presence of legitimate applications accessing LSASS may lead to false positives, necessitating careful investigation.
+  This alert should be treated with medium severity. The security impact is significant, as unauthorized access to LSASS could lead to a full account compromise. The likelihood of malicious abuse is high, given that credential dumping is a well-known tactic among threat actors. This behavior is frequently weaponized in sophisticated attacks targeting Windows environments.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for legitimate software to generate similar access patterns to LSASS. Ensure comprehensive logging is enabled for Windows Security Event logs to capture all necessary artifacts for reliable detection. Legitimate activities such as routine system management or antivirus updates may trigger this alert. A related detection that strengthens coverage could involve monitoring for known credential dumping tools (e.g., Mimikatz, ProcDump) using additional telemetry sources, such as process command line arguments or PowerShell script execution logs.
+  This detection may be evaded by legitimate software accessing LSASS for benign reasons, potentially leading to false positives. Accurate detection relies on complete and correctly configured logging, particularly in ensuring Windows Security events are being captured. Other legitimate service processes could unintentionally trigger this alert, such as Windows system updates or maintenance tasks. A related detection strategy would involve tracking typical credential dumping tools (e.g., Mimikatz) to strengthen detection of lateral movement following initial compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

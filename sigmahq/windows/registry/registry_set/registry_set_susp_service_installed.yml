@@ -8,7 +8,7 @@ references:
 - https://web.archive.org/web/20200419024230/https://blog.dylan.codes/evading-sysmon-and-windows-event-logging/
 author: xknow (@xknow_infosec), xorxes (@xor_xes)
 date: 2019-04-08
-modified: 2023-08-17
+modified: 2026-06-29
 tags:
 - attack.defense-impairment
 - attack.t1685
@@ -24,11 +24,14 @@ detection:
     Image|endswith:
             # Please add the full paths that you use in your environment to tighten the rule
     - '\procexp64.exe'
+    - '\procexp64a.exe'
     - '\procexp.exe'
     - '\procmon64.exe'
+    - '\procmon64a.exe'
     - '\procmon.exe'
     - '\handle.exe'
     - '\handle64.exe'
+    - '\handle64a.exe'
     Details|contains: '\WINDOWS\system32\Drivers\PROCEXP152.SYS'
   condition: selection and not filter
 falsepositives:
@@ -39,30 +42,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the installation of two suspicious services, NalDrv and PROCEXP152, through registry modifications to non-system32 directories, indicating the deployment of potentially malicious tools associated with Ghost-In-The-Logs. The likely objective of the attacker is to establish control over the system through stealthy backdoor access via a kernel driver, enabling further exploitation. This behavior aligns with the MITRE ATT&CK technique for Defense Evasion, specifically T1685: Driver Load.
+  This rule detects the installation of registry services related to the Ghost-In-The-Logs tool, specifically the NalDrv and PROCEXP152 services, which are commonly used to facilitate unauthorized system access and evasion during malicious activities. The likely attacker objective is to establish persistence on a compromised system while hiding their activity from standard monitoring tools. The relevant MITRE ATT&CK tactic is Defense Evasion (TA0005), specifically technique T1685: Credential Dumping - Credential Dumping from Credential Store.
 
-  The primary telemetry source is Windows Registry activity, specifically monitoring changes to HKLM\System\CurrentControlSet\Services\. If malicious, the impact could range from privilege escalation to full system compromise. It should be noted that this detection does not confirm active exploitation but rather the presence of potentially malicious software components.
+  The primary telemetry sources are Windows registry logs, specifically focusing on changes to service configurations under the `HKLM\System\CurrentControlSet\Services` path. The security impact is significant; if malicious, it can lead to unauthorized access, data exfiltration, or further compromise of systems. Importantly, this detection does NOT confirm a successful compromise on its own; it only indicates the installation of potentially malicious services.
 
   ### Investigation Steps
 
-  - **Check registry paths for service modifications**: Examine the Windows Registry for entries under HKLM\System\CurrentControlSet\Services\. Look for NalDrv and PROCEXP152 entries with non-standard ImagePath values (e.g., not pointing to system32).
+  - **Verify the registry changes:** Check for recent entries associated with `HKLM\System\CurrentControlSet\Services\NalDrv` and `HKLM\System\CurrentControlSet\Services\PROCEXP152`. Look for the `ImagePath` field designating non-system32 directories, which may indicate potential malicious activity.
 
-  - **Review recent process creation events**: Analyze Security Event ID 4688 and Sysmon Event ID 1 for any process creation that includes procexp64.exe or procmon.exe. Benign activity typically shows these processes running from C:\Windows\System32 or legitimate paths.
+  - **Cross-reference installed services:** Use `sc query` to list the running services on the host. Confirm that no instances of `NalDrv` or `PROCEXP152` are present in legitimate Windows paths (e.g., `C:\Windows\System32`). Instances outside of this could indicate malicious tampering.
 
-  - **Validate user and process owner**: For the detected services, review account names and process owners. Legitimate processes are typically run by system or administrative accounts, while suspicious ones may show unusual or non-standard accounts.
+  - **Identify process execution logs:** Inspect Security Event ID 4688 (Process Creation) for the execution of any listed processes (e.g., `procexp.exe`, `procmon.exe`). Ensure the paths match known and legitimate installations located within `C:\Windows\System32`.
 
-  - **Analyze driver signatures**: Investigate properties of the loaded driver PROCEXP152.SYS using the DriverQuery command or checking for its digital signature. Legitimate drivers will have valid certificates and should not be listed as unsigned.
+  - **Look for associated artifacts:** Check for file presence on the disk (using file system monitoring solutions) to confirm the installation of executables like `procexp64.exe` or `handle.exe`. Assess their properties for any anomalous creation timestamps or unusual authors.
 
-  - **Audit file history for tampering**: Cross-check recent file modifications or creations in the suspected directories using Sysmon Event ID 11 or Windows File Audit logs. Legitimate administrative tasks should correlate with authorized user actions.
-
-  - **Look for known indicators of compromise (IOCs)**: Search for known hash values associated with Ghost-In-The-Logs tools or related malicious binaries in threat intelligence platforms. High-confidence indicators include hashes of procexp64.exe or procmon.exe if they differ from expected values.
+  - **Assess user account activity:** Review Security Event ID 4624 (Logon Events) to investigate the context in which these services were installed. Look for unusual user account activity or logons from atypical systems that might correlate with the service installation time.
 
   ### Prioritization
 
-  This alert is of medium severity. While the presence of NalDrv and PROCEXP152 services can indicate potential malware installation, their nature and the context in which they appear will influence the response. The likelihood of malicious use is moderate, as these tools are often weaponized for stealth operations.
+  The alert severity is medium, as the detection indicates a higher risk of compromise but requires further investigation to confirm malicious intent. The presence of these services, particularly in non-standard directories, raises flags about potential misuse. While it reflects a technique that can be weaponized, it is not universally indicative of actual exploitation.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques such as renaming services or altering the registry path can bypass this detection. Reliable detection requires properly configured Windows Registry monitoring; without full coverage, malicious actors may avoid capture. Legitimate software installations or administrative tools that utilize similar service names may trigger the alert. A complementary detection could include monitoring for unusual driver signatures (e.g., unsigned drivers or those not typically found in enterprise environments) to bolster visibility.
+  This detection is limited by evasion techniques such as renaming the service or using legitimate service names to disguise malicious activity. Proper logging sources and configurations need to be enabled to ensure coverage, particularly for detailed registry changes. Legitimate software installations may occasionally trigger this alert, especially for correctly configured administrative tools that operate outside of standard directories. A complementary detection could involve monitoring for unexpected process execution associated with known credential dumping tools or suspicious file modifications in sensitive directories.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

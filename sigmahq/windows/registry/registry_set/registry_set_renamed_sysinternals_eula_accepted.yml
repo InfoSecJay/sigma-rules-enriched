@@ -12,7 +12,7 @@ references:
 - Internal Research
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-08-24
-modified: 2023-08-17
+modified: 2026-06-29
 tags:
 - attack.resource-development
 - attack.t1588.002
@@ -35,20 +35,27 @@ detection:
     Image|endswith:
     - '\PsExec.exe'
     - '\PsExec64.exe'
+    - '\PsExec64a.exe'
     - '\procdump.exe'
     - '\procdump64.exe'
+    - '\procdump64a.exe'
     - '\handle.exe'
     - '\handle64.exe'
+    - '\handle64a.exe'
     - '\livekd.exe'
     - '\livekd64.exe'
     - '\procexp.exe'
     - '\procexp64.exe'
+    - '\procexp64a.exe'
     - '\psloglist.exe'
     - '\psloglist64.exe'
+    - '\psloglist64a.exe'
     - '\pspasswd.exe'
     - '\pspasswd64.exe'
+    - '\pspasswd64a.exe'
     - '\ADExplorer.exe'
     - '\ADExplorer64.exe'
+    - '\ADExplorer64a.exe'
   filter_optional_null:
     Image:          # Race condition with some logging tools
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
@@ -58,30 +65,26 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the modification of the "EulaAccepted" registry key by non-Sysinternals tools, which typically indicates that Sysinternals utilities are being used to execute tasks requiring elevated privileges. The intent behind this behavior is often malicious, as attackers frequently leverage Sysinternals tools like PsExec to facilitate lateral movement or privilege escalation in a compromised environment. Relevant MITRE ATT&CK tactics and techniques include "Resource Development" (TA0042) and "Malware" (T1588.002).
-
-  Primary telemetry sources include Windows Registry event logs related to registry modifications specifically, the Registry Set logs. If this behavior is malicious, it can signify an unauthorized tool being used to execute code on target systems, increasing the risk of further exploitation or compromise. However, it is important to note that this detection does NOT confirm malicious activity on its own, as it could also represent legitimate administrative usage in controlled environments.
+  This rule detects the unauthorized modification of the "accepteula" registry key, which is typically set when legitimate Sysinternals tools (like PsExec or ProcDump) are executed. Attackers may leverage renamed versions of these tools to bypass security mechanisms while attempting to gain system-level access or perform reconnaissance. The relevant MITRE ATT&CK tactic is **Resource Development (T1588.002)**. The primary telemetry source is Windows registry modification logs, specifically focusing on registry event logs that track changes to keys. If malicious, this activity may lead to privilege escalation or lateral movement within the network. However, this detection alone does not confirm malicious intent, as legitimate administrative activities could, albeit rarely, modify the "accepteula" key.
 
   ### Investigation Steps
 
-  - **Check the source of the registry modification:** Review Security Event ID 4657 (Registry Value Modified) or Windows Event Log for Registry Set events to identify the process making the change. Look for process names that are unexpected compared to legitimate Sysinternals tools.
+  - **Check registry modifications: ** Use Windows Event ID 4657 to identify recent changes to the target registry key (`HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{ToolName}\EulaAccepted`) and verify the user and process that modified it.
 
-  - **Identify related processes:** Analyze Security Event ID 4688 (Process Created) logs to correlate the execution of any detected processes (e.g., PsExec.exe) around the time of the registry change. Verify if any high-risk processes or scripts were executed concurrently.
+  - **Analyze the process execution history: ** Investigate Windows Event ID 4688 logs to see if the processes related to Sysinternals tools (like PsExec, ProcDump) were executed prior to the registry modification. Note legitimate administrative users executing these processes as benign.
 
-  - **Assess user context:** Examine the user accounts involved in the actions. Check for anomalous or service accounts executing these tools outside of standard administrative workflows.
+  - **Identify named processes: ** Review the associated process names in the event logs. Look for renamed versions of Sysinternals tools or any uncommon process names that are non-standard, indicating potential malicious activity.
 
-  - **Understand legitimate usage:** Review internal documentation on the sanctioned usage of Sysinternals tools, detailing what typical operational usage looks like and identifying authorized personnel who might be registered to utilize these tools.
+  - **Confirm legitimate usage: ** Cross-reference the registry modification with known administrative scripts or scheduled tasks that may legitimately set these registry keys. Expected behavior typically includes administrative tools used during maintenance activities, logged by Event ID 4704 (Group Management).
 
-  - **Correlate with common attack patterns:** Reference the historical usage of Sysinternals tools in your environment, correlating any recorded malicious behavior with similar registry key modifications observed in this alert.
-
-  - **Look for additional indicators of compromise:** Search for related behavioral patterns such as data exfiltration activity, specifically any evidence captured via file creation or network activity tied to the execution of these processes.
+  - **Inspect for file creation or changes: ** Search for other UCS-related artifacts using Sysmon event ID 11 to identify any command-line arguments used during the execution of tools just prior to the registry change, indicating cloud exfiltration or similar threats.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential for elevated privileges associated with Sysinternals tools, which are commonly exploited by attackers for lateral movement and post-exploitation tasks. The likelihood of malicious abuse is significant, as many instances of targeted attacks have made use of these utilities as a mechanism to execute commands remotely.
+  This alert should be considered high severity, particularly in enterprise systems where critical infrastructure components are involved. The likelihood of malicious abuse is elevated due to the usage of commonly weaponized tools for privilege escalation or lateral movement. The capacity for renamed tools to mimic legitimate processes increases the urgency of the investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by oversight of legitimate administrative activities, where authorized personnel use these tools for standard operations. It depends on having proper logging configurations for registry modifications enabled. Legitimate activities that might trigger the alert include sanctioned troubleshooting or system maintenance tasks performed by IT staff. A related detection that strengthens coverage could involve tracking direct network connections initiated by tools like PsExec, thereby linking the registry modifications to network intrusion.
+  Detection may be bypassed if attackers use custom names or manipulate timestamps to mask their actions. Effective detection requires comprehensive logging of registry activities and proper monitoring settings for registry changes. Routine maintenance activities performed by privileged users may sometimes trigger this alert, leading to potential false positives. Related detections, such as identifying unauthorized command-line arguments through Sysmon logs (Event ID 1), could increase overall threat detection accuracy.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

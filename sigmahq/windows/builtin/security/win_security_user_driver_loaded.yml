@@ -12,7 +12,7 @@ references:
 - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4673
 author: xknow (@xknow_infosec), xorxes (@xor_xes)
 date: 2019-04-08
-modified: 2026-03-29
+modified: 2026-06-29
 tags:
 - attack.defense-impairment
 - attack.t1685
@@ -44,8 +44,10 @@ detection:
     - '\Google\Chrome\Application\chrome.exe'
     - '\procexp.exe'
     - '\procexp64.exe'
+    - '\procexp64a.exe'
     - '\procmon.exe'
     - '\procmon64.exe'
+    - '\procmon64a.exe'
   filter_main_startswith:
     ProcessName|startswith: 'C:\Program Files\WindowsApps\Microsoft'
   filter_optional_dropbox:
@@ -64,30 +66,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the use of the 'SeLoadDriverPrivilege', which allows a user to load or unload device drivers. Such actions could be taken by adversaries attempting to install malicious drivers to gain kernel-level control over a system, potentially facilitating persistence, data exfiltration, or additional exploitation techniques. The primary relevant MITRE ATT&CK technique this aligns with is **Defense Evasion (T1212)**, as loading unauthorized drivers can hide malicious activities from security monitoring solutions.
-
-  The primary telemetry source for detection is Windows Security Event ID **4673**, which logs privileged service operations. If malicious, the security impact includes unauthorized access to kernel functions, leading to system compromise and potential data leaks. Importantly, this detection does NOT confirm malicious intent on its own; legitimate applications or administrators may also trigger this alert.
+  This Sigma rule detects the invocation of the 'SeLoadDriverPrivilege,' which allows a user or process to load or unload kernel-level device drivers. The likely objective of an attacker utilizing this privilege is to install malicious drivers for persistence, privilege escalation, or control over the system. This detection aligns with MITRE ATT&CK tactic **Defense Evasion** and technique **T1685: Driver Load Data Manipulation**. The primary telemetry source is Windows Security Event logs, specifically focusing on Event ID **4673** where this privilege is activated. If the behavior is malicious, it may lead to significant security impacts, including system compromise and unauthorized access to sensitive data. It is crucial to note that this detection does NOT confirm malicious activity on its own, as benign use by legitimate applications or administrative actions could also trigger the alert.
 
   ### Investigation Steps
 
-  - **Verify Event Details**: Review Security Event ID **4673** for the relevant fields including `SubjectUserName`, `ObjectType`, and `PrivilegeList`. Look for non-administrative user accounts, which may indicate unauthorized behavior.
+  - **Check Event ID 4673 logs for privilege usage**: Review Security Event logs filtering on Event ID **4673** for entries where **PrivilegeList** includes 'SeLoadDriverPrivilege'. Look for unusual user accounts or processes invoking this privilege that are not in your whitelist.
 
-  - **Correlate User Activity**: Check the user's activity around the time of the event using relevant log sources (Event ID **4624** for logon events). Confirm if the user has a legitimate reason for loading drivers or if they are unprivileged.
+  - **Identify the invoking process**: Analyze the **ProcessName** field in the Event ID 4673 log entries. Compare the process names against a known whitelist. For instance, entries involving processes such as `C:\Program Files (x86)\Dropbox\Dropbox.exe` or `C:\Windows\System32\svchost.exe` may be legitimate if they are known in your environment.
 
-  - **Identify Malicious Indicators**: Investigate the **ProcessName** field for entries that should not be loading drivers (e.g., those not whitelisted such as `C:\Program Files (x86)\Dropbox\Dropbox.exe`). Unrecognized or unusual executable paths may indicate malicious behavior.
+  - **Correlate with other security events**: Cross-reference the findings with other relevant events, such as process creation events (Event ID **4688**) to examine what processes were active around the same time the privilege was invoked. Look for suspicious parent process relationships.
 
-  - **Baseline Legitimate Behavior**: Review the historical usage of driver load operations within your environment, focusing on normal processes for authorized users or applications known to load drivers (e.g., trusted antivirus software). Compare to current alerts for anomalies.
+  - **Look for unauthorized driver installations**: Investigate the output of kernel drivers by checking the output of command line tools like `driverquery` or similar administrative commands to see if new, unauthorized drivers are listed post-alert.
 
-  - **Examine Related  Sysinternals Tool Usage**: Look for the use of known tools like `procexp.exe` or `procmon.exe` in the timeline of events. If detected, correlate their invocation with the events logged by ID 4673 for context.
+  - **Run baseline comparisons**: Compare current activity against established baselines of application behavior within your environment. Legitimate programs should not frequently load drivers unless specifically required for functionality.
 
-  - **Review Kernel Driver Loading Frequency**: Analyze Windows System or Application logs for patterns or spikes in driver loading activities. Frequent or unexpected driver load events could signal an attack or compromised host.
+  - **Assess risk based on asset criticality**: Consider the role of the asset reporting the alert. High-value systems (e.g., domain controllers, systems with sensitive data) should be prioritized for deeper investigation compared to lower-criticality systems.
 
   ### Prioritization
 
-  This alert should be prioritized as medium severity due to its potential impact on system integrity and security. While not common in routine operations, the misuse of kernel driver loading privileges is a known tactic employed by advanced adversaries to establish control over compromised systems.
+  Given that loading malicious drivers can lead to complete system compromise and unauthorized access, the alert carries a medium severity. The potential impact on critical systems raises the likelihood of malicious abuse, especially as such behavior is often used by sophisticated adversaries to bypass defenses.
 
   ### Blind Spots and Assumptions
 
-  This detection may be bypassed by legitimate applications that also load drivers, such as certain management tools or antivirus solutions. An effective baseline of expected activities from trusted entities is crucial to limit false positives. Regular auditing and updating of the whitelists for drivers and applications that legitimately utilize this privilege is necessary. Additionally, a related detection for **Service Creation (T1543)** may aid in identifying other potential malicious actions correlating with driver load events.
+  There are limitations with this detection; legitimate programs frequently load drivers and may trigger alerts. Tools such as Sysinternals and various legitimate AV solutions can utilize this privilege appropriately. Ensure comprehensive logging is enabled for Event ID **4673** and similar IDs for accurate detection. Additionally, be aware that users from the security team or administrators may regularly employ driver loading without malicious intent. A related detection to enhance coverage is monitoring for unusual process injection attempts (e.g., **T1055: Process Injection**).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

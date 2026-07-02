@@ -1,13 +1,16 @@
 title: Legitimate Application Dropped Executable
 id: f0540f7e-2db3-4432-b9e0-3965486744bc
 status: test
-description: Detects programs on a Windows system that should not write 
-  executables to disk
+description: |
+  Detects LOLBINs and applications that should not legitimately drop executable or executable-equivalent files to disk.
+  This may indicate malware staging, process injection, or abuse of a trusted binary for payload delivery.
 references:
 - https://github.com/Neo23x0/sysmon-config/blob/3f808d9c022c507aae21a9346afba4a59dd533b9/sysmonconfig-export-block.xml#L1326
+- https://dmpdump.github.io/posts/TelegramRat/
+- https://www.virustotal.com/gui/file/a0d5b30578acd1df9139e7a8a4bfc659dc2cf48f4dc0c5804b70890adeb9fa21/behavior
 author: frack113, Florian Roth (Nextron Systems)
 date: 2022-08-21
-modified: 2023-06-22
+modified: 2026-05-11
 tags:
 - attack.stealth
 - attack.t1218
@@ -36,40 +39,45 @@ detection:
     - '\hh.exe'
     - '\finger.exe'
     TargetFilename|endswith:
-    - '.exe'
+    - '.com'
     - '.dll'
+    - '.exe'
+    - '.jar'
     - '.ocx'
+    - '.pyc'
   condition: selection
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/file/file_event/file_event_win_susp_legitimate_app_dropping_exe/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of executable files on Windows systems by applications known for not typically generating such files. The behavior can indicate attempts to download or deploy malware using legitimate applications such as Microsoft Office or other commonly installed tools, potentially serving as a staging mechanism for further compromise. The behavior aligns with the MITRE ATT&CK technique **T1218: Signed Binary Proxy Execution**.
+  This rule detects when certain legitimate applications, including commonly-used administration tools and Microsoft Office programs, drop executable files (including .exe, .dll, etc.) to disk. Such behavior is atypical for these applications and may indicate an attacker is using them as a means to stage malware or execute malicious code by leveraging trusted binaries. This activity would likely correspond to the MITRE ATT&CK technique T1218 (Signed Binary Proxy Execution) as it employs legitimate tools for malicious purposes.
 
-  The primary telemetry sources for this detection are file event logs from Windows, specifically focusing on executable file creation activities. If the detection is confirmed as malicious, the security impact can be significant, possibly resulting in a successful malware infection, data exfiltration, or system compromise. However, this detection does NOT confirm malicious intent on its own, as legitimate applications may trigger the rule under specific circumstances.
+  The primary telemetry sources are Windows file event logs, specifically monitoring for events where trusted applications create executable file types. If malicious, this behavior could facilitate a myriad of attack scenarios, including lateral movement or payload delivery. However, this detection alone does not confirm an ongoing attack, as legitimate administrative activities might inadvertently generate similar alerts.
 
   ### Investigation Steps
 
-  - **Review the source application launching the executable creation**: Cross-reference the Application name (Image field) in the logs with known benign processes. Look for Event ID 4663 or Sysmon Event ID 11, especially when the source is from a legitimate office application like `wordpad.exe` or `mshta.exe`.
+  - **Review Security Event Logs for File Creation Events:** Check for Windows Event ID 4663 or Sysmon Event ID 11 that log the creation of files. Focus on the creation timestamps for alignment with alert triggers.
 
-  - **Analyze the created executable file attributes**: Check the file creation logs (TargetFilename) for any additional contextual data indicating the file's origin, like Event ID 4663 for file creation, confirming if it is a new `.exe`, `.dll`, or `.ocx` file that corresponds to suspicious activity.
+  - **Identify the Parent Process:** Correlate the detected executable drop with preceding process creation events (Event ID 4688 or Sysmon Event ID 1) to identify the origins. Legitimate application behavior should not show unusual or unexpected parent processes associated with these events.
 
-  - **Identify parental process details**: Extract details of the parent process from Sysmon Event ID 1 to assess if the behavior is initiated by a known benign process or an unexpected source that could indicate compromise.
+  - **Examine Process Command-Line Arguments:** Review the command line of the parent process to identify unusual flags or behaviors indicative of malicious activity. Legitimate command-line arguments will typically match known patterns for the application being executed.
 
-  - **Check for network activity related to the executable**: Validate if there were any outbound connection attempts associated with the timestamp of file creation using Event ID 5156 from Windows Filtering Platform logs, which could show if the executable is trying to communicate externally.
+  - **Check for Known Legitimate Patterns:** Determine if the identified applications are being used in a standard operational context. For example, typical use of `certutil.exe` may not involve dropping executable files unless coupled with specific administrative scripts or file transfers.
 
-  - **Establish legitimate behavior benchmarks**: Document normal scenarios where applications such as `wordpad.exe` legitimately create temporary files during operations. Compare the findings against the executed commands or dropped files linked to the alert.
+  - **Investigate the File Characteristics:** Validate the dropped executable by checking its hash against known threat databases (e.g., VirusTotal). A high-confidence malicious indicator is a low-reputation hash associated with malware behavior.
 
-  - **Investigate for known associated indicators of compromise (IoCs)**: Conduct a search for established IOCs related to malicious use of the flagged executables, including MD5 hashes of known trojanized versions or links to malware campaigns leveraging them.
+  - **Assess Asset Importance and Impact:** Consider the role of the host where the event occurred (e.g., a domain controller may require a higher scrutiny level compared to a standard user workstation). Document any context that enhances understanding of the potential impact.
 
   ### Prioritization
 
-  This alert has a high severity due to the risk of malware installation through common applications, potentially exposing sensitive enterprise data. The likelihood of abuse is significant given that attackers often exploit trusted applications to bypass security controls. This method is a known tactic in the adversary's playbook, making immediate investigation essential.
+  This alert carries a high severity due to the potential compromise of trusted applications for malicious purposes. Systems exhibiting this behavior could serve as a foothold for an attacker within the network, leading to further exploitation. Such manipulation of legitimate binaries is a recognized tactic used in various malicious campaigns.
 
   ### Blind Spots and Assumptions
 
-  The detection may generate false positives due to legitimate application behavior, particularly in environments where the flagged executables are used for legitimate purposes (e.g., file conversion). Reliable detection depends on comprehensive log configurations for Windows file events as well as Sysmon instrumentation. Additionally, legitimate updates and patches may trigger similar behaviors, while companion detections for malware downloads from anomalous URLs would strengthen overall coverage and context.
+  Potential evasion techniques include the use of alternate file extensions or benign-looking filenames that may bypass detection. Also, certain legitimate use cases could trigger this alert, such as administrative scripts that legitimately drop executables. To ensure reliable detection, confirm that all relevant Windows file event logging is enabled, including adequate retention policies for historical analysis. Companion detections, such as anomalous network activity following the executable drop, could enhance overall coverage and context for investigations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
