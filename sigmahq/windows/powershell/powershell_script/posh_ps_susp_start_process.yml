@@ -4,9 +4,10 @@ status: test
 description: Powershell use PassThru option to start in background
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1036.003/T1036.003.md
-- https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/Start-Process?view=powershell-5.1&viewFallbackFrom=powershell-7
+- https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/start-process?view=powershell-7.6
 author: frack113
 date: 2022-01-15
+modified: 2026-05-18
 tags:
 - attack.stealth
 - attack.t1036.003
@@ -15,40 +16,43 @@ logsource:
   category: ps_script
   definition: 'Requirements: Script Block Logging must be enabled'
 detection:
-  selection:
+  selection_cmdlet:
+    ScriptBlockText|contains:
+    - 'Start-Process '
+    - 'saps '
+  selection_param:
     ScriptBlockText|contains|all:
-    - Start-Process
     - '-PassThru '
     - '-FilePath '
-  condition: selection
+  condition: all of selection_*
 falsepositives:
 - Legitimate PowerShell scripts
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of PowerShell's `Start-Process` command with the `-PassThru` option, which may indicate an effort to manipulate processes in a stealthy manner. Attackers could leverage this command for evasion tactics, potentially aiming to execute malicious scripts or payloads while minimizing visibility. This behavior aligns with the MITRE ATT&CK tactic of Execution (T1203) and the technique of Command-Line Interface (T1059.001).
+  The detection identifies the use of the PowerShell `Start-Process` cmdlet with the `-PassThru` option, which may indicate suspicious activity as it allows a script to start a process without direct feedback, often used in stealthy execution. Attackers may leverage this behavior to spawn background processes that evade detection. The relevant MITRE ATT&CK tactic is **Execution**, specifically technique **T1036.003: Masquerading**.
 
-  Primary telemetry sources are Windows PowerShell logs, particularly the event logs generated when Script Block Logging is enabled. The security impact of this behavior is significant; if malicious, it could lead to process manipulation or code execution in hidden contexts. Importantly, this detection does NOT confirm that the activity is malicious on its own, as legitimate PowerShell scripts can also employ this command.
+  Primary telemetry sources include Windows PowerShell logs, specifically when script block logging is enabled. Malicious use could allow an attacker to execute and control processes without alerting security monitoring. It is crucial to note that this detection does NOT confirm malicious intent on its own, as legitimate scripts may also employ this command structure.
 
   ### Investigation Steps
 
-  - **Check PowerShell logs for Script Block Logging:** Review Event ID 4103 for details on the executed PowerShell commands and filter by those containing `Start-Process -PassThru`. This can identify both legitimate and suspicious activity.
+  - **Review PowerShell Logs:** Ensure Script Block Logging is enabled and check for Event ID 4104 for instances of `Start-Process` with `-PassThru`. Look for scripts that incorporate these parameters.
 
-  - **Identify high-confidence malicious indicators:** Look for unusual or unexpected file paths being executed with `-PassThru` that may suggest an unauthorized script execution (e.g., paths leading to temporary folders or user-specific directories).
+  - **Analyze Process Interactions:** Use Sysmon Event ID 1 to analyze the created processes and their parent-child relationships. Malicious actions will often show unusual parent processes or unexpected command-line arguments.
 
-  - **Contextualize with process parents:** Verify the parent process of the `Start-Process` command by analyzing Event ID 4688 for process creation in conjunction with Script Block logs. Common benign scenarios may involve processes initiated by known Windows applications, while suspicious or unexpected parents (e.g., cmd.exe, wscript.exe) imply potential malicious intent.
+  - **Identify Legitimate Usage Patterns:** Check for cron jobs or trusted scheduled tasks that might utilize `Start-Process -PassThru`. Legitimate instances should originate from known paths and trusted scripts.
 
-  - **Review historical usage of PowerShell:** Analyze the frequency and context of PowerShell executions on the host system. Determine if there are legitimate administrative use cases (e.g., IT operations) or if the behavior emerged suddenly, which may indicate a compromise.
+  - **Correlate with Other Alerts:** Review alerts from related detections, such as unusual access patterns or failed login attempts that could suggest an attacker is leveraging this command for lateral movement.
 
-  - **Assess the affected host's criticality:** Identify the role of the host where the alert originated (e.g., Domain Controller, file server, endpoint) and prioritize investigation accordingly, since a compromise on critical infrastructure poses a higher risk.
+  - **Examine Network Communication:** Assess network logs for established connections or unusual outbound traffic that might correlate with the execution of this command. Check for unexpected connections, possibly related to exfiltration attempts.
 
   ### Prioritization
 
-  The alert severity is medium due to the potential impact of compromised systems, especially if they run critical applications or house sensitive data. While use of `Start-Process -PassThru` can be part of legitimate administrative tasks, its invocation in unexpected contexts raises the likelihood of malicious abuse, making this a noteworthy behavior to investigate.
+  This alert carries medium severity due to the potential for significant impact if an attacker exploits the system with stealthy process execution. Although not excessively common, the behavior can align with targeted attacks seeking to evade detection, underscoring the importance of immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection relies on having Script Block Logging enabled; if not configured, the rule may miss relevant events. Attackers might employ aliases or encoded commands to obfuscate their use of PowerShell and evade detection. Legitimate administrative scripts, such as system maintenance routines or automation tools, may trigger the alert without malicious intent. A related detection to consider strengthening coverage would be monitoring for unusual script invocations or execution from non-standard directories.
+  Detection may be limited by the potential for legitimate PowerShell scripts to trigger similar alerts, and reliance on enabled Script Block Logging is critical for reliable detection. Evasion techniques may include obscuring the command structure or leveraging obfuscated scripts. A companion detection based on PowerShell script execution context would strengthen coverage against malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
