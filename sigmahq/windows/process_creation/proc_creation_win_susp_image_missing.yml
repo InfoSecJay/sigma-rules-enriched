@@ -1,67 +1,75 @@
 title: Execution Of Non-Existing File
 id: 71158e3f-df67-472b-930e-7d287acaa3e1
 status: test
-description: Checks whether the image specified in a process creation event is 
-  not a full, absolute path (caused by process ghosting or other unorthodox 
-  methods to start a process)
+description: |
+  Detects process creation events where the Image field lacks an absolute path,
+  which occurs when the backing file no longer exists on disk at the time of
+  logging - commonly caused by Process Ghosting or other unorthodox process creation techniques.
 references:
 - https://pentestlaboratories.com/2021/12/08/process-ghosting/
+- https://www.elastic.co/blog/process-ghosting-a-new-executable-image-tampering-attack
 author: Max Altgelt (Nextron Systems)
 date: 2021-12-09
-modified: 2022-12-14
+modified: 2026-07-05
 tags:
 - attack.stealth
+- attack.privilege-escalation
+- attack.t1055
 logsource:
   category: process_creation
   product: windows
 detection:
-  image_absolute_path:
+  filter_main_image_absolute_path:
     Image|contains: '\'
-  filter_null:
+  filter_optional_null:
     Image:
-  filter_empty:
+  filter_optional_empty:
     Image:
     - '-'
     - ''
-  filter_4688:
+  filter_optional_4688:
   - Image:
+    - 'MemCompression'
+    - 'Registry'
     - 'System'
-    - 'Registry'
-    - 'MemCompression'
     - 'vmmem'
+    - 'vmmemWSL'
   - CommandLine:
-    - 'Registry'
     - 'MemCompression'
+    - 'Registry'
     - 'vmmem'
-  condition: not image_absolute_path and not 1 of filter*
+    - 'vmmemWSL'
+  condition: not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects process creation events where the specified image is not a full, absolute path. This behavior can indicate potential process ghosting or attempts to execute processes using unconventional methods, which may be employed by adversaries for evasion or lateral movement. The likely attacker objective is to execute malicious code while avoiding detection by using non-standard execution paths.
+  This Sigma rule detects the execution of processes where the image field does not contain an absolute path, indicating that the backing executable no longer exists at the time of logging. This behavior is often associated with advanced evasion techniques such as "process ghosting," where an attacker attempts to run a process without leaving traditional traces on disk. The likely objective of the attacker is to execute malicious code while evading detection.
 
-  This activity is relevant to the MITRE ATT&CK framework, specifically under the tactic "Defense Evasion" and technique "Process Injection" (T1055). The primary telemetry source is Windows process creation logs, specifically targeting Security Event ID 4688. If malicious, this behavior can lead to unauthorized access or execution of malware. Importantly, this detection does NOT confirm malicious activity on its own; further analysis is required to determine intent.
+  This rule relates to the MITRE ATT&CK technique T1055 (Process Injection), which highlights methods used to run code in the context of another process. The primary telemetry sources for this detection are the Windows security event logs, specifically Security Event ID 4688, which logs process creation events tracking process images and command lines. If malicious, this detection poses a significant risk as it may indicate a successful pivot into sensitive systems or processes, potentially leading to further privilege escalation or lateral movement. However, this alert does not confirm unauthorized access by itself; further contextual analysis is necessary to assess the overall security situation.
 
   ### Investigation Steps
 
-  - **Review process creation logs for Event ID 4688:** Check the logs for entries matching the rule condition, focusing on the `Image` field. Look for processes with incomplete paths, which is uncommon and may indicate malicious activity.
+  - **Review event logs for process creation**: Examine Windows Security Event ID 4688 for related entries that triggered this alert. Pay attention to the “New Process Name” and “Command Line” fields for any processes with empty image paths.
 
-  - **Analyze the command line used for process execution:** Validate the `CommandLine` field in Event ID 4688 logs. Legitimate processes often contain recognizable commands or executable paths. Unusual or obfuscated commands can indicate a potential threat.
+  - **Check parent process relationships**: Investigate the parent process ID (PID) of the detected entries. Malicious processes often have unexpected parent processes or come from unusual user contexts. Use Event ID 4688 to trace the parent process.
 
-  - **Cross-reference with known benign processes:** Identify any legitimate applications or service accounts that may generate similar log entries. For example, Windows system processes like 'System' or 'Registry' may trigger the rule but are acceptable if confirmed as benign.
+  - **Verify legitimate software patterns**: Compare the process in question with known benign processes. For example, if the alert is triggered during the execution of applications like Windows Update or system maintenance tasks, it may represent legitimate activity.
 
-  - **Investigate parent-child process relationships:** Examine the parent process associated with the detected child process. Use Process Explorer or equivalent tools to verify legitimate execution chains. Malicious processes often lack legitimate parentage.
+  - **Identify known malicious patterns**: Look for high-confidence indicators such as the execution of "cmd.exe" or "powershell.exe" without an absolute path associated with obfuscated command lines. Events with fragmented command lines or suspicious parameters can indicate an exploit or evasion tactic.
 
-  - **Check for other instances of process ghosting:** Look for patterns in the log where similar non-absolute paths appear. Consistent behavior across multiple executions can strengthen the suspicion of malicious intent.
+  - **Collect additional telemetry for further analysis**: Gather Sysmon logs (Event ID 1) for detailed process creation data, including hashes and user details. Cross-reference these with threat intelligence for any known malicious signatures.
+
+  - **Assess host criticality**: Note the impact of the affected host. If this alert comes from endpoints labeled as critical servers (e.g., domain controllers or database servers), prioritize it accordingly for deeper investigation.
 
   ### Prioritization
 
-  The alert severity is categorized as high, given that it may indicate clear attempts at defense evasion. The likelihood of malicious abuse is significant, especially as this technique is commonly leveraged by adversaries to bypass security controls. Compromise of critical systems or assets could result in a severe impact on enterprise security.
+  This alert is of high severity due to the potential impact on sensitive systems and the likelihood of abuse by sophisticated attackers. The behavior observed is often weaponized in modern attacks, making it crucial for prompt investigation and appropriate response.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include reliance on accurate logging configuration. If logging is not enabled for process creation (Event ID 4688), this rule may fail to trigger. Legitimate activities, such as automated scripts or software that manipulate process execution, could also trigger the alert. A related detection to strengthen coverage includes monitoring for abnormal parent-child process relationships that may indicate process injection attempts.
+  Detection may be limited if the event logging level is not correctly configured, specifically if Windows Security logs do not capture all relevant process creation events. Legitimate activities, such as software updates or scheduled tasks using tools like Task Scheduler, can trigger this alert. Additionally, a related detection could be the monitoring of anomalous command line arguments in conjunction with Event ID 4688, providing enhanced coverage against evasion techniques.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
