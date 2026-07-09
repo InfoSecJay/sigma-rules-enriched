@@ -1,12 +1,16 @@
 title: Local System Accounts Discovery - MacOs
 id: ddf36b67-e872-4507-ab2e-46bda21b842c
 status: test
-description: Detects enumeration of local systeam accounts on MacOS
+description: |
+  Detects enumeration of local system accounts on MacOS systems.
+  This can be used by attackers to identify accounts for lateral movement or privilege escalation.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1087.001/T1087.001.md
+- https://ss64.com/osx/dscl.html
+- https://ss64.com/mac/dscacheutil.html
 author: Alejandro Ortuno, oscd.community
 date: 2020-10-08
-modified: 2022-11-27
+modified: 2026-07-07
 tags:
 - attack.discovery
 - attack.t1087.001
@@ -14,28 +18,48 @@ logsource:
   category: process_creation
   product: macos
 detection:
-  selection_1:
+  selection_dscl:
     Image|endswith: '/dscl'
     CommandLine|contains|all:
     - 'list'
     - '/users'
-  selection_2:
+  selection_dscacheutil:
     Image|endswith: '/dscacheutil'
     CommandLine|contains|all:
     - '-q'
     - 'user'
-  selection_3:
-    CommandLine|contains: '''x:0:'''
-  selection_4:
-    Image|endswith: '/cat'
+  selection_root:
+    CommandLine|contains: '''*:0:'''
+  selection_passwd_sudo:
+    Image|endswith:
+    - '/cat'
+    - '/awk'
+    - '/grep'
     CommandLine|contains:
     - '/etc/passwd'
     - '/etc/sudoers'
-  selection_5:
+  selection_id:
     Image|endswith: '/id'
-  selection_6:
+  selection_lsof:
     Image|endswith: '/lsof'
     CommandLine|contains: '-u'
+  selection_logged_in_users:
+    Image|endswith:
+    - '/who'
+    - '/w'
+    - '/users'
+    - '/last'
+  selection_home_dir_listing:
+    Image|endswith: '/ls'
+    CommandLine|endswith:
+    - '/Users'
+    - "/Users'"
+    - '/Users"'
+  selection_loginwindow_prefs:
+    Image|endswith:
+    - '/defaults'         # defaults read /Library/Preferences/com.apple.loginwindow
+    - '/plutil'         # plutil -p /Library/Preferences/com.apple.loginwindow.plist
+    CommandLine|contains: 'com.apple.loginwindow'
   condition: 1 of selection*
 falsepositives:
 - Legitimate administration activities
@@ -43,36 +67,28 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects enumeration of local system accounts on macOS devices. The likely attacker objective is to gather information about user accounts and potential privilege escalation opportunities. This behavior aligns with the MITRE ATT&CK technique for Discovery: Account Discovery (T1087.001). Primary telemetry sources include process creation events, specifically looking for log types related to macOS, such as bash or shell command executions.
+  This rule detects the enumeration of local system accounts on macOS systems through various commands such as `dscl`, `dscacheutil`, `cat`, `awk`, and other tools. Attackers may utilize this behavior to identify potential accounts for lateral movement or privilege escalation, aiming to facilitate unauthorized access to sensitive data. The relevant MITRE ATT&CK technique is "Local Account Discovery" (T1087.001).
 
-  If malicious, this activity could enable an attacker to identify user accounts for further exploitation. However, it's important to note that this detection does NOT confirm malicious intent by itself, as legitimate administrative activities that enumerate users can also trigger this alert.
-
-  ---
+  Primary telemetry sources include process creation logs, particularly event logs capturing command-line arguments and the images executing the commands. If malicious, this behavior can pose significant risks, such as unauthorized access or privilege escalation across a network. However, this detection does NOT confirm that malicious activity is taking place on its own, as legitimate administrative activities may trigger similar alerts.
 
   ### Investigation Steps
 
-  - **Review recent process executions:** Examine process creation logs (Event ID for macOS can include `process_created`) for instances of commands executed by `/dscl`, `/dscacheutil`, or `/cat`. Filter out processes with command line arguments indicating potential enumeration.
+  - **Verify the command execution context:** Check for macOS Security Event ID 4688 for the process creation of commands like `dscl`, `dscacheutil`, and `ls`. Analyze who executed the command and the time it was run.
 
-  - **Identify targeted user accounts:** Check if the command line references `/etc/passwd` or `/etc/sudoers` which can indicate an attempt to view system permissions. This could signify a deeper investigation is required.
+  - **Review command-line arguments:** Examine the command-line arguments associated with the detected process. For example, `dscl` should include flags like `'list'` and `'/users'`, indicating account enumeration. Legitimate administrative commands will often have specific usage patterns and flags.
 
-  - **Establish baseline for legitimate activity:** Analyze logs for system administration commands run by known IT personnel during maintenance hours. Legitimate usage typically includes account enumeration for service checks, not targeting privileged access.
+  - **Assess user roles and permissions:** Determine the user associated with the action by checking the logs and correlating against legitimate administrator accounts. Administrative users will typically perform these queries regularly.
 
-  - **Correlate with network activity:** Look for any outbound connections (if the host was attempting command and control) around the same timeframe in your network logs, noting connection attempts to unknown external IP addresses.
+  - **Identify high-confidence malicious indicators:** Look for unexpected invocations of `dscl` or `cat` with suspicious command-lines such as referencing `'/etc/passwd'` or `'/etc/sudoers'`. The appearance of these indicators may suggest a potential malicious attempt to glean user credentials or privilege.
 
-  - **Check the execution context:** Validate the user context under which these commands were executed. Commands run by non-admin users may indicate suspicious behavior, especially if the execution time appears unusual.
-
-  - **Look for additional indicators of compromise:** Investigate whether these enumeration attempts coincide with lateral movement tactics, such as using `ssh` or `Telnet`, by checking SSH logs for unusual login attempts post-enumeration.
-
-  ---
+  - **Establish baseline legitimate activity:** Document typical commands run by system administrators, like listing users through `id` or `who`, and compare against detected behaviors to distinguish between benign and malicious intents.
 
   ### Prioritization
 
-  This alert is low-priority in an enterprise context because while it indicates a systematic enumeration of local accounts, such behavior can stem from routine administrative actions or legitimate scripting. However, it should still be investigated as it may be indicative of early reconnaissance by a threat actor.
-
-  ---
+  This alert should be considered low severity in a mature enterprise context, primarily due to its potential for benign execution during routine administrative tasks. However, repeated enumeration across multiple systems may indicate a higher likelihood of malicious intent, particularly if aligned with other suspicious behaviors. The command patterns in the rule are often weaponized by attackers to facilitate lateral movement.
 
   ### Blind Spots and Assumptions
 
-  Detection may face limitations if logging levels are set too low, potentially missing critical account enumeration processes. Legitimate user administrative activities could trigger this alert, thereby introducing noise. Companion detections might include monitoring access to administrative logs or unusual account logins, which would bolster the analysis of potential malicious intent.
+  Potential evasion techniques include using obfuscated command-line arguments or executing the commands through indirect methods to bypass detection. Reliable detection requires proper logging configurations to ensure visibility into all relevant command executions. Benign legitimate activities could include system administration maintenance or audits that involve user enumeration. A related detection to strengthen coverage would involve monitoring for unusual patterns of access to high-privilege accounts or the use of process creation logs across preceding alerts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
