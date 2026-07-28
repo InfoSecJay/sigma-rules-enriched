@@ -2,14 +2,26 @@ title: DNS Query to External Service Interaction Domains
 id: aff715fa-4dd5-497a-8db3-910bea555566
 status: test
 description: |
-  Detects suspicious DNS queries to external service interaction domains often used for out-of-band interactions after successful RCE
+  Detects DNS queries to well-known out-of-band application security testing (OAST) and callback domains.
+  These services (e.g. Burp Collaborator, interactsh, canarytokens, dnslog.cn) are used by security
+  researchers and attackers alike to confirm blind vulnerabilities such as SSRF, XXE, blind RCE, and
+  Log4Shell-style injections, where the exploit payload triggers an external DNS lookup to a controlled domain.
+
+  A detection indicates that a host on your network resolved one of these domains, which may mean:
+      (1) an attacker is actively probing or exploiting a vulnerable service and using the callback to
+      confirm code execution or data exfiltration,
+      (2) a security scanner (e.g. Nuclei, Gobies) is running against internal targets.
+
+  Investigate the source host, the full DNS query string (the unique subdomain prefix encodes the callback session),
+  and any concurrent outbound connections or process activity to determine intent.
 references:
 - https://twitter.com/breakersall/status/1533493587828260866
 - https://www.bitdefender.com/en-us/blog/businessinsights/bitdefender-advisory-critical-unauthenticated-rce-windows-server-update-services-cve-2025-59287
 - https://github.com/SigmaHQ/sigma/pull/5724#issuecomment-3466382234
+- https://hunt.io/blog/open-directory-nginx-rift-ghost-cms-multi-cve
 author: Florian Roth (Nextron Systems), Matt Kelly (list of domains)
 date: 2022-06-07
-modified: 2026-01-24
+modified: 2026-07-23
 tags:
 - attack.initial-access
 - attack.t1190
@@ -31,6 +43,7 @@ detection:
     - '.dnshook.site'         # webhook.site
     - '.dnslog.cn'
     - '.dnslog.ink'         # dnslog.ink
+    - '.gobygo.net'         # gobies.org
     - '.instances.httpworkbench.com'         # httpworkbench.com
     - '.interact.sh'         # Project Discovery Interactsh
     - '.log.dnslog.pp.ua'         # dnslog.org
@@ -56,30 +69,28 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects DNS queries to a specific set of external domains commonly associated with command and control (C2) or exfiltration services used by attackers following remote code execution (RCE). The primary objective of these queries is likely to establish communication with a malicious server for further instructions or data exfiltration. This behavior falls under the MITRE ATT&CK tactics of Initial Access (TA0001), specifically using Exploit Public-Facing Application (T1190), with reconnaissance methods related to External Remote Services (T1595.002).
+  This rule detects DNS queries to domains commonly associated with out-of-band application security testing (OAST) and callback services used by both security researchers and attackers. The primary behavior being detected signifies that a host on the network initiated a DNS lookup to a known OAST domain, which could indicate exploitation attempts leveraging vulnerabilities like SSRF, XXE, or blind RCE. The detection relates to the MITRE ATT&CK tactics of Initial Access (T1190) and Reconnaissance (T1595.002).
 
-  The primary telemetry sources for this detection are DNS query logs, which should include Record Type A and AAAA, along with query fields indicating the DNS request and the responding IP. If this activity is indeed malicious, it can lead to a breach of sensitive information and escalation of privileges within the network. Importantly, this detection does NOT confirm a successful compromise on its own; it simply flags the existence of suspicious DNS queries indicative of potential malicious intent.
+  The main telemetry sources for this detection are DNS logs covering DNS query types (UDP/TCP), with a focus on specific domains listed in the Sigma rule. If the detection is confirmed maliciously, it may imply an active probing for vulnerabilities or a successful exploitation scenario. However, it is crucial to note that this detection does not conclusively prove that an exploit has succeeded or that malicious intent is present without further context.
 
   ### Investigation Steps
 
-  - **Review DNS query logs**: Check for DNS queries matching the following patterns: `.burpcollaborator.net`, `.oast.fun`, and other domains listed in the rule. Focus on Event ID 22 from your DNS logging solution to pinpoint these queries.
+  - **Investigate the source host's recent activity**: Review network traffic logs (e.g., Event ID 4688) to identify processes that might have generated the DNS query. Look for any unusual outbound connections from this host, particularly to external addresses.
 
-  - **Identify legitimate activity context**: Determine if there were any expected or approved testing activities during the timeframe of detection. Security scanning tools or internal tests may legitimately query these domains.
+  - **Analyze DNS query details**: Check DNS logs for the complete query string, focusing on the unique subdomain prefix that encodes the callback session. This may provide insights into whether the interaction is legitimate or suspicious.
 
-  - **Cross-reference with internal systems**: Analyze the related host's outbound connections (Event ID 5156) or application activity (Event ID 4688) for any process initiating these DNS queries. Windows environments may indicate processes like `powershell.exe` or `cmd.exe` that interacted with the external services.
+  - **Identify legitimate security scanning behavior**: Review logs for known legitimate security scanning tools operating within the environment (e.g., Nuclei or Gobies) and their expected activity patterns, such as scaling DNS queries within a short timeframe or accessing specific targets.
 
-  - **Investigate for indicators of compromise**: Look for actual external communication attempts correlated with the flagged DNS queries by reviewing firewall logs (Event ID 51530) for outbound connections to the identified domains, noting down the timestamps to establish a sequence of events.
+  - **Correlate with concurrent outbound connections**: Cross-reference DNS logs with firewall or proxy logs to identify any concurrent outbound traffic to external IPs associated with the queried domains. Malicious indicators include unusual spikes or traffic to the detected OAST domains outside of normal behavior.
 
-  - **Examine threat intelligence**: Utilize threat intelligence platforms to correlate detected domains with known malicious entities or campaigns. Use the domain reputation system to assess whether these domains are flagged for malicious activity.
-
-  - **Collect and analyze exfiltration artifacts**: Validate the logging of data transmission or file uploads linked to the detected queries. For example, check for any file access logs (Event ID 4663) or data transfer activities associated with the processes initiating the DNS queries.
+  - **Assess asset criticality**: Determine the role of the host that initiated the DNS query. If it's a critical system (e.g., a web server or API gateway), prioritize your investigation.
 
   ### Prioritization
 
-  This alert should be classified as high severity due to the potential impact on sensitive data and system integrity. The likelihood of malicious behavior is considerable, especially since the detected domains are heavily utilized by threat actors for establishing C2 channels. Such behavior can indicate a broader attack campaign or exploitation attempt that is commonly seen in the wild.
+  This alert is high severity due to the potential risk it represents, particularly if the affected system has a critical role in the enterprise. The likelihood of malicious use is high, as these OAST domains are commonly exploited by attackers for reconnaissance and confirmation of successful code execution. Such behaviors can lead to data breaches or further compromise of internal systems.
 
   ### Blind Spots and Assumptions
 
-  The primary detection limitation lies in the potential for false positives stemming from legitimate security testing activities that could generate similar DNS queries. Reliable detection necessitates comprehensive DNS logging across all relevant assets and clear documentation of allowed domains for typical security tools. Additionally, legitimate cloud functions or services may legitimately query these domains, and frequent requests should invoke a review process. A companion detection to consider might be monitoring unusual outbound traffic patterns or encrypted DNS requests to further enhance the risk coverage.
+  Effective detection is limited by the completeness of DNS logs. Should a threat actor employ encrypted DNS (DNS over HTTPS/TLS), these queries may not be captured. Additionally, legitimate activities such as authorized security testing or vulnerability assessments can trigger the alert, potentially leading to false positives. A related detection to consider could be monitoring outbound connections to newly registered or infrequently accessed domains to enhance coverage and identify potential abuse earlier.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
