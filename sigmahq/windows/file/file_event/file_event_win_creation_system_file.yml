@@ -8,7 +8,7 @@ references:
 - Internal Research
 author: Sander Wiebing, Tim Shelton, Nasreddine Bencherchali (Nextron Systems)
 date: 2020-05-26
-modified: 2026-02-04
+modified: 2026-07-28
 tags:
 - attack.stealth
 - attack.t1036.005
@@ -136,7 +136,16 @@ detection:
     TargetFilename|contains: 'C:\Windows\System32\SecurityHealth\'
     TargetFilename|endswith: '\SecurityHealthSystray.exe'
     Image|endswith: '\SecurityHealthSetup.exe'
-  condition: selection and not 1 of filter_main_*
+  filter_optional_wslhost:
+  - TargetFilename: 'C:\Program Files\WSL\wslhost.exe'
+  - TargetFilename|contains|all:
+    - 'C:\Program Files\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForLinux_'
+    - '\wslhost.exe'
+  - TargetFilename|contains|all:
+    - 'C:\Users\'
+    - '\AppData\Local\Microsoft\WindowsApps\'
+    - '\wslhost.exe'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - System processes copied outside their default folders for testing purposes
 - Third party software naming their software with the same names as the 
@@ -148,30 +157,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This rule detects the creation of executable files that share names with legitimate system processes but are located in non-standard directories, such as user profiles or temporary folders, rather than the expected system directories (e.g., System32). The likely goal of an attacker triggering this behavior is to blend in with legitimate system processes, potentially creating a backdoor or executing malicious commands while bypassing security solutions.
+  This Sigma rule detects the creation of Windows executable files that share names with well-known system processes in directories that are not typically associated with legitimate system operation, such as `C:\Windows\System32` or `C:\Windows\SysWOW64`. This behavior is indicative of a potential attempt by an adversary to evade detection by masquerading malicious executables as legitimate system processes. The likely attacker objective is to establish persistence or to execute malicious payloads without raising suspicion.
 
-  The relevant MITRE ATT&CK tactic is **Defense Evasion**, specifically technique **Masquerading (T1036.005)**. The primary telemetry source for this detection is file creation events in Windows, specifically focusing on executable file types in user- or temp-specific directories. If malicious, this behavior poses significant risks, including unauthorized execution of malicious payloads with elevated privileges. However, this detection does NOT confirm that the identified executable is malicious, as it could be a legitimate software behavior dependent on the context.
+  The relevant MITRE ATT&CK tactic for this detection is **Stealth** (TA0005), with the specific technique being **Masquerading: Executable Filename** (T1036.005). The primary telemetry sources are Windows file event logs, particularly those capturing file creation, along with process creation events indicating attempts to run these executables. If malicious, this behavior can lead to unauthorized access, data exfiltration, or system compromise. It is important to note that the detection of this behavior does not confirm an attack on its own; further investigation is necessary to determine the intent and context behind the executable creation.
 
   ### Investigation Steps
 
-  - **Check for recent file creation events:** Look for **File Creation Events (Sysmon Event ID 11 or Windows Event ID 4663)** concerning the flagged executable, noting the **creation time** and **user context**. Malicious activity typically shows rapid execution following creation.
+  - **Analyze the target filename:** Review the alert details for the `TargetFilename` field to determine the exact location and name of the created executable. Malicious instances often show process names like `explorer.exe` in unexpected locations outside standard directories.
 
-  - **Validate the file location:** Verify the path of the detected executable. Legitimate system processes should reside in **C:\Windows\System32\** or **C:\Windows\SysWOW64\**. Files created in **C:\Users\<username>\AppData\Local\Temp** or other unexpected directories are suspicious.
+  - **Check process creation events:** Validate the creation of the executable against Security Event ID 4688 logs for any corresponding process creation (e.g., the name of the creating process and any command line arguments, focusing specifically on unusual parent processes for context).
 
-  - **Identify abnormal parent process relationships:** Review the parent process of the executable creation using **Event ID 4688 (Process Creation)** to determine if it originated from a legitimate source or a suspicious process (e.g., cmd.exe, powershell.exe, or other system utilities).
+  - **Review parent-child process relationships:** Use Sysmon Event ID 1 to examine the full parent-child process tree associated with the executable creation. Legitimate activity will typically show system processes spawning executables only from their designated directories.
 
-  - **Examine user permissions and attributes:** Investigate if the user account associated with the executable creation has unnecessary administrative privileges. Malicious actors often utilize accounts with elevated rights for their actions.
+  - **Assess file properties:** Investigate the file properties of the created executable, using Windows properties or hash verification against known legitimate files to identify anomaly signatures (e.g., hash values not matching known good files).
 
-  - **Review file signature and hash values:** Use file properties to check the hash (SHA1/SHA256) of the executable. Genuine system files will usually have known hash values that you can validate against known databases (e.g., VirusTotal).
+  - **Cross-check with baseline data:** Compare the findings with established baselines of legitimate application behavior or known benign applications that may have similar names but exist in authorized locations to validate if the activity is expected.
 
-  - **Check for related artifacts of execution:** Look for other indicators of compromise related to the execution of this application, such as **Windows Event ID 7045** (Service Installation) or evidence of network activity in **Firewall logs** or **Proxy logs** related to that executable's activity.
+  - **Identify other artifacts:** Look for associated artifacts, such as file creation timestamps in `C:\Windows\Temp`, indicating possible short-lived or temporary executions of malicious scripts, further supporting suspicious behavior.
 
   ### Prioritization
 
-  This alert has medium severity as it indicates potential evasion techniques being used by an adversary. Given the nature of the affected executables, if confirmed as malicious, this behavior could allow attackers to maintain persistence or escalate privileges. While rare, similar techniques have been weaponized in active attacks against enterprises.
+  This alert is of **medium severity** as the presence of executables named after system processes in unexpected locations can indicate a stealthy attack. The likelihood of malicious abuse is significant, as adversaries often utilize this technique to mask their actions. While not all instances are harmful, it requires immediate triage due to the potential implications for system security.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss instances where an attacker successfully names their malicious executable after a benign application yet places it in an expected directory. Additionally, required log sources such as Sysmon and Windows Event Logs must be correctly configured to capture these file creation events reliably. Legititimate system management tasks like software updates may trigger the alert, which requires close scrutiny of the associated context. A companion detection might involve monitoring for unusual parent-child process relationships that indicate potentially malicious activity preceding or following the detected file creation.
+  Detection limitations may arise from the possibility of legitimate software incorrectly using system process names. The rule's performance depends heavily on comprehensive file creation logging; any misconfiguration could yield false negatives. Additionally, standard administrative or IT operations, such as software installs, updates, or system migrations, may inadvertently trigger the alert. A related detection that enhances coverage would be the monitoring of command-line parameters for process creation events, which can provide context to distinguish between benign and malicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

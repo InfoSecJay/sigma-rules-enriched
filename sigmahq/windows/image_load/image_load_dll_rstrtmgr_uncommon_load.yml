@@ -15,7 +15,7 @@ references:
 - https://taiwan.postsen.com/business/88601/Hamas-hackers-use-data-destruction-software-BiBi-which-consumes-a-lot-of-processor-resources-to-wipe-Windows-computer-data--iThome.html
 author: Luc Génaux
 date: 2023-11-28
-modified: 2025-12-08
+modified: 2026-07-28
 tags:
 - attack.impact
 - attack.defense-impairment
@@ -30,29 +30,35 @@ detection:
   - OriginalFileName: 'RstrtMgr.dll'
   filter_main_generic:
     Image|startswith:
-    - C:\$WINDOWS.~BT\'
-    - C:\$WinREAgent\'
-    - C:\Program Files (x86)\'
-    - C:\Program Files\'
-    - C:\ProgramData\'
-    - C:\Windows\explorer.exe'
-    - C:\Windows\SoftwareDistribution\'
-    - C:\Windows\SysNative\'
-    - C:\Windows\System32\'
-    - C:\Windows\SysWOW64\'
-    - C:\Windows\WinSxS\'
-    - C:\WUDownloadCache\'
+    - 'C:\$WINDOWS.~BT\'
+    - 'C:\$WinREAgent\'
+    - 'C:\Program Files (x86)\'
+    - 'C:\Program Files\'
+    - 'C:\ProgramData\'
+    - 'C:\Windows\explorer.exe'
+    - 'C:\Windows\SoftwareDistribution\'
+    - 'C:\Windows\SysNative\'
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+    - 'C:\Windows\WinSxS\'
+    - 'C:\WUDownloadCache\'
   filter_main_user_software_installations:
-    Image|startswith: C:\Users\'
+    Image|startswith: 'C:\Users\'
     Image|contains|all:
     - '\AppData\Local\Temp\is-'
     - '.tmp\'
     Image|endswith: '.tmp'
   filter_main_admin_software_installations:
-    Image|startswith: C:\Windows\Temp\'
-  filter_optional_onedrive:
+    Image|startswith: 'C:\Windows\Temp\'
+  filter_optional_onedrive_1:
     Image|startswith: 'C:\Users\'
-    Image|endswith: '\AppData\Local\Microsoft\OneDrive\OneDriveStandaloneUpdater.exe'
+    Image|endswith:
+    - '\AppData\Local\Microsoft\OneDrive\OneDrive.exe'
+    - '\AppData\Local\Microsoft\OneDrive\OneDriveStandaloneUpdater.exe'
+  filter_optional_onedrive_2:
+    Image|startswith: 'C:\Users\'
+    Image|contains: '\AppData\Local\Microsoft\OneDrive\'     # AppData\Local\Microsoft\OneDrive\26.062.0402.0002\OneDrive.Sync.Service.exe
+    Image|endswith: '\OneDrive.Sync.Service.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Other legitimate Windows processes not currently listed
@@ -61,28 +67,30 @@ level: low
 note: |
   ### Technical Context
 
-  This rule detects when the RstrtMgr.dll (Restart Manager) is loaded by an uncommon process. Attackers may utilize this DLL to terminate processes that would hinder file encryption, especially during ransomware incidents such as those involving Conti or Cactus ransomware. The MITRE ATT&CK techniques relevant to this detection include T1486 (Data Encrypted for Impact) and T1685 (Data Destruction).
+  This Sigma rule detects the loading of the Restart Manager DLL (RstrtMgr.dll) by processes that typically are not associated with legitimate system operations. Malicious actors may employ this behavior to terminate critical processes during ransomware attacks, which facilitates file encryption (e.g., Conti and Cactus ransomware) or to hinder analysis by shutting down security tools. The relevant MITRE ATT&CK tactics include Impact (T1486) and Defense Evasion (T1685).
 
-  The primary telemetry sources are Windows image load events, specifically looking for ImageLoaded-related events. If the alert is associated with a malicious actor, the security impact could involve data loss or service disruption. However, this detection alone does not confirm malicious activity, as benign processes may also invoke this DLL under specific conditions.
+  Primary telemetry sources include Windows Image Load events, specifically focusing on Event ID 4688 (Process Creation) and Sysmon Event ID 10 (Image Loaded) to monitor which process is invoking RstrtMgr.dll. If malicious, this behavior can have severe security implications by allowing attackers to manipulate or disrupt essential services or data. Importantly, this detection alone does not confirm malicious activity; further investigation is necessary to correlate it with malicious intent or context.
 
   ### Investigation Steps
 
-  - **Review process origins:** Check the process initiating the RstrtMgr.dll load using Sysmon Event ID 1 for 'CommandLine' and 'ProcessId' fields. Legitimate loads occur from standard Windows paths; query logs for paths like `C:\Windows\System32\` or `C:\Program Files\`. Uncommon paths indicate potential malicious activity.
+  - **Validate process legitimacy:** Check the process loading RstrtMgr.dll against known benign processes. Look for typical paths like `C:\Windows\System32\` and common applications versus paths like `C:\Users\<username>\AppData\Local\Temp\` that might indicate malicious behavior.
 
-  - **Analyze loading processes:** Gather Windows Event ID 4688 (process creation) logs for the process associated with the RstrtMgr.dll load. Look for unusual parent-child relationships or execution from non-standard directories, especially those less frequently used by trusted software.
+  - **Review Event ID 4688 and Sysmon ID 10:** Analyze Windows Security Event ID 4688 to see the complete command line and parent process details of the process initiating RstrtMgr.dll. Focus on unusual or unexpected parent-child relationships (e.g., scripts or executable files not usually associated with system maintenance).
 
-  - **Evaluate execution frequency:** Review frequency and context of RstrtMgr.dll usage across the environment over the last 30 days. Sudden spikes or usage by processes not traditionally associated with application installs may indicate malfeasance.
+  - **Correlate with previous alerts:** Check the threat intelligence database for any historical instances of the reported process and RstrtMgr.dll loading. Cross-reference with documented behaviors of known ransomware like Conti or Cactus to identify possible attack patterns.
 
-  - **Identify potential process trees:** Use parent process analysis to establish context; guard against benign activity initiated by regular systems, like Windows Update components. Malicious exploitation often shows inconsistent or unexpected parent-child hierarchies.
+  - **Inspect for high-confidence indicators:** Look for any additional signs of ransomware activity from the process, such as file modifications in sensitive directories (`C:\Users\<username>\Documents`) or unusually high CPU usage via Task Manager.
 
-  - **Correlate with other alerts:** Check for any related alerts or entries in the security logs, particularly those reflecting T1486 or T1685 activities. A pattern of malicious behavior across systems may increase the confidence in a threat being present.
+  - **Identify legitimate activity:** Highlight common Windows processes or system services that routinely interact with RstrtMgr.dll. Activities such as system updates or user-initiated restarts that invoke the Restart Manager for legitimate purposes can be expected.
+
+  - **Assess host risk and criticality:** Confirm if the affected system has critical roles such as domain controller or database server. Prioritize investigation of alerts where RstrtMgr.dll loading occurs on systems with sensitive data or high-value targets.
 
   ### Prioritization
 
-  This alert is considered low severity due to its potential benign triggers, typically arising from legitimate software installations. However, given the involvement of RstrtMgr.dll in notable ransomware campaigns, any detection warrants timely investigation, particularly in sensitive environments where data protection is paramount.
+  The alert severity is considered low due to the low likelihood of malicious abuse under typical conditions. The behavior is not commonly weaponized unless in conjunction with additional suspicious activity. However, if this behavior is observed on critical systems (e.g., servers), the potential impact escalates due to the risk of significant business disruption.
 
   ### Blind Spots and Assumptions
 
-  Possible evasion techniques include legitimate software using RstrtMgr.dll during installations, which may dilute detection rates. Ensure Windows image load event logging is correctly configured to capture all relevant data. Additionally, scheduled system updates could inadvertently trigger this alert, reflecting normal operations rather than malicious intent. Related detections, such as process terminations involving RstrtMgr.dll, would enhance monitoring of potential attack vectors.
+  This detection may miss instances where legitimate software installations or updates invoke RstrtMgr.dll due to process manipulation or system configuration changes. Ensure Windows Event Log and Sysmon configurations are set to capture all relevant image load events for comprehensive coverage. Legitimate activities, such as software installation processes and system maintenance tasks, can generate similar alerts. A companion detection to streamline coverage includes monitoring for abnormal process startups that interact with critical system DLLs, enhancing overall threat visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

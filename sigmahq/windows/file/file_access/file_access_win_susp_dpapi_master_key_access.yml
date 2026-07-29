@@ -9,7 +9,7 @@ references:
 - https://book.hacktricks.xyz/windows-hardening/windows-local-privilege-escalation/dpapi-extracting-passwords
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-17
-modified: 2024-07-29
+modified: 2026-07-28
 tags:
 - attack.credential-access
 - attack.t1555.004
@@ -22,13 +22,15 @@ detection:
     FileName|contains:
     - '\Microsoft\Protect\S-1-5-18\'         # For System32
     - '\Microsoft\Protect\S-1-5-21-'         # For Users
-  filter_system_folders:
+  filter_main_system_folders:
     Image|startswith:
     - 'C:\Program Files\'
     - 'C:\Program Files (x86)\'
     - 'C:\Windows\system32\'
     - 'C:\Windows\SysWOW64\'
-  condition: selection and not 1 of filter_*
+  filter_main_explorer:
+    Image: 'C:\Windows\explorer.exe'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Unknown
 # Increase level after false positives filters are good enough
@@ -36,30 +38,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects access requests to Windows Data Protection API (DPAPI) master keys by uncommon applications. The behavior indicates a possible credential theft attempt, particularly through tools like Mimikatz that exploit DPAPI for retrieving sensitive information. The relevant MITRE ATT&CK tactic is Credential Access, specifically technique T1555.004: "Credentials from Password Managers." The primary telemetry sources include Windows Event Logs capturing file access events, especially through the Microsoft-Windows-Kernel-File ETW provider.
+  This Sigma rule detects file access requests to the Windows Data Protection API (DPAPI) master keys by uncommon applications, which may indicate credential theft behavior. The likely objective of an attacker is to extract sensitive information, such as passwords, by accessing DPAPI-protected data. This aligns with the MITRE ATT&CK tactic of Credential Access (TA0006) and the specific technique: Credentials from Password Managers (T1555.004). The primary telemetry sources include Windows kernel file access events, specifically through the Microsoft-Windows-Kernel-File ETW provider, with log types indicating access to files located in the DPAPI master key directories.
 
-  If these actions are malicious, they could lead to unauthorized access to sensitive credentials or data, posing a severe risk to organizational security. It's critical to note that this detection does NOT confirm malicious intent on its own—further investigation is necessary to contextualize the behavior and establish intent.
+  If malicious, such behavior can lead to unauthorized access to sensitive credentials stored on the device, significantly compromising security. However, this detection does NOT confirm that credential theft has succeeded or that the accessing application is inherently malicious without further context.
 
   ### Investigation Steps
 
-  - **Identify the requesting application**: Check the `Image` field for the process name and path that triggered the access. Common legitimate applications include `explorer.exe` or `powershell.exe`, while uncommon applications could indicate suspicious activity.
+  - **Verify the accessing application:** Review the process triggering the file access using event logs (Sysmon Event ID 1). Identify if it's a known application or an uncommon one. Attempting to access DPAPI keys by common applications (e.g., `explorer.exe`) is expected.
 
-  - **Review file access events**: Examine Windows Security Event ID 4663 for file access details, specifically focusing on attempts to access files under `C:\Microsoft\Protect\`. Look for access by uncommon processes.
+  - **Check for specific file access events:** Look for Security Event ID 4663 related to file access in `C:\ProgramData\Microsoft\Crypto\RSA\` or the corresponding DPAPI directories. Uncommon applications accessing these files warrant further investigation.
 
-  - **Correlate with process creation logs**: Validate against Sysmon Event ID 1 to see if the process that accessed the DPAPI master key was indeed spawned by an unexpected source, which might suggest an anomaly.
+  - **Correlate with other malicious indicators:** Cross-reference process access with known malicious samples in threat intelligence databases. Check if the accessing application matches patterns associated with tools like Mimikatz.
 
-  - **Identify patterns of abuse**: Check for repeated access attempts by the same process or across different uncommon processes within a short time frame. This could indicate automated tooling.
+  - **Assess user behavior context:** Examine the user account that triggered the file access. Review account history and permission levels in Active Directory to identify any suspicious activity or privilege escalations.
 
-  - **Look for legitimate DPAPI use**: Verify expected legitimate usage scenarios by inspecting trusted applications that commonly interact with DPAPI, such as Windows Credential Manager or Microsoft Edge.
+  - **Identify competing legitimate activity:** Review whether backup or administrative scripts run by IT operations may legitimately access DPAPI keys. Such scripts will typically operate under specific service accounts rather than under arbitrary user accounts.
 
-  - **Check for tools**: Confirm if known credential dumping tools (e.g., Mimikatz) are present on the system by reviewing file paths for unusual binaries or scripts that could be linked to credential theft attempts.
+  - **Document high-risk processes:** Flag any instances where the file access was executed by applications known for credential extraction techniques, such as Mimikatz, identified through process command lines and paths logged in Event ID 4688.
 
   ### Prioritization
 
-  This alert has medium severity in an enterprise context due to the potential for high-impact credential theft if malicious. Uncommon applications making requests to DPAPI master keys are often indicative of weaponized tools used in attacks. The likelihood of abuse is moderate, given that this behavior is associated with known tactics used by adversaries.
+  The severity of this alert is medium due to the potential for serious security impacts if credentials are accessed. The likelihood of malicious misuse is moderate, as uncommon applications accessing sensitive credential stores generally indicate an attempt to exploit the system. This pattern aligns with behaviors commonly weaponized in credential theft scenarios.
 
   ### Blind Spots and Assumptions
 
-  Detection could be limited by the absence of comprehensive telemetry, such as file access logging not being enabled for all critical folders containing sensitive information. Legitimate applications, especially system agents or maintenance tools, might trigger this alert without malicious intent. Additionally, companion detections for abnormal process execution (e.g., Sysmon EID 1 for process creation) can enhance visibility into the threat landscape, providing context to the file access event.
+  Detection can be limited by the unique application behavior that might not generate an alert. Legitimate administrative tools or backup scripts may trigger the alert, resulting in false positives. Comprehensive logging from the Microsoft-Windows-Kernel-File ETW provider is essential for reliable detection. A companion detection to enhance coverage could involve monitoring for unused or rarely seen applications executing processes linked to backups or credential management tasks.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

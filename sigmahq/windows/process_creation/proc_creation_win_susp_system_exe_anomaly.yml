@@ -13,7 +13,7 @@ references:
 author: Florian Roth (Nextron Systems), Patrick Bareiss, Anton Kutepov, 
   oscd.community, Nasreddine Bencherchali (Nextron Systems)
 date: 2017-11-27
-modified: 2026-07-02
+modified: 2026-07-28
 tags:
 - attack.stealth
 - attack.t1036
@@ -103,7 +103,7 @@ detection:
     - 'C:\Program Files\WSL\'
     Image|endswith: '\wsl.exe'
   filter_main_wsl_appdata:
-    Image|startswith: C:\Users\'
+    Image|startswith: 'C:\Users\'
     Image|contains: '\AppData\Local\Microsoft\WindowsApps\'
     Image|endswith: '\wsl.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
@@ -115,28 +115,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of critical Windows system binaries from unusual locations, potentially indicating an attempt to evade detection or execute malicious payloads. The likely attacker objective is to leverage trusted system processes to blend in with normal operations, facilitating malicious activities such as lateral movement, credential harvesting, or persistent access. The relevant MITRE ATT&CK tactic is **Defense Evasion** (TA0005) and the technique is **Masquerading** (T1036).
+  This detection rule identifies the execution of critical Windows system binaries from unusual locations outside of their standard directories. Such behavior is indicative of potential malicious actions, including attempts to bypass system security mechanisms by executing system files from uncontrolled paths. The likely attacker objective is to gain persistence or execute payloads stealthily while evading standard security controls.
 
-  The primary telemetry sources for this detection come from **Windows process creation logs**, specifically Event ID 4688 or Sysmon Event ID 1. If this behavior is indeed malicious, it could lead to severe security impacts, including unauthorized access to sensitive data or system control. However, it is important to note that this detection does NOT conclusively prove that an attack is underway, as benign applications may trigger the same alert.
+  The relevant MITRE ATT&CK tactic is **Defense Evasion** (TA0005), specifically the technique **Masquerading** (T1036). The primary telemetry sources for this detection include Windows process creation logs, specifically Sysmon Event ID 1 or Windows Security Event ID 4688. If successfully exploited, this could allow adversaries to execute harmful commands with system privileges without raising immediate suspicion. Importantly, detection of the execution of these binaries from uncommon locations does NOT confirm malicious intent on its own — context must be applied to the circumstances of the execution.
 
   ### Investigation Steps
 
-  - **Verify process origin location:** Review Event ID 4688 for the image path of the executed binary. Check if the path deviates from typical locations such as `C:\Windows\System32\` or `C:\Windows\SysWOW64\`. Trusted binaries should usually reside in these directories.
+  - **Verify process execution logs**: Review Windows Security Event ID 4688 or Sysmon Event ID 1 logs for specific instances of the detected binaries (e.g., `powershell.exe`, `lsass.exe`). Pay attention to the `NewProcessName` field to identify the location of execution. Legitimate executions will typically originate from `C:\Windows\System32\` or similar trusted directories.
 
-  - **Identify the user context:** Examine the user account associated with the process creation in Event ID 4688. If the binary was executed under a system account when not expected (e.g., a user account executing elevated system processes), it could be indicative of malicious activity.
+  - **Examine process command line arguments**: For the identified suspicious process executions, check the command line arguments logged in Event ID 4688 under the `ProcessCommandLine` field. Malicious executions may include obfuscation techniques or unusual flags indicative of exploitative behavior.
 
-  - **Investigate command line arguments:** Analyze the command line arguments of the executed processes, which can be found in Event ID 4688 or Sysmon Event ID 1 (Process Command Line field). Look for obfuscation or unusual flags that might suggest a malicious intent.
+  - **Cross-reference user accounts**: Investigate the user accounts executing these processes to identify anomalies. The presence of administrative accounts executing system binaries from unexpected locations could be a strong indicator of malicious intent. Use Event ID 4624 to correlate logins to process executions.
 
-  - **Check the process tree:** Use process tree data from Sysmon to determine if any parent processes (e.g., `powershell.exe`, `cmd.exe`) are known to be used for malicious activities. The execution of system binaries from uncommon parent processes can indicate malicious exploitation.
+  - **Check the parent process hierarchy**: Analyze the parent-child relationships of the detected processes to identify any unusual patterns in the execution chain. Leadership by a benign process, such as `explorer.exe` or `svchost.exe`, could indicate legitimate use; however, execution from semantically unrelated processes warrants further scrutiny.
 
-  - **Examine historical data:** Cross-reference any historical logs involving the same binaries executed from legitimate locations versus their appearance from the anomalous locations. This can help establish if this is an uncommon execution pattern for that system or user.
+  - **Monitor related service changes**: Investigate any recent changes or creations of services in the Windows Service Control Manager for entries related to the detected binaries (e.g., through Event ID 7045). Malicious actors may create or manipulate services to execute system binaries for persistence.
+
+  - **Capture system behavior**: If possible, collect additional telemetry, including network connections (using Windows Firewall logs or Sysmon Network Connect events). Unexpected outbound connections made by the process can indicate exfiltration or callback behavior, especially when associated with unusual execution contexts.
 
   ### Prioritization
 
-  This alert is of **high severity** due to the potential security impact on critical systems. Unauthorized execution of system binaries from uncommon locations is a tactic frequently exploited by advanced adversaries, making the likelihood of malicious abuse high, especially if linked to known attack patterns.
+  Given that system binaries executed from atypical locations can indicate serious compromises, this alert is high priority. The impact may include unauthorized access, data breaches, or malware deployment. Such execution patterns are commonly exploited by adversaries seeking to evade detection, thereby heightening the need for prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of comprehensive logging configurations or if processes leverage legitimate binaries in non-standard ways. Common legitimate activities, such as remote desktop services or in-house scripts, may inadvertently trigger this alert. Additionally, related detections may include rules targeting process injection or abnormal process spawning, which can further bolster the analysis of suspected threats.
+  Evasion techniques, such as modifying process execution paths or using legitimate administrative tools to execute malicious code, may limit the effectiveness of this rule. Required log sources include comprehensive Sysmon configurations and Windows Security Auditing. Legitimate activities, such as software updates or administrative tasks performed by trusted users, may also trigger this alert. A related detection for lateral movement activities or abnormal scheduled task creations may strengthen overall coverage of potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

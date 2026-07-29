@@ -10,7 +10,7 @@ references:
 - https://twitter.com/_st0pp3r_/status/1583914244344799235
 author: frack113
 date: 2022-01-16
-modified: 2024-12-01
+modified: 2026-07-28
 tags:
 - attack.stealth
 - attack.t1218.007
@@ -31,48 +31,51 @@ detection:
     - '-j'
   selection_quiet:
     CommandLine|contains|windash: '-q'
-  filter_user_temp:
-        # The %temp% is a very common location for installers
-    ParentImage|startswith: 'C:\Users\'
-    ParentImage|contains: '\AppData\Local\Temp\'
-  filter_system_temp:
+  filter_main_system_temp:
     ParentImage|startswith: 'C:\Windows\Temp\'
-  filter_ccm:
+  filter_main_ccm:
     ParentImage: 'C:\Windows\CCM\Ccm32BitLauncher.exe'
     IntegrityLevel:
     - 'System'
     - 'S-1-16-16384'
-  condition: all of selection_* and not 1 of filter_*
+  filter_optional_user_temp:
+        # The %temp% is a very common location for installers
+    ParentImage|startswith: 'C:\Users\'
+    ParentImage|contains: '\AppData\Local\Temp\'
+  filter_optional_wsl:
+        # C:\WINDOWS\system32\msiexec.exe /quiet /i "C:\Users\xodih\AppData\Local\Temp\wsl.2.6.3.0.arm64 (2).msi" SKIPVALIDATION=1 /L*V C:\Users\xodih\AppData\Local\Temp\wsl-install-logs.txt
+    ParentImage|endswith: 'C:\Windows\System32\wsl.exe'
+    Image|endswith: 'C:\Windows\System32\msiexec.exe'
+  condition: all of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
 - WindowsApps installing updates via the quiet flag
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `msiexec.exe` with various command-line parameters indicative of a quiet installation of potentially malicious software. Attackers often use `msiexec.exe` to run installation packages stealthily, masking their activity from casual users and security tools, which aligns with the technique of "Obfuscated Files or Information" (T1027) in the MITRE ATT&CK framework. The primary telemetry sources for detection are process creation logs, particularly focusing on command lines that include quiet installation flags (e.g., `-q`) and the contexts in which they occur.
+  This Sigma rule detects the use of `msiexec.exe`, a command-line utility for Windows Installer, to silently install software packages with the `-q` (quiet) option alongside other installation flags. Attackers may exploit this behavior to execute malicious payloads without user interaction, typically aiming to install malware or persistence mechanisms undetected. The relevant MITRE ATT&CK tactic is **Execution** and the technique is **T1218.007** (Packaged Application Execution).
 
-  If such an installation is malicious, it can facilitate the deployment of threat actors' payloads without user approval or awareness, increasing the likelihood of successful compromise. However, it should also be noted that the existence of this alert does not confirm malicious activity on its own, as legitimate software installations often use similar command line parameters.
+  The primary telemetry source is Windows process creation logs, specifically focusing on command-line arguments used with `msiexec.exe`. If the detected behavior is indeed malicious, it could lead to unauthorized software installation and potentially a compromised system. Importantly, this detection does NOT confirm malicious activity on its own; the context and command-line parameters used must be analyzed in conjunction with other investigative steps.
 
   ### Investigation Steps
 
-  - **Review the command line arguments of the detected processes:** Check for the presence of `-q` among other silent installation flags in process creation logs (Event ID 4688) to confirm quiet installation behavior. Compare with benign patterns typical for enterprise software installations.
+  - **Review process creation logs:** Examine Security Event ID 4688 for instances of `msiexec.exe`. Look for CommandLine arguments containing `-q` and any installation flags. Ensure that the installation package paths do not originate from `C:\Windows\Temp\` or standard application update locations.
 
-  - **Check the parent process context:** Look at the `ParentImage` field for the detected `msiexec.exe` process. Investigate if it originates from common trusted paths like `C:\Windows\Installer` or the specific software distribution tools (e.g., `Ccm32BitLauncher.exe`), as these may indicate legitimate installations.
+  - **Identify high-risk execution patterns:** Focus on command-line arguments, especially combinations of `-q`, `-i`, or `-package`. The presence of `C:\Windows\System32\wsl.exe` as the parent process immediately raises suspicion for potential misuse of Windows Subsystem for Linux to facilitate the installation.
 
-  - **Correlate with user activity:** Review usage patterns in the user’s context to determine if they have legitimate software installation needs. Check for recent user-initiated actions in C:\Users\{username}\AppData\Local\Temp that correspond with the time of detection.
+  - **Validate legitimate software installations:** Check for known scheduled tasks or automated update processes that might utilize `msiexec.exe` to quietly install updates under expected conditions, particularly from trusted sources. Any deviations or unrecognized installers should be flagged.
 
-  - **Evaluate file drop locations:** Analyze the content and behavior of any new files created in `%temp%` or destination paths linked to the `msiexec.exe` execution. Be wary of MSI files or newly installed applications that appear unfamiliar.
+  - **Cross-reference file creation activity:** Inspect specified temporary directories (e.g., `C:\Users\<username>\AppData\Local\Temp\`) for recent `.msi` files or log outputs indicating malicious installations. Use Sysmon Event ID 10 to check for file creation and manipulation activities in those locations.
 
-  - **Look for reports of user complaints or issues:** Conduct user interviews or IT helpdesk ticket checks to gauge if there have been complaints surrounding installations that may have coincided with the detection timestamp.
-
-  - **Identify additional suspicious activity:** Look for lateral movement or credential theft indicators around the same time, as adversaries often chain multiple techniques to maintain persistence (consider cross-reference with successful commands in security logs).
+  - **Investigate associated user accounts:** Look for unusual account activity or newly created user accounts coinciding with the execution of `msiexec.exe` with the quiet flag. Responses from managed endpoints should be traced to ensure no sensitive data was exposed during the installation process.
 
   ### Prioritization
 
-  The alert has medium severity due to the potential impact of compromised systems resulting from unauthorized installations. The likelihood of abuse is moderate, as attackers often leverage common tools like `msiexec.exe` for stealthy operations. While this behavior represents a red flag, it also occurs in benign contexts, necessitating careful analysis before concluding malicious intent.
+  This alert is medium severity due to its potential impact on compromised systems, especially if the target is a critical asset within the enterprise. The likelihood of an attacker utilizing this method for achieving execution is high, as the quiet installation of malicious payloads is a common tactic in exploitation workflows.
 
   ### Blind Spots and Assumptions
 
-  There are limitations in detecting all evasion techniques as attackers may obfuscate or modify command line parameters to bypass detection. Logs must accurately capture process creation events and include complete command line data to ensure reliable detection, highlighting the importance of Sysmon configurations in this respect. Legitimate software update processes may trigger the alert, which can complicate investigations. Companion detections for suspicious activities involving `msiexec` should include alerts on MSI file creations or modifications (T1125), as this would enhance coverage and context.
+  Detection may be limited by the capability of log sources; organizations must ensure that detailed command-line logging is enabled for process creation events. Legitimate application installations (e.g., Windows App updates) could trigger the alert if they use similar silent command-line options. A companion detection strategy utilizing Sysmon for monitoring directory enumeration or file creation can enhance the coverage against these tactics.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
