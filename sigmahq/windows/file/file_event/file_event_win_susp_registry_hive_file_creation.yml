@@ -1,0 +1,72 @@
+title: Registry Hive File Staged Outside Standard User Profile Path
+id: a7f3c891-2e4d-4b6a-9f8c-d5e2a1b04c73
+status: experimental
+description: |
+  Detects the creation of a registry hive file (UsrClass.dat or NTUSER.DAT) outside of the standard user profile path.
+  These files generally contain various user-specific registry settings and are typically located in the user's profile directory.
+  Staging these files outside of the standard path can be indicative of an attacker attempting to manipulate user registry settings
+  for persistence, privilege escalation, or dump user registry hives for credential harvesting.
+references:
+- https://github.com/MSNightmare/LegacyHive
+- https://git.projectnightcrawler.dev/NightmareEclipse/LegacyHive
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-07-23
+tags:
+- attack.privilege-escalation
+- attack.t1548
+- attack.credential-access
+- attack.t1003
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith:
+    - '\UsrClass.dat'
+    - '\NTUSER.DAT'
+  filter_main_usrclass:
+    TargetFilename|endswith: '\AppData\Local\Microsoft\Windows\UsrClass.dat'
+  filter_main_ntuser:
+    TargetFilename|re|i: '^C:\\Users\\[^\\]+\\NTUSER\.DAT$'
+  filter_main_system:
+    TargetFilename|startswith:
+    - 'C:\Windows\System32\config\'
+    - 'C:\Windows\SYSVOL\'
+    - 'C:\Windows\ServiceProfiles\'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Backup or profile migration software
+- Forensic acquisition tools
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/file/file_event/file_event_win_susp_registry_hive_file_creation/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the creation of registry hive files, specifically `UsrClass.dat` and `NTUSER.DAT`, outside of standard user profile paths. Such behavior is indicative of attackers attempting to manipulate user registry settings for persistence, privilege escalation, or credential harvesting. This activity aligns with the MITRE ATT&CK tactic of Privilege Escalation (TA0004) and techniques T1548 (Abuse Elevation Control Mechanism) and T1003 (Credential Dumping). The primary telemetry sources involve Windows file event logs, specifically targeting Windows Event ID 4663, which captures file access and manipulation events.
+
+  If successful, this activity can lead to unauthorized privilege escalation or access to sensitive user data, impacting system integrity and confidentiality. However, this detection does NOT confirm malicious intent or actual compromise on its own; rather, it highlights suspicious file activity that requires further investigation.
+
+  ### Investigation Steps
+
+  - **Review file creation events:** Check Windows Security Event ID 4663 for details on the creation of `UsrClass.dat` or `NTUSER.DAT`, noting the `ObjectType` and `AccessMask` fields. Look for unusual timestamps or user accounts that do not have expected management rights.
+
+  - **Analyze user account context:** Identify the user account associated with the file creation event. Compare this against known administrative accounts. Non-privileged accounts creating registry hives in atypical locations are a red flag.
+
+  - **Validate legitimate use cases:** Investigate if any approved backup or profile migration software is configured to operate in the environment, ensuring it is excluded from suspicion. Check timestamps to confirm patterns are consistent with legitimate activities.
+
+  - **Examine parent process activity:** Use Sysmon Event ID 1 (Process Creation) to correlate any suspicious child processes with the parent process that created the registry hive file. A non-interactive process such as a script or service could indicate malicious intent.
+
+  - **Identify lineage of registry objects:** Look for subsequent modifications or access to the generated registry hive files in the Windows Registry to find attempts to read or alter critical registry values (e.g., user login credentials).
+
+  - **Cross-reference known bad indicators:** Compare the user account against threat intelligence feeds to see if the account is associated with known malicious behavior or if it has been previously observed in suspicious activities.
+
+  ### Prioritization
+
+  This alert carries high severity due to the potential for significant impact on the affected system, especially if critical user credentials are involved. The risk of abuse is notable as attackers often target registry files to establish persistence or elevate privileges. The associated techniques are commonly weaponized in cyberattacks, justifying prompt attention.
+
+  ### Blind Spots and Assumptions
+
+  One limitation is the potential for legitimate backup or forensic tools to trigger similar alerts, indicating a need for comprehensive auditing that distinguishes benign from malicious actions. Detection’s accuracy is heavily reliant on the correct configuration of logging at the Windows level, specifically capturing file event logs comprehensively. Additionally, this activity could be falsely triggered by standard user behavior, such as unusual application installations or profile migrations. Companion detections that strengthen coverage include monitoring access to sensitive registry keys through Sysmon or Event ID 4657, which tracks changes to registry values.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

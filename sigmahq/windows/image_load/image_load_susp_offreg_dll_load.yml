@@ -1,0 +1,73 @@
+title: Potentially Suspicious Image Load of Offreg.dll
+id: c9e5f013-4a6f-4d8c-9b0e-f7a4c3d26e95
+status: experimental
+description: |
+  Detects potentially suspicious loading of the Offline Registry Library (offreg.dll).
+  Offreg.dll enables direct read/write access to offline registry hives without invoking the Windows Registry API,
+  bypassing its associated audit logging and telemetry. Attackers may abuse this to stealthily modify registry hives
+  while evading detection mechanisms that rely on standard registry event logs.
+references:
+- https://learn.microsoft.com/en-us/windows/win32/devnotes/about-the-offline-registry-library
+- https://github.com/MSNightmare/LegacyHive
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-07-23
+tags:
+- attack.defense-impairment
+- attack.persistence
+- attack.t1112
+logsource:
+  category: image_load
+  product: windows
+detection:
+  selection:
+    ImageLoaded|endswith: '\offreg.dll'
+  filter_main_system32:
+    Image|startswith:
+    - 'C:\Windows\System32\'
+    - 'C:\Windows\SysWOW64\'
+    - 'C:\Windows\WinSxS\'
+  filter_main_program_files:
+    Image|startswith:
+    - 'C:\Program Files\'
+    - 'C:\Program Files (x86)\'
+  filter_main_appdata_local_programs:
+    Image|startswith: 'C:\Users\'
+    Image|contains: '\AppData\Local\Programs\'
+  filter_main_defender:
+    Image|startswith: 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
+    Image|endswith: '\MsMpEng.exe'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Third-party backup or forensic software that performs offline registry parsing
+- Windows deployment tools (DISM, ADK) run from non-standard paths
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/image_load/image_load_susp_offreg_dll_load/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects instances of the `offreg.dll` library being loaded into memory, which allows for direct manipulation of offline registry hives. Attackers may use this capability to bypass standard Windows Registry API logging, thereby evading traditional detection mechanisms. The likely objective of such behavior includes stealthy modification of registry settings to maintain persistence or manipulate system functions—classifying this activity under the MITRE ATT&CK tactics of Defense Evasion (T1070) and Persistence (T1112).
+
+  The primary telemetry source is Windows image load events, particularly those related to DLLs being accessed, typically captured via Event ID 4688 for process creation or through advanced logging configurations such as Sysmon Event ID 7. If malicious in nature, this detection could indicate an advanced threat, as modifying the registry undetected can enable further exploitation. Importantly, this detection alone does not confirm malicious intent, as legitimate tools can utilize the same functionality.
+
+  ### Investigation Steps
+
+  - **Check recent image load events:** Review Windows Security Event ID 4688 logs for instances of `offreg.dll` being loaded. Focus on the user context and any associated processes that may indicate malicious activity, such as those tied to unauthorized user accounts or unusual process identifiers.
+
+  - **Validate against known benign usage:** Look for documented uses of `offreg.dll` by legitimate programs. Common benign paths include forensic software, auditing tools, or deployment scripts. Verify the executing process's path to confirm legitimacy; non-standard executables in unusual directories are suspicious.
+
+  - **Identify suspicious parent processes:** Investigate the parent process of any alerts triggered by `offreg.dll`. Notable parent processes include unusual scripts or executables running from user home directories or temporary folders, which can hint at exploitation or evasion strategies.
+
+  - **Audit for concurrent registry manipulation:** Check for related Windows Security Event IDs 4657 (Registry value modified) or 4663 (Access to an object) during the timeframe when `offreg.dll` was loaded. Correlating these events can provide clearer insights into registry access patterns.
+
+  - **Review for file creation/exfiltration indicators:** If detected on user workstations, assess if any files related to persistence methods were created recently, particularly files in `%TEMP%` or `%APPDATA%` that could be used for malicious payloads. Look for signs of such files in Event ID 4663 or Sysmon Event ID 11 (File created).
+
+  ### Prioritization
+
+  This alert should be treated with medium severity due to the potential for high impact on system integrity and security; an affected system may be undergoing registry manipulation indicative of an attacker's foothold. The capability to use `offreg.dll` for evading detection makes it a notable concern, especially in high-value target systems or servers.
+
+  ### Blind Spots and Assumptions
+
+  Detection may miss instances where legitimate software utilizes `offreg.dll` from non-standard paths, or when event logging is disabled or insufficient (e.g., if logging for image loads is not completely enabled). It is also critical to assume that user activity, such as running specialized backup or forensic software, might trigger this alert legitimately. A companion detection is the monitoring of Windows API calls related to registry activities, which can strengthen detection of registry manipulations and provide context for flagged usages of `offreg.dll`.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
