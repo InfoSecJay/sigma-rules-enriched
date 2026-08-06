@@ -1,5 +1,8 @@
-title: Active Directory Replication from Non Machine Account
+title: Active Directory Replication from Non Machine Account - DcSync Indicator
 id: 17d619c1-e020-4347-957e-1d1207455c93
+related:
+- id: 611eab06-a145-4dfa-a295-3ccc5c20f59a     # Suspicious Machine Account Replication - DcSync Indicator
+  type: similar
 status: test
 description: Detects potential abuse of Active Directory Replication Service 
   (ADRS) from a non machine account to request credentials.
@@ -9,57 +12,67 @@ references:
 - https://threathunterplaybook.com/hunts/windows/190101-ADModDirectoryReplication/notebook.html
 author: Roberto Rodriguez @Cyb3rWard0g
 date: 2019-07-26
-modified: 2021-11-27
+modified: 2026-07-30
 tags:
 - attack.credential-access
 - attack.t1003.006
 logsource:
   product: windows
   service: security
+  definition: |
+    Requirements: A SACL must be configured on the domain NC root object (e.g. DC=domain,DC=com)
+    to generate Event 4662. Add via ADSI Edit: navigate to the domain NC root → Properties →
+    Security → Advanced → Auditing → add an ACE for Everyone, Type: Success, Applies to:
+    This object only, rights: DS-Replication-Get-Changes and DS-Replication-Get-Changes-All.
+    The OS audit subcategory must also be enabled:
+    auditpol /set /subcategory:"Directory Service Access" /success:enable
 detection:
   selection:
     EventID: 4662
-    AccessMask: '0x100'
     Properties|contains:
-    - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'
-    - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'
-    - '89e95b76-444d-4c62-991a-0facbeda640c'
-  filter:
-  - SubjectUserName|endswith: '$'
-  - SubjectUserName|startswith: 'MSOL_'       # https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/reference-connect-accounts-permissions#ad-ds-connector-account
-  condition: selection and not filter
+    - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'         # DS-Replication-Get-Changes-All
+    - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'         # DS-Replication-Get-Changes
+    - '9923a32a-3607-11d2-b9be-0000f87a36b2'         # DS-Replication-Synchronize
+    - '89e95b76-444d-4c62-991a-0facbeda640c'         # DS-Replication-Get-Changes-In-Filtered-Set
+  filter_main_machine_accounts:
+    SubjectUserName|endswith: '$'
+  filter_optional_subject_domain:
+    SubjectDomainName: 'Window Manager'
+  filter_optional_subject_usersid:
+    SubjectUserName|startswith:
+    - 'NT AUT'
+    - 'MSOL_'         # https://learn.microsoft.com/en-us/entra/identity/hybrid/connect/reference-connect-accounts-permissions#ad-ds-connector-account
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
-level: critical
+level: medium
 note: |
   ### Technical Context
 
-  This detection targets the unauthorized use of the Active Directory Replication Service (ADRS) by non-machine accounts, which is indicative of potential credential theft or privilege escalation attempts. Attackers may aim to extract sensitive data or system credentials through tampered replication requests.
+  This rule detects potential misuse of the Active Directory Replication Service (ADRS) by monitoring for requests made from non-machine accounts to retrieve directory information using replication rights. The likely objective of an attacker may be to extract sensitive information such as user credentials or group memberships. This behavior corresponds to the MITRE ATT&CK technique T1003.006 (Credential Dumping: Active Directory Replication).
 
-  The relevant MITRE ATT&CK tactic is Credential Access, specifically technique T1003.006 (Credential Dumping: Active Directory). The primary telemetry comes from Windows Security Event Logs, particularly Event ID 4662, which logs detailed operations against Active Directory objects. If this behavior is malicious, it could lead to significant compromises of user credentials and access to further systems.
-
-  This detection does NOT confirm that malicious activity has occurred; it indicates potential misuse that requires further investigation.
+  The primary telemetry source is Security Event ID 4662, which indicates directory service access attempts. If these requests are found to be malicious, it can lead to significant security impacts, including credential theft and further domain compromise. However, this detection does NOT confirm that sensitive data was successfully extracted or that an attack is definitely underway without further investigation.
 
   ### Investigation Steps
 
-  - **Identify the triggering event:** Review Security Event ID 4662 logs for the specified AccessMask ('0x100') and Properties containing '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2', '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2', or '89e95b76-444d-4c62-991a-0facbeda640c'. Look specifically for entries where `SubjectUserName` ends with '$' or starts with 'MSOL_'.
+  - **Check Event 4662 logs**: Review Security Event ID 4662 in the Windows Security logs. Look for events with `Properties` containing identifiers related to replication (e.g., `1131f6ad-9c07-11d1-f79f-00c04fc2dcd2`). Determine the `SubjectUserName` field to identify the user account making the request.
 
-  - **Correlate account types:** Determine if the `SubjectUserName` is associated with a legitimate machine account or if it is an anomalous user account. Legitimate machine accounts typically appear in a standard naming convention, while non-standard logins may indicate exploitation.
+  - **Identify machine accounts**: Validate if the `SubjectUserName` ends with a `$`, indicating a service or machine account. If not, categorize as suspicious.
 
-  - **Assess replication behavior:** Investigate replication requests in AD logs for unusual patterns, such as requests originating from unexpected locations or times. Look for high-frequency queries that deviate from normal replication intervals.
+  - **Review account privileges**: Check the permissions assigned to the account using the `Active Directory Users and Computers` tool or similar. Legitimate accounts will typically have limited or no replication privileges.
 
-  - **Review impacted systems:** Compile a list of machines involved in the replication event from the Event ID 4662 logs. Assess their criticality within the environment and verify if they have recent changes or incidents.
+  - **Analyze activity context**: Correlate Event IDs around the time of the alert. Look for access patterns that indicate potential compromise, such as repetitive access from the same non-machine account to the replication service.
 
-  - **Identify user activity:** Check associated user accounts for recent unusual activity (e.g., password changes, account lockouts) which may indicate potential credential compromise. Look in Security Event ID 4740 for account lockout events.
+  - **Investigate associated user behavior**: Review the `Account Logon Events` (Event ID 4624) and `Account Lockout Events` (Event ID 4740) for the subject account. Frequent login attempts or unusual access times may indicate account compromise.
 
-  - **Document follow-up actions:** If indicators of compromise (IOCs) are confirmed, initiate remediation steps including isolation of affected accounts, password resets, and further forensic investigation to establish the breadth of the incident.
+  - **Cross-reference with trusted accounts**: Identify if the non-machine account is part of a legitimate administrative process. Note that accounts starting with `NT AUT` or `MSOL_` are expected in specific contexts related to Azure or custom automated processes.
 
   ### Prioritization
 
-  This alert is classified as critical due to the potential impact on the security of the Active Directory environment, which could allow attackers to access sensitive systems and data. The likelihood of malicious use is high, as this behavior is commonly observed in targeted attacks against enterprise environments.
+  This alert should be prioritized as medium severity due to the potential for significant impact on Active Directory security if an attacker exploits these privileges. The likelihood of malicious abuse is moderate since non-machine accounts typically should not be accessing replication services, but false positives can arise from misconfigured accounts or legitimate administrative actions.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by potential evasion techniques, such as attackers using legitimate accounts or service accounts, making it challenging to differentiate between benign and malicious actions. Reliable detection necessitates proper auditing settings in Active Directory to ensure Event ID 4662 is generated. Legitimate administrative changes or replication activities may also trigger this alert, necessitating further context review. Detecting changes in AD permissions or modifications to sensitive objects should be considered a companion detection that enhances overall security visibility.
+  Detection may be limited if auditing is not properly configured or if necessary logs are missing. Adversaries may use legitimate accounts or automated scripts to obfuscate their activities, potentially evading detection. Additionally, legitimate service accounts may occasionally trigger this alert during routine operations. A related detection to consider for additional coverage includes monitoring suspicious LDAP queries (such as Event ID 4788) or frequent service account logins to identify potential account compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

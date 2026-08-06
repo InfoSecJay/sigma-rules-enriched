@@ -1,0 +1,86 @@
+title: Suspicious Machine Account Replication - DcSync Indicator
+id: 611eab06-a145-4dfa-a295-3ccc5c20f59a
+related:
+- id: 17d619c1-e020-4347-957e-1d1207455c93     # Active Directory Replication from Non Machine Account
+  type: similar
+status: test
+description: |
+  Detects suspicious Active Directory Replication Service (ADRS) requests originating from
+  a machine account (SubjectUserName ending in '$') rather than a legitimate Domain Controller.
+
+  Under normal operation, only Domain Controllers initiate replication requests carrying the
+  DS-Replication-Get-Changes-All right. If a threat actor obtains valid machine account
+  credentials — for example by abusing certificate-based authentication (PKINIT) to
+  impersonate a DC after exploiting a CA vulnerability such as CVE-2026-54121 (Certighost),
+  where a temporary machine account is created to request a DC certificate and then used to
+  perform DCSync — they can dump all domain credential material including the krbtgt hash.
+references:
+- https://twitter.com/gentilkiwi/status/1003236624925413376
+- https://gist.github.com/gentilkiwi/dcc132457408cf11ad2061340dcb53c2
+- https://blog.blacklanternsecurity.com/p/detecting-dcsync?s=r
+- https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/auditing/event-4662
+- https://github.com/aniqfakhrul/CVE-2026-54121
+author: Benjamin Delpy, Florian Roth (Nextron Systems), Scott Dermett, Sorina 
+  Ionescu
+date: 2018-06-03
+modified: 2026-07-30
+tags:
+- attack.credential-access
+- attack.s0002
+- attack.t1003.006
+- cve.2026-54121
+logsource:
+  product: windows
+  service: security
+  definition: |
+    Requirements: A SACL must be configured on the domain NC root object (e.g. DC=domain,DC=com)
+    to generate Event 4662. Add via ADSI Edit: navigate to the domain NC root → Properties →
+    Security → Advanced → Auditing → add an ACE for Everyone, Type: Success, Applies to:
+    This object only, rights: DS-Replication-Get-Changes and DS-Replication-Get-Changes-All.
+    The OS audit subcategory must also be enabled:
+    auditpol /set /subcategory:"Directory Service Access" /success:enable
+detection:
+  selection:
+    EventID: 4662
+    Properties|contains:
+    - '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2'         # DS-Replication-Get-Changes-All
+    - '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2'         # DS-Replication-Get-Changes
+    - '9923a32a-3607-11d2-b9be-0000f87a36b2'         # DS-Replication-Synchronize
+    - '89e95b76-444d-4c62-991a-0facbeda640c'         # DS-Replication-Get-Changes-In-Filtered-Set
+    SubjectUserName|endswith: '$'
+  filter_main_subject_usersid:
+    SubjectUserSid|startswith: 'S-1-5-18'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Valid DC Sync that is not covered by the filters; please report
+level: medium
+note: |
+  ### Technical Context
+
+  This Sigma rule detects suspicious Active Directory Replication Service (ADRS) requests that originate from machine accounts rather than legitimate Domain Controllers (DCs). It identifies the misuse of valid machine account credentials in scenarios where an attacker exploits vulnerabilities—such as certificate-based authentication vulnerabilities—to gain unauthorized access to sensitive Active Directory data, including potentially dumping password hashes. The relevant MITRE ATT&CK tactics are Credential Access (T1003.006) and Active Directory Domain Services Enumeration (S0002).
+
+  Primary telemetry sources include Windows Security Event Logs, specifically Event ID 4662, which captures detailed information about replication requests. If malicious, the impact could be severe, as it enables attackers to acquire credential material that could allow for domain compromise. However, this detection does NOT confirm that the event is inherently malicious without additional context; legitimate machine accounts may also initiate replication under certain circumstances.
+
+  ### Investigation Steps
+
+  - **Check Event 4662 Logs for Replication Activity:** Review Windows Security Event Logs for Event ID 4662. Look specifically for requests with Properties containing 'DS-Replication-Get-Changes-All' or 'DS-Replication-Synchronize' from SubjectUserName ending in '$'—indicators of potentially unauthorized activity.
+
+  - **Correlate User Credentials:** Validate whether the machine account (SubjectUserName) in the detected event corresponds to legitimate Domain Controllers in your environment. If not, this significantly raises suspicion.
+
+  - **Review Replication Timing and Frequency:** Analyze the timing and frequency of the detected replication events against usual replication schedules for the organization's Domain Controllers. Unexpected or anomalous replication requests may point to malicious activity.
+
+  - **Assess Domain Controller SACL Configuration:** Confirm that a System Access Control List (SACL) is properly configured on the domain NC root object to ensure accountability of legitimate replication access requests.
+
+  - **Log Review for Previous Events:** Investigate prior Event ID entries leading up to the alert. Examine if there are previous or ongoing indicators of compromise, such as abnormal authentication attempts or logins from unusual locations.
+
+  - **Document Legitimate Replication Requests:** Note legitimate scheduled replication intervals and expected accounts that perform replication. Any mismatch with the alert's details indicates potential unauthorized activity.
+
+  ### Prioritization
+
+  This alert is of medium severity due to its potential impact on the security posture of the affected Domain Controllers, which are crucial for AD integrity. While the likelihood of abuse is moderate, the behavior signifies a tactic often employed by sophisticated adversaries, indicating a need for timely investigation.
+
+  ### Blind Spots and Assumptions
+
+  Detection limitations include the possibility of legitimate machine accounts triggering alerts, especially during atypical operations. Reliable detection requires proper configuration of audit policies to capture necessary Event ID 4662 logs. Furthermore, administrative tasks like legitimate AD replication, configuration changes, or updates may create false positives. A related detection includes monitoring for atypical Kerberos ticket requests—an additional layer of credential access monitoring that complements this rule.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
