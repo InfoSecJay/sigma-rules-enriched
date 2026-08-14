@@ -1,4 +1,4 @@
-title: Potential Suspicious Mofcomp Execution
+title: Potentially Suspicious Mofcomp Execution
 id: 1dd05363-104e-4b4a-b963-196a534b03a1
 status: test
 description: |
@@ -11,7 +11,7 @@ references:
 - https://learn.microsoft.com/en-us/windows/win32/wmisdk/mofcomp
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-07-12
-modified: 2023-04-11
+modified: 2026-08-06
 tags:
 - attack.stealth
 - attack.t1218
@@ -32,19 +32,29 @@ detection:
     - '\cscript.exe'
   - CommandLine|contains:
     - '\AppData\Local\Temp'
+    - '\Contacts\'
+    - '\Favorites\'
+    - '\Favourites\'
+    - '\Music\'
+    - '\Pictures\'
     - '\Users\Public\'
+    - '\Videos\'
     - '\WINDOWS\Temp\'
+    - '%appdata%'
     - '%temp%'
     - '%tmp%'
-    - '%appdata%'
   filter_main_wmiprvse:
     ParentImage: 'C:\Windows\System32\wbem\WmiPrvSE.exe'
     CommandLine|contains: 'C:\Windows\TEMP\'
     CommandLine|endswith: '.mof'
+  filter_main_installutil:
+    ParentCommandLine|endswith: '\InstallUtil.exe /Uninstall C:\Windows\CCM\Microsoft.ConfigurationManager.SVProvider.dll'
+    ParentImage|endswith: '\InstallUtil.exe'
+    CommandLine|contains|all:
+    - 'C:\Windows\TEMP'
+    - '.tmp'
   filter_optional_null_parent:
-        # Sometimes the parent information isn't available from the Microsoft-Windows-Security-Auditing provider.
-    CommandLine|contains: 'C:\Windows\TEMP\'
-    CommandLine|endswith: '.mof'
+    ParentCommandLine:
   condition: all of selection_* and not 1 of filter_main_* and not 1 of 
     filter_optional_*
 falsepositives:
@@ -53,28 +63,32 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of `mofcomp.exe` as a child process of suspicious shells or scripts and identifies command-line arguments that may indicate malicious use. Attackers often use `mofcomp.exe`, which adds classes to the WMI repository, to execute malicious Management Object Format (MOF) scripts that can manipulate system settings or persist malware. This behavior fits within the MITRE ATT&CK framework under the tactic "Execution" (TA0002) and the technique "User Execution" (T1203) as attackers leverage this utility to execute code within the Windows environment.
+  This rule detects the execution of the "mofcomp" utility under potentially suspicious conditions, specifically when it is initiated by a known scripting or command shell (e.g., `cmd.exe`, `powershell.exe`) or when the command line includes suspicious paths associated with temporary directories. Attackers use "mofcomp" to parse and register malicious Management Object Format (MOF) files to the Windows Management Instrumentation (WMI) repository, which may serve as a persistence mechanism or for other malicious purposes.
 
-  The primary telemetry sources include Windows process creation logs with `Event ID 4688` and Sysmon `Event ID 1`, which track process creation details and command-line arguments. If the detected behavior is malicious, it can lead to unauthorized system configuration changes and persistence mechanisms for further exploitation. However, this detection does NOT confirm that all executions of `mofcomp.exe` are malicious, as there are legitimate uses for this utility in system administration.
+  The likely attacker objective is to establish persistence or execute pre-defined commands through WMI, contributing to lateral movement or further malicious activity. Relevant MITRE ATT&CK tactics and techniques include "Execution" (TA0002) and "Command and Scripting Interpreter" (T1059) as well as "IMPLANT Persistence" via WMI (T1218). The primary telemetry sources needed for this detection are process creation logs, specifically Windows Event ID 4688 or Sysmon Event ID 1, that capture details regarding process execution.
+
+  If malicious, the presence of "mofcomp" execution indicates a significant compromise; however, this detection does NOT confirm malicious intent without further context. It’s essential to correlate with additional telemetry for a thorough assessment.
 
   ### Investigation Steps
 
-  - **Analyze parent process:** Check the `ParentImage` field from `Event ID 4688`. Take note if it is `cmd.exe`, `powershell.exe`, or another suspicious shell. Legitimate uses typically occur from controlled scripts or administrative tools rather than from untrusted sources.
+  - **Check the Parent Process:** Review the logs for Event ID 4688 and identify the parent process of "mofcomp.exe." Legitimate executions will typically have system processes as parents, while suspicious ones may derive from cmd.exe or powershell.exe.
 
-  - **Review command-line arguments:** Investigate the `CommandLine` field for the presence of temp directories or unusual paths. Indicators of malicious use include arguments containing paths like `\AppData\Local\Temp` or keywords like '%temp%'.
+  - **Analyze Command Line Arguments:** Examine the command line associated with "mofcomp.exe." If it contains path strings (e.g., `%temp%`, `C:\Users\Public\`, etc.), evaluate which files or MOFs were being processed and where they originated from (e.g., local temp directories).
 
-  - **Verify for high-confidence malicious indicators:** Look for instances where `mofcomp.exe` is run with an argument pointing to a MOF file located in a temporary directory. Record any command-line instances that end with `.mof`, as this is a strong indicator of suspicious activity.
+  - **Correlate with WMI Activity:** Investigate WMI activity, specifically querying the WMI repository for newly registered classes post-execution of "mofcomp." This can identify any potentially installed malicious classes. Monitor for entries associated with non-standard namespaces or unexpected classes.
 
-  - **Assess related WMI activity:** Cross-reference `Event ID 4663` for any changes to WMI objects around the same time as the `mofcomp.exe` execution. Expected behavior would show limited changes from authorized administrative users rather than high-frequency access from scripts.
+  - **Identify Download Activity:** Look for recent download artifacts that may contain malicious MOF scripts. This can be achieved by reviewing the network logs (firewall and proxy logs) and searching for downloads from suspicious URLs or IP addresses.
 
-  - **Check for anomalies in process hierarchy:** Use Sysmon logs (Event ID 1) to observe process trees for this execution. Anomalies, such as a seemingly benign shell spawning `mofcomp.exe`, could indicate potential misuse.
+  - **Examine Artifact Creation:** Investigate file creation timestamps and contents in the `%temp%` or similar directories identified in the command line. Malicious indicators include unusual file types (e.g., `.mof` files) or attributes that suggest tampering (e.g., altered timestamps).
+
+  - **Review Legitimate Use Cases:** Validate with known-good behavior by checking whether "mofcomp.exe" was called in the context of legitimate applications (e.g., software installations that require WMI registration) when issued from expected parent processes.
 
   ### Prioritization
 
-  This alert is of **high severity** due to the potential for significant impact on system security if malicious activity is confirmed. The likelihood of abuse is notable, as `mofcomp.exe` is commonly weaponized in targeted attacks to establish persistence or perform administrative tasks covertly.
+  This alert is classified as high severity due to the potential for significant impacts, such as establishing persistence or executing unauthorized commands on critical systems. The likelihood of malicious abuse is elevated given the known usage of "mofcomp" for nefarious purposes in advanced persistent threat (APT) scenarios. This behavior is not common in standard operations, making it a noteworthy indicator.
 
   ### Blind Spots and Assumptions
 
-  Detection is limited as legitimate administrative processes may trigger this rule, leading to potential false positives. The absence of historical logging for certain permission levels may obscure malicious actions. Additionally, some attackers may use alternative methods to avoid detection, such as crafting legitimate-looking WMI calls. Similar detections, such as those monitoring unauthorized WMI object modifications (e.g., using WinEvent 4663), can complement this detection for a clearer security posture.
+  Detection may miss sophisticated evasion techniques, such as the use of signed binaries or encrypted WMI scripts that do not trigger the alert. Reliance on specific path patterns may lead to false positives from legitimate administrative tasks. Additionally, the detection requires that process creation logging is reliably enabled across endpoints. A related detection to consider is the execution of WMI queries or access to the WMI repository, as it can indicate attempts to enumerate or manipulate system configurations following MOF exploitation.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

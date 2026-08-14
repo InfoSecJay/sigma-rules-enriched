@@ -7,7 +7,7 @@ references:
 - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/dd364427(v=ws.10)
 author: frack113
 date: 2022-02-19
-modified: 2025-10-08
+modified: 2026-08-06
 tags:
 - attack.defense-impairment
 - attack.t1686.003
@@ -62,33 +62,36 @@ detection:
     - 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
     - 'C:\Program Files\Windows Defender\'
     ApplicationPath|endswith: '\MsMpEng.exe'
+  filter_optional_systemApps:
+    ApplicationPath|startswith: 'C:\Windows\SystemApps\'
+    ModifyingApplication: 'C:\Windows\System32\svchost.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the addition of new entries to the Windows Firewall exception list, specifically monitoring events when a new rule is created (Event IDs 2004, 2071, and 2097). These activities could indicate an attacker’s attempt to create an avenue for unauthorized access to the network or to allow specific malicious traffic to bypass firewall controls, thereby facilitating further exploitation or data exfiltration. This behavior aligns with the MITRE ATT&CK tactic of Defense Evasion (T1562) and specific techniques such as Enabling Local Accounts (T1556) and Account Manipulation (T1098).
+  This Sigma rule detects the addition of a new rule to the Windows Firewall exception list, specifically identified by Event IDs 2004, 2071, and 2097. The behavior signifies potential changes in network access, which could indicate an adversary's attempt to enable communication for malicious activities, such as bypassing security controls. This detection aligns with the MITRE ATT&CK tactic of Defense Evasion (T1562) and the technique Adding Firewall Rules (T1686.003).
 
-  The primary telemetry source is Windows Security Event logs, particularly focused on Firewall-related events. If malicious, this could lead to significant security impacts, including unauthorized access and data breaches. However, it is critical to note that the detection only indicates that a rule has been added; it does not confirm intent or whether the rule is being exploited for malicious purposes.
+  The primary telemetry source for this detection is the Windows Firewall Audit logs which include specific event IDs related to rule modifications. The security impact is significant, as unauthorized firewall rule changes could facilitate an attacker's communications, command and control (C2) access, or lateral movement within the network. Importantly, this detection does NOT confirm that the added rule is malicious without further context.
 
   ### Investigation Steps
 
-  - **Review event details for Event ID 2004/2071/2097:** Examine the logs for the presence of these Event IDs in the Windows Security Event logs to confirm a firewall rule was added. Focus on the `ApplicationPath` field to identify if the applying application is legitimate or suspicious.
+  - **Check Event Logs for Related Activities:** Review Windows Security Event ID 4624 (successful logon) in conjunction with the firewall rule addition events. Look for logons from unfamiliar accounts or at suspicious times to identify potential unauthorized access.
 
-  - **Analyze the modifying application:** Identify the `ModifyingApplication` associated with the new rule addition. If it is a known system process like `dllhost.exe`, it may be benign; however, if it is unfamiliar or appears in unusual locations, it might indicate malicious activity.
+  - **Compare Against Approved Rule Changes:** Verify if the added firewall rule corresponds to documented or authorized changes. Conduct a comparison with the last known good configuration in Windows Firewall settings to establish legitimacy.
 
-  - **Check application paths for legitimacy:** Verify if `ApplicationPath` contains paths typically associated with legitimate applications (e.g., `C:\Program Files\`). Any paths leading to directories like `C:\Temp\` or `C:\Users\Public\` may raise suspicion and require further investigation.
+  - **Inspect the Application Path Involved:** Analyze the ApplicationPath field in the log entries. Legitimate applications typically reside in standard directories (e.g., `C:\Program Files\`, `C:\Windows\System32\`). An entry from `C:\Temp\` or other non-standard paths may indicate malicious intent.
 
-  - **Confirm expected firewall rules:** Compare the newly added rule against documented firewall policies within the organization. If the rule is not part of established policies, classify it as a potential malicious action.
+  - **Identify Known Malicious Modifying Applications:** Check for the modifying application in logs. The usage of `TiWorker.exe` or `dllhost.exe` as modifying applications paired with suspicious application paths should be considered high-confidence malicious indicators requiring further investigation.
 
-  - **Examine related network activity:** Look for network traffic using tools like NetFlow or IDS/IPS logs that may show connections corresponding to the new firewall rules, focusing on unusual outgoing connections or communications to external IPs not typical for the organization.
+  - **Monitor Network Traffic Post-Change:** Capture network traffic to identify any newly allowed communications post-firmware rule addition. Look for unexpected outbound sessions to unrecognized external IPs which could validate an attacker’s C2 setup.
 
   ### Prioritization
 
-  This alert should be considered medium severity. The impact can be significant if a critical asset is compromised, allowing attackers to tunnel undetected through the firewall using added exceptions. The likelihood of malicious abuse is high, as this technique is often weaponized by adversaries attempting to bypass security controls.
+  This alert should be treated with medium severity. The impact is elevated if it occurs on critical assets, potentially allowing an attacker to bypass security postures. The likelihood of malicious abuse is moderate, particularly if associated with unauthorized user activities or anomalous patterns, as manipulating firewall rules is a common method for attackers to facilitate their commands.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by the lack of contextual data on whether the added rule was a legitimate or benign action, which could lead to false positives if not investigated thoroughly. Reliable detection also hinges on capturing all relevant Windows Security Event logs; any gaps in logging could hinder accurate identification of malicious activities. Legitimate activities which may trigger the alert include routine firewall rule updates by IT personnel. A related detection that can complement this rule is monitoring for unusual outbound connections from the same host, which would provide context on whether an added exception is being exploited.
+  This detection may be limited by the absence of comprehensive logging configurations, such as not capturing all changes to firewall settings which could evade detection. Legitimate activities, such as administrative changes or automated system updates, may also trigger these alerts. A complementary detection could include monitoring for unusual inbound and outbound traffic patterns following any firewall rule modification to enhance overall visibility and threat detection.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
