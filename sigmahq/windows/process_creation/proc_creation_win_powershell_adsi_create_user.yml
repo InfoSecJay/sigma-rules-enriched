@@ -1,0 +1,83 @@
+title: New User Account Creation Attempt Via ADSI in CommandLine
+id: 7c9fed65-039a-4055-8c23-fa763d94aff6
+related:
+- id: e50d5d26-0cf6-4045-b82b-13c0a4e316be
+  type: similar
+status: experimental
+description: |
+  Detects PowerShell command line arguments containing ADSI (Active Directory Service Interfaces) patterns
+  trying to create a new user account via the WinNT or LDAP provider. This is an uncommon method to create
+  user accounts and may indicate an attempt to evade detection by avoiding more commonly monitored commands
+  such as "net user", "New-LocalUser" or "New-ADUser".
+references:
+- https://learn.microsoft.com/en-us/windows/win32/adsi/user-creation-with-the-adsi-ldap-provider
+- https://learn.microsoft.com/en-us/windows/win32/adsi/adsi-winnt-provider
+author: William Gokah (idea), Raylee Hawkins, Swachchhanda Shrawan Poudel 
+  (Nextron Systems)
+date: 2026-08-13
+tags:
+- attack.persistence
+- attack.t1136.001
+- attack.t1136.002
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_img:
+  - Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'PowerShell.EXE'
+    - 'pwsh.dll'
+  selection_cli_adsi:
+    CommandLine|contains: '[ADSI]'
+  selection_cli_create_user:
+        # Example (WinNT - local user):
+        #   powershell.exe -Command "$c = [ADSI]('WinNT://' + $env:COMPUTERNAME); $u = $c.Create('User','NewUser'); $u.SetPassword('P@ssw0rd!'); $u.SetInfo()"
+        # Example (LDAP - domain user):
+        #   $ou = [ADSI]"LDAP://CN=Users,DC=domain,DC=com"; $user = $ou.Create("user", "CN=NewUser"); $user.Put("sAMAccountName","NewUser"); $user.SetInfo()
+    CommandLine|contains:
+    - '.Create("user'
+    - ".Create('user"
+  selection_cli_adsi_provider:
+    CommandLine|contains:
+    - 'WinNT://'         # Local user creation via WinNT provider
+    - 'LDAP://'         # Domain user creation via LDAP provider
+  condition: all of selection_*
+falsepositives:
+- Legitimate administrative scripts that use ADSI to provision user accounts but
+  should be rare in most environments
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_adsi_create_user/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects attempts to create new user accounts using PowerShell with Active Directory Service Interfaces (ADSI) via command line arguments. The behavior is atypical because it utilizes the more obscure ADSI method instead of standard commands like "net user" or "New-ADUser," potentially indicating malicious intent aiming to avoid detection. This behavior correlates with the MITRE ATT&CK techniques T1136.001 (Create Account - Local Account) and T1136.002 (Create Account - Domain Account).
+
+  The primary telemetry sources are process creation logs revealing command line usage. Specific log types include Windows Security Event ID 4688 or Sysmon Event ID 1 for detailed command line parameters. If malicious, this activity could lead to unauthorized access to resources, escalation of privileges, or compromise of sensitive data. Importantly, this detection does NOT confirm that an attack has taken place without further corroborating evidence.
+
+  ### Investigation Steps
+
+  - **Examine the command line used:** Review Security Event ID 4688 or Sysmon Event ID 1 to see if the CommandLine field contains characteristics of ADSI user creation, such as "Create('user'" or "Create("user" with "LDAP://" or "WinNT://". This indicates potential malicious intent.
+
+  - **Identify benign administrative usage:** Check if the command line usage is from legitimate scheduled tasks or administrative scripts. Typical usage would include script names from known administrative contexts; discrepancies should be flagged.
+
+  - **Investigate user context:** Cross-reference the creating user and process information in logs (Event ID 4688 or Sysmon) with legitimate administrative users to assess whether the command was issued by an authorized account. Normal administrative accounts should have associated roles.
+
+  - **Review Active Directory logs:** Check relevant Domain Controller logs for any recent user account creations corresponding to the time of the detection. Valid logs will reflect expected patterns of user creation from legitimate administrative tools.
+
+  - **Correlate with asset criticality:** If the command originated from a critical asset (e.g., a Domain Controller), prioritize this alert higher due to potential impact on the entire domain environment.
+
+  - **Check for known malicious indicators:** Investigate the presence of unusual or unexpected user accounts created alongside the detection times. High-confidence indicators would include user account names that reference known malware or phishing tactics.
+
+  ### Prioritization
+
+  The alert should be considered medium to high severity, particularly if generated from a critical system like a Domain Controller. The likelihood of malicious abuse is moderate due to the specific use of ADSI, suggesting an adversary intent on bypassing conventional monitoring. This method is not commonly weaponized but could be part of a broader attack pattern.
+
+  ### Blind Spots and Assumptions
+
+  Detection may have limitations if the command is obfuscated or executed in a way that circumvents logging (e.g., through compiled executables). Reliable detection also relies on proper logging configurations for PowerShell and Windows processes. Legitimate administrative actions, such as scripted user provisioning, may trigger this alert, necessitating careful analysis. Companion detections, such as those identifying bulk user creation anomalies, strengthen overall security posture by providing context around user activity anomalies.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

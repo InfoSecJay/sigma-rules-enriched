@@ -8,7 +8,7 @@ references:
 author: Florian Roth (Nextron Systems), Nasreddine Bencherchali (Nextron 
   Systems)
 date: 2021-10-15
-modified: 2022-12-28
+modified: 2026-08-19
 tags:
 - attack.persistence
 - attack.t1505.003
@@ -16,7 +16,7 @@ logsource:
   product: linux
   category: process_creation
 detection:
-  selection_general:
+  selection_parent_general:
     ParentImage|endswith:
     - '/httpd'
     - '/lighttpd'
@@ -24,15 +24,15 @@ detection:
     - '/apache2'
     - '/node'
     - '/caddy'
-  selection_tomcat:
+  selection_parent_tomcat:
     ParentCommandLine|contains|all:
     - '/bin/java'
     - 'tomcat'
-  selection_websphere:    # ? just guessing
+  selection_parent_websphere:    # ? just guessing
     ParentCommandLine|contains|all:
     - '/bin/java'
     - 'websphere'
-  sub_processes:
+  selection_child_processes:
     Image|endswith:
     - '/whoami'
     - '/ifconfig'
@@ -45,35 +45,39 @@ detection:
     - '/netstat'
     - '/pwd'
     - '/route'
-  condition: 1 of selection_* and sub_processes
+  filter_optional_ip_neigh:
+    ParentImage|endswith: '/node'
+    CommandLine|contains: 'ip neigh show'
+  condition: 1 of selection_parent_* and selection_child_processes and not 1 of 
+    filter_optional_*
 falsepositives:
 - Web applications that invoke Linux command line tools
 level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of suspicious subprocesses initiated by web server processes, such as Apache or NGINX. The likely attacker objective is to execute commands that could compromise the server, gather information, or establish persistence through a web shell. The relevant MITRE ATT&CK technique is "Web Shell" (T1505.003), which falls under the "Persistence" tactic. Logs from Linux process creation, specifically `audit` logs, will provide evidence of this behavior through event types related to process initiation. If malicious, this activity can lead to data exfiltration, server takeover, or further lateral movement within the environment. However, this detection does NOT confirm whether the detected process usage is inherently malicious, as legitimate applications may also invoke these commands.
+  This Sigma rule detects suspicious subprocesses spawned by web server processes, typically indicating potential unauthorized access via web shells. The likely objective of an attacker triggering this alert is to maintain persistence, gather system information, or conduct further reconnaissance within a compromised environment. Relevant MITRE ATT&CK tactics and techniques include Persistence (T1505.003) and Command and Control methods.
+
+  The primary telemetry sources involved are Linux process creation logs, specifically monitoring parent-child process relationships. Key log types include Common Security Event Logging System (CSELS) for process creation events and kernel logs for process execution tracking. If malicious, this behavior could lead to unauthorized data access, system manipulation, or exploitation for broader network intrusions. This detection does NOT confirm that the subprocess originates from a malicious source without further investigation.
 
   ### Investigation Steps
 
-  - **Review process lineage**: Check the parent process of detected subprocesses in `audit` logs (Event ID 2260 for RHEL) to confirm it originated from a legitimate web server (e.g., Apache, NGINX). Benign usage would typically originate from automated scripts or scheduled jobs without associated suspicious subprocess calls.
+  - **Identify suspicious subprocesses:** Review logs for event data where a web server process (e.g., `/httpd`, `/nginx`, `/apache2`) is a parent process with a child process that includes commands like `/bin/cat`, `/ip`, or `/whoami`. Validate the log fields such as `ParentImage` and `Image`.
 
-  - **Examine command outputs**: Analyze logs for command invocations from the subprocesses detected. Suspicious invocations of commands like `/bin/cat`, `/whoami`, or `/netstat` may indicate probing or investigation activity by an attacker.
+  - **Check command usage:** Analyze the CommandLine field of detected processes. For example, processes initiated by the web server that include commands such as `ip neigh show` are less suspicious than those running `/bin/uname` or `/bin/cat`. Use system logs to establish context and intent.
 
-  - **Identify anomalies in process creation**: Look for unusual command patterns or execution times in process creation events that do not align with normal operational behavior. Legitimate user behavior might include infrequent, low-volume command usage; high-volume command calls could suggest adversarial actions.
+  - **Review web application behavior:** Confirm expected application behavior by checking the application’s configuration for legitimate uses of command line tools. This includes scripts that may legitimately invoke processes during routine operations but do not invoke the listed suspicious subprocesses.
 
-  - **Cross-reference user activity**: Identify the user account that initiated the web server process using logs from `/var/log/auth.log` or `/var/log/secure`. Validate whether the user has appropriate permissions and if their actions align with expected operational behavior.
+  - **Cross-reference process ownership:** Validate the user context under which the subprocesses are run. Legitimate web server processes should typically execute under specific users (e.g., `www-data`). Unknown or unexpected users may indicate malicious activity.
 
-  - **Correlate with known threat intelligence**: Check the detected subprocess commands against known indicators of compromise (IoCs) related to web shells or various attack signatures. A match may indicate a higher likelihood of compromise.
-
-  - **Validate file creation and modification logs**: Review logs for any creation or alteration of files, such as web shell scripts, on the web server directory (commonly `/var/www/html/`). Look for unexpected changes in files or new file creation events, especially those with suspicious content or patterns.
+  - **Correlate with external threat intelligence:** Check known indicators related to web shell attacks within external databases or threat intelligence platforms. For high-confidence malicious indicators, cross-reference command strings and parent processes with threat intelligence reports.
 
   ### Prioritization
 
-  The alert is considered high severity due to the potential for significant impact if a web server is compromised. The likelihood of malicious behavior is high, as commands found in the alert are commonly weaponized by attackers leveraging web shells for persistence or reconnaissance.
+  This alert severity is high due to the critical role that web servers play in enterprise environments; a compromised web server can act as a gateway for further attacks. The likelihood of malicious abuse is significant as web shells are commonly weaponized in modern cyber threats. Recognizing this behavior is crucial for preventing potential data breaches or ransomware incidents.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded by attackers employing obfuscation techniques to disguise legitimate command invocations or by using less common subprocesses. Reliable detection requires comprehensive logging from process creation mechanisms. Legitimate web applications that invoke native Linux commands may generate false positives, necessitating on-the-fly analysis. Companion detections include monitoring for unusual file modifications within web directories to enhance coverage against potential web shell activity.
+  Detection limitations include potential evasion techniques where attackers may use legitimate commands or obscure their actions through encoding or non-standard paths. Reliable detection requires comprehensive logging configurations, including enabling process execution tracking across all critical systems. Legitimate activities, such as automated scripts using web servers for backend processing, may inadvertently trigger this alert. A related detection rule that could strengthen coverage would involve monitoring for unauthorized changes to web server configuration files or unusual access patterns from anomalous user agents.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

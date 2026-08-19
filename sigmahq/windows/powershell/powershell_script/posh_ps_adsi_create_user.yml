@@ -1,0 +1,75 @@
+title: New User Account Creation Attempt Via ADSI
+id: e50d5d26-0cf6-4045-b82b-13c0a4e316be
+related:
+- id: 7c9fed65-039a-4055-8c23-fa763d94aff6
+  type: similar
+status: experimental
+description: |
+  Detects an attempt to create a new user account via ADSI (Active Directory Service Interfaces)
+  using either the WinNT or LDAP provider. This is an uncommon method to create user accounts
+  and may indicate an attempt to evade detection by avoiding more commonly monitored commands
+  such as "net user", "New-LocalUser" or "New-ADUser".
+references:
+- https://learn.microsoft.com/en-us/windows/win32/adsi/user-creation-with-the-adsi-ldap-provider
+- https://learn.microsoft.com/en-us/windows/win32/adsi/adsi-winnt-provider
+author: William Gokah (idea), Raylee Hawkins, Swachchhanda Shrawan Poudel 
+  (Nextron Systems)
+date: 2026-08-13
+tags:
+- attack.persistence
+- attack.t1136.001
+- attack.t1136.002
+logsource:
+  product: windows
+  category: ps_script
+  definition: 'Requirements: Script Block Logging must be enabled'
+detection:
+  selection_adsi:
+    ScriptBlockText|contains: '[ADSI]'
+  selection_create_user:
+        # Example (WinNT - local user):
+        #   $computer = [ADSI]"WinNT://localhost"; $user = $computer.Create("User", "NewUser"); $user.SetPassword("P@ssw0rd!"); $user.SetInfo()
+        # Example (LDAP - domain user):
+        #   $ou = [ADSI]"LDAP://CN=Users,DC=domain,DC=com"; $user = $ou.Create("user", "CN=NewUser"); $user.Put("sAMAccountName","NewUser"); $user.SetInfo()
+    ScriptBlockText|contains:
+    - '.create("user'
+    - ".create('user"
+  selection_adsi_provider:
+    ScriptBlockText|contains:
+    - 'WinNT://'         # Local user creation via WinNT provider
+    - 'LDAP://'         # Domain user creation via LDAP provider
+  condition: all of selection_*
+falsepositives:
+- Legitimate administrative scripts that use ADSI to provision user accounts but
+  should be rare in most environments
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/powershell/powershell_script/posh_ps_adsi_create_user/info.yml
+note: |
+  ### Technical Context
+
+  This rule detects attempts to create new user accounts through Active Directory Service Interfaces (ADSI) using either the WinNT or LDAP provider. Such behavior is atypical and may indicate malicious activity as attackers often seek to evade detection mechanisms that monitor more common user creation commands like "net user" or "New-ADUser". The likely attacker objective is to establish persistence in a target environment by creating new user accounts, potentially for lateral movement or access to sensitive resources.
+
+  The relevant MITRE ATT&CK tactics are "Persistence" (Tactic ID: TA0003), with techniques T1136.001 (Create Account: Local Account Creation) and T1136.002 (Create Account: Domain Account Creation). Primary telemetry sources include PowerShell logs, specifically with Script Block Logging enabled. If malicious, this action can lead to unauthorized access and potential escalation of privileges. This detection does NOT confirm whether the activity is malicious by itself, as legitimate admin actions could trigger similar alerts under rare circumstances.
+
+  ### Investigation Steps
+
+  - **Review PowerShell logs for ScriptBlockText:** Examine PowerShell logs (Event ID 4104) for entries containing `.create("user` or `.Create('user"` to identify creation attempts of user accounts via ADSI. Look for scripts executed with unusual usernames or against systems outside normal administrative routines.
+
+  - **Identify the account context:** Check the context in which the PowerShell command was executed: confirm the user account running the script using Event ID 4624. If the account is not an expected admin or has a recent history of suspicious activity, this could indicate malicious intent.
+
+  - **Compare with known legitimate activity:** Look for known administrative scripts and tool usage within your organization. Expected behaviors may include using "New-ADUser" or other documented methods for user creation. A significant deviation from these methods could indicate an anomaly.
+
+  - **Cross-reference the organization’s user creation policy:** Assess recent user account creation events against established organizational policies and records. Log sources such as Active Directory Security Logs (Event IDs 4720 for account creation) should be reviewed for unusual account provisioning that aligns with the detected behavior.
+
+  - **Evaluate the impact of affected systems:** Consider the criticality of the systems where the ADSI command was executed. For high-priority or highly sensitive systems, any unauthorized account creation should be treated with increased severity.
+
+  ### Prioritization
+
+  This alert indicates medium severity due to the potential impact on user account control in sensitive systems if exploited. The likelihood of malicious abuse is high, particularly in environments where user account creation via ADSI is infrequent. Such techniques are generally not widely weaponized, making this behavior particularly noteworthy.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited if Script Block Logging is not enabled, as it is necessary for capturing these types of PowerShell executions that may be obfuscated. Legitimate administrative actions, though rare, that utilize ADSI for user account creation could potentially trigger this alert. Companion detections such as monitoring Event ID 4720 for account creation would bolster visibility and context around user provisioning activities.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
