@@ -49,33 +49,48 @@ detection:
 falsepositives:
 - Administrative activity, still unlikely
 level: high
+simulation:
+- type: atomic-red-team
+  name: Modify Event Log Access Permissions via Registry - PowerShell
+  technique: T1562.002
+  atomic_guid: a0cb81f8-44d0-4ac4-a8f3-c5c7f43a12c1
+- type: atomic-red-team
+  name: Modify Event Log Channel Access Permissions via Registry - PowerShell
+  technique: T1562.002
+  atomic_guid: 8e81d090-0cd6-4d46-863c-eec11311298f
+- type: atomic-red-team
+  name: Modify Event Log Channel Access Permissions via Registry 2 - PowerShell
+  technique: T1562.002
+  atomic_guid: 85e6eff8-3ed4-4e03-ae50-aa6a404898a5
 note: |
   ### Technical Context
 
-  This Sigma rule detects unauthorized changes to Windows Event Log channel permissions by monitoring modifications to the Security Descriptor Definition Language (SDDL) strings in the registry. Such behavior may indicate an attacker’s objective to manipulate log accessibility, thus impairing detection and visibility of their post-exploitation activities. The relevant MITRE ATT&CK tactics include Defense Evasion (TA0005) and Privilege Escalation (TA0004), specifically focusing on technique T1547.001, which concerns modifying event log access permissions.
+  This Sigma rule detects unauthorized modifications to the Windows Event Log channel permissions via changes to the Security Descriptor Definition Language (SDDL) string. Such behavior is indicative of an attacker attempting to suppress auditing by limiting the visibility of event logs, therefore evading detection and potentially hiding malicious activities from system administrators. The likely attacker objective is to prevent the detection of their presence or actions on the compromised system.
 
-  Primary telemetry sources stem from the Windows registry, particularly event logs and requests monitored through registry key changes relevant to EventLog permissions. If malicious, these alterations can prevent legitimate users from viewing event logs, obstructing incident response mechanisms. Notably, this detection does NOT confirm malicious activity on its own, as legitimate administrative operations may occasionally invoke registry changes.
+  This behavior relates to the MITRE ATT&CK tactic of Defense Evasion and the specific technique T1562.002, which pertains to "Modify Event Log Access Permissions." The primary telemetry source for this detection is the Windows Registry, specifically registry modifications related to EventLog permissions, which can be captured as registry set events. If malicious, altering these access permissions can critically undermine an organization's ability to monitor system behaviors and detect intrusions. Importantly, this detection does not, on its own, confirm malicious intent; legitimate administrator actions may also modify these permissions.
 
   ### Investigation Steps
 
-  - **Review specific registry changes:** Investigate registry keys under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\EventLog\` for `CustomSD` modifications and under `HKEY_LOCAL_MACHINE\Policies\Microsoft\Windows\EventLog\` and `HKEY_LOCAL_MACHINE\Microsoft\Windows\CurrentVersion\WINEVT\Channels\` for `ChannelAccess`. Compare with baseline configurations to identify unauthorized changes.
+  - **Review the Registry Modification Event:** Examine the registry set event (Event ID 4657) for changes to the following paths:
+    - `\SYSTEM\CurrentControlSet\Services\EventLog\`
+    - `\Policies\Microsoft\Windows\EventLog\`
+    - `\Microsoft\Windows\CurrentVersion\WINEVT\Channels`
+    - Verify if the modification includes SDDL strings containing `"D:(D;` or elements indicating decreased permissions.
 
-  - **Examine the Details field:** Look for entries in the Details field containing 'D:(' and '(D;' during the registry access event. The presence of these strings indicates permission changes that could restrict event log visibility.
+  - **Check User Account Activity:** Investigate the associated user or process that triggered the registry change. Identify the user account via Event ID 4634 (logoff) or 4624 (logon) and correlate their actions around the time of the registry change.
 
-  - **Identify the process responsible for changes:** Check the process path associated with the registry modifications, ensuring it is not a legitimate system process like `TrustedInstaller.exe` or `TiWorker.exe`, which could indicate benign administrative activity. Any modifications from unrecognized process paths warrant further scrutiny.
+  - **Identify Admin Activity:** Determine if the modification was part of known administrative maintenance by reviewing logs from approved administrative accounts or management tools. Look for Event IDs 4688 (process creation) that would indicate legitimate administrative utilities were used.
 
-  - **Check user permissions:** Review if any operation user accounts associated with the modification possess elevated access. Malicious actors often use compromised accounts with administrative privileges to alter log settings; thus review expected users against unexpected changes.
+  - **Validate the Absence of Known Processes:** Ensure that the modification was not executed by `TrustedInstaller.exe` (C:\Windows\servicing\TrustedInstaller.exe) or `TiWorker.exe` (C:\Windows\WinSxS\TypedWorker.exe), as these processes are typically associated with legitimate system administration tasks.
 
-  - **Validate log accessibility:** Utilize tools like `Get-EventLog` or `wevtutil` to determine if the event log channels are accessible post-modification. No access could indicate an ongoing attempt to hide malicious activity.
-
-  - **Log source validation:** Ensure that Windows Event logs are properly configured and collecting the expected data for future incident investigations. Gaps in logs can hinder successful evaluations of potential attacks affecting event log access.
+  - **Analyze System Behavior Post-Change:** Investigate subsequent events that indicate restrictive behavior, such as failed access to event logs by normal users, utilizing `Get-EventLog` or `wevtutil` commands. Ensure to cross-reference failed actions that could indicate attempts to audit logs.
 
   ### Prioritization
 
-  This alert has high severity as it directly impacts the integrity of event logs, which are critical for detecting unauthorized activities. The likelihood of these changes being malicious is significant, as attackers frequently employ this tactic to conceal their actions. Such behavior is a known method for circumventing detection mechanisms, making timely investigation crucial.
+  This alert should be prioritized as high severity due to its potential to hide malicious activities from security monitoring efforts and the criticality of logs in incident response scenarios. The likelihood of malicious actors modifying log access permissions makes this a common target in sophisticated attacks aiming at maintaining persistence within a network.
 
   ### Blind Spots and Assumptions
 
-  Limitations include the potential for legitimate administrative activities to trigger the alert, creating noise in the detection system. Detection relies on precise logging of registry changes; without proper configuration, evidence may be lost. Potential false positives must be expected, particularly in environments with rigorous administrative practices. Companion detections, such as monitoring for unusual process behaviors or abnormal user activity, can enhance coverage against this evasion tactic.
+  Potential evasion techniques include legitimate administrative activities that may inadvertently trigger this alert, which necessitates careful scrutiny of context. Detection reliability relies heavily on continuous monitoring of registry modifications, and gaps may occur if auditing settings are not properly configured for Windows Registry access. An effective companion detection would involve monitoring for unusual Process Creation events (Event ID 4688) that indicate scripts or tools attempting to modify log visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

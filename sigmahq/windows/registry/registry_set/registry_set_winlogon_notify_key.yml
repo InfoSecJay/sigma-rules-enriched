@@ -24,33 +24,44 @@ detection:
 falsepositives:
 - Unknown
 level: high
+simulation:
+- type: atomic-red-team
+  name: Winlogon Notify Key Logon Persistence - PowerShell
+  technique: T1547.004
+  atomic_guid: d40da266-e073-4e5a-bb8b-2b385023e5f9
 note: |
   ### Technical Context
 
-  This Sigma rule detects changes made to the Winlogon Notify registry key, specifically alterations that involve the execution of DLLs upon user logon. The behavior typically indicates an attempt by an adversary to establish persistence on a compromised system, allowing them to run malicious code during the logon process. The likely attacker objective is maintaining access to the system or executing additional payloads without user awareness.
+  This rule detects the modification of registry keys that configure the Winlogon Notify system, specifically targeting DLLs that may be executed during user login. An adversary may leverage this persistence mechanism to execute malicious code automatically when a user logs in to the system. The likely attacker objective is to maintain access to the system and execute arbitrary code without user intervention. This behavior is categorized under the MITRE ATT&CK framework as Persistence (T1547.004).
 
-  This detection is associated with the MITRE ATT&CK technique T1547.004 (Winlogon Notify Key). Primary telemetry sources are Windows registry logs that track modifications to specified registry keys, particularly Event ID 4657 (Registry Value Modified) and related Event IDs. If malicious, this behavior can lead to unauthorized data access or lateral movement within the network. Importantly, while this detection indicates suspicious activity, it does not confirm that the executed code is indeed malicious without further investigation.
+  The primary telemetry sources include Windows Registry logs that capture changes in the HKEY_LOCAL_MACHINE hive under the specific path for Winlogon Notify keys. If malicious, this behavior can allow an adversary to run stealthy malware or backdoors each time a legitimate user logs on, potentially evading detection through normal software firewalls or antivirus solutions. However, this detection does NOT confirm that the executed DLL is malicious on its own.
 
   ### Investigation Steps
 
-  - **Check registry modification logs:** Verify Event ID 4657 for the target registry key: `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify\logon`. Focus on the `NewValue` field to identify any DLLs being registered.
+  - **Inspect registry changes:**
+    Query the Windows Registry for changes to `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\Notify` (e.g., using Event ID 4663). Look for recently added or modified values and confirm if they match the suspicious DLL naming conventions (e.g., unusual or obfuscated names).
 
-  - **Identify the modified DLL:** Review the relevant timestamp associated with the modification to correlate it with other activity on the host. Malicious modifications will often show uncommon or unrecognized DLL names.
+  - **Validate DLL legitimacy:**
+    Perform a hash lookup for the suspicious DLL against known malware databases like VirusTotal. Check if the DLL is signed by a legitimate publisher or if it has a high number of reported detections.
 
-  - **Examine process creation events:** Investigate security event logs (Event ID 4688) around the same timestamps as registry modifications, specifically for process instances of Winlogon.exe or any registered DLLs. Look for unusual parent-child relationships that may indicate payload execution.
+  - **Review recent logon events:**
+    Cross-reference the timestamp of the registry modification with Windows Security Event ID 4624 (Logon) to determine if a logon event correlated with the suspicious changes. This can indicate when the persistence mechanism was activated.
 
-  - **Validate legitimate applications:** Cross-reference legitimate applications that utilize the Winlogon Notify key, such as certain enterprise software. Ensure that expected DLLs are authorized and align with known good usage.
+  - **Analyze running processes:**
+    Use Sysinternals Process Explorer or similar tools to inspect running processes after a user logon. Look for instances of the modified DLL being loaded and verify parent processes to identify potentially malicious launch patterns.
 
-  - **Analyze system integrity:** Use tools like Sysinternals' Autoruns to review all entries under Winlogon Notify. Confirm that all loaded DLLs are from trusted sources, checking digital signatures when possible.
+  - **Assess user roles:**
+    Identify whether changes were made on a critical system or high-privileged user’s machine. Monitor any abnormal user activity aligning with suspicious registry modifications, such as unexpected remote administrative commands.
 
-  - **Monitor for lateral movement:** Assess other endpoints within the environment for similar registry modifications or abnormal DLL activity, as widespread use may indicate a larger compromise.
+  - **Establish baseline behavior:**
+    Document expected behavior for legitimate applications that may modify related registry settings for persistence (e.g., enterprise policy tools) and compare this to the detected activity.
 
   ### Prioritization
 
-  This alert is high priority due to the potential impact on system integrity and security. The behavior is indicative of a tactic commonly weaponized by attackers aiming for persistence, increasing the likelihood of malicious activity on affected systems.
+  This alert is of high severity due to its potential impact on critical systems and the low likelihood of benign use cases. The persistence method indicated is commonly exploited by adversaries for maintaining access, making it a serious flag for potential compromise.
 
   ### Blind Spots and Assumptions
 
-  There may be challenges in detecting this behavior if security logging is not properly configured or if log sources are not consistently monitored. Legitimate administrative actions or toxic software updates can also trigger this alert. To strengthen detection, consider enabling companion alerts for abnormal process creation associated with Winlogon.exe or monitor network traffic for unusual outbound connections initiated by newly registered DLLs.
+  Detection may be limited by the misconfiguration of log collection, particularly if registry auditing is not enabled comprehensively. Legitimate software installers or updates might trigger similar registry modifications without malicious intent. A related detection to strengthen coverage could involve monitoring for unusual processes spawned at user logon events (e.g., excessive execution of obfuscated PowerShell commands).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -1,13 +1,16 @@
-title: CMSTP Execution Registry Event
+title: CMSTP App Paths Registry Key Modification
 id: b6d235fc-1d38-4b12-adbe-325f06728f37
 status: stable
-description: Detects various indicators of Microsoft Connection Manager Profile 
-  Installer execution
+description: |
+  Detects modifications to the CMSTP App Paths registry key. This may indicate abuse of
+  Microsoft Connection Manager Profile Installer (CMSTP) for arbitrary code execution or UAC bypass.
 references:
+- https://lolbas-project.github.io/lolbas/Binaries/Cmstp/
 - https://web.archive.org/web/20190720093911/http://www.endurant.io/cmstp/detecting-cmstp-enabled-code-execution-and-uac-bypass-with-sysmon/
+- https://web.archive.org/web/20190722224110/https://oddvar.moe/2017/08/15/research-on-cmstp-exe/
 author: Nik Seetharaman
 date: 2018-07-16
-modified: 2020-12-23
+modified: 2026-08-27
 tags:
 - attack.execution
 - attack.stealth
@@ -19,38 +22,43 @@ logsource:
   product: windows
 detection:
   selection:
-    TargetObject|contains: '\cmmgr32.exe'
-  condition: selection
+    TargetObject|contains: 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\cmmgr32.exe\'
+  filter_main_cmcfg32:
+    TargetObject|endswith: 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\cmmgr32.exe\CmstpExtensionDll'
+    Details:
+    - 'C:\Windows\System32\cmcfg32.dll'
+    - 'C:\Windows\SysWOW64\cmcfg32.dll'
+  filter_main_empty:
+    Details: '(Empty)'
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Legitimate CMSTP use (unlikely in modern enterprise environments)
 level: high
 note: |
   ### Technical Context
 
-  This detection identifies the execution of Microsoft Connection Manager Profile Installer (CMSTP) through registry events involving the executable 'cmmgr32.exe'. Attackers often use CMSTP to bypass User Account Control (UAC) and execute arbitrary code with system privileges, potentially leading to further actions like privilege escalation or lateral movement. The relevant MITRE ATT&CK technique associated with this behavior is "Execution through CMSTP" (T1218.003).
+  This Sigma rule detects modifications to the CMSTP App Paths registry key, specifically targeting the `Cmmgr32.exe` path, which may indicate an adversary is exploiting the Microsoft Connection Manager Profile Installer (CMSTP) for arbitrary code execution or User Account Control (UAC) bypass. The likely attacker objective is to deceive the system into executing malicious code or scripts with elevated privileges. This behavior fits the MITRE ATT&CK framework under the tactic of Execution (T1203) and the specific technique of CMSTP Execution (T1218.003).
 
-  The primary telemetry source is Windows registry event logs specifically capturing registry modifications associated with executable run commands. If this behavior is malicious, it can lead to significant breaches such as unauthorized access, data exfiltration, or system control. Importantly, the detection does NOT confirm that the behavior is malicious on its own, as legitimate use of CMSTP can still occur, albeit rarely in modern enterprise environments.
+  Primary telemetry sources include Windows Registry events, particularly those related to changes in the registry key structure under `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\`. If detected maliciously, the impact could involve unauthorized execution of software leading to compromised system integrity and potential data breaches. Importantly, this detection does NOT confirm compromise on its own; further investigation into the context and intent behind the modification is necessary.
 
   ### Investigation Steps
 
-  - **Check registry event logs for execution events:** Review Windows Registry Event IDs related to 'cmmgr32.exe' (Event ID 4657 and related) for unusual patterns or execution timestamps indicating potential compromise.
+  - **Review registry modification logs**: Check for Windows Registry Event ID 4657 to identify specific changes made to `SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\cmmgr32.exe\`. Validate the timestamp and user account associated with the modification.
 
-  - **Identify process creation events:** Look for Security Event ID 4688 or Sysmon Event ID 1 where 'cmmgr32.exe' is the newly created process, paying attention to parent processes that could indicate how this execution was initiated.
+  - **Assess modification intent**: Analyze the `Details` field of the event to see if any unusual DLLs (e.g., `CmstpExtensionDll`) were added. Compare against known legitimate entries to identify anomalies.
 
-  - **Correlate with known benign usage:** Validate if the detected execution correlates with expected organizational usage, such as configurations made by IT during network adjustments or legitimate user setups for connection profiles.
+  - **Identify recent CMSTP executions**: Search for Sysmon Event ID 1 to find new process creations involving `cmstp.exe`. Legitimate use cases may show usage during VPN or enterprise configuration changes rather than during atypical hours or from non-administrative accounts.
 
-  - **Look for command-line arguments:** Investigate if the execution includes suspicious command-line arguments that may suggest data manipulation or external command execution, as observed in Execution Event logs.
+  - **Check for elevated privileges**: Investigate User Account Control (UAC) related events (Event ID 4698) to determine if any actions were taken with elevated permissions that are suspicious or unnecessary, indicating potential abuse.
 
-  - **Analyze network activity post-execution:** Check for abnormal outbound connections or internal lateral movement following the execution of 'cmmgr32.exe', focusing on unusual IPs, ports, or protocols used.
-
-  - **Review user and system roles:** Validate user permissions and system profiles associated with the execution. If an unexpected user or account with inadequate privileges initiates the process, this heightens the indicator's confidence in malicious activity.
+  - **Cross-reference Asset Criticality**: Confirm the role of the affected host. Modifications on critical servers could imply a higher risk compared to standard user workstations.
 
   ### Prioritization
 
-  This alert should be treated as high severity due to the potential impact of privilege escalation and system compromise it represents. The likelihood of malicious abuse is significant, given that methods exploiting CMSTP have been weaponized in various attack scenarios. Organizations typically should not see legitimate CMSTP usage in modern enterprise environments.
+  The alert should be classified as high severity due to the potential for deep system compromise through arbitrary code execution, especially if observed on critical infrastructure or servers. The likelihood of malicious abuse is pertinent given that CMSTP is a known vector for exploitation. This behavior is frequently weaponized in targeted attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  This detection may be limited by evasion techniques such as process hollowing or other legitimate applications mimicking CMSTP behavior. Reliable detection requires proper logging configurations to capture registry events. Legitimate administrative tasks like network configurations may inadvertently trigger the alert. To enhance detection coverage, companion detections for anomalous PowerShell usage (T1059.001) should be implemented, as these may overlap in scenarios of privilege exploitation.
+  Detection may be limited by legitimate software installations or updates that modify App Paths, potentially leading to false positives. Required log sources include comprehensive registry auditing, and both Sysmon and Event Logs must be properly configured for thorough visibility. Legitimate enterprise actions such as VPN deployments may trigger the alert. A related detection would involve monitoring for unusual command line arguments associated with `cmstp.exe` to strengthen coverage of exploit attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

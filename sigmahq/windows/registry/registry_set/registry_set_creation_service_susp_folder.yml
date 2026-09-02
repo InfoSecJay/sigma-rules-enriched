@@ -52,33 +52,35 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/registry/registry_set/registry_set_creation_service_susp_folder/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the creation of a Windows service that utilizes a binary located in directories commonly associated with suspicious activity, such as `\Users\Public\`, `\Perflogs\`, `\ADMIN$\`, or `\Temp\`. The likely objective of an attacker is to establish persistence or execute malicious payloads stealthily. This behavior aligns with the MITRE ATT&CK tactic for Persistence (TA0003) and specifically the technique that involves creating or modifying services (T1112). The primary telemetry sources are Windows Registry logs that monitor changes to the `HKLM\System\CurrentControlSet\Services\` path, especially Service Start and Image Path keys.
+  This Sigma rule detects the creation of Windows services that point to binaries stored in suspicious directories such as `\Users\Public\`, `\Perflogs\`, `\ADMIN$`, and `\Temp`. These directories are commonly used by adversaries to obfuscate their activities, potentially intending to establish persistence or to run malicious payloads. The likely attacker objective is to leverage a service for remote access, execution of malware, or to maintain persistence on the compromised system.
 
-  If malicious, this detection can lead to unauthorized access, data exfiltration, or system control ramifications, potentially impacting overall enterprise security significantly. However, this detection does NOT confirm malicious intent on its own; further analysis is required to establish whether the service is indeed harmful or benign.
+  This detection relates to MITRE ATT&CK tactics for Persistence (T1547) as well as Defense Evasion (T1112). The primary telemetry sources include Windows Registry logs, specifically targeting service creation attempts (e.g., `HKLM\System\CurrentControlSet\Services\`). If malicious, the establishment of such a service could allow an attacker to execute arbitrary code with system-level privileges. Importantly, this detection does NOT confirm that malicious activity is occurring on its own; further investigation is required to establish intent.
 
   ### Investigation Steps
 
-  - **Review service creation details:** Check Windows Registry Event ID 4657 for changes to `HKLM\System\CurrentControlSet\Services\`. Focus on any corresponding Image Path entries pointing to suspicious directories.
+  - **Verify Service Creation Events:** Check for Registry Event IDs related to the creation of services (Event ID 7045) to confirm if the suspicious directories were used for `ImagePath` or `Start` entries.
 
-  - **Validate service configuration:** Cross-reference Event ID 7045, which logs service installation, to identify if the service is legitimate. Verify the service name against trusted services to differentiate between expected and likely malicious indicators.
+  - **Inspect the Service Properties:** For any identified service, evaluate the `ImagePath` (Registry Key: `HKLM\System\CurrentControlSet\Services\<ServiceName>\ImagePath`) for known legitimate binaries and any command-line arguments associated with it.
 
-  - **Check for high-confidence malicious indicators:** Look at Event ID 4688 for process creation logs to identify if the service executable executed from a suspicious directory. Pay special attention to processes spawning from `C:\Windows\system32\services.exe` as this indicates service interaction.
+  - **Determine Execution Context:** Analyze the parent process (using Sysmon Event ID 1) that spawned the service. Look for unusual parent processes such as `cmd.exe` or `powershell.exe` that may indicate malicious intent.
 
-  - **Identify expected behavior of legitimate services:** Review known service entries, especially those tied to security software and OS components. Characteristics like installation paths for legitimate services are typically found in `C:\Program Files` or `C:\Windows\`.
+  - **Identify Legitimate Behavior:** Compare against baseline configurations; many enterprise systems will have known services running from standard directories like `C:\Program Files\`. Document expected service paths and configurations for average deployed applications.
 
-  - **Correlate with monitoring tools:** Validate telemetry from SIEM or other monitoring tools for files being created or modified in the suspicious directories mentioned. Include examination of file creations and modifications in `C:\Temp\` and `C:\Users\Public\`.
+  - **Correlate with Other Alerts:** Review for any accompanying suspicious activity, such as increased network traffic from the service or previous alerts related to lateral movement (e.g., RDP access from unusual locations, Event ID 4624).
 
-  - **Consider host role:** Assess the role of the affected host; if it’s a domain controller or critical infrastructure, escalate the investigation. Unusual service changes on these systems could indicate serious compromise.
+  - **Evaluate for Malicious Indicators:** Identify if the service is launching executables from the `\Temp\` directory, especially those with non-standard naming or newly created executables (using file creation timestamps and hashes).
 
   ### Prioritization
 
-  This alert should be treated with high severity, as a service running from a suspicious location can indicate active persistence mechanisms employed by adversaries. The potential impact is significant if critical systems are affected, and while service creation is a common technique, its misuse is increasingly weaponized in attacks.
+  This alert should be prioritized as high due to the potential impact on system integrity and the likelihood of malicious abuse, as services are often leveraged by adversaries to execute persistent malware. Additionally, the behavior described is commonly weaponized for establishing persistence in compromised environments.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss services that evade scrutiny by using corporate software installation paths or services created in legitimate directories that are later manipulated. Reliable detection requires comprehensive logging frameworks like Audit Policy to include registry access. Legitimate activities that may trigger this alert include software installations or updates. A related detection rule monitoring unauthorized network connections or privileged user creation could strengthen overall security visibility.
+  Detection may have limitations, as attackers can place binaries in less common directories or may clear Registry entries after execution. Reliability depends on having proper logging enabled for Windows Registry activity and ensuring that the environment logs service creation events consistently. Legitimate applications may create or modify services in these directories during updates or system maintenance, such as system management software. Companion detections such as monitoring for unusual outbound connections from these services can enhance the overall detection capability.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

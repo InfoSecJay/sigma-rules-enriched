@@ -9,7 +9,7 @@ references:
 - https://www.hexacorn.com/blog/2013/09/19/beyond-good-ol-run-key-part-4/
 author: frack113
 date: 2022-02-04
-modified: 2024-04-03
+modified: 2026-08-31
 tags:
 - attack.persistence
 - attack.privilege-escalation
@@ -24,8 +24,13 @@ detection:
     - 'ControlSet'
     - '\Services\'
     TargetObject|endswith: '\Parameters\ServiceDll'
-  filter_main_printextensionmanger:
+  filter_main_printextensionmanger_1:
     Details: 'C:\Windows\system32\spool\drivers\x64\3\PrintConfig.dll'
+  filter_main_printextensionmanger_2:
+    Image|endswith: '\regsvr32.exe'
+    TargetObject|endswith: '\Services\PrintNotify\Parameters\ServiceDll'
+    Details|startswith: 'C:\WINDOWS\System32\DriverStore\FileRepository\'
+    Details|endswith: '\arm64\PrintConfig.dll'
   filter_main_domain_controller:
     Image: 'C:\Windows\system32\lsass.exe'
     TargetObject|endswith: '\Services\NTDS\Parameters\ServiceDll'
@@ -40,29 +45,38 @@ falsepositives:
 - Administrative scripts
 - Installation of a service
 level: medium
+simulation:
+- type: atomic-red-team
+  name: TinyTurla backdoor service w64time
+  technique: T1543.003
+  atomic_guid: ef0581fd-528e-4662-87bc-4c2affb86940
 note: |
   ### Technical Context
 
-  This rule detects modifications to the "ServiceDll" value in the Windows registry for services. Adversaries often implement these changes to maintain persistence on compromised systems while potentially executing malicious DLLs when a service is started. The relevant MITRE ATT&CK tactic is Persistence, specifically technique T1543.003 (Service DLL Hijacking). Primary telemetry sources include Windows Registry event logs (Event ID 4663) that capture attempts to change registry keys, particularly those related to services. Malicious changes could result in executing arbitrary code or a backdoor, severely impacting system integrity. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate administrative changes can trigger the alert.
+  This rule detects unauthorized changes to the `ServiceDll` registry key, indicating potential service DLL hijacking, a technique often used by attackers to maintain persistence on a compromised system. The likely objective of the attacker is to execute malicious code whenever the affected service starts, facilitating ongoing control of the system without detection. This behavior corresponds to the MITRE ATT&CK tactics of Persistence (T1543.003) and Privilege Escalation.
+
+  The primary telemetry source is Windows registry modifications, specifically targeting registry paths under `\System\ControlSet\Services\`, with a focus on the `ServiceDll` value. If malicious, this behavior can enable an attacker to execute malicious payloads under the guise of legitimate services, compromising system integrity. However, this detection alone does not confirm malicious intent, as legitimate administrative actions or service installations may also cause similar changes.
 
   ### Investigation Steps
 
-  - **Verify the context of the registry change:** Cross-reference the registry modification with the Service name and the User SID making the change (Event ID 4663). Ensure it is from a known administrative session and that the timing aligns with legitimate operations, such as service installations or updates.
+  - **Check registry modifications on affected services:** Review registry changes specific to `\System\ControlSet\Services\<ServiceName>\Parameters\ServiceDll` using Sysinternals tools or PowerShell. Look for unexpected DLL paths that are non-standard or unfamiliar.
 
-  - **Check for unusual DLL files:** Analyze the "Details" field for malicious file names or paths indicating a non-standard ServiceDll. For example, "PrintConfig.dll" in unexpected locations might indicate compromise. Review the hash of referenced DLL files against threat intelligence to identify known malware.
+  - **Identify service owners:** Confirm the owner of the modified service. Use `Get-Service` in PowerShell to match the service to its expected executable path, ensuring it matches legitimate sources. High-risk mismatches may indicate malicious activity.
 
-  - **Review service statuses:** Use PowerShell or the Services MMC to confirm the status of services mentioning the altered "ServiceDll" and identify any unusual or unexpected services that are not relevant to standard operations, indicating potential abuse.
+  - **Review recent process creation events:** Analyze Security Event ID 4688 or Sysmon Event ID 1 for the creation of processes like `regsvr32.exe`, `lsass.exe`, or any unusual executables that modified the registry. Benign scenarios typically do not initiate changes to service DLLs via these processes.
 
-  - **Monitor for related event IDs:** Investigate other related security events (Event ID 4697 for service creation, Event ID 7045 for service installation updates) occurring around the same timestamp as the registry change to identify patterns of suspicious activity.
+  - **Correlate with behavioral telemetry:** Examine application logs for any service restarts associated with suspicious DLLs. For instance, logs indicating `Service started successfully` should not correlate to any unauthorized DLL modifications.
 
-  - **Determine expected administrative activity:** Document any recent legitimate changes or updates made by IT admin processes on the system regarding service management to establish a baseline for comparison with logged activity.
+  - **Assess endpoint role and criticality:** Identify if the affected service is on a critical endpoint like a domain controller or a server handling sensitive data. The impact of a betrayal in such environments may significantly escalate.
+
+  - **Investigate for further lateral movement:** Check if there are any known indicators of compromise associated with the DLLs detected. Look at Threat Intelligence feeds for the specific DLL path to validate whether associated malware is documented.
 
   ### Prioritization
 
-  This alert carries a medium severity level due to the potential impact of a compromised service on system functionality and security. Although service DLL hijacking is a common technique used by adversaries, legitimate software installations can also trigger similar registry modifications, necessitating careful analysis.
+  This alert is of medium severity due to its potential impact on critical systems or services, especially if they are compromised for persistence. While service DLL hijacking is a common tactic leveraged by advanced persistent threats (APTs) and malware, benign administrative actions can trigger similar alerts, making contextual review essential.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques such as using benign file names or scheduled legitimate tasks may avoid detection while still facilitating malicious actions. Reliable detection requires proper configuration of Windows security auditing for the registry. Legitimate administrative activities, such as installing or configuring services, may lead to false positives. A companion detection for unusual or unauthorized service executions (e.g., logging service start events) can provide more context for assessment.
+  Detection limitations include the possibility of legitimate administrative scripts modifying the registry without malicious intent. Ensuring that the Windows registry change logs are adequately captured is crucial for effective detection; otherwise, the context may be lost. Additionally, benign installations of new services or updates may trigger this alert, making it important to differentiate between expected and suspicious activity. A related detection, such as monitoring which processes load DLLs at startup, can strengthen overall detection capabilities and provide further context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

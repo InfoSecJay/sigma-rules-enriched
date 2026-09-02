@@ -40,31 +40,33 @@ detection:
 falsepositives:
 - Unknown
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_findstr_download/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the execution of the `findstr.exe` command with specific flags that facilitate downloading content from a remote file share. The likely objective of an attacker is to exfiltrate or manipulate data from a remote resource, often as part of a command-and-control operation or credential access. This behavior aligns with the MITRE ATT&CK framework techniques: "T1105 - Ingress Tool Transfer" and "T1564.004 - Hide Artifacts: Alternate Data Streams". Primary telemetry sources include Windows process creation events, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, the security impact can lead to significant data exfiltration or unauthorized access to sensitive resources. Importantly, this detection does NOT confirm that malicious activity is occurring on its own; it merely indicates the execution of a potentially suspicious command.
+  This Sigma rule detects the execution of the `findstr.exe` command-line utility with specific flags that enable the tool to download content from a remote share. The likely objective of the attacker might be to retrieve files from a remote location discretely, avoiding typical download methods that may trigger alerts. This behavior aligns with several MITRE ATT&CK techniques, notably Command and Control (T1218) and Exfiltration Over Command and Control Channel (T1041). The primary telemetry source is Windows process creation logs, specifically looking for Event ID 4688 tied to command execution logs.
+
+  If malicious, this behavior suggests potential data exfiltration or the transfer of malicious payloads. However, this detection alone does not confirm that malicious intent was present, as benign use cases exist for similar command executions under legitimate administrative tasks.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check Security Event ID 4688 and Sysmon Event ID 1 for the execution of `findstr.exe` with a command line containing `-v`, `-l`, or a UNC path (e.g., `\\\\`). Look for unusual execution timestamps or user context, implying potential misuse.
+  - **Review command execution context:** Examine the process creation logs for Event ID 4688, focusing on User SID and Parent Process ID. Legitimate usage typically involves `findstr.exe` being executed by admin users for file searches rather than data downloads.
 
-  - **Inspect file access events**: Validate logs from the file share (e.g., SMB logs) to determine if the command led to an actual file being accessed or downloaded. Look for files accessed immediately following the execution within 5 minutes.
+  - **Analyze command line arguments:** Inspect the command line arguments for any instance of `findstr` that contains `-v`, `-l`, and a remote share indicator like `\\\\`. If these parameters are present, further scrutiny is needed as they indicate potential malicious file interaction.
 
-  - **Assess the command line**: Examine the full command line used to invoke `findstr.exe`. Legitimate operations will typically not include the flags `-v` and `-l` together with a UNC path, while suspicious use will prominently feature these elements.
+  - **Identify remote share access:** Check for access logs to the remote share referenced in the command. If significant data retrieval has occurred or the account does not usually access that share, it raises suspicion.
 
-  - **Identify possible legitimate scenarios**: Consider context where the rule might trigger legitimately, such as scheduled tasks or scripts used by system administrators for maintenance that utilize `findstr.exe` in expected ways. Document user roles involved in these operations.
+  - **Correlate user activity over time:** Utilize SIEM solutions to correlate the user’s behavior leading to the alert, tracking login times, remote command executions, and any unusual patterns in accessing other resources to build a profile of normal vs. suspicious activity.
 
-  - **Look for related artifacts**: Review for alternate data streams (ADS) associated with the file being accessed from the remote share. Use tools like Sysinternals or PowerShell to audit for unexpected ADS on newly downloaded files.
-
-  - **Monitor user behavior patterns**: Check user behavior analytics to identify whether the user that executed the command has demonstrated atypical access patterns or is attempting unauthorized access to sensitive systems or data.
+  - **Examine the destination environment:** Determine the role of the affected asset. If it is a non-administrative host or an asset that typically does not interact with remote resources, this raises the risk profile for potential malicious activity.
 
   ### Prioritization
 
-  This alert has a medium severity level, particularly if it involves a high-value asset or sensitive data. The likelihood of malicious abuse is significant, especially in environments where remote file shares are used for sensitive operations. Additionally, the `findstr` command is lesser known, increasing the risk of being weaponized in stealthy data exfiltration campaigns.
+  This alert should be considered medium severity within enterprise environments. The affected system's classification, specifically if it's a critical asset, combined with the likelihood of this behavior being weaponized by adversaries for stealthy data exfiltration, warrants timely investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments where `findstr.exe` is used legitimately for benign administrative tasks, potentially creating false positives. Evasion techniques include altering the command line slightly to avoid detection or utilizing a different legitimate-seeming executable. Reliable detection requires proper logging of both process creation and file access events. Companion detections include monitoring for network connections made by the user or system after executing `findstr` to assess potential exfiltration activities.
+  Detection is limited by the potential for evasion techniques, such as renaming tools or launching them within unusual directories that are not monitored. Ensuring that logging captures detailed command-line invocation is essential for reliable detection. Legitimate administrative tasks may trigger the alert, particularly in scenarios where remote file access is warranted. A companion detection to consider is the monitoring of SMB access logs, which may indicate unusual read patterns correlating with the time of `findstr.exe` executions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

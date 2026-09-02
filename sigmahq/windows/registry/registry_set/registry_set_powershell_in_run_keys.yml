@@ -51,33 +51,50 @@ falsepositives:
 - Legitimate admin or third party scripts. Baseline according to your 
   environment
 level: medium
+simulation:
+- type: atomic-red-team
+  name: SystemBC Malware-as-a-Service Registry
+  technique: T1547.001
+  atomic_guid: 9dc7767b-30c1-4cc4-b999-50cab5e27891
+- type: atomic-red-team
+  name: HKCU - Policy Settings Explorer Run Key
+  technique: T1547.001
+  atomic_guid: a70faea1-e206-4f6f-8d9a-67379be8f6f1
+- type: atomic-red-team
+  name: HKLM - Policy Settings Explorer Run Key
+  technique: T1547.001
+  atomic_guid: b5c9a9bc-dda3-4ea0-b16a-add8e81ab75f
+- type: atomic-red-team
+  name: PowerShell Registry RunOnce
+  technique: T1547.001
+  atomic_guid: eb44f842-0457-4ddc-9b92-c4caa144ac42
 note: |
   ### Technical Context
 
-  This Sigma rule detects the presence of PowerShell commands stored within common Windows registry run keys, which are often exploited by adversaries for persistence. An attacker may aim to establish long-term access or execute malicious scripts automatically upon system startup. Relevant MITRE ATT&CK tactics include Persistence (TA0003) and Privilege Escalation (TA0004), specifically under the technique for “Run Keys / Startup Folder” (T1547.001). Primary telemetry sources include Windows Registry logs, particularly tracking changes to keys such as `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` and its equivalents.
+  This Sigma rule detects suspicious PowerShell commands or scripts written into Windows registry run keys, which are commonly exploited for persistence by malicious actors. The likely attacker objective is to establish a foothold on a system, enabling the execution of arbitrary code whenever the system starts or the user logs in, ensuring ongoing control. Relevant MITRE ATT&CK tactics and techniques include Persistence (T1547.001) and Privilege Escalation (due to potential misuse of elevated privileges for execution).
 
-  If these commands are malicious, they may lead to unauthorized data access or control over the system. However, it is important to note that the detection of these entries does not confirm malicious intent on its own, as legitimate administrative or third-party scripts could also create similar entries.
+  The primary telemetry source is Windows registry change logs, specifically focused on the key paths that facilitate autostarting applications. The security impact can be significant; if a malicious payload is executed, it could lead to data theft, system compromise, or further lateral movement within the network. This detection does not confirm an active compromise on its own; legitimate PowerShell usage by administrators or third-party applications may also create similar registry entries.
 
   ### Investigation Steps
 
-  - **Review Registry Modifications**: Check for recent changes to the following registry keys: `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`, `HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Run`. Focus on entries containing "powershell" or related commands as specified in the rule.
+  - **Verify registry changes:** Review registry modifications under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, `HKLM\Software\Microsoft\Windows\CurrentVersion\Run`, and `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run`. Look for entries involving "powershell" or associated commands (i.e., using Sysinternals Autoruns or PowerShell `Get-Item`).
 
-  - **Identify Malicious Indicators**: Look for high-confidence indicators of compromise (IoCs) such as entries containing `-ExecutionPolicy Bypass`, `Invoke-Expression`, or `DownloadFile(`, as these are commonly associated with malicious PowerShell usage.
+  - **Correlate with execution activity:** Cross-reference with Security Event ID 4688 to find process creations that match the registry entries. Specifically, check for any new PowerShell processes initiated with `-ExecutionPolicy Bypass` or `-nop` flags.
 
-  - **Analyze Process Creation Events**: Review Security Event ID 4688 to correlate any newly created processes triggered by the suspicious registry entries. Focus on processes that are initiated by `powershell.exe` or `pwsh.exe`, especially with command-line arguments indicating evasion tactics (e.g., `-window hidden`).
+  - **Identify legitimate behavior:** Establish a list of known good binaries and PowerShell scripts within the organization that may legitimately set these registry keys. Monitor their behaviors and dig into the Context for any discrepancies with observed data.
 
-  - **Establish Baseline for Legitimate Activity**: Benchmark typical user and administrative behavior in your environment to distinguish benign from malicious entries. Legitimate entries may include those used for scheduled maintenance scripts or administrative tools approved by your organization.
+  - **Look for high-confidence malicious indicators:** Specifically search for usage of encoded PowerShell commands (e.g., `-encodedcommand` or `FromBase64String`) and script downloads indicated within the registry keys. This may be indicative of a standard attack pattern.
 
-  - **Check for File System Changes**: Inspect for file creation or modification events related to PowerShell scripts in directories commonly used for script execution (e.g., `C:\Scripts`, `C:\Windows\Temp`). Use Sysmon Event ID 11 for file creation timestamps that coincide with registry modifications.
+  - **Check for lateral movement connections:** If the system is critical (e.g., a server), inspect for outbound network connections made by PowerShell processes, such as those using `Invoke-WebRequest` or `Invoke-RestMethod`, for potential data exfiltration.
 
-  - **Evaluate System Criticality**: Assess the role of the affected host within the organization’s infrastructure. If it is a critical system (e.g., domain controller or financial system), escalate appropriate findings for further investigation.
+  - **Review related security event logs:** Look into Windows Event logs (specifically Event ID 4104 for PowerShell logging) to trace any executed scripts that correlate with the malicious PowerShell commands found in the registry entries for further contextual analysis.
 
   ### Prioritization
 
-  This alert is medium severity due to the potential for a malicious actor establishing persistence on a compromised system, for example, in an enterprise environment with critical assets. The likelihood of such techniques being exploited is relatively high, as they are commonly observed in various attacks, particularly ransomware incidents.
+  This alert should be prioritized as medium severity. The affected systems may often house critical applications, and the likelihood of abuse for persistence is high given the prevalence of these techniques in attacker toolkits. The behavior is commonly weaponized for gaining persistence on compromised environments.
 
   ### Blind Spots and Assumptions
 
-  There are limitations with this detection as legitimate administrative use of PowerShell may lead to false positives if not properly contextualized. Ensure that Windows Registry logs are enabled to ensure reliable detection of modifications. Additionally, legitimate applications or scheduled tasks may trigger similar registry entries, complicating the accuracy of alerts. A companion detection worth considering is monitoring for unusual PowerShell activity via Sysmon Event ID 1, which can provide further insight into nefarious command execution.
+  This detection may have limitations in environments that utilize legitimate administrative scripts or tools that interact with registry run keys and PowerShell. Required log sources for reliable detection include active monitoring of Windows registry changes and comprehensive PowerShell logging configurations. Legitimate activities may include software management scripts or task automation by admins. A related detection might include monitoring for PowerShell script execution (`Event ID 4104`) and registry modifications in higher risk contexts for improved coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

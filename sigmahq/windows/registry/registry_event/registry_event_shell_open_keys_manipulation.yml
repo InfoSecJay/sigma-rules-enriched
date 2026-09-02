@@ -4,9 +4,10 @@ related:
 - id: dd3ee8cc-f751-41c9-ba53-5a32ed47e563
   type: similar
 status: test
-description: Detects the shell open key manipulation (exefile and ms-settings) 
-  used for persistence and the pattern of UAC Bypass using fodhelper.exe, 
-  computerdefaults.exe, slui.exe via registry keys (e.g. UACMe 33 or 62)
+description: |
+  Detects manipulation of shell open command registry keys such as "ms-settings" and "exefile",
+  which are commonly abused to achieve UAC bypass (e.g. via fodhelper.exe) or establish persistence
+  through file association hijacking.
 references:
 - https://github.com/hfiref0x/UACME
 - https://winscripting.blog/2017/05/12/first-entry-welcome-and-uac-bypass/
@@ -14,7 +15,7 @@ references:
 - https://tria.ge/211119-gs7rtshcfr/behavioral2 [Lokibot sample from Nov 2021]
 author: Christian Burkard (Nextron Systems)
 date: 2021-08-30
-modified: 2022-01-13
+modified: 2026-08-27
 tags:
 - attack.persistence
 - attack.privilege-escalation
@@ -24,50 +25,51 @@ logsource:
   category: registry_event
   product: windows
 detection:
-  selection1:
+  selection_1:
     EventType: SetValue
     TargetObject|endswith: 'Classes\ms-settings\shell\open\command\SymbolicLinkValue'
     Details|contains: '\Software\Classes\{'
-  selection2:
+  selection_2:
     TargetObject|endswith: 'Classes\ms-settings\shell\open\command\DelegateExecute'
-  selection3:
+  selection_3:
     EventType: SetValue
     TargetObject|endswith:
     - 'Classes\ms-settings\shell\open\command\(Default)'
     - 'Classes\exefile\shell\open\command\(Default)'
-  filter_sel3:
+  filter_main_empty:
     Details: '(Empty)'
-  condition: selection1 or selection2 or (selection3 and not filter_sel3)
+  filter_main_default_com:
+    Details:
+    - '{4813071a-41ad-44a2-9835-886d2f63ca30}'
+    - '{A56A841F-E974-45C1-8001-7E3F8A085917}'
+    - '{4ED3A719-CEA8-4BD9-910D-E252F997AFC2}'
+    - '{BFEC0C93-0B7D-4F2C-B09C-AFFFC4BDAE78}'
+  condition: 1 of selection_* and not 1 of filter_main_*
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects manipulation of registry keys associated with the `ms-settings` and `exefile` command shells, which are commonly exploited techniques for creating persistence mechanisms and performing User Account Control (UAC) bypass. The likely objective of an attacker is to gain elevated privileges and ensure persistent access to a compromised system. Relevant MITRE ATT&CK tactics include Persistence (T1548.002) and Privilege Escalation (T1546.001).
+  This rule detects unauthorized modifications to specific Windows registry keys that control how shell commands are executed for certain file types, particularly `ms-settings` and `exefile`. These behaviors are often indicative of an attacker attempting to bypass User Account Control (UAC) or establishing persistence via file association manipulation. The relevant MITRE ATT&CK tactic is **Persistence** and the technique is **T1548.002: Bypass User Account Control**.
 
-  The primary telemetry sources for this detection are Windows Registry events, specifically those related to registry modifications (Event Type SetValue). If successful manipulation occurs, it may allow external actors to maintain control even after system reboots. This detection does NOT confirm that a successful privilege escalation has occurred on its own; additional analysis is required to assess context and intent.
+  The primary telemetry sources for this detection are Windows registry event logs, specifically capturing details about the `SetValue` action on the designated registry paths. If malicious, this activity can enable threat actors to execute programs without user consent, significantly impacting system security. Importantly, this detection does NOT confirm that the behavior is inherently malicious; it requires further investigation to assess intent.
 
   ### Investigation Steps
 
-  - **Identify suspicious registry changes:** Review Windows Registry events, focusing on Event Type `SetValue` for `TargetObject` paths ending in `ms-settings\shell\open\command\SymbolicLinkValue` or `exefile\shell\open\command\(Default)`. Look for any unexpected modifications, especially regarding symbolic links which may indicate malicious activity.
-
-  - **Correlate with UAC bypass tools:** Check for execution of known UAC bypass executables such as `fodhelper.exe`, `computerdefaults.exe`, or `slui.exe` around the same timeframe as the registry modifications. Look for Event ID 4688 (Process Creation) that shows these executables running.
-
-  - **Validate benign configurations:** Compare the detected registry values against a baseline of known good configurations. Legitimate administrative applications may use these registry keys; normal values should not include harmful paths or unexpected symbolic links.
-
-  - **Define malicious indicators:** Pay particular attention to alterations in registry values that enable execution without prompting UAC or that redirect expected commands to malicious actors. This can be verified by checking the `Details` field for values containing `\Software\Classes\{`.
-
-  - **Assess asset criticality:** Apply context to the affected asset. If the registry keys belong to a critical server or a machine used by privileged users, escalate the priority. This can involve cross-referencing asset categorization records or identifying system roles via CMDB.
-
-  - **Look for exfiltration artifacts:** Investigate for any data exfiltration signals after the registry change; examine logs for network connections to known malicious IPs or unusual outbound connections that may suggest data theft.
+  - **Check registry modification events:** Review Windows Security Event ID 4657 (Registry value modified) for changes to `HKEY_CLASSES_ROOT\ms-settings\shell\open\command` and `HKEY_CLASSES_ROOT\exefile\shell\open\command`. Focus on `Details` containing `'\Software\Classes\{'` to identify potential UAC bypass attempts.
+  - **Evaluate Default Values:** Analyze modifications to the `(Default)` value under the aforementioned keys. Legitimate software typically retains the original commands for system utilities or executables, such as `C:\Windows\System32\foo.exe`. Any unfamiliar or suspicious paths should be flagged.
+  - **Correlate with user activity:** Investigate user activity logged around the same time in Windows Event IDs 4624 (Successful logon) and 4634 (Logoff). Confirm if the user was executing tasks that align with expected behavior during the period of registry changes.
+  - **Identify high-confidence indicators:** Search for the presence of the executable `fodhelper.exe` being invoked shortly after any alerts triggered by this rule. This is a strong indicator of possible privilege escalation attempts.
+  - **Consider asset criticality:** Determine if the system in question is a critical server or workstation by checking asset classifications in your CMDB. Higher criticality increases the urgency of the investigation.
+  - **Look for related alerts:** Cross-reference alerts triggered by related Sigma rules for other persistence techniques (like process creation or task manipulation). This may provide context on a broader attack strategy.
 
   ### Prioritization
 
-  The alert severity is high due to the potential impact of compromise given the ability to establish persistence and elevate privileges. The manipulative behavior detected is a common tactic used by sophisticated threats, increasing the likelihood of malicious intent.
+  This alert should be treated as high severity due to the potential for significant impact—such as unauthorized access to system functions or elevation of privileges. The likelihood of malicious abuse is moderate to high, as alterations to these registry settings are commonly associated with known attack methods.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations exist with common administrative tasks that might cause similar registry changes, potentially resulting in false positives. Complete telemetry from Event ID 4657 (Registry value modified) and related Windows logs is necessary for comprehensive visibility. Legitimate software updates or installations may initiate changes to these registry keys. Related detections include monitoring for unusual process creations, specifically around known UAC processes, which helps strengthen overall security posture.
+  Detection may be limited by the context of legitimate administrative activities that could modify the same registry keys for valid purposes. Ensure logging for registry events is enabled and configured properly. Additionally, benign applications may also modify these keys, requiring further validation of intent. A related detection for comprehensive monitoring of UAC bypass attempts would be alerts from the process creation rule involving `fodhelper.exe` or other unexpected process executions related to these manipulations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

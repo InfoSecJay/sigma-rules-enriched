@@ -49,33 +49,38 @@ detection:
 falsepositives:
 - Unknown
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_susp_private_keys_recon/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects attempts by an adversary to search for private key certificate files within a system using command-line tools like `cmd.exe`, `powershell.exe`, and `findstr.exe`. The likely objective is to identify insecurely stored credential files that could grant unauthorized access to the system or network resources. The relevant MITRE ATT&CK tactic affected is Credential Access, specifically through `T1552.004 - Credentials from Password Managers`.
+  This Sigma rule detects the usage of Windows command-line tools (like cmd.exe, PowerShell, and findstr.exe) to search for files associated with private cryptographic keys. The likely objective of an attacker triggering this rule is to identify insecurely stored credentials that could be exploited for further lateral movement or unauthorized access. The applicable MITRE ATT&CK tactic is Credential Access, specifically technique T1552.004 (Stored Keys).
 
-  Primary telemetry sources include Windows process creation logs, particularly focusing on Security Event ID 4688 and Sysmon Event ID 1. If malicious, this behavior could lead to credential theft or escalated privileges within the environment. It's crucial to note that this detection does NOT confirm malicious activity on its own; legitimate users might also access these files for valid administrative purposes.
+  Primary telemetry sources include process creation logs such as Windows Security Event ID 4688 and Sysmon Event ID 1, focusing on command-line argument values. If malicious, this behavior can lead to credential theft and compromised security posture. However, this detection does NOT definitively prove that the files are being accessed or exfiltrated; it merely indicates search activity in the vicinity of sensitive key files.
 
   ### Investigation Steps
 
-  - **Check Process Creation Events**: Review Security Event ID 4688 logs for instances where `cmd.exe`, `powershell.exe`, or `findstr.exe` are executed. Pay close attention to the parent process; suspicious instances may have a non-standard parent, indicating potential misuse.
+  - **Examine process creation events:**
+    Review Security Event ID 4688 or Sysmon Event ID 1, filtered for command lines containing keywords like “dir”, “Get-ChildItem”, or “findstr” combined with extensions like “.key”, “.pem”, etc. Note any unusual usage or automation in a non-administrative context.
 
-  - **Analyze Command Lines for Sensitive File Extensions**: Focus on logs that show command lines containing file extensions indicative of private keys (.key, .pgp, .gpg, .ppk, .p12, .pem, .pfx, .cer, .p7b, .asc). Client queries with these extensions suggest intent to locate sensitive files.
+  - **Identify high-confidence malicious behavior:**
+    Look for executions of cmd.exe or PowerShell with command lines that recursively search for sensitive files, such as `cmd /c dir /s *.key` or `powershell Get-ChildItem -Recurse *.pfx`. Cross-reference process parent-child relationships to identify if this was invoked by unusual parent processes.
 
-  - **Cross-reference with Legitimate Activity**: Investigate expected behavior related to system administration tasks. For instance, querying for certificate files may be legitimate if associated with authorized IT tasks, especially in environments handling cryptographic materials.
+  - **Validate legitimate behavior:**
+    Assess documented tasks or scheduled jobs that may legitimately invoke commands searching for these file types, especially by known administrative accounts. Authorized scans often exhibit clear command patterns that are proportional to system administration workloads.
 
-  - **Identify High-Confidence Malicious Indicators**: Look for command line strings that exhibit possibly malicious intent, such as `dir *.* | findstr /i ".key .pem .gpg"`, particularly in unexpected contexts or by unauthorized users.
+  - **Correlate additional telemetry:**
+    Cross-reference with Windows Event ID 4663 (access to an object) to see if similar processes show attempts to read or manipulate identified private key files during the alert timeframe, enhancing context around the detected command-line activity.
 
-  - **Examine User Context**: Identify the user account initiating these commands. Reports of anomalies or unauthorized access patterns from high-privilege accounts should be prioritized for further investigation.
-
-  - **Validate for Potential Data Exfiltration**: Check for subsequent actions that might indicate further action after locating private key files, such as file transfers or modifications (e.g., Security Event ID 4663 for file access), which could signify malicious intent.
+  - **Check for alternative legitimate commands:**
+    Document legitimate usage patterns involving command-line tools where similar commands may be employed for maintenance or backup, helping to distinguish potential false positives.
 
   ### Prioritization
 
-  This alert has a medium severity level due to the potential risk associated with compromised systems where adversaries search for sensitive files. The likelihood of abuse is significant, as credential theft through improperly secured private keys is a common tactic by attackers. The behavior described in the logs is often weaponized in reconnaissance phases of attacks.
+  The severity of this alert is medium due to its potential impact on credential security within the environment. Given that files associated with private keys can directly enable unauthorized access, this behavior indicates a likelihood of malicious intent, particularly if executed by non-administrative or unknown accounts. Such search commands are commonly weaponized by adversaries.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss evasion techniques such as encoded command execution or usage of non-standard scripts to access files. Reliable detection necessitates comprehensive logging of process creations and command line executions across all systems. Legitimate administrative practices, such as routine audits, might also trigger this alert. Related detections, such as file access patterns or network transfer events, can enhance coverage and provide context surrounding credential access attempts.
+  Detection may be limited by the absence of comprehensive logging settings or other tools that monitor file access; if logs of process activity are missing, true impacts are hard to gauge. Legitimate activities could include authorized IT support querying key files during maintenance. Related detections, such as those for suspicious file access patterns (T1083: File and Directory Discovery), can strengthen coverage by providing additional context on reconnaissance activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

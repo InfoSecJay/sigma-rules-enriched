@@ -25,31 +25,35 @@ detection:
 falsepositives:
 - Legitimate PowerShell scripts
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/powershell/powershell_script/posh_ps_create_volume_shadow_copy/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the usage of PowerShell to create Volume Shadow Copies through the `Win32_ShadowCopy` WMI class. Such actions are typically associated with adversaries seeking to exfiltrate sensitive data, including credential information from the Active Directory database. This behavior aligns with the MITRE ATT&CK framework, specifically under the Credential Access tactic (TA0006) and the technique of Credential Dumping via Volume Shadow Copy (T1003.003). The primary telemetry source for this detection is PowerShell script block logging, which captures the scripts executed and their contents. If successful, this malicious behavior can lead to unauthorized access to sensitive user credentials, posing a significant risk to the organization's security posture. It is important to note that this detection does NOT confirm malicious intent on its own, as legitimate PowerShell scripts may also invoke similar functionality.
+  This Sigma rule detects the execution of PowerShell commands that create Volume Shadow Copies, specifically targeting the `Win32_ShadowCopy` WMI class. Attackers may exploit this to capture a snapshot of the Active Directory database, facilitating credential theft or lateral movement across the network. This behavior aligns with the MITRE ATT&CK techniques for credential access (T1003.003) and data exfiltration via accessing domain databases (DS0005).
+
+  The primary telemetry source is Windows PowerShell script logs, which are generated when Script Block Logging is enabled. If malicious, this activity may lead to unauthorized access to sensitive credential information and facilitate further attacks. Importantly, this detection does NOT confirm that sensitive data was successfully obtained; it merely shows that a command indicative of a potential credential access attempt was executed.
 
   ### Investigation Steps
 
-  - **Review PowerShell execution logs**: Check PowerShell events (Event ID 4104) for script block logs that include `Win32_ShadowCopy` and the method 'Create'. Verify the script's context and execution environment.
+  - **Review PowerShell script logs:** Check for Security Event ID 4104 related to PowerShell with the following fields: `ScriptBlockText`, which should show references to `Win32_ShadowCopy` and `.Create(`.
 
-  - **Identify the user account that executed the command**: Look for the Actor details in the PowerShell event logs. Determine if the account is a known administrator or a user with the appropriate permissions, which could indicate potential abuse.
+  - **Identify suspicious script activity:** Look for uncommon user accounts or service accounts executing the shadow copy command, especially during odd hours or from unexpected hosts, as this can indicate malicious activity.
 
-  - **Examine the surrounding activity**: Analyze related Windows Event Logs (Security Event ID 4624 for logon events) to identify unusual account logins or escalated privileges around the time of the invocation, which may suggest reconnaissance or lateral movement.
+  - **Validate legitimate use cases:** Cross-reference with known legitimate PowerShell scripts that utilize shadow copying for backup purposes. These would typically be executed by IT administrators from designated management workstations.
 
-  - **Document legitimate usage patterns**: Compare observed actions with known legitimate PowerShell scripts used by your organization. Identify authorized administrator actions or backups that might explain the usage of Volume Shadow Copy.
+  - **Correlate with Active Directory configuration changes:** Check the Security Event Log for any changes (Event ID 5136) in the Active Directory schema that occurred around the same time, which could indicate a broader intrusion attempt.
 
-  - **Check for file creation or transfer**: Monitor for any file activity related to Volume Shadow Copies, such as file creation timestamps that match the execution time of the script. Cross-reference with backups or restoration processes to validate benign operations.
+  - **Examine system event logs:** Look at System Event ID 1074 to find any unexpected system shutdowns or reboots that could indicate malicious script execution altering system behavior.
 
-  - **Look for anomalous artifacts**: Search for unusual WMI event logs (Event ID 5858) or processes spawned by PowerShell related to shadow copy creation; correlate timestamps, user accounts, and system roles to identify possible exploitation.
+  - **Identify known malicious indicators:** Look for the use of PowerShell command line parameters such as `-ExecutionPolicy Bypass` or obfuscated command strings. These can act as red flags signaling potential harmful intent.
 
   ### Prioritization
 
-  This alert is of high severity due to the potential impact on sensitive credentials and the likelihood of malicious use to facilitate further attacks, particularly in enterprise environments where attacker interest in credential access is high. The technique of creating shadow copies is commonly weaponized by threat actors during credential theft operations.
+  This alert is high severity due to the potential impact on a domain environment if unauthorized access to sensitive credential information occurs. The likelihood of this technique being weaponized is high, as adversaries often look for ways to exfiltrate credential information from systems they compromise effectively.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the requirement for script block logging being enabled; without this, such PowerShell activities may go unnoticed. Legitimate administrative activities, such as backups or system repairs using Volume Shadow Copy, can trigger this alert. An associated detection to enhance coverage would be monitoring for unusual administrative actions or abnormal access patterns to WMI objects.
+  Detection may be limited if Script Block Logging is not enabled, potentially missing legitimate administrative actions. Evasion techniques could include altering standard PowerShell scripts to hide the execution of `Win32_ShadowCopy`, or using alternate tools that do not trigger script-based logging. Legitimate activities can include routine backup operations involving shadow copies, particularly in disaster recovery scenarios. A related detection that enhances coverage includes monitoring the creation of unusual Volume Shadow Copies using Windows Event ID 5040 to capture both the creation and alteration of shadow copies.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

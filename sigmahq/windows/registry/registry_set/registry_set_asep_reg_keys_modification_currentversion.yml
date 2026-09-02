@@ -184,34 +184,48 @@ falsepositives:
   autorun keys for legitimate reason
 - Legitimate administrator sets up autorun keys for legitimate reason
 level: medium
+simulation:
+- type: atomic-red-team
+  name: Reg Key Run
+  technique: T1547.001
+  atomic_guid: e55be3fd-3521-4610-9d1a-e210e42dcf05
+- type: atomic-red-team
+  name: Reg Key RunOnce
+  technique: T1547.001
+  atomic_guid: 554cbd88-cde1-4b56-8168-0be552eed9eb
 note: |
   ### Technical Context
 
-  This Sigma rule detects modifications to autostart extensibility points (ASEPs) in the Windows registry, specifically within the `CurrentVersion` sections related to startup items. Attackers often exploit ASEPs to establish persistence on compromised systems, ensuring their malicious payloads execute automatically upon system start. The relevant MITRE ATT&CK techniques for this behavior are Persistence (T1547.001) and Privilege Escalation (T1547). Primary telemetry sources include Windows registry modifications captured through Registry Set logs. If malicious, this behavior could enable unauthorized access or control over the affected system. However, this detection alone does NOT confirm malicious intent; legitimate modifications by software or administrators can occur.
+  This Sigma rule detects modifications to autostart extensibility points (ASEPs) within the Windows registry, specifically under the key path `\SOFTWARE\Microsoft\Windows\CurrentVersion`. Attackers often manipulate these registry keys to establish persistence, enabling their malicious payloads to execute automatically upon system startup or user logon. The relevant MITRE ATT&CK tactic is **Persistence**, specifically technique **T1547.001** (Registry Run Keys / Startup Folder).
+
+  The primary telemetry sources are Windows registry change logs, specifically focusing on registry operations that modify keys under the mentioned path. If malicious, this behavior could lead to persistent access and control of the affected system, posing significant risks to the organization. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate applications and administrative tasks frequently modify these registry settings.
 
   ### Investigation Steps
 
-  - **Verify registry modification details:**
-    Check Windows Security Event ID 4657 logs for `TargetObject` paths and `Details` fields that match identified autostart keys (e.g., `\Run\`, `\RunOnce\`). Compare these against known legitimate applications and expected configurations.
+  - **Check the registry modification details:**
+    Review Windows Security Event ID 4657 or Sysmon Event ID 13 for the `TargetObject` path and the `Image` field that indicates the process responsible for the modification. Look for unexpected or suspicious entries that do not conform to known good configuration.
 
-  - **Identify the process performing the modification:**
-    Review associated Security Event ID 4688 logs to determine the `Image` and `CommandLine` fields that show which process initiated the registry change. Ensure it’s not a common administrative task or known software responsible for such behavior.
+  - **Identify the modifying process:**
+    Examine the `Image` field alongside the `Details` attribute of the registry modification to determine which executable made the changes. Legitimate applications typically originate from known Microsoft directories or common application paths.
 
-  - **Assess legitimacy of the modifying application:**
-    Cross-reference process names and paths with known legitimate applications. Suspicious modifications can stem from unusual or unexpected executables, especially from non-standard locations.
+  - **Correlate timestamps with user activity:**
+    Cross-reference the modification timestamp with user logon events (Security Event ID 4624) to evaluate if the registry change aligns with any legitimate activities or scheduled tasks that have occurred.
 
-  - **Analyze frequency and pattern of modifications:**
-    Examine the timeline of registry changes to detect repetitive modifications that could indicate malware attempting to restore its entries after removal. Frequent changes associated with unknown processes may highlight malicious behavior.
+  - **Analyze for high-confidence malicious indicators:**
+    Look for registry modifications associated with known malware. For example, an update initiated by a process like `cmd.exe` that attempts to create autorun entries for untrusted software can indicate malicious activity. Investigate unusual paths or filenames within `Images` that resemble well-documented malware behavior.
 
-  - **Identify potential unrelated legitimate behavior:**
-    Consider legitimate software, like Microsoft Teams or OneDrive, that might automatically modify autostart keys. Corresponding actions during installation or updates are often benign. Investigate context to validate user actions supporting these changes.
+  - **Document legitimate autostart behaviors:**
+    Record known legitimate software that may modify these keys, such as antivirus software, backup tools, or user-installed applications. UC the registry key modifications against established baselines for normal operations.
+
+  - **Verify for exfiltration activity:**
+    If applicable, check for any command-line arguments in the `Details` field that hint at file creation and exfiltration tasks, e.g., commands for removing directories or files that could indicate a cleanup of traces post-compromise.
 
   ### Prioritization
 
-  This alert has medium severity due to its impact on a critical system function - the registry controlling startup processes. The likelihood of malicious abuse is medium as attackers commonly leverage persistence techniques, especially if detected behaviors align with known threat patterns or adversary tools.
+  The severity of this alert is **medium**. If successful, a malicious modification could allow an adversary to maintain persistence on a critical system, facilitating further attacks. The likelihood of abuse is moderate, as persistence mechanisms such as these are frequently targeted by both opportunistic and sophisticated threat actors.
 
   ### Blind Spots and Assumptions
 
-  Detection may miss modifications occurring quickly and undetected due to rapid changes or evasion tactics that bypass standard logging. Required log sources must capture complete registry activities, including those performed by local administrators. Additionally, legitimate software installations may trigger this alert, necessitating a careful contextual review. Another helpful detection is observing abnormal process creation patterns (e.g., Event ID 4688) to complement this analysis and enhance coverage of anomalous persistence activities.
+  Detection of registry changes can be bypassed by using alternative persistence mechanisms, such as Scheduled Tasks or WMI Event Subscriptions. Reliable detection depends on properly configured logging within the Windows environment; absence of necessary logs may obscure legitimate activity that triggers this alert. Common legitimate activities include standard user application installations or updates that may set up autorun keys. A related detection to strengthen coverage could focus on Scheduled Task modifications (MITRE ATT&CK T1053).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
