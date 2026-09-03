@@ -7,8 +7,9 @@ references:
 - https://github.com/magicsword-io/LOLRMM
 author: LOLRMM Project
 date: 2025-12-01
+modified: 2026-09-02
 tags:
-- attack.execution
+- attack.command-and-control
 - attack.t1219
 logsource:
   product: windows
@@ -16,16 +17,16 @@ logsource:
 detection:
   selection:
     TargetObject|contains:
-    - HKLM\SOFTWARE\ATERA Networks\AlphaAgent
-    - HKLM\SYSTEM\CurrentControlSet\Services\AteraAgent
-    - KLM\SOFTWARE\WOW6432Node\Splashtop Inc.
-    - HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Splashtop
-      Software Updater
-    - HKLM\SYSTEM\ControlSet\Services\EventLog\Application\AlphaAgent
-    - HKLM\SYSTEM\ControlSet\Services\EventLog\Application\AteraAgent
-    - HKLM\SOFTWARE\Microsoft\Tracing\AteraAgent_RASAPI32
-    - HKLM\SOFTWARE\Microsoft\Tracing\AteraAgent_RASMANCS
-    - HKLM\SOFTWARE\ATERA Networks\*
+    - 'HKLM\SOFTWARE\ATERA Networks\AlphaAgent'
+    - 'HKLM\SYSTEM\CurrentControlSet\Services\AteraAgent'
+    - 'KLM\SOFTWARE\WOW6432Node\Splashtop Inc.'
+    - 'HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Splashtop
+      Software Updater'
+    - 'HKLM\SYSTEM\ControlSet\Services\EventLog\Application\AlphaAgent'
+    - 'HKLM\SYSTEM\ControlSet\Services\EventLog\Application\AteraAgent'
+    - 'HKLM\SOFTWARE\Microsoft\Tracing\AteraAgent_RASAPI32'
+    - 'HKLM\SOFTWARE\Microsoft\Tracing\AteraAgent_RASMANCS'
+    - 'HKLM\SOFTWARE\ATERA Networks\*'
   condition: selection
 falsepositives:
 - Legitimate use of Atera
@@ -33,28 +34,33 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects modifications to Windows Registry keys associated with the Atera Remote Monitoring and Management (RMM) tool. The behavior typically indicates that an attacker may be attempting to deploy or manipulate remote management capabilities to maintain persistence or facilitate further actions on the compromised system. The relevant MITRE ATT&CK tactic here is **Execution** and the technique is **T1219** (Command and Scripting Interpreter).
+  This Sigma rule detects suspicious registry activity related to the Atera Remote Monitoring and Management (RMM) tool, specifically monitoring for modifications involving various registry keys associated with Atera Networks and related applications. The likely attacker objective is to use Atera RMM for unauthorized remote access or persistence within the environment, which aligns with the MITRE ATT&CK framework tactics of Command and Control (T1071) and Application Layer Protocol (T1219).
 
-  The primary telemetry source for this detection comes from Windows Registry event logs capturing changes to the specified registry paths. If the activity is malicious, it can lead to unauthorized remote access, data manipulation, or further compromises across the network. This detection does NOT confirm malicious activity by itself; legitimate use of the Atera tool, especially in environments where it is authorized, may trigger alerts.
+  The primary telemetry source is Windows registry event logs, specifically entries tied to key modifications. The security impact is critical, as unauthorized use of RMM tools can facilitate data exfiltration, lateral movement, and extended access to systems. This detection does NOT confirm malicious activity on its own; legitimate use of Atera by authorized administrators can also trigger this alert.
 
   ### Investigation Steps
 
-  - **Check registry activity: Verification of RMM activity on the affected host:** Review Windows Registry event logs (Event ID 4657) for modifications to the following keys: `HKLM\SOFTWARE\ATERA Networks\AlphaAgent`, `HKLM\SYSTEM\CurrentControlSet\Services\AteraAgent`, and related entries. Document any recent changes and correlate them with expected operational usage.
+  - **Review detected registry keys:**
+    Examine registry activities targeting keys such as 'HKLM\SOFTWARE\ATERA Networks\AlphaAgent' (Event ID 4663). Compare the timestamps with scheduled maintenance or known administrative activities to differentiate between benign and malicious use.
 
-  - **Assess application usage: Identify legitimate Atera usage:** Investigate if the Atera tool is recognized within the organization. Compare timestamps of the event with documented maintenance schedules or authorization records for its use. Cross-reference with asset inventory lists.
+  - **Correlate with user activity:**
+    Check Event ID 4624 (Logon) and Event ID 4634 (Logoff) around the time of the registry modification. Determine if the logged users are known system administrators or anomalous accounts with no history using Atera.
 
-  - **Inspect process creation: Determine associated process activity:** Use Sysmon event logs (Event ID 1) to find any process creations linked to Atera's executables, such as `AteraAgent.exe`. Legitimate instances will typically align with the administrator's usage pattern while anomalies may suggest malicious attempts.
+  - **Identify unauthorized program installation:**
+    Look in the uninstall registry paths, particularly 'HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Splashtop Software Updater' (Event ID 4657) to confirm if Atera or related agents were installed without proper approval.
 
-  - **Evaluate user actions: User account analysis:** Analyze the user account associated with the registry modification (Event ID 4657). Users executing Atera should be authorized personnel in IT or system administration roles. Investigate any anomalies or deviations from standard role-based activities.
+  - **Monitor network traffic:**
+    Analyze network logs for unusual outbound traffic that may indicate a remote connection attempt using Atera. Focus on connections that match known command and control patterns or unusual destinations.
 
-  - **Review service statuses: Confirm installed services:** Check Windows Services (Service Control Manager logs, Event ID 7045) for active services associated with Atera. Identify whether any non-standard services are installed or running, which could indicate abuse of the RMM tool.
+  - **Investigate process execution:**
+    Review System Process events (Event ID 4688) for the creation of `AteraAgent.exe` or `AlphaAgent.exe` around the same timeframe. Cross-reference PID and parent PID to understand the context of the execution.
 
   ### Prioritization
 
-  This alert carries medium severity due to the potential impact of unauthorized remote access facilitated through Atera. The likelihood of malicious use exists, especially in environments where Atera is unauthorized or misconfigured. While remote management tools like Atera are commonly used in legitimate contexts, misuse and exploitation of such tools are increasingly weaponized by adversaries.
+  This alert holds medium severity due to the potential risk associated with unauthorized access facilitated by RMM tools like Atera. The likelihood of malicious abuse is moderate, as RMM solutions are often targeted by adversaries for exploitation. However, such activity may also occur during legitimate administrative use, necessitating further investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative actions taken using the Atera tool, which can mask malicious behavior. Ensure that all necessary logging, particularly registry and service change logs, is enabled and configured properly. Legitimate administrative software update operations or maintenance activities could trigger alerts. Companion detections, such as logs from endpoint detection and response (EDR) systems that monitor for unusual process behaviors or command line usage related to Atera, can enhance coverage against this risk.
+  Detection limitations include possible evasion through the legitimate use of Atera RMM tools, potentially overwhelming alerts from authorized activity. Required log sources must include registry event logging, and proper configurations for logs like Event ID 4663 must be ensured for reliable detection. Legitimate administrative tasks, such as scheduled maintenance or updates through Atera, may trigger this alert. A companion detection to enhance coverage could involve monitoring for unusual behavior encapsulated within other known RMM tools (e.g., TeamViewer, AnyDesk).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

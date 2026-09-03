@@ -7,8 +7,9 @@ references:
 - https://github.com/magicsword-io/LOLRMM
 author: LOLRMM Project
 date: 2026-05-18
+modified: 2026-09-02
 tags:
-- attack.execution
+- attack.command-and-control
 - attack.t1219
 logsource:
   product: windows
@@ -31,36 +32,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects file activity related to the Komari RMM (Remote Monitoring and Management) tool, specifically monitoring for the execution of its executables. The likely attacker objective may involve unauthorized system access or management, potentially leading to data exfiltration or further exploitation of the target system. This detection is aligned with the MITRE ATT&CK technique for Remote Desktop Protocol (T1219).
+  This Sigma rule detects file activity associated with the Komari Remote Monitoring and Management (RMM) tool, specifically the executable files `komari-agent.exe` and `nssm.exe`, across multiple operating systems. Komari RMM can be utilized for legitimate system management, but it can also be leveraged by adversaries to establish persistence, execute commands, and control compromised systems remotely. The relevant MITRE ATT&CK technique is Command and Control (T1219).
 
-  The primary telemetry sources include Windows file event logs and Unix/Linux file events for the respective Komari paths. If the activity is malicious, it could lead to unauthorized system control or compromise. Importantly, this detection does NOT confirm malicious intent on its own, as Komari may be legitimately used by IT personnel for system management.
+  Primary telemetry sources include Windows file event logs and Linux file access logs showing file creation, modification, or execution events. If malicious, the impact can be significant, as the presence of unauthorized RMM tools indicates potential system compromise and loss of control over endpoints. However, this detection alone does not confirm malicious intent, as Komari may be used legitimately by IT administrators for remote management tasks.
 
   ### Investigation Steps
 
-  - **Correlate File Activity with Executable Names:**
-    Check for instance of `C:\Program Files\Komari\komari-agent.exe`, `nssm.exe`, or similar paths (Linux versions) in file event logs. Review Windows Security Event ID 4688 (process creation) or Linux logs for execution patterns.
+  - **Verify file execution logs**: Review file event logs (Windows Security Event ID 4663 or Sysmon Event ID 10) for the execution of any detected Komari executables. Focus on creation or modification times to correlate against known user or admin activity.
 
-  - **Identify User Context:**
-    Determine the user account under which the Komari executables were run. Look for legitimate admin users or service accounts that typically use RMM tools vs. potentially compromised or unexpected accounts in system logs.
+  - **Investigate system services**: On Linux, check for running services related to Komari using `systemctl status komari-agent.service` or by reviewing logs in `/var/log/syslog` for entries indicating service start or restart. Legitimate behavior shows these services tied to expected management sessions.
 
-  - **Review Execution Timing:**
-    Analyze timestamps of the file events; compare the execution time of Komari executables against routine maintenance windows. Legitimate use might typically cluster around scheduled maintenance periods.
+  - **Analyze parent-child process relationships**: Use Sysmon Event ID 1 logs to determine the parent processes of `komari-agent.exe` or `nssm.exe`. Legitimate launches typically originate from known system management or admin tools, while unexpected origins (e.g., `cmd.exe` or `powershell.exe`) may indicate malicious use.
 
-  - **Examine Command-Line Arguments:**
-    Investigate command-line arguments used with the Komari tool by checking Event ID 4688 for Windows or relevant process logs on Unix/Linux. Suspicious flags or actions outside of standard operational parameters may indicate malicious activity.
+  - **Correlate with remote connections**: Check firewall logs for outbound connection attempts to uncommon or suspicious IP addresses from the affected host following the execution of the Komari executables (e.g., examining log fields for Destination IP and Ports).
 
-  - **Check for Anomalous Network Activity:**
-    Monitor for outbound connections correlating with Komari activity, specifically looking for anomalous IPs or unexpected protocols in firewall logs to identify potential data exfiltration.
-
-  - **Analyze Associated Service Entries:**
-    For Linux systems, check for entries in `/etc/systemd/system/` related to `komari-agent.service`. Unexpected or modified service files can indicate compromise or unauthorized use of the RMM tool.
+  - **Check for file changes**: Monitor for any unexpected creation or modification of configuration files or scripts within the Komari folder (`C:\Program Files\Komari\` on Windows or `/opt/komari/` on Linux) that do not match the expected policy or previous baselines.
 
   ### Prioritization
 
-  This alert has medium severity due to the potential impact on systems with administrative control granted by tools like Komari. There is a medium likelihood of malicious abuse, especially if the tool is invoked by suspicious accounts outside expected operational usage. This behavior can be weaponized for lateral movement or unauthorized access within the organization's infrastructure.
+  The alert is considered medium severity based on its potential impact, as unauthorized use of an RMM tool could lead to significant data compromise or further escalation. The likelihood of malicious abuse is credible since attackers often exploit legitimate administrative tools to maintain access on compromised systems. This behavior has been weaponized in previous attacks, warranting prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  The detection may have limitations if logs for the execution of Komari are not properly configured. An adversary could evade detection by using renamed executables or by executing commands through legitimate user accounts. Legitimate administrative activities may also trigger this alert when authorized IT personnel use Komari for routine maintenance. Companion detections such as monitoring unusual task schedules or elevated privilege activity could strengthen overall coverage against misuse of remote management tools.
+  Detection may be limited due to legitimate use cases of the Komari tool by IT personnel, which could generate false positives. It is critical that endpoint logging configurations include comprehensive monitoring of file access events. Additionally, non-standard behavior or unauthorized modifications in the expected use of the Komari tool should be reviewed further. A companion detection that can strengthen coverage is monitoring for C2 communications (e.g., beaconing patterns) in tandem with file activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

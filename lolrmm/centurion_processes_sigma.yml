@@ -7,17 +7,18 @@ references:
 - https://github.com/magicsword-io/LOLRMM
 author: LOLRMM Project
 date: 2025-12-01
+modified: 2026-09-02
 tags:
-- attack.execution
+- attack.command-and-control
 - attack.t1219
 logsource:
   product: windows
   category: process_creation
 detection:
   selection_parent:
-    ParentImage|endswith: ctiserv.exe
+    ParentImage|endswith: '\\ctiserv.exe'
   selection_image:
-    Image|endswith: ctiserv.exe
+    Image|endswith: '\\ctiserv.exe'
   condition: 1 of selection_*
 falsepositives:
 - Legitimate use of Centurion
@@ -25,28 +26,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of processes associated with the Centurion RMM (Remote Monitoring and Management) tool, specifically instances where the `ctiserv.exe` executable is launched. Attackers may leverage RMM tools like Centurion to establish remote access, manage systems, and potentially deploy further malicious activity quietly from within the organization’s network. This behavior primarily fits within the MITRE ATT&CK framework under the **Execution** tactic, specifically technique **T1219: Remote Access Software**.
+  This rule detects the execution of processes associated with Centurion Remote Monitoring and Management (RMM) tool, specifically focusing on instances where the process `ctiserv.exe` is spawned by itself or by a parent process of the same name. The likely objective of an attacker utilizing this tool is to establish remote access or monitor activity on compromised machines as part of a broader persistence and control strategy. This behavior maps primarily to the MITRE ATT&CK tactic of Command and Control (T1219).
 
-  The primary telemetry source for this detection comes from Windows process creation logs (Event ID 4688 and Sysmon Event ID 1), which capture process execution details. If malicious, such activity could indicate unauthorized access or management of critical infrastructure. However, it is crucial to note that this detection does NOT independently confirm malicious intent, as legitimate use of the Centurion RMM tool is also common within enterprise environments.
+  The primary telemetry source for detection is Windows process creation logs, specifically Security Event ID 4688. If malicious, the execution of Centurion RMM can result in unauthorized data access and control of assets. It is important to note that this detection does NOT confirm malicious intent on its own; legitimate system administrators may also use Centurion for remote management.
 
   ### Investigation Steps
 
-  - **Check process parent-child relationships:** Review the Windows Security Event ID 4688 and Sysmon Event ID 1 logs for instances where `ctiserv.exe` is spawned from potentially suspicious parent processes. Look for anomalies in the parent process behavior, such as instances of unusual applications or user accounts.
+  - **Identify process lineage:** Review the process creation logs for Event ID 4688. Inspect the `ParentImage` and `Image` fields to confirm if `ctiserv.exe` is both the parent and child process. Document the process IDs and timestamps associated with these events.
 
-  - **Review executable integrity:** Validate the digital signature and hash of the `ctiserv.exe` binary seen in the logs (e.g., using file hash calculations). Legitimate Centurion files should be signed by recognized publishers. Compare with known good hashes or repository listings.
+  - **Check for unusual parent processes:** If `ctiserv.exe` is spawned by an unexpected parent process (bearing no correlation to legitimate IT operations), escalate the incident. Log entries should reflect potential original source via `ParentProcessId`.
 
-  - **Cross-reference user accounts:** Inspect the `SubjectUserName` field in Event ID 4688 logs to ensure the execution is performed by expected administrative or service accounts. Any unexpected accounts performing this action may indicate malicious activity.
+  - **Inspect scheduled tasks and services:** Query for any scheduled tasks or services involving Centurion. Use PowerShell commands such as `Get-ScheduledTask` or `Get-Service` to find configurations that could indicate rogue activity if any unusual schedules are tied to `ctiserv.exe`.
 
-  - **Benchmark against legitimate usage:** Identify historical usage patterns of Centurion in your environment. Review application logs for expected execution times, user sessions, and activities related to legitimate management tasks performed on `ctiserv.exe`.
+  - **Verify legitimate usage patterns:** Cross-reference with known IT operations; document instances where legitimate use of Centurion is expected, e.g., entries for authorized personnel performing maintenance. Look in Change Management logs to find scheduled maintenance that aligns with detected activities.
 
-  - **Monitor for post-exploitation behavior:** Investigate logs for any follow-on activities originating from `ctiserv.exe`, such as connections to external IP addresses or unusual outbound traffic which could suggest data exfiltration or lateral movement efforts.
+  - **Analyze outbound network connections:** Review firewall or endpoint monitoring logs for unusual outbound connections initiated by `ctiserv.exe`. Focus on unusual IP addresses or DNS queries that may indicate remote command and control communications.
+
+  - **Look for related artifacts:** If any files were accessed or modified by `ctiserv.exe`, validate their integrity. Use File Integrity Monitoring (FIM) logs to verify if any configurations or sensitive files have been altered that could signify exfiltration or placement of malicious payloads.
 
   ### Prioritization
 
-  The alert has a medium severity rating due to the potential impact of unauthorized remote access if the Centurion tool is misused. While the behavior is less commonly weaponized than more overt malware, the likelihood of malicious abuse exists, particularly in environments with known legitimate uses of RMM tools, warranting closer scrutiny.
+  This alert carries a medium severity due to the critical role of the affected systems in enterprise operations. The likelihood of abuse is moderate, especially if the tool is utilized by unauthorized personnel. Centurion RMM is not commonly weaponized but can be repurposed for malicious objectives, elevating the need for thorough investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques where adversaries might employ renamed executables or modify legitimate processes to avoid detection. Reliable detection relies on comprehensive logging of process creation and monitoring for deviations in normal usage. Legitimate activities may trigger this alert if Centurion RMM is used for authorized system maintenance. A companion detection rule monitoring for anomalous network connections originating from the `ctiserv.exe` process could strengthen coverage and assist in identifying malicious use.
+  Detection limitations include obfuscation of legitimate administrative actions or potential scripted tasks that could spawn `ctiserv.exe`. Ensure comprehensive logging of Windows process creations and associated user activities to support detection reliability. Legitimate activity could arise during authorized IT maintenance, leading to false positives. A companion detection to consider is monitoring for abnormal network behavior, leveraging network flow data to enhance visibility around the use of RMM tools.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
