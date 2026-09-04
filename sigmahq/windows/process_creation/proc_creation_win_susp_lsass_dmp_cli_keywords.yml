@@ -48,31 +48,35 @@ detection:
 falsepositives:
 - Unlikely
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_susp_lsass_dmp_cli_keywords/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects command line arguments containing keywords indicating a potential attempt to dump or create dumps of the LSASS (Local Security Authority Subsystem Service) process. The primary objective of an attacker using this technique is to extract sensitive credential data, such as NTLM hashes or password information, which can be leveraged for further lateral movement within the network. This activity aligns with the MITRE ATT&CK framework under the tactic 'Credential Access' and the technique 'OS Credential Dumping' (T1003.001).
+  This detection identifies command line arguments containing the keywords "lsass" and ".dmp", which are indicative of attempts to dump the Local Security Authority Subsystem Service (LSASS) process. LSASS is critical for handling security policy and storing password hashes; thus, obtaining a memory dump can enable attackers to extract sensitive credentials. This activity aligns with the MITRE ATT&CK technique for Credential Dumping (T1003.001).
 
-  The primary telemetry source for this detection is Windows Process Creation logs, specifically capturing command line arguments used during process execution. If successfully executed, this behavior can lead to unauthorized access and compromise of user credentials, posing a significant security risk. Importantly, this detection does NOT confirm that credential dumping was successful, only that there was an attempted operation indicative of such behavior.
+  Primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which capture process initiation with command line arguments. The security impact is significant as successful credential dumping can lead to unauthorized access and lateral movement within the network. However, it is important to note that this detection does NOT confirm malicious intent without further context; legitimate applications can also invoke LSASS dumps for troubleshooting or analysis.
 
   ### Investigation Steps
 
-  - **Check Windows Security Event ID 4688**: Review security logs for Event ID 4688 to confirm that the process creation event corresponds to the detected command line containing 'lsass' and '.dmp'. Look for instances wherein the process name matches known credential dumping tools.
+  - **Review command line arguments:** Check for instances of 'lsass' and '.dmp' in Security Event ID 4688 or Sysmon Event ID 1 logs. Legitimate processes usually won’t contain both terms; note any occurrences alongside other suspicious parameters.
 
-  - **Validate Operations on LSASS**: Analyze system performance counters and memory dump locations to identify if any LSASS-related activities were intended for legitimate application debugging rather than malicious intent. Legitimate processes typically do not reference the LSASS process or file formats such as '.dmp'.
+  - **Identify high-confidence malicious software:** Look for known tools associated with LSASS dumping such as ProcDump, Mimikatz, or NanoDump in the command line. Cross-reference process instances with the tool’s known hashes or signatures.
 
-  - **Correlate with Sysmon Event ID 1**: Cross-reference Sysmon Event ID 1 logs to pinpoint the parent process that initiated the command line in question. Investigate if it originates from a legitimate application or if it appears suspicious based on the parent-child process relationships.
+  - **Correlate with user behavior:** Investigate the account associated with the command. Look for anomalies like administrative accounts executing this command without prior warning (e.g., Event ID 4624, logon type).
 
-  - **Examine User Context and Asset Criticality**: Identify the user context executing the command and the role of the affected asset. Privileged accounts (e.g., domain admins) engaging in LSASS dumping tactics are considered a higher risk due to their ability to access sensitive resources.
+  - **Monitor file creation:** Check for the presence of output files named 'lsass.dmp', 'nanodump.dmp', or similar in directories where process dumps typically would not occur (e.g., C:\Users\<username>\Documents\ or Temp folders). Use File System logs or Sysmon Event ID 11 to track file creation.
 
-  - **Verify File Creation**: Check for the creation of suspicious dump files in directories frequented by credential dumping tools (e.g., C:\Windows\Temp\). Look specifically for files named 'lsass*.dmp' to determine if this activity is substantiated by actual file artifacts.
+  - **Assess host criticality:** Establish if the host running the command is critical (e.g., domain controllers). Malicious activity on these systems carries a higher risk of breach.
+
+  - **Determine context of usage:** Investigate whether this command was run as part of legitimate IT or security operations, such as when a known, authorized administrator is attempting to analyze system behavior.
 
   ### Prioritization
 
-  This alert is considered **High Severity** due to the direct threat to credential security and potential escalation of privileges in the environment. Given that LSASS dumping techniques are commonly weaponized by adversaries in advanced persistent threat (APT) scenarios, the risk of malicious abuse is significant.
+  This alert holds a high severity in an enterprise context due to the potential compromise of credential information from a critical system (i.e., domain controller). The likelihood of abuse is elevated due to frequent exploitation of the LSASS process in attack scenarios involving credential dumping. Moreover, such malicious behavior is commonly weaponized in active attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the risk of evasion techniques such as the use of file-less attacks or manipulation of legitimate tools which may not trigger standard logging. Reliable detection requires that process creation logging is correctly configured on all endpoints. Legitimate maintenance operations, such as security audits or debugging applications, may inadvertently trigger this alert. Companioned detections include monitoring for known credential dumping tools or artifacts in memory (e.g., additional Sigma rules for abnormal processes interacting with LSASS).
+  Detection may miss attempts to obfuscate execution by using unconventional file names or paths to dump LSASS, as well as variants of commands that achieve the same goal without specified keywords. Reliable detection requires comprehensive logging configurations for process creation and should include necessary access to security event logs. Legitimate debugging and forensics activities could trigger these alerts when performed by system administrators or security teams. A related detection rule that enhances coverage would be monitoring for anomalous file writes associated with process creation in high-privilege environments.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

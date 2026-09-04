@@ -27,31 +27,35 @@ detection:
 falsepositives:
 - Backup scenarios using the commandline
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_cmd_shadowcopy_access/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the `copy` command in the Windows command line (cmd.exe) targeting shadow copies, specifically using paths that indicate copying from a Volume Shadow Copy. This behavior is typically associated with an attacker's objective to extract sensitive information, such as registry hives or files that are normally locked or in use. The relevant MITRE ATT&CK tactic is **Impact** (TA0040) and the technique is **T1490: Inhibit System Recovery**.
+  This Sigma rule detects the execution of the `copy` command targeting a shadow copy in Windows environments. This behavior is often linked to adversaries attempting to exfiltrate sensitive data, such as registry hives or password hashes. The relevant MITRE ATT&CK tactic is **Impact (T1490)**, specifically around data destruction or extraction. The primary telemetry source is Windows process creation logs, specifically from Security Event ID 4688 and Sysmon Event ID 1.
 
-  The primary telemetry source is process creation logs, particularly focusing on command line arguments captured in Windows Security Event ID 4688. If malicious, this activity can lead to data exfiltration or privilege escalation by allowing attackers to access sensitive system information undetected. Importantly, this detection does NOT confirm that the activity is malicious on its own; legitimate administrative actions, such as backups using the command line, can also trigger this alert.
+  If the behavior is confirmed as malicious, it could lead to unauthorized access to sensitive information, warranting immediate investigation. However, it is important to note that this detection alone does not confirm malicious intent, as there are legitimate circumstances in which this command might be executed, such as scheduled backups.
 
   ### Investigation Steps
 
-  - **Check the command line execution: ** Review Security Event ID 4688 and extract the command line used. Look for instances of `cmd.exe` running commands with `copy` and `\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy`, indicating potential shadow copy access.
+  - **Review command execution context:** Check Security Event ID 4688 for the process creation log tied to the `cmd.exe` execution. Look for parent processes to identify any unusual command chains or administrative tools that could indicate malicious activity.
 
-  - **Identify malicious indicators: ** Look for the presence of the command `copy \\?\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy` combined with unusual user accounts or processes. This could denote credential theft operations or privilege escalation attempts.
+  - **Analyze command line parameters:** Inspect the command line (`CommandLine`) in the same Security Event for indicators such as the presence of `\\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy` to ascertain if it targets shadow copies. Legitimate commands may include standard backup syntax without shadow copy references.
 
-  - **Validate typical benign behavior: ** Cross-reference user activity logs and system backup schedules to confirm if legitimate backup processes occurred that utilized the command line for moving shadow copies. If commands lack context or expected timing, raise suspicion.
+  - **Correlate with user activity:** Validate the user context associated with the command. If the command was executed by a known administrative user during unauthorized hours, it may indicate a higher likelihood of malicious behavior.
 
-  - **Examine related process activity: ** Verify any child processes spawned from `cmd.exe` associated with this command execution (e.g., `powershell.exe`, `wscript.exe`) which may suggest more sophisticated methods of data exfiltration or further actions by the attacker.
+  - **Check for recent shadow copy creation:** Utilize VSS (Volume Shadow Copy Service) event logs or relevant PowerShell commands to determine if any shadow copies were created shortly before the `copy` command was executed. This can highlight potential preparatory actions by adversaries.
 
-  - **Monitor for laterally spread commands: ** Look for other instances of the `copy` command targeting shadow copies across the network, particularly from non-administrative endpoints, to gauge the breadth of potential compromise.
+  - **Identify known benign activities:** Document any organizational practices or automated scripts using similar commands for backups that could trigger this alert. Ensure that such activities are recorded and understood to minimize investigation overhead.
+
+  - **Look for file creation indicators:** If there is exfiltration activity, check for newly created files or unusual log activity linked to extracted data in common storage directories (`C:\Windows\Temp`, `C:\Users\Public`) that coincide with the execution time of the command.
 
   ### Prioritization
 
-  This alert is of high importance in an enterprise context due to the potential impact of extracting sensitive data from shadow copies, which could lead to significant data breaches. The likelihood of malicious use is considerable, as such techniques are frequently weaponized in cybercriminal activity to access and exfiltrate sensitive information.
+  This alert has a high severity level due to the potential impact of unauthorized data access. The likelihood of use by adversaries is significant, given the common weaponization of similar techniques for data exfiltration. Systems targeted are often critical, containing sensitive and valuable data for both personal and organizational security.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the potential for legitimate activities, like backup operations, to trigger this alert, leading to false positives. If not configured to monitor specific command line executions, IT operations using the command for benign purposes might not be recorded. The presence of indirectly related tracked activities, such as additional SIGMA rules monitoring system recovery indicators, should be established to strengthen detection capabilities for related malicious actions.
+  Detection may be limited by the legitimate use of shadow copies in backup operations, which can produce false positives. Ensure that process creation logging is enabled across endpoints for reliable detection. Additionally, command execution from automated administrative scripts can generate alerts. Related detections for heightened coverage include monitoring for abnormal PowerShell commands targeting VSS or user activity associated with known backup software.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

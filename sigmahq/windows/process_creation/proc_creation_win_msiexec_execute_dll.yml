@@ -31,33 +31,35 @@ detection:
 falsepositives:
 - Legitimate script
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_msiexec_execute_dll/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of `msiexec.exe` in a potentially malicious context, particularly when it attempts to load arbitrary DLLs using specific command-line arguments, indicative of lateral movement or payload delivery. The attacker’s objective may involve executing malicious scripts or granting persistence through the misuse of legitimate installer tools. This behavior is associated with MITRE ATT&CK tactic: **Execution** (TA0002) and technique: **Masquerading: Targeted Execution** (T1218.007).
+  This Sigma rule detects the execution of `msiexec.exe` with a command line that contains the `/Y` option, which is typically used for suppressing prompts when installing MSI packages. Attackers may exploit `msiexec.exe` to execute arbitrary malicious DLLs as part of their payload delivery method, often aiming to bypass security controls and install malware silently. This behavior aligns with the MITRE ATT&CK technique T1218.007, "Signed Binary Proxy Execution".
 
-  The primary telemetry sources consist of Windows process creation logs, specifically looking for Security Event ID 4688 or Sysmon Event ID 1. If this execution is malicious, it can lead to unauthorized access, data theft, or further compromise of the network. Importantly, this detection alone does NOT confirm malicious intent, as legitimate processes could exhibit similar behaviors under normal operations.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing details about process execution and command line arguments. If this behavior is malicious, it can lead to unauthorized software installation and potential system compromise. However, this detection does NOT confirm that the executed payload is indeed malicious; further investigation is required to ascertain the intent.
 
   ### Investigation Steps
 
-  - **Check event logs for suspicious execution details**: Review Security Event ID 4688 and Sysmon Event ID 1 for instances of `msiexec.exe` being executed. Pay attention to unusual command-line arguments that deviate from standard installation paths.
+  - **Analyze the command line arguments**: Check the command line of the `msiexec.exe` execution captured in Security Event ID 4688. Look for unusual paths or arguments that are not part of standard installations. Expected behavior typically includes paths like `C:\Program Files\`, `C:\Windows\System32\`, or `C:\Windows\SysWOW64\`.
 
-  - **Identify the command-line arguments used**: Analyze the CommandLine field in the logs for patterns like `msiexec.exe /Y`. If the command line shows other non-standard paths or DLLs, escalate for deeper analysis as that may indicate an attack.
+  - **Correlate with other activity logs**: Review Sysmon Event ID 6 to see if there are associated file creation or modification events that correspond to the execution time of `msiexec.exe`. Look for suspicious DLL files or modifications to known legitimate software.
 
-  - **Correlate with installation history**: Investigate if the executed `msiexec.exe` was running in conjunction with legitimate software installations. Check for record of recent installation events (Windows Installer logs) or if it matches known software deployment processes.
+  - **Identify high-confidence malicious indicators**: Compare the detected PID with active processes around the execution time in Sysmon Event ID 10 (Process ID). If the associated process has a high entropy or is located outside the expected directories for legitimate uses of `msiexec.exe`, consider it a strong indicator of malicious activity.
 
-  - **Look for Discordant Parent Processes**: Identify if the parent process of `msiexec.exe` is unusual, such as being launched by PowerShell or other scripts that do not typically invoke the Windows installer. This could Be indicative of a malicious attempt.
+  - **Monitor for further system changes**: Check for network connections initiated by the process (Sysmon Event ID 3) to identify potential command and control communications. Verify if network activity corresponds with known malicious IPs or domains.
 
-  - **Assess the target system's role and criticality**: Determine if the affected system is a sensitive asset, such as a domain controller or database server, which would elevate the importance of the investigation.
+  - **Assess asset criticality**: Determine the role of the affected host (e.g., domain controller, file server) to prioritize investigation based on the criticality of the asset. Elevated privileges may increase the urgency of the alert.
 
-  - **Evaluate previous incidents or patterns**: Cross-reference this alert with any historical incidents involving `msiexec.exe` to identify if this behavior has been previously noted or correlated with confirmed compromises.
+  - **Review false positive triggers**: Validate whether legitimate software installation scripts were running at the time of the alert. In many deployments, installers may utilize `msiexec.exe` with the `/Y` switch for automated installations.
 
   ### Prioritization
 
-  This alert should be considered medium priority in an enterprise context due to its potential impact on sensitive systems and moderate likelihood of being exploited by adversaries to execute payloads. Such behaviors are not uncommon in attack scenarios, and misuses of `msiexec.exe` are historically weaponized in various frameworks and threat actor methodologies.
+  This alert should be considered medium severity in an enterprise context. The potential impact on sensitive systems can be significant, especially if the installation of malware occurs. Given that abuse of `msiexec.exe` is a known tactic among attackers, particularly in phishing or exploitation scenarios, the likelihood of malicious use is moderate, warranting timely investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include potential evasion techniques like modifying command-line strings to mask intent, or the use of standard installations that may trigger this alert. Reliable detection requires comprehensive logging configurations to capture all relevant process creation events. Legitimate activities, such as automated software deployment or updates, could also trigger this alert. A related detection for improved coverage would be monitoring for **PowerShell script execution** (TA0002, T1086), as it can serve as a precursor to suspicious activity involving `msiexec.exe`.
+  This detection can be evaded if attackers use legitimate command lines that conform to expected paths or if they disguise malicious payloads as legitimate installations. Reliability hinges on proper logging configurations for both Process Creation and Process Termination events. Benign activities, such as legitimate software installations or updates triggered by system administrators, may trigger this alert. A related detection to strengthen coverage is monitoring for unauthorized administrative access or anomalous privilege escalations around the time `msiexec.exe` is executed.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

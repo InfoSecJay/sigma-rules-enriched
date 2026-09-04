@@ -59,39 +59,35 @@ detection:
 falsepositives:
 - Dumping hives for legitimate purpouse i.e. backup or forensic investigation
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_reg_dumping_sensitive_hives/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the invocation of `reg.exe` with commands indicating the dumping of sensitive Windows registry hives, specifically the SAM, SYSTEM, and SECURITY hives. The behavior is typically associated with attacker objectives such as credential harvesting or lateral movement within a network, as these registry hives contain critical authentication information. The relevant MITRE ATT&CK tactics include Credential Access (T1003) and specifically T1003.002 for credential dumping from the SAM hive.
+  This Sigma rule detects the execution of `reg.exe` with command-line arguments suggesting the dumping of sensitive registry hives such as the Security Account Manager (SAM), SYSTEM, and SECURITY hives. The likely objective of an attacker using this technique is to extract sensitive information, including potential credentials, which can be leveraged for further access or lateral movement within the network. This behavior aligns with the MITRE ATT&CK tactic of Credential Access, specifically Techniques T1003.002 (Credential Dumping: NTDS.dit) and T1003.004 (Credential Dumping: LSA Secrets).
 
-  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 for process creation events, and Sysmon Event ID 1 when integrated. If malicious, the compromise of these credentials can lead to unauthorized access to systems and data. However, this detection alone does not confirm malicious intent, as legitimate tasks—such as system maintenance or forensic activities—can also trigger this alert.
+  The primary telemetry source is Windows Process Creation events, specifically Security Event ID 4688 and Sysmon Event ID 1, which log details about processes being executed. Malicious activity, if confirmed, can lead to significant security impacts like credential theft, allowing attackers to escalate privileges or move laterally within the enterprise. However, this detection alone does not confirm malicious intent; legitimate activities such as system backup or forensic investigations may generate similar command-line usage.
 
   ### Investigation Steps
 
-  - **Check process creation logs for reg.exe:**
-    Look for Security Event ID 4688 or Sysmon Event ID 1 detailing the execution of `reg.exe`. Ensure the command line contains keywords indicative of hive dumping (e.g., 'save', 'export').
+  - **Review process creation logs:** Verify entries with **Security Event ID 4688** or **Sysmon Event ID 1.** Look for instances where `reg.exe` is used with command-line arguments indicative of hive dumping, e.g., containing `save`, `export`, or targeting `HKLM\SAM`, `HKLM\SYSTEM`, or `HKLM\SECURITY`. Legitimate activity might include non-sensitive registry queries or different tool usage.
 
-  - **Identify the command line specifics:**
-    Review the CommandLine field for sensitive hive locations such as `\sam`, `\system`, or `\security` within the context of reg.exe execution. Malicious indicators include these paths combined with dump flags.
+  - **Check the command line arguments:** Analyze the associated **CommandLine** field for variations of `save` or `export` alongside targeted hives. Confirm if there are suspicious patterns such as obfuscated characters that may indicate an attempted evasion technique.
 
-  - **Validate user context and asset criticality:**
-    Determine the user who executed the command and the asset’s role. Executions on domain controllers or critical servers warrant higher scrutiny, especially if performed by non-administrative accounts.
+  - **Identify recent user activity:** Query **Windows Event Log Security** (Event ID 4624) to review the user account associated with the process creation event. Trustworthy accounts performing this action could indicate legitimate maintenance activity, whereas unknown or suspicious accounts suggest a potential compromise.
 
-  - **Assess for legitimate operational activity:**
-    Cross-reference alerts with maintenance windows or scheduled tasks where registry hives are legitimately exported for backup purposes. This expected behavior should be documented and approved.
+  - **Correlate with lateral movement activities:** Look for additional logs detailing any subsequent actions by the user or system account post-registry dump detection. Use tools that collate this information, focusing on any unusual authentication attempts or process creations (Event ID 4688) in adjacent systems.
 
-  - **Monitor for known obfuscation patterns:**
-    Investigate any oddities in the CommandLine field that might employ character substitution (e.g., replacing 'a' with 'ˢ'). This could indicate an attempt to evade detection mechanisms.
+  - **Evaluate log collection methods:** Ensure **Windows Event Forwarding** or appropriate logging is configured to capture registry access events comprehensively. Monitor for evidence of file creation or transfer activities that may indicate exfiltration of the dumped information.
 
-  - **Correlate with other credential access detections:**
-    Look for concurrent alerts signaling other credential dumping activities or suspicious behavior (e.g., process tree from `mimikatz` or `powershell` executions tied to known attack patterns).
+  - **Assess asset criticality:** Consider the role of the affected system. If it's a domain controller or manages sensitive data, the impact of credential theft is significantly higher, warranting expedited review and escalation.
 
   ### Prioritization
 
-  This alert is considered high severity due to the critical nature of the affected systems and the potential for significant harm through exposed credentials. The likelihood of malicious abuse is high, especially considering the commonality of these techniques in modern cyber-attacks targeting Windows environments.
+  This alert's severity is high due to the critical nature of the systems involved (e.g., domain controllers) and the probability that attackers will utilize credential dumping techniques to escalate privileges. The behavior detected is commonly exploited by adversaries for credential access, leading to potentially severe security breaches.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by scenarios where logs are not properly collected or retained, especially in environments lacking Sysmon or where logging levels are insufficient. Legitimate administrative tasks or backup operations can trigger this alert, complicating initial triage. Related detections involving direct access to SAM or SYSTEM files (via file system activity) can bolster coverage and provide additional context.
+  This detection may not capture all malicious attempts due to potential evasion techniques like command-line obfuscation. It relies on proper logging configurations; if event logging is not enabled for process creation or registry access, detection could be incomplete. Legitimate activities such as routine backups by trusted users may inadvertently trigger this alert. A companion detection to enhance coverage could include monitoring unusual access patterns or modifications to sensitive registry keys via other means, such as PowerShell or WMI.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -7,9 +7,10 @@ description: |
   Also with this alert, you can detect a flow of AWS keys in your org.
 references:
 - https://github.com/RhinoSecurityLabs/pacu/blob/866376cd711666c775bbfcde0524c817f2c5b181/pacu/modules/iam__backdoor_users_keys/main.py
+- https://github.com/SigmaHQ/sigma/issues/6223
 author: faloker
 date: 2020-02-12
-modified: 2022-10-09
+modified: 2026-08-14
 tags:
 - attack.persistence
 - attack.privilege-escalation
@@ -18,12 +19,12 @@ logsource:
   product: aws
   service: cloudtrail
 detection:
-  selection_source:
+  selection:
     eventSource: iam.amazonaws.com
     eventName: CreateAccessKey
-  filter:
-    userIdentity.arn|contains: responseElements.accessKey.userName
-  condition: selection_source and not filter
+  filter_main_same_user:
+    userIdentity.arn|fieldref|contains: responseElements.accessKey.userName
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Adding user keys to their own accounts (the filter cannot cover all possible 
   variants of user naming)
@@ -32,34 +33,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the event where an AWS user creates an access key for another user, indicating a potential backdoor creation in an AWS environment. Attackers may leverage this behavior to maintain unauthorized access and manipulate resources without detection. This behavior is associated with the MITRE ATT&CK framework under the tactic of Persistence and the technique ID T1098 (Account Manipulation).
-
-  The primary telemetry source for this detection is AWS CloudTrail logs, specifically focusing on the Event Name `CreateAccessKey` to identify unauthorized key creation activity. If malicious, this could lead to significant security impact, allowing attackers to maintain long-term access to AWS resources undetected. Importantly, this detection does NOT confirm that the access key is used for malicious purposes without further contextual investigation.
-
-  ---
+  This rule detects the creation of AWS IAM access keys for a user by another user, indicating a potential backdoor setup within the AWS environment. Attackers may aim to establish persistence, maintain access, or perform reconnaissance without detection, thereby compromising cloud infrastructure. The relevant MITRE ATT&CK tactics are Persistence (T1098) and Privilege Escalation (T1098). The primary telemetry source is AWS CloudTrail, which logs API call actions. Failure to detect such unauthorized key management can enable attackers to exploit the environment significantly, allowing for data exfiltration or further lateral movement. Importantly, this detection does NOT confirm malicious activity on its own; further analysis is required to establish intent.
 
   ### Investigation Steps
 
-  - **Check CloudTrail logs for `CreateAccessKey`:** Review CloudTrail logs for the `CreateAccessKey` event (Event Name) to identify the user who created the key. Look for unusual users or roles creating access keys, especially from unfamiliar IP addresses.
+  - **Review CloudTrail logs for API call details**: Check CloudTrail logs for the CreateAccessKey event (Event Name: CreateAccessKey). Verify the `userIdentity.arn` field to ascertain who initiated the key creation and ensure it is not the same user for whom the access key was created.
 
-  - **Examine user permissions and roles:** Validate the permissions of the user that created the access key (check for Event Source: `iam.amazonaws.com`). Look for excessive privileges or anomalous role assignments compared to standard practice.
+  - **Identify unusual user behavior**: Investigate whether the initiating user has a legitimate business need to create access keys for others. Look for role changes or unusual activity patterns preceding the key creation.
 
-  - **Review recent activity for the affected account:** Investigate the last 5–10 CloudTrail events related to the affected user or role that had an access key created, focusing on date/time stamps and actions performed. Established profiles typically show predictable patterns of behavior.
+  - **Compare with legitimate activity**: For typical activity, access keys should primarily be created by administrative accounts under specific workflows, such as onboarding new services. Document and cross-reference legitimate access key creation requests with the logs.
 
-  - **Identify the access key usage:** Search CloudTrail for logs referencing the newly created access key to confirm any subsequent API calls made using that key. Malicious indicators include access attempts outside of normal hours or unusual resource access patterns.
+  - **Correlate access keys with IAM policies**: Check the permissions associated with the newly created access key in the IAM console to identify potentially excessive privileges. This includes auditing for inline and managed policies that might facilitate privilege escalation.
 
-  - **Correlate with known malicious indicators:** Cross-reference the user agents or IP addresses noted in the `CreateAccessKey` event with threat intelligence sources (e.g., blocklists, known bad actors) to identify any malicious associations.
+  - **Search for unauthorized access attempts using newly created keys**: Use CloudTrail to look for successful or failed API calls made using the newly created access keys. Look into fields like `eventSource` and `eventName` to trace actions taken with these keys that deviate from normal usage patterns.
 
-  ---
+  - **Validate account ownership and potential phishing vectors**: Confirm the legitimacy of the involved accounts, including checking for recent user logins and potential phishing attempts that may have compromised credentials.
 
   ### Prioritization
 
-  This alert carries medium severity based on the potential impact of the affected AWS user account. Unauthorized access key creation can lead to privilege escalation and persistence risks, particularly in environments where such credentials can be exploited. Although this behavior can occur legitimately, unexpected access key creations from unmonitored accounts should be investigated promptly.
-
-  ---
+  The alert severity is medium due to the potential security impact of unauthorized key creation within a cloud environment. While the likelihood of abuse is significant, especially in a mature enterprise setting, such behavior can sometimes stem from legitimate DevOps practices. However, this workflow is often weaponized to establish persistence.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate user workflows, such as system administrators creating keys for service accounts. This alert may be triggered by common practices in DevOps or automation accounts, necessitating contextual understanding of user roles. Required AWS CloudTrail log configurations must be correctly set to ensure reliable event logging. A related detection to strengthen coverage includes monitoring for unusual activity following the issuance of access keys, such as unauthorized API access or resource manipulation.
+  Detection limitations include the possibility that legitimate users may create keys for their own accounts, a common practice that can trigger false positives. Consistent logging from AWS CloudTrail, particularly around IAM activities, is necessary for reliable detection. Legitimate activities may include developers creating keys for service accounts. A companion detection that strengthens coverage would involve monitoring for unusual patterns of API calls originating from newly created keys.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

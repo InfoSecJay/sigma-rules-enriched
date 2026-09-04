@@ -88,33 +88,38 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_csc_susp_parent/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of "csc.exe" (C# compiler) under potentially suspicious circumstances, specifically when launched by processes like `cscript.exe`, `powershell.exe`, or various Microsoft Office applications. The likely attacker objective is to execute malicious code for purposes such as payload delivery or command execution, taking advantage of legitimate system tools. This behavior fits within the Framework of MITRE ATT&CK under the tactic of Execution and techniques such as T1059.005 (scripting: .NET) and T1059.007 (scripting: PowerShell).
+  This Sigma rule detects instances of `csc.exe`, a .NET Framework script compiler, being executed with potentially suspicious parent processes known for being used by attackers for payload delivery or execution. The likely attacker objective is to deliver malicious scripts or execute payloads undetected by leveraging benign-looking parent processes. This behavior fits into the MITRE ATT&CK framework under the "Execution" tactic (T1203) and the technique "Malicious Script Execution" (T1059.005). The primary telemetry source is Windows process creation logs, particularly Event ID 4688 and Sysmon Event ID 1.
 
-  The primary telemetry sources for this detection are Windows process creation logs, specifically Event IDs 4688 (Process Creation) and Sysmon Event ID 1. If malicious, the impact can be severe, potentially leading to further exploitation of systems through subsequent payload execution. It is important to note that this detection does NOT confirm malicious intent on its own; it must be corroborated with additional context and evidence.
+  If the activity is malicious, it can lead to unauthorized execution of code, further compromise of the host, and potential lateral movement within the network. However, the detection of `csc.exe` execution with a suspicious parent does NOT confirm that the process is indeed malicious; it merely highlights a potential risk that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check Security Event ID 4688 for instances of `csc.exe` alongside its parent process IDs. Confirm if legitimate applications like `powershell.exe` or `cscript.exe` are present and evaluate their command lines for unexpected parameters.
+  - **Check parent process legitimacy:**
+    Analyze the parent process of `csc.exe` in Event ID 4688 for common benign entries such as `powershell.exe`, `mshta.exe`, or `cscript.exe`. If the parent process is one of these, further scrutiny is needed to identify command-line arguments and other contextual information.
 
-  - **Analyze parent process interactions**: Investigate Sysmon Event ID 1 for the created process tree involving `csc.exe`. If the parent is `powershell.exe`, ensure to inspect its command line for encoded PowerShell commands or Base64 strings, which are suspicious.
+  - **Examine command-line arguments:**
+    For `csc.exe`, review the CommandLine field in Event ID 4688. Look for potentially malicious indicators such as `-Encoded`, `FromBase64String`, or paths indicating suspicious use of the AppData directory, as these may suggest script execution attempts.
 
-  - **Evaluate command line arguments**: Look for instances where the parent command line contains paths that are typically associated with non-user directories, such as `C:\ProgramData`, `\AppData`, or `\Temp`. This may reveal abnormal execution patterns.
+  - **Validate against known benign uses:**
+    Reference your organization’s whitelist for `csc.exe` execution under benign parent processes. If it’s running from a process with paths like `C:\Program Files` or reported legitimate applications, it may be less likely to be malicious.
 
-  - **Identify benign usage patterns**: Understand and document common or legitimate usage of `csc.exe` in your environment. For example, development activities using Visual Studio, which might involve `csc.exe`, should look different from malicious behavior.
+  - **Identify unusual execution locations:**
+    Look for execution of `csc.exe` from temporary or user-specific directories like `C:\Users\Public`, `C:\Windows\Temp`, or `AppData`. Such locations are more commonly associated with unexpected behavior and warrant deeper examination.
 
-  - **Confirm high-confidence malicious indicators**: Look for instances where `csc.exe` is invoked without typical user processes present in the command line. Extract files or scripts from `C:\Users\<username>\AppData\`, which may support indications of abnormal activity.
-
-  - **Correlate with existing incidents**: Reference any prior incidents involving `csc.exe` or identified techniques such as T1059 to identify possible patterns of behavior or shared indicators across alerts.
+  - **Correlate with other security alerts:**
+    Check for other alerts related to recent execution of suspicious scripts or similar activity from the same host. Use Event IDs related to PowerShell execution or application crashes (e.g., 4103 for PowerShell) to find supporting evidence of compromise.
 
   ### Prioritization
 
-  This alert should be treated with high severity due to the potential impact on the executing system and broader network if utilized for malicious payload delivery. The likelihood of abuse is considerable, as scripting with processes like `csc.exe` is an established technique used by adversaries to bypass security controls.
+  The severity of this alert is high due to the potential impact on sensitive systems, especially if `csc.exe` is executed with a malicious payload. The likelihood of abuse is significant given the common weaponization of scripting languages for attacks, such as malware delivery and system exploitation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility that legitimate automation scripts using `csc.exe` may trigger the rule. Additionally, environments with heavy use of PowerShell or scripting may produce increased false positives. Reliable detection requires proper logging configuration for both Sysmon and Event Logs. A related detection could involve monitoring for downloads of potentially malicious scripts, which could complement the process execution information gathered here.
+  There are limitations in detecting evasive techniques, such as process hollowing and scripted obfuscation, that may disguise the execution of malicious commands. This detection relies on accurate logging of process creation events and may miss non-standard or custom execution environments without those logs. Legitimate activities that may trigger this alert include automated development tools or legacy script execution within controlled environments. A related detection for heightened coverage could involve monitoring file modifications associated with suspicious parent processes, such as detecting changes in user profile directories or temporary directories which commonly indicate malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

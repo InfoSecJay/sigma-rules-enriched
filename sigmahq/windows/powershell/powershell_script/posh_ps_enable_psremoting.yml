@@ -23,31 +23,35 @@ detection:
 falsepositives:
 - Legitimate script
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/powershell/powershell_script/posh_ps_enable_psremoting/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the PowerShell command `Enable-PSRemoting`, which is used to configure Windows Remote Management (WinRM) services on a target system. Attackers might employ valid accounts to enable WinRM to facilitate remote control and execute malicious actions under the guise of a legitimate user. The relevant MITRE ATT&CK tactic is **Lateral Movement** and the technique is **T1021.006: Remote Services - Windows Remote Management**. The primary telemetry source is PowerShell script block logging, which captures command executions and associated arguments.
+  This Sigma rule detects the enabling of Windows Remote Management (WinRM) through the PowerShell cmdlet `Enable-PSRemoting`, which allows remote administration of Windows systems. Attackers may leverage this capability to execute commands on remote systems using valid credentials, positioning themselves to move laterally within an enterprise environment by interacting with systems as the logged-on user.
 
-  If this behavior is malicious, it may lead to unauthorized access and control of systems, allowing adversaries to move laterally through the network. However, this detection does NOT confirm that any harmful actions were taken; further analysis is required to understand the context and intent behind the command’s execution.
+  This behavior aligns with the MITRE ATT&CK tactic of Lateral Movement (TA0008), specifically the technique T1021.006 (Remote Services: WinRM). The primary telemetry sources include PowerShell script block logging, specifically looking for `ScriptBlockText` containing the string ‘Enable-PSRemoting’. If enabled maliciously, this can lead to unauthorized access and execution of further malicious activities on the affected systems. However, this detection does NOT confirm that any malicious action has taken place; it only indicates that a potentially risky feature was enabled.
 
   ### Investigation Steps
 
-  - **Verify the command execution context**: Check Security Event ID 4688 for the creation of the PowerShell process and review the `ScriptBlockText` field for the execution of `Enable-PSRemoting` to establish how and why this command was run.
+  - **Verify script legitimacy:** Check the context of the script execution by reviewing the calling user account and the time of execution. Ensure the user has a legitimate business need for enabling WinRM, based on user account logs (Event ID 4624).
 
-  - **Identify the user and source**: Validate the user account associated with the execution. Determine if it is a known, legitimate account or an unknown or compromised account. Look for the `Account Name` and `New Process Name` fields in the relevant logs.
+  - **Examine event logs for suspicious activity:** Look for Windows Security Event ID 4688 (process creation) for PowerShell execution. Specifically, lookup events with `New-PSSession` or related cmdlets following the enabling command, indicating remote session interactions.
 
-  - **Examine recent changes**: Review the Windows Event ID 400 for PowerShell use and any associated events within the recent timeframe that indicate similar remote management activities by that user.
+  - **Check for abnormal user behavior:** Review user activity during the timeframe surrounding the detection. Look for instances of the account running other WinRM related commands (e.g., `Invoke-Command`). Compare against baseline behavior for that user.
 
-  - **Determine the role of the host**: Assess whether the system involved is a critical server or system (e.g., a domain controller or system administrator workstation). Legitimate environments may enable PSRemoting for administration purposes, particularly in a server management context.
+  - **Identify a high-confidence malicious indicator:** Look for concurrent logins from different geographic locations within a short timeframe using the same account, indicating potential credential theft. Consult Windows Security Event ID 4624 for such logins.
 
-  - **Check for subsequent actions**: After identifying this command, look for further activity indicating remote connections such as Event ID 5156 (Windows Filtering Platform) or signs of unusual PowerShell cmdlets executed (e.g., `Invoke-Command`) that could suggest an active lateral movement attempt.
+  - **Review network connections:** Analyze firewall or network logs for unusual outbound connections from the host where WinRM was enabled. Check for remote connections to suspicious IP addresses that are not part of known, legitimate administrative processes.
+
+  - **Understand normal WinRM usage:** Confirm if the organization has established instances of WinRM usage for management. If WinRM is frequently utilized by administrative users, map out normal usage patterns to differentiate legitimate operations from suspicious activity.
 
   ### Prioritization
 
-  The alert should be treated with medium severity due to its potential impact on critical systems that could be exposed to unauthorized remote access. The likelihood of malicious abuse is concerning, particularly if a compromised account is observed, as this behavior can be a precursor to significant adversarial actions in the network.
+  This alert warrants medium severity, as enabling WinRM on a system can significantly elevate security risks if exploited by an adversary. The likelihood of malicious use is moderate, particularly given the capability to execute arbitrary commands remotely. Moreover, lateral movement techniques via WinRM are commonly observed in sophisticated attacks.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded by legitimate administrative activities, particularly in environments where PSRemoting has been regularly used. Additionally, if script block logging is not enabled, this detection will not yield results. Legitimate administrative scripts or automated tasks may also trigger this alert without malicious intent. A companion detection to consider is monitoring for unusual outbound connections (e.g., Event ID 51506) that may occur after this command is executed, providing a more comprehensive view of potential lateral movement.
+  Potential evasion techniques include attackers disabling logging or using obfuscation in PowerShell to hide their activity. The detection relies on enabled PowerShell script block logging, which must be properly configured. Legitimate administrative tasks, such as system configuration or management by IT staff, may trigger this alert. A related detection would be logging of unusual WinRM session calls (e.g., `New-PSSession`), which would help to confirm suspicious usage patterns following the enablement of the service.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

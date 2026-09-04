@@ -15,7 +15,7 @@ references:
 author: Victor Sergeev, Daniil Yugoslavskiy, Gleb Sukhodolskiy, Timur 
   Zinniatullin, oscd.community, Tim Shelton, frack113 (split)
 date: 2019-10-25
-modified: 2026-01-09
+modified: 2026-08-28
 tags:
 - attack.privilege-escalation
 - attack.persistence
@@ -49,7 +49,7 @@ detection:
     - 'C:\Windows\System32\msiexec.exe'
     - 'C:\Windows\SysWOW64\msiexec.exe'
     - 'C:\Windows\System32\regsvr32.exe'
-    - 'C:\Windows\SysWOW64\regsvr32.exe '
+    - 'C:\Windows\SysWOW64\regsvr32.exe'
     TargetObject|contains:
             # Remove any unused addins in your environment from the filter
             # Known addins for excel
@@ -64,7 +64,7 @@ detection:
     - '\Outlook\AddIns\EvernoteCC.EvernoteContactConnector\'
     - '\Outlook\AddIns\EvernoteOLRD.Connect\'
             # - '\Outlook\Addins\GrammarlyAddIn.Connect' # Uncomment if you use Grammarly
-    - '\Outlook\Addins\\OneNote.OutlookAddin'
+    - '\Outlook\Addins\OneNote.OutlookAddin'
     - '\Outlook\Addins\DriveFSExtensionLib.Connect\'         # An Outlook Add-in to talk with Google Drive
     - '\Outlook\Addins\GoogleAppsSync.Connect\'         # Google Apps Sync for Microsoft Outlook
     - '\Outlook\Addins\Microsoft.VbaAddinForOutlook.1\'
@@ -105,30 +105,32 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection rule identifies modifications to the autostart extensibility point (ASEP) in the Windows registry for Microsoft Office applications. Specifically, it flags changes within registry keys that could be leveraged by adversaries to execute malicious scripts or code when Office files are opened. The likely attacker objective is to persist malicious behavior by introducing unauthorized add-ins that execute without user consent or knowledge.
+  This rule detects unauthorized modifications to autostart extensibility points (ASEP) within Microsoft Office related registry keys. Attackers may exploit these keys to execute malicious payloads upon opening Office documents, facilitating persistence within the environment. The likely attacker objective is to enable malware execution without user knowledge when a user interacts with Office applications.
 
-  This corresponds to the MITRE ATT&CK tactic of **Persistence** (TA0003) and specifically the technique **Office Application Startup** (T1547.001). The primary telemetry source is Windows Registry logs targeting registry set events related to Office applications, specifically related to locations such as `\Software\Microsoft\Office\<Application>\Addins`. If malicious, this activity could lead to code execution and potential data exfiltration. However, this detection does NOT confirm malicious intent on its own, as legitimate software configurations or updates can trigger similar registry changes.
+  The relevant MITRE ATT&CK technique for this behavior is "Create or Modify System Process: Windows Service" (T1547.001). The primary telemetry source is Windows Registry logs, specifically focusing on modifications within the registry paths related to Office add-ins. If the observed modification is malicious, it can lead to unauthorized access to sensitive data, lateral movement within the network, or further exploitation of the system.
+
+  This detection does NOT confirm that malicious activity has occurred on its own; it only indicates that registry modifications have taken place, warranting further investigation to establish intent and context.
 
   ### Investigation Steps
 
-  - **Review the triggering registry events:** Examine Windows Registry logs for Event ID 4657, focusing on the `TargetObject` field to confirm any modifications to keys under `Software\Microsoft\Office\<Application>\Addins`.
+  - **Check Registry Modifications**: Review Windows Registry changes recorded using Event ID 4657 for modifications to `HKEY_CURRENT_USER\Software\Microsoft\Office` and `HKEY_LOCAL_MACHINE\Software\Wow6432Node\Microsoft\Office`. Look for unexpected keys or entries that differ from the expected add-ins in your environment.
 
-  - **Identify known add-ins:** Cross-reference the modifications against a list of legitimate Office add-ins hosted in the organization. Focus on unique COM add-in identifiers located in `\Software\Microsoft\Office\<Application>\Addins`.
+  - **Validate Add-in Legitimacy**: Verify whether the modified add-in paths (e.g., `\Word\Addins`, `\Outlook\Addins`) contain known or expected legitimate add-ins, as outlined in the Sigma rule. If the path does not match known legitimate add-ins, flag as suspicious.
 
-  - **Authenticate the modifying process:** Inspect the process that performed the registry modification using Sysmon Event ID 10 or Windows Event ID 4688. Pay attention to the `Image` field to determine if the process is a known legitimate Office application path.
+  - **Cross-check with Process Creation Events**: Examine Sysmon Event ID 1 for process creation events linked to the registry modification. Identify if any associated processes such as `OfficeClickToRun.exe` or `VSTOInstaller.exe` initiated unexpectedly post-registry changes.
 
-  - **Check for empty or null values:** Look for registry modifications where `Details` in Windows Registry logs show as `(Empty)` or `null`, as these are indicative of potentially malicious operations that are not associated with legitimate add-ins.
+  - **Identify Malicious Indicators**: Look for the image paths used in the modifications, specifically those not associated with legitimate Microsoft Office components. Any registry modifications resulting in the execution of processes from `C:\Program Files\Common Files\Microsoft Shared\ClickToRun\`, or unexpected executables can indicate malicious behavior.
 
-  - **Validate against false positive scenarios:** Assess if the modifications align with known software or add-in installations, including registry entries that modify typical Office behavior. Document any legitimate installations occurring around the time of the report.
+  - **Analyze User Context**: Investigate the user context associated with the registry changes. Rapid or unusual modifications by low-privilege users or during off-hours may indicate malicious intent. Validate user roles against the changes made.
 
-  - **Monitor for related anomalies:** Keep an eye out for any unusual process creation (Event ID 4688) or script execution (Process ID 1 in Sysmon) following the registry change, as this might indicate exploitation following the modification.
+  - **Review Known False Positives**: Be aware of legitimate sources of registry modification such as automated software updates or legitimate Office add-ins installation that could trigger the alert. Document these findings to reduce the potential for future false positives.
 
   ### Prioritization
 
-  This alert should be considered medium severity due to the potential impact on systems that play critical roles in business functions, such as document processing and email communications. The likelihood of malicious actors leveraging such vulnerabilities is moderate, as techniques to modify Office autorun features for persistent access are well documented and frequently exploited.
+  The alert severity is medium due to the potential impact of modifications to Office add-ins, which can enable malware execution. The likelihood of abuse is significant since attackers often leverage Office applications for delivery of payloads, making this behavior a common vector for attacks. Regular scrutiny of these alerts is essential given the frequent weaponization of similar techniques.
 
   ### Blind Spots and Assumptions
 
-  Potential evasion techniques include the use of benign add-ins or automated scripts that generate legitimate registry modifications, often obscuring true malicious activity. The detection relies heavily on the accurate configuration of Windows Registry logs. Legitimate software installations might trigger similar alerts, necessitating close scrutiny of the surrounding activity. Companion detections, such as monitoring for unusual network connections from modified Office applications, would complement coverage and enhance the ability to detect and respond to potential threats.
+  Detection limitations include potential false positives generated by legitimate software installations or administrative actions that may alter registry keys. Accurate detection requires consistent logging and monitoring of Windows Registry changes, which necessitates proper configuration within the environment. Additionally, legitimate dynamics such as third-party add-in management may inadvertently trigger alerts. A companion detection rule monitoring for unexpected outbound network connections initiated by Office applications can enhance overall coverage and context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

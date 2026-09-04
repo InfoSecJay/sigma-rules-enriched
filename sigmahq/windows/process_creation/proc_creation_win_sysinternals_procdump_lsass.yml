@@ -38,33 +38,35 @@ falsepositives:
 - Unlikely, because no one should dump an lsass process memory
 - Another tool that uses command line flags similar to ProcDump
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_sysinternals_procdump_lsass/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects potential credential harvesting attempts via memory dumps of the LSASS (Local Security Authority Subsystem Service) process using ProcDump. Attackers typically aim to extract sensitive authentication data, such as plaintext passwords and NTLM hashes, for lateral movement or privilege escalation within the network. The relevant MITRE ATT&CK tactics and techniques for this behavior include Credential Access (ID: T1003.001) and Defense Evasion (ID: T1036).
+  This Sigma rule detects the use of ProcDump to create memory dumps from the LSASS process, which is often targeted by attackers for credential harvesting. The likely attacker objective is to extract sensitive information such as passwords and hashes stored in LSASS memory to facilitate lateral movement within a network. This behavior corresponds to the following MITRE ATT&CK tactics and techniques: **Credential Access (T1003.001)**.
 
-  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, which provide details about command-line arguments used during process execution. If the detected behavior is indeed malicious, it poses a significant security risk as it can facilitate unauthorized access to systems. This detection does NOT confirm that a successful credential extraction occurred; it merely indicates the potential for such an action.
+  The primary telemetry source is Windows process creation logs, specifically the Security Event ID 4688 and Sysmon Event ID 1, which capture command-line arguments of processes. The security impact is significant as successful credential extraction can lead to unauthorized access to other systems. It is crucial to note that this detection does NOT confirm that the memory was successfully dumped or that the attacker accessed the credentials; it merely identifies suspicious command-line activity related to LSASS.
 
   ### Investigation Steps
 
-  - **Identify the command-line execution context**: Review Security Event ID 4688 or Sysmon Event ID 1 for the process creation related to ProcDump. Look for command-line arguments that contain “-ma”, “-mm”, or “-mp” along with references to “lsass”, “keyiso”, or “samss”.
+  - **Check process creation logs:** Review Windows Security Event ID 4688 for the associated user context. Look for instances where the command line includes "procdump" with flags like "-ma", "-mm", or "-mp". Benign activity is typically devoid of such suspicious command line usage.
 
-  - **Correlate with system behavior**: Check for expected behavior, such as legitimate administrative tasks involving memory dumps. If a session on the affected system is performing a legitimate backup or diagnostic operation with similar command-line flags, document this context.
+  - **Verify process access rights:** Review the permissions of the user account that executed the ProcDump command. Standard users typically should not have permissions to dump LSASS. Consider Event ID 4672 for special privileges.
 
-  - **Track process lineage**: Utilize Sysmon Process Tree (Event ID 1) to analyze the parent process of the potentially malicious activity. Ensure that it corresponds to a known system process or expected administrative tool, as anomalies here may indicate compromise.
+  - **Assess running processes:** List processes running during the alert timeframe using Sysmon Event ID 1. Identify unexpected instances of ProcDump and correlate them with LSASS processes. Malicious indicators include unexpected user accounts executing such processes.
 
-  - **Review for high-confidence malicious indicators**: Look for multiple instances of LSASS memory dump attempts occurring in a short timeframe across various systems, as this could suggest an automated attack tool being used.
+  - **Contextualize user activity:** Look at the user's recent authentication logs (Event ID 4624) to establish if there are legitimate reasons for accessing LSASS, such as troubleshooting or system maintenance. Normal behavior often involves administrative tools being used with clear justifications.
 
-  - **Assess impacted system's role**: Evaluate the criticality of the host system being flagged. Systems performing authentication or identity services (e.g., domain controllers) require elevated attention and rapid response.
+  - **Review system logs for unusual activity:** Examine logs for unusual network connections or file accesses that might indicate subsequent lateral movement after LSASS dumping, especially around Event ID 5140 (file share access).
 
-  - **Validate for file creation or exfiltration artifacts**: Check for any newly created files in the system directories, especially temporary directories where ProcDump may persist the memory dumps (such as %TEMP% or %APPDATA%). Look at timestamps and file sizes to assess legitimacy.
+  - **Look for cleanup or obfuscation attempts:** Determine if there are any attempts to remove or hide the ProcDump executable or its logs, as deleting or tampering with logs would indicate malicious intent (e.g., Event ID 4673).
 
   ### Prioritization
 
-  This alert is high-severity due to the potential impact on systems containing sensitive authentication data. The likelihood of malicious abuse is significant, as the techniques used are commonly weaponized by threat actors during credential harvesting. Targeted analyses of systems that typically handle sensitive data is essential.
+  This alert is of high severity due to the critical nature of LSASS, which handles sensitive credentials. The likelihood of malicious abuse is elevated, as process dumping of LSASS is a commonly observed technique in credential theft and escalation. Given the serious implications of credential compromise, this behavior is frequently weaponized by threat actors.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of legitimate tools or scripts using similar command-line flags, which may inadvertently trigger the alert. Ensure Windows auditing is configured to capture process creation events for reliable detection. Also, standard maintenance activities, such as diagnostic memory analysis performed by IT personnel, could generate similar command-line patterns. A companion detection that would strengthen coverage includes monitoring for abnormal outbound connections from the affected system that could indicate subsequent unauthorized access attempts.
+  Detection may be evaded if the attacker uses alternative methods or tools that achieve similar outcomes without using ProcDump. Additionally, without Sysmon installed or adequate logging configurations, the rule may not produce reliable alerts. Legitimate applications, such as software debugging or system maintenance tools, may inadvertently trigger this alert. A companion detection could be monitoring for network traffic that shows unusual access patterns following a detected LSASS dump, enhancing overall coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

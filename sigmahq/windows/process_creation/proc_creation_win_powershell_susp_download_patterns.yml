@@ -32,37 +32,38 @@ detection:
 falsepositives:
 - Software installers that pull packages from remote systems and execute them
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_susp_download_patterns/info.yml
 note: |
   ### Technical Context
 
-  This rule detects PowerShell command patterns commonly associated with malicious download and execution techniques. Specifically, it identifies instances where PowerShell is used to download scripts or files from the internet and execute them directly in memory. The likely attacker objective is to use embedded scripts for further exploitation, such as deploying malware or gaining unauthorized access. This behavior maps to the MITRE ATT&CK technique "PowerShell" (T1059.001).
+  This rule detects suspicious PowerShell command patterns typically used to download and execute payloads directly from the internet, specifically utilizing the `Net.WebClient` class. Adversaries often leverage this technique as part of their initial access or execution phases with the objective to run malicious scripts or payloads on compromised systems. This behavior maps to the MITRE ATT&CK technique "Command and Scripting Interpreter - PowerShell" (T1059.001).
 
-  The primary telemetry sources for this detection are process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1, which log command line activity and process information. If successful, an adversary could execute arbitrary commands leading to data exfiltration or system compromise. Importantly, this detection does not confirm successful execution or the exploit's intent on its own.
-
-  ---
+  The primary telemetry sources for this detection are Windows process creation logs, particularly Security Event ID 4688 and Sysmon Event ID 1. The security impact of such behavior could be significant, as it may indicate an active malware infection or initial compromise. However, this detection does NOT confirm malicious activity on its own; it only highlights potentially suspicious command patterns that may also arise from legitimate administrative activities or benign software installers.
 
   ### Investigation Steps
 
-  - **Review command line parameters:** Check processes with Event ID 4688 or Sysmon Event ID 1, focusing on commands containing "IEX (" or "DownloadString". Malicious samples will typically have these patterns, while legitimate commands may pull trusted scripts.
+  - **Verify process creation details:**
+    Check Security Event ID 4688 for the related process ID. Look for the user context under which PowerShell was executed. Initially, expect to see administrative accounts or service accounts engaged in legitimate software updates or automation scripts.
 
-  - **Investigate parent process:** Identify the parent process of the PowerShell execution by correlating with Event ID 4688. Anomalous parent processes, such as those not typically associated with legitimate script execution (e.g., a non-administrative task scheduler), may indicate malicious activity.
+  - **Analyze command line arguments:**
+    Review the command line arguments in Sysmon Event ID 1 for common benign patterns. Legitimate commands often do not look like `IEX (New-Object Net.WebClient).DownloadString`. Search for any download commands that particularly include URLs or executables being executed directly.
 
-  - **Examine process execution context:** Validate the context of execution by reviewing the user account associated with the PowerShell command. Actions performed by privileged or unexpected user accounts can indicate potential malicious activity.
+  - **Examine network activity:**
+    Use network logs from your firewall or proxy to investigate outbound connections within the timeframe of the PowerShell execution. Look specifically for connections to suspicious domains or IPs that match known bad indicators. Compare with benign domains accessed by legitimate applications.
 
-  - **Check for known malicious hashes:** Review any downloaded files in the context of upload logs for known malware hashes using threat intelligence feeds. Malicious downloads may include payloads or stagers identified in industry reports.
+  - **Inspect run/malware artifacts:**
+    Check for the creation of unusual or malicious files in temporary directories or locations commonly used for downloaded files (e.g., `%Temp%`). Look for executable or script files created around the same time as the detected PowerShell command.
 
-  - **Identify software installers:** Look for legitimate software installation processes (e.g., software update processes) that might also use similar command structures. They often pull from trusted repositories and should not display suspicious command patterns.
-
-  ---
+  - **Correlate with user behavior:**
+    Review the user's historical behavior and activity logs leading up to the PowerShell execution. Establish whether this user has previously conducted similar actions, which could indicate either benign use or a high-risk anomaly.
 
   ### Prioritization
 
-  This alert is categorized as high priority due to the potential impact on critical systems if malicious activity is confirmed. The behavior has a high likelihood of being exploited by adversaries as part of their execution strategy. Such techniques are frequently weaponized in various attacks, including ransomware and remote access malware.
-
-  ---
+  This alert should be treated with high severity due to the risk of it indicating an attempt to execute malicious payloads directly on critical systems. Given the nature of PowerShell as a common tool for attackers, successful malicious exploitation is likely if this behavior is confirmed in high-value contexts, such as on domain controllers or servers.
 
   ### Blind Spots and Assumptions
 
-  This detection may not identify obfuscated scripts or other evasion techniques that modify the command pattern, such as using different obfuscation methods or alternative APIs. The reliability of detection depends on appropriate logging configurations for both process creation and PowerShell command execution. Additionally, benign scenarios include software installers that pull legitimate packages remotely, which can trigger false positives. A related detection rule focused on "PowerShell EncodedCommand" would enhance coverage against obfuscation tactics.
+  This detection may overlook legitimate administrative tasks performed via PowerShell designed to manage systems or perform updates. It assumes that logs are correctly configured to capture process creation events and command-line parameters, which may not always be the case in all environments. Additionally, well-crafted adversarial scripts may evade detection by using obfuscation or less common command patterns. A companion detection rule for monitoring direct downloads from PowerShell execution could reinforce coverage and help detect if scripts are misused in this context.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

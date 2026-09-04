@@ -1,0 +1,77 @@
+title: Windows AppX Deployment Full Trust Package Installation
+id: e54279c7-4910-4e2c-902c-c56a25b549f6
+status: experimental
+description: Detects the installation of MSIX/AppX packages with full trust 
+  privileges which run with elevated privileges outside normal AppX container 
+  restrictions
+references:
+- https://www.splunk.com/en_us/blog/security/msix-weaponization-threat-detection-splunk.html
+author: Michael Haag, Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-11-03
+tags:
+- attack.execution
+- attack.defense-impairment
+- attack.t1204.002
+- attack.t1553.005
+logsource:
+  product: windows
+  service: appxdeployment-server
+detection:
+  selection:
+    EventID: 400
+    HasFullTrust: true
+  filter_main_legitpath:
+    PackageSourceUri|startswith:
+    - 'file:///C:/Program%20Files/'
+    - 'file:///C:/Program%20Files%20(x86)/'
+  filter_main_microsoft:
+  - PackageSourceUri|startswith: 'https://go.microsoft.com/fwlink/?linkid'
+  - PackageSourceUri|contains:
+    - '.cdn.microsoft.com'
+    - '.cdn.office.net/'
+  filter_main_callerprocess:
+    CallingProcess|startswith:
+    - 'sysprep.exe'
+    - 'svchost.exe,AppReadiness'
+  filter_optional_x_update:
+    PackageSourceUri|startswith: 'x-windowsupdate://'
+  filter_optional_microsoftclient:
+    PackageFullName|startswith: 'MicrosoftWindows.Client.'
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Some legitimate applications installation which have been missed from 
+  filtering can generate fps, thus baselining and tuning is recommended before 
+  deploying to production
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/builtin/appxdeployment_server/win_appxpackaging_server_full_trust_package_installation/info.yml
+note: |
+  ### Technical Context
+
+  This rule detects the installation of MSIX/AppX packages that have been given full trust privileges, allowing them to bypass standard AppX container restrictions. The likely objective of an attacker using such packages would be to execute malicious scripts or tools with elevated privileges on a compromised system. This behavior relates to the MITRE ATT&CK tactic of Execution and technique T1204.002 (Malicious File). The primary telemetry source for this detection is the Windows AppX Deployment Server logs, with Event ID 400 being crucial.
+
+  If exploitation occurs, it poses a significant risk, as an attacker could gain control over the affected system. However, this detection alone does not confirm malicious intent, as legitimate applications may also require full trust for installation.
+
+  ### Investigation Steps
+
+  - **Identify triggering events:** Check for Event ID 400 in AppX Deployment Server logs. Look for installations that do not match legitimate sources (e.g., file paths starting with "file:///C:/Program Files/"), which could indicate malicious behavior.
+
+  - **Review calling processes:** Examine the CallingProcess field in Event ID 400. Legitimate installations typically come from processes like `sysprep.exe` or `svchost.exe,AppReadiness`. Any other calling processes should raise suspicion.
+
+  - **Analyze package sources:** Investigate the PackageSourceUri field for suspicious URLs. Legitimate Microsoft package sources typically start with "https://go.microsoft.com/fwlink/?linkid" or include known domains like ".cdn.microsoft.com". Flags on external or unusual sources should be noted.
+
+  - **Cross-reference legitimate installations:** Collect baseline data for known legitimate AppX packages in your environment. Compare this list against detected installations to filter out false positives.
+
+  - **Look for command execution artifacts:** If the package includes payloads, check for any spawned child processes or network communication that occurs shortly after Event ID 400 is logged. Indicators of compromise (IoCs) could be found in Sysmon Event ID 1 or Windows Security logs.
+
+  - **Validate asset criticality:** Prioritize analysis based on the criticality of the system where the alert was triggered. If a high-value asset (e.g., domain controller) shows this behavior, escalate accordingly.
+
+  ### Prioritization
+
+  This alert is of medium severity due to the potential impact on system integrity and the likelihood of being exploited by malicious actors. The weaponization of AppX packages is a recognized threat, but it requires corroborating evidence to confirm malicious intent.
+
+  ### Blind Spots and Assumptions
+
+  There are detection limitations as legitimate applications installed might trigger this alert, necessitating fine-tuning of filtering criteria. The required log source, AppX Deployment Server logs, must be enabled and properly configured to catch these events. Additionally, common tasks like legitimate software updates could potentially activate this detection, complicating triage efforts. A related detection to consider is one that flags unusual changes in established AppX package configurations or unauthorized package modifications.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

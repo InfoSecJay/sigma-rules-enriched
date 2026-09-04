@@ -30,39 +30,33 @@ falsepositives:
 - Some rare backup scenarios
 - PowerShell scripts fixing HiveNightmare / SeriousSAM ACLs
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_sam_access/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of PowerShell scripts that attempt to access the Security Account Manager (SAM) database on Windows systems by copying the SAM hives, which is typically indicative of credential dumping activities. The likely objective of an attacker employing this behavior is to extract sensitive account information such as user credentials, which can then be leveraged for lateral movement or privilege escalation. This activity aligns with the MITRE ATT&CK technique for credential access, specifically T1003.002 (OS Credential Dumping: Security Account Manager).
+  This Sigma rule detects the execution of PowerShell commands that attempt to access the Security Accounts Manager (SAM) hive, which is critical for storing user account information and credentials. Attackers may execute this behavior to extract sensitive account data, enabling unauthorized access to accounts and services in the compromised environment. This activity maps to the MITRE ATT&CK tactic "Credential Access" and the technique "Credentials from Password Stores" (T1003.002).
 
-  The primary telemetry source for this detection is the Windows process creation logs, recorded under Security Event ID 4688. Analyzing the CommandLine field will be critical for investigations. If malicious, the impact can be severe, potentially leading to unauthorized access to sensitive accounts and escalation of privileges in the environment. Importantly, this detection does NOT confirm that an attack has occurred solely based on the command line content—it requires further investigation into execution context and outcomes.
-
-  ---
+  The primary telemetry sources are Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, capturing command-line activities. If successfully executed by an adversary, this could lead to credential theft and further lateral movement. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate scenarios such as backup or system maintenance might also trigger the rule.
 
   ### Investigation Steps
 
-  - **Review PowerShell command line arguments**: Check Security Event ID 4688 for process creation events where CommandLine contains both `\HarddiskVolumeShadowCopy` and `System32\config\sam`. Look for suspicious invocations that do not align with legitimate usage patterns.
+  - **Review the command-line arguments:** Inspect Security Event ID 4688 for any PowerShell commands containing `Copy-Item` or paths related to `System32\config\sam`. Malicious indicators include attempts to access the SAM hive without legitimate context.
 
-  - **Analyze the parent process**: Determine the parent process using the Process ID (PID) from Event ID 4688. Malicious activity often originates from unusual parent processes like cmd.exe or unexpected PowerShell instances rather than standard operational tasks.
+  - **Identify legitimate activity:** Verify whether the behavior aligns with known backup scripts or maintenance routines. Documented procedures using the SAM hive for legitimate purposes should be noted, and any discrepancies with approved processes should be flagged.
 
-  - **Identify legitimate operations**: Cross-reference the detected commands against common administrative activities or backup tasks. Legitimate commands may explore SAM hives for troubleshooting or legitimate fixes. Ensure that these occur within the expected operational context.
+  - **Cross-reference process parentage:** Look for the parent process of the PowerShell execution in Sysmon logs (Event ID 1) to determine if it was spawned by a legitimate process (like a scheduled task or administrative tool) or a suspicious entry point.
 
-  - **Validate file creation activity**: Use Sysmon Event ID 10 to check for file creation in the directory C:\Windows\System32\config\ to confirm whether SAM files were copied. Pay attention to timestamps and execution context to spot anomalies.
+  - **Check for file activity:** Examine file creations associated with the alert. Look for any unexpected creation of files in directories like `C:\Windows\Temp` or similar that could indicate data export (e.g., suspicious `.txt` or `.csv` files).
 
-  - **Check for access permissions**: Review access control lists (ACLs) and auditing logs on the SAM files. You can utilize Event IDs 4663 and 5145 to monitor for unauthorized access attempts to the SAM hives. Malicious behavior is often characterized by unauthorized or unusual access patterns.
-
-  - **Monitor for exfiltration behavior**: After identifying malicious PowerShell execution, assess whether there were any attempts to exfiltrate the copied SAM files through network connections or removal media. Look at outbound connection logs in your firewall or network monitoring tools.
-
-  ---
+  - **Investigate user privileges:** Assess whether the user account executing the command has elevated permissions. Unprivileged users executing commands accessing the SAM hive can be a strong sign of compromise.
 
   ### Prioritization
 
-  This alert carries a high severity due to the sensitive nature of the SAM database and the potential risk of unauthorized credential access. The likelihood of malicious abuse is pronounced, particularly if found in high-privileged environments. Credential dumping via PowerShell scripts is a known tactic by threat actors and is often weaponized in the wild.
-
-  ---
+  This alert should be considered high severity due to the critical nature of the SAM hive, which, if accessed maliciously, can lead to significant breaches of credential security. The likelihood of adversaries attempting to read or copy the SAM data makes this behavior a commonly weaponized tactic, necessitating prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be obscured by legitimate backup processes or administrative scripts that also engage with SAM hives. Ensure complete logging of PowerShell activity and maintain strict audit logging for Event IDs related to file access to improve detection reliability. Legitimate administrative access and troubleshooting can trigger this alert, which necessitates thorough context correlation. Companion detections that monitor for unusual PowerShell module loading or script execution (e.g., PowerShell Exit codes, Event ID 4104) can bolster coverage and provide additional context.
+  Detection may be limited by environment configurations that do not log all PowerShell activities or if logging isn’t enabled for crucial events (like specific process creations). Legitimate activities such as specific system maintenance or administrative tasks may trigger this alert. A related detection to consider could be monitoring for execution of anomalous PowerShell scripts (e.g., those running from unusual directories) to strengthen overall security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

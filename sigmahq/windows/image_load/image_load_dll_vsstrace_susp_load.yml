@@ -11,7 +11,7 @@ references:
 - https://github.com/ORCx41/DeleteShadowCopies
 author: frack113
 date: 2023-02-17
-modified: 2025-12-03
+modified: 2026-08-27
 tags:
 - attack.impact
 - attack.t1490
@@ -25,6 +25,7 @@ detection:
   - Image:
     - 'C:\Windows\explorer.exe'
     - 'C:\Windows\ImmersiveControlPanel\SystemSettings.exe'
+    - 'C:\Windows\servicing\TrustedInstaller.exe'
   - Image|startswith:
     - 'C:\Windows\System32\'
     - 'C:\Windows\SysWOW64\'
@@ -51,30 +52,26 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the loading of the `vsstrace.dll` file by executables that are not typical hosts for this library, suggesting potential misuse related to Volume Shadow Copy operations. Attackers may employ this to manipulate system backups, delete restore points, or exfiltrate sensitive data that resides in shadow copies, aiming to obstruct forensic analysis.
-
-  The relevant MITRE ATT&CK tactics include **Impact** (TA0040) and **Inhibit System Recovery** (T1490). Primary telemetry sources include Windows image load events that can be gathered from Event ID 4100 or Sysmon Event ID 10. If malicious, this could lead to data loss or obfuscation of malicious activity.
-
-  This detection does NOT confirm that malicious activity has occurred on its own; further contextual investigation is required.
+  This rule detects the loading of the `vsstrace.dll`, which is used for managing Volume Shadow Copies, by uncommon executables that are not typically expected to interact with this functionality. Attackers might leverage this DLL to manipulate or delete shadow copies to hinder forensic analysis after malicious activity. It aligns with the MITRE ATT&CK technique T1490: Inhibit System Recovery, which focuses on disabling recovery options to solidify their foothold. The primary telemetry sources are Windows image load events, specifically where `vsstrace.dll` is invoked outside of known legitimate executables such as `explorer.exe` or `TrustedInstaller.exe`. A malicious load event here may indicate attempts to obstruct recovery efforts, particularly during or after data exfiltration or ransomware actions. However, this detection does NOT confirm malicious behavior on its own without additional context or corroborating indicators.
 
   ### Investigation Steps
 
-  - **Verify the Executable Source**: Review the executable loading `vsstrace.dll`. Check Event ID 4688 for process creation and confirm if the parent process is a known legitimate application (should typically be system processes or trusted backup solutions).
+  - **Identify the executing process**: Review Windows Security Event ID 4688 for new process creation related to `vsstrace.dll`. Focus on processes with unusual parentage or indicators that are unexpected for this DLL (e.g., processes not typically associated with system maintenance).
 
-  - **Correlate Loaded DLLs with Activity**: Use Sysmon Event ID 10 to check for additional loaded DLLs. Validate the environment and ensure the process is not benign, such as backup software, which often utilizes this DLL for legitimate purposes.
+  - **Check for common mitigation paths**: Validate whether the loaded process is `explorer.exe`, `SystemSettings.exe`, or `TrustedInstaller.exe`. If the process does not match, further investigation is warranted as it could indicate potentially malicious behavior.
 
-  - **Review for Shadow Copy Related Activity**: Analyze the presence of shadow copies. Use Windows PowerShell command `Get-ComputerRestorePoint` or the `vssadmin list shadows` command to observe existing snapshots. An absence of expected restore points may indicate malicious actions.
+  - **Analyze related shadow copy activity**: Inspect Windows Volume Shadow Copy Service (VSS) logs for any unusual modification or deletion actions prior to the alert. Look for Event ID 8193 in the System log which may indicate issues with shadow copy creation or deletion.
 
-  - **Cross-Examine Process Execution Path**: Investigate the file path of the executable to determine if it deviates from a standard installation path. For instance, processes originating from `C:\Windows\Temp` or similar non-standard locations are likely malicious.
+  - **Review system configuration and criticality**: Consider the asset's context where the alert occurred. If it is a production server or a sensitive asset, prioritize immediate investigation due to higher risk associated with potential impact.
 
-  - **Check for Patterns of Evasive Behavior**: Look for multiple instances of `vsstrace.dll` being invoked by various executables in a short timeframe—a strong indicator of an attempt to manipulate shadow copies rapidly to cover tracks.
+  - **Look for known malicious patterns**: Cross-reference the process invoking the DLL with threat intelligence sources to check for a history of exploitation or association with known malware that manipulates VSS to evade detection.
 
   ### Prioritization
 
-  This alert should be regarded as medium severity. The potential impact on critical systems is significant, as it indicates possible attempts to delete or manipulate backup data. The likelihood of abusive behavior is moderate to high, given that shadow copy manipulation is a common tactic used in various attacks, including ransomware.
+  This alert should be considered medium severity due to the potential impact on systems running critical applications and the risk of malicious actions taking root. The likelihood of misuse is relevant, particularly within environments that retain sensitive information, making it a candidate for active monitoring.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss instances where benign applications legitimately load `vsstrace.dll`, leading to false positives. It relies on appropriate logging configurations to capture image loading events, particularly Sysmon or similar logging solutions. Legitimate activities, such as backup operations, can also trigger this alert. To strengthen detection, consider additional rules that capture unusual PowerShell or command line activity related to VSS commands.
+  Detection effectiveness may be limited by the presence of legitimate activity that interacts with the Volume Shadow Copy Service, such as backup software that could trigger the alert. Required log sources include image load events and potential VSS logs, which must be accurately configured to ensure reliable detection. Another companion detection is focused on VSS manipulation, such as deletions or modifications in shadows, to provide a more comprehensive threat assessment.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

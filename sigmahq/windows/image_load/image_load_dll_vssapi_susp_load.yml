@@ -11,7 +11,7 @@ references:
 - https://github.com/ORCx41/DeleteShadowCopies
 author: frack113
 date: 2022-10-31
-modified: 2026-05-18
+modified: 2026-08-27
 tags:
 - attack.impact
 - attack.t1490
@@ -25,6 +25,7 @@ detection:
   - Image:
     - 'C:\Windows\explorer.exe'
     - 'C:\Windows\ImmersiveControlPanel\SystemSettings.exe'
+    - 'C:\Windows\servicing\TrustedInstaller.exe'
   - Image|startswith:
     - 'C:\Windows\System32\'
     - 'C:\Windows\SysWOW64\'
@@ -57,26 +58,30 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the loading of the `vssapi.dll` library by uncommon executables, which may indicate an attempted malicious action against the volume shadow copy service. Attackers may leverage this behavior to manipulate or delete shadow copies, potentially to hinder forensic investigation after executing malware or to recover deleted files. The relevant MITRE ATT&CK tactic is Impact, specifically technique T1490: Inhibit System Recovery. The primary telemetry source is Windows image load events, specifically capturing operations where certain executables invoke the `vssapi.dll`. If successfully executed by malicious actors, this behavior could allow them to erase traces of their activities. This alert does not confirm that malicious activity has occurred, as benign applications could also load this DLL under certain circumstances.
+  This Sigma rule detects the loading of the `vssapi.dll` library by processes that are not typical for its usage, which may indicate potential malicious activity. Attackers often utilize Volume Shadow Copy Service (VSS) functionality to manipulate or delete shadow copies on a system to hide malicious activity, like restoring an environment after deploying ransomware or covering tracks post-exploitation. This behavior falls under the MITRE ATT&CK tactic "Impact" (TA0040) and the technique "Indicator Removal on Host" (T1490).
+
+  The primary telemetry source for this detection is Windows image loading events, specifically related to process execution patterns where `vssapi.dll` is unexpectedly called by non-standard executables. If exploited, this could allow an adversary to erase forensic evidence or restore systems under their control. However, it is essential to note that this detection alone does not confirm malicious intent or actions without further context or corroborative evidence.
 
   ### Investigation Steps
 
-  - **Check Event Log for Image Load Events**: Review Windows Security Event ID 4688 for process creation events that include vssapi.dll being loaded, particularly from uncommon executables not typically associated with legitimate administrative tools.
+  - **Review loaded DLLs for context**: Use Sysinternals Process Explorer to identify which executable is loading `vssapi.dll` and examine its full command line (e.g., Process ID, parent process). This can shed light on the legitimacy of the action.
 
-  - **Identify the Executable Path**: Focus on the executable paths related to the alert. If the image loading `vssapi.dll` originates from `C:\Program Files`, consider it benign if related to recognized backup or system tools. Conversely, execution from temporary or system directories could indicate malicious use.
+  - **Identify the loading process**: Check Windows Event ID 4688 (Process Creation) to see if the process that loaded `vssapi.dll` corresponds to known, legitimate software, or if it is an unusual or uncommon binary.
 
-  - **Examine Parent Processes**: Investigate the parent process of the exe loading vssapi.dll through Sysmon Event ID 1 to determine the context. Legitimate processes, such as backup tools (e.g., `C:\Program Files\YourBackupSolution\YourBackup.exe`), may often interact with this DLL.
+  - **Examine recent backup operations**: Look at the Windows Event Log for Backup API events (Event IDs related to VSS operations) around the same timeframe to verify if legitimate backup or restore actions had occurred, which may justify the loading of `vssapi.dll`.
 
-  - **Analyze File Modification Events**: Look for file modification events (Windows Event ID 4663) related to shadow copy storage locations, specifically for unusual deletion or modification actions shortly after the alert. Evidence of deletion of `.vss` files may be indicative of an attack.
+  - **Corroborate against configuration changes**: Investigate whether there were any recent changes in persistence or configurations on the host by examining Windows Event ID 4732 (Group Membership) and any modifications to scheduled tasks (Event ID 4698) that could indicate anomalous behavior related to backups or restores.
 
-  - **Cross-Reference with Existing Shadow Copies**: Use PowerShell commands to list existing shadow copies (`Get-WmiObject -Class Win32_ShadowCopy`) shortly after the triggering event to check for the presence or absence of shadow copies, as an attack may attempt to remove them.
+  - **Confirm file creation/deletion activity**: Investigate file system activity with Sysmon logs (Event ID 11) for any unusual creation or deletion operations associated with shadow copies or the relevant directories (`C:\System Volume Information\`), as these can further indicate the nature of the actions taken.
+
+  - **Establish a behavioral baseline**: Understand what legitimate applications (like backup software) typically utilize `vssapi.dll` by reviewing internal infrastructure documentation or querying known systems, allowing for differentiating benign usage patterns from potential abuse.
 
   ### Prioritization
 
-  This alert is classified as high severity as it involves potential systemic impacts on endpoint recovery capabilities. Given the critical role of shadow copies in restoring compromised systems, the likelihood of this behavior being weaponized in attacks is high, warranting immediate analyst attention.
+  The alert is classified with high severity due to the potential impact on critical systems, as misuse of VSS can lead to data loss or evasion of detection mechanisms. The likelihood of malicious exploitation is heightened given that attackers commonly employ these techniques during post-exploitation phases. This behavior has been weaponized in various ransomware campaigns and data tampering incidents.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by evasion techniques such as OS-level anomalies that can suppress legitimate image load logging. The successful identification of vssapi.dll loading relies on comprehensive event logging configurations being maintained across all endpoints. Legitimate activities, such as administrative updates or well-known backup software operations, might inadvertently trigger this alert. A companion detection to consider is the monitoring of shadow copy creation events (Windows Event ID 5120) to provide context to any modifications detected through this rule.
+  This detection has limitations, as legitimate applications and system maintenance tasks may also trigger the alert when using `vssapi.dll`. Ensuring comprehensive logging configurations such as Sysmon deployments and Windows Event Logging is crucial to maintain detection reliability. Activities such as legitimate system updates or backups could incorrectly generate alerts. A related detection to bolster coverage could include monitoring for unexpected file deletions via Sysmon Event ID 23, which can capture anomalous file operations that align with malicious behavior surrounding VSS usage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

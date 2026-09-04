@@ -1,8 +1,11 @@
 title: Sysmon File Executable Creation Detected
 id: 693a44e9-7f26-4cb6-b787-214867672d3a
 status: test
-description: Triggers on any Sysmon "FileExecutableDetected" event, which 
-  triggers every time a PE that is monitored by the config is created.
+description: |
+  Detects Portable Executable (PE) files creation events logged by Sysmon in paths monitored by the used Sysmon configuration.
+  This is a high-value detection for catching unauthorized or suspicious executable drops.
+  Alert volume and scope depend entirely on which paths or files are monitored in the Sysmon config.
+  A high noise level or hits from known-legitimate software are a strong signal that the Sysmon configuration is too permissive, not that the detection itself is wrong and probably needs to be tuned to a more restrictive set of paths or files.
 references:
 - https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon
 - https://medium.com/@olafhartong/sysmon-15-0-file-executable-detected-40fd64349f36
@@ -18,35 +21,35 @@ detection:
     EventID: 29      # this is fine, we want to match any FileExecutableDetected event
   condition: selection
 falsepositives:
-- Unlikely
+- Legitimate software writing executables to monitored paths - if this occurs, 
+  narrow the Sysmon configuration to more sensitive paths rather than 
+  suppressing this rule
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/sysmon/sysmon_file_executable_detected/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of executable files by monitoring Sysmon events where a PE (Portable Executable) file is created, specifically Event ID 29 (FileExecutableDetected). The likely objective of the attacker is to execute malicious code by dropping a payload onto the filesystem, potentially leading to further exploitation or lateral movement within the network. This activity falls under the MITRE ATT&CK tactic of "Defense Evasion" (TA0005) and the technique "Executable File Creation" (T1203).
-
-  The primary telemetry sources are Sysmon logs configured to track file creation activities. This detection indicates the creation of executable files, which can be a precursor to malicious activity. However, this detection does NOT confirm that the executable is malicious or that it has been executed; it merely indicates that a file creation event has taken place.
+  This rule detects the creation of Portable Executable (PE) files logged by Sysmon, particularly focusing on paths specified in the Sysmon configuration. The behavior indicates potential unauthorized executable drops, which may align with tactics used by adversaries to establish persistence or deploy malware within an environment. The relevant MITRE ATT&CK tactic is Defense Evasion (T1203) and the technique is "Exploitation for Client Execution" (T1203). The primary telemetry source is Sysmon logs, specifically Event ID 29. If malicious, the creation of executables in unexpected locations can permit code execution and system compromise. However, this detection alone does not confirm malicious intent; legitimate software may also create executables.
 
   ### Investigation Steps
 
-  - **Review Sysmon Event ID 29:** Investigate Sysmon logs for Event ID 29 details, focusing on fields such as `FileName`, `FilePath`, and `User`, to determine who created the executable and where it was created. A legitimate process may include entries from known software installations in common directories (e.g., `C:\Program Files\`).
+  - **Identify the executing path: **Review the path from which the executable was created using Sysmon Event ID 29 fields `Image` and `FileName`. Valid paths for executables in a standard environment are usually `C:\Program Files` or `C:\Windows\System32`. Anything else may require further scrutiny.
 
-  - **Identify suspicious file paths:** Check if the created file is located in unusual directories (e.g., `C:\Windows\Temp\`, user profile directories) or has suspicious filenames (e.g., impersonating legitimate executables). Compare with baseline data of normal application installations.
+  - **Check for parent process: **Examine the `ParentImage` field in Sysmon Event ID 29 to determine if the executable was spawned by a known legitimate process. A legitimate parent, such as `powershell.exe` or `cmd.exe`, may indicate benign activity depending on the context.
 
-  - **Verify Parent Process:** Examine the `Image` and `ParentImage` fields in the Sysmon log entry to identify if a suspicious process initiated the executable creation. A parent process from known administrative tools (e.g., Powershell, cmd.exe) could indicate potential misuse.
+  - **Analyze file creation timestamp: **Cross-reference creation timestamps from Event ID 29 with other system logs (e.g., Windows Event ID 4663) to identify any unusual activity at that time. Legitimate software typically follows installation protocols rather than direct file creation during odd hours.
 
-  - **Analyze file hashes:** If available, retrieve the hash (MD5, SHA1, SHA256) of the created executable and check it against threat intelligence sources or internal blacklists. High-confidence malicious indicators may include hashes known for malware signatures.
+  - **Inspect file hash: **Calculate the file hash of the created executable (`FileName` field) and compare it against known hashes in threat intelligence databases (like VirusTotal). A hash with a high baddie score or that flags as malware constitutes strong evidence of malicious intent.
 
-  - **Check for execution context:** Investigate whether the newly created executable has been executed (indicated by Sysmon Event ID 1, Process Create) and note the context of execution (e.g., executed by a non-admin user). Legitimate activities typically involve installation processes by system administrators.
-
-  - **Evaluate system role and criticality:** Assess the host system's role (e.g., server vs. workstation) and asset criticality. Malicious activity on critical assets warrants increased urgency in response.
+  - **Review the Sysmon configuration: **Evaluate the Sysmon configuration settings to ensure that only critical paths are monitored. Broad configurations can lead to excessive alerts from legitimate applications creating executables.
 
   ### Prioritization
 
-  This alert is of medium severity, particularly if it involves a critical system or server, as the creation of executable files can indicate an initial breach or lateral movement. The likelihood of malicious abuse is moderate since the creation of executables is a common technique used by attackers to deploy malware. While sometimes legitimate, unusual file creation patterns in sensitive folders should be investigated closely.
+  Alert severity is medium due to the potential impact on critical systems if a malicious executable is being created. The likelihood of abuse is moderate as this behavior is often a tactic employed by attackers to deploy malware, yet it could also stem from legitimate processes. This particular activity is not commonly weaponized alone, making context essential for proper evaluation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the configuration of Sysmon, as not all environments have it deployed or logging specific events thoroughly. Legitimate activities like software installations or updates can trigger this alert, leading to potential false positives. A related detection to consider includes File Modification events (Sysmon Event ID 11) to monitor changes made to executables, strengthening overall visibility into potentially malicious behavior.
+  Detection may be limited by possible evasion techniques, such as legitimate applications creating executables in monitored paths, leading to false positives. Successful detection relies on proper Sysmon configuration to limit monitored paths appropriately. Legitimate software installers may trigger this alert if they create executables, indicating the need for ongoing tuning of Sysmon paths. Companion detections, such as monitoring for abnormal outbound connections following executable creation, would enhance overall security posture.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -45,31 +45,35 @@ falsepositives:
 - Legitimate usage, investigate the parent process and context to determine if 
   benign.
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_fsutil_symlinkevaluation/info.yml
 note: |
   ### Technical Context
 
-  This rule detects modifications to NTFS symbolic link behavior via the `fsutil` command, specifically enabling symlink evaluation settings which could allow the creation of remote-to-local or remote-to-remote symbolic links. Such modifications are often indicative of an attacker attempting to escalate privileges or manipulate file access behaviors for malicious purposes. The relevant MITRE ATT&CK techniques include Execution (T1059) and Defense Evasion (T1222.001). Primary telemetry sources include process creation logs from Windows (Security Event ID 4688 and Sysmon Event ID 1) tracking the use of `cmd.exe`, `PowerShell`, or `pwsh.exe`. If malicious, these modifications can facilitate deeper exploitation of the system, compromising data integrity and confidentiality. This detection does not confirm that a compromise has occurred—it merely identifies that a potentially risky configuration change was attempted.
+  This Sigma rule detects the invocation of `fsutil behavior set SymlinkEvaluation` command through `cmd.exe`, `powershell.exe`, or `pwsh.exe`, which modifies the behavior of NTFS symbolic links. The likely objective of an attacker executing this command is to enable remote-to-local (R2L) and remote-to-remote (R2R) symlink capabilities, potentially facilitating lateral movement or privilege escalation in compromised systems. This behavior maps to MITRE ATT&CK technique T1222.001 (File and Directory Permissions Modification), as well as T1059 (Command and Scripting Interpreter).
+
+  Primary telemetry sources include Windows process creation logs (Event ID 4688) and command line auditing from configurations that capture command line parameters for `cmd.exe` and PowerShell. If malicious, this modification could lead to unauthorized access to sensitive files or the establishment of attack vectors for ransomware or lateral movement. However, this detection does not confirm that malicious activity is indeed occurring; legitimate administrative actions may lead to the triggering of this rule.
 
   ### Investigation Steps
 
-  - **Review the process creation logs:** Check for Security Event ID 4688 or Sysmon Event ID 1 showing the execution of `cmd.exe`, `PowerShell`, or `pwsh.exe`. Look for the command line containing `fsutil behavior set SymlinkEvaluation`, noting any suspicious parent processes.
+  - **Review command invocation details:** Examine Security Event ID 4688 for occurrences of `fsutil behavior set SymlinkEvaluation` in the command line. Check the `ProcessId`, `ProcessName`, and `NewProcessName` fields to track the execution context.
 
-  - **Check for command parameters:** Identify if the `CommandLine` for the `fsutil` command specifically includes parameters like `R2L:1`, `R2R:1`, or `L2L:1`. These indicate malicious intent as they alter link evaluation settings that can be exploited by attackers.
+  - **Check for R2L and R2R parameters:** Validate if the command line includes 'R2L:1' or 'R2R:1'. A presence of these parameters indicates a potential attempt to enable malicious symlink behavior.
 
-  - **Validate legitimate usage:** Confirm if the detected process executions are part of legitimate administrative tasks by cross-referencing the timestamps and context against known system maintenance practices or scheduled tasks.
+  - **Assess parent process integrity:** Investigate the parent process of the `fsutil` command for legitimacy. If invoked from expected administrative tools or by users with necessary privileges, it may indicate benign activity.
 
-  - **Look for other indicators of compromise:** Analyze nearby log entries for unusual activity, such as file access patterns or other process creations coinciding with the symlink behavior modification. Specific attention should be on lateral movement tools or known malware signatures.
+  - **Identify recent symlink creations:** Review the file system for newly created symbolic links using PowerShell or cmd, focusing on paths that are unusual or contain sensitive directories. Use commands like `Get-Item -Path <linkPath>` in PowerShell.
 
-  - **Assess asset criticality:** If the modification occurs on a high-value asset (e.g., domain controllers or database servers), escalate the alert due to increased potential impact.
+  - **Analyze asset criticality:** Focus on systems classified as high-impact assets (e.g., Domain Controllers, critical application servers). Any invocation on these systems raises the severity of the alert.
 
-  - **Cross-reference with user behavior analytics:** Review user activities around the time of the modification. Legitimate admin actions should show reasonable safeguards and context for any discrepancies found.
+  - **Look for associated alerts:** Confirm if there are other related detections, such as suspicious command executions using PowerShell or processes spawning associated commands, indicating a broader attack framework.
 
   ### Prioritization
 
-  This alert has medium severity, as modifications to NTFS symbolic link behavior may be indicative of malicious intent, particularly in critical systems. The likelihood of malicious abuse is moderate, given that these changes have clear implications for privilege escalation and lateral movement, which are commonly weaponized by threat actors.
+  This alert should be classified as medium severity due to the potential impact on critical systems if exploited. Given that modifying symlink behavior can be used in advanced attack scenarios, including ransomware deployment or lateral move exploitation, the likelihood of malicious abuse is notable but must be validated through further investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative actions that also modify symlink behaviors, such as system upgrades or configuration changes from automated scripts. Required log sources include process creation logs from both Security and Sysmon, ensuring that all necessary attributes are being captured. Methods to evade this detection may include using alternative scripting languages or tools that do not trigger the same logging mechanisms. Additionally, monitoring for file changes resulting from symlink evaluations would bolster detection capabilities, thereby enriching the context of this alert.
+  Detection may be limited by the absence of certain telemetry, such as logs from systems that do not enforce command line logging configurations. Legitimate administrative actions by system admins could inadvertently trigger this alert, indicating a need for contextual information. Additionally, other detection rules tracking abnormal PowerShell or cmd command executions could bolster coverage against related malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

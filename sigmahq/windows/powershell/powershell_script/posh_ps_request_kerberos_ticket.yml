@@ -29,31 +29,33 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/powershell/powershell_script/posh_ps_request_kerberos_ticket/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the execution of PowerShell scripts that make requests for Kerberos tickets, specifically utilizing the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class. The detection is associated with adversary activity that targets the authentication mechanism to gain unauthorized access to resources, often seen in Kerberos ticket attacks such as Silver Ticket attacks. The relevant MITRE ATT&CK reference for this behavior is Credential Access (T1558.003).
+  This rule detects PowerShell scripts that request Kerberos tickets using the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class, which is often indicative of attempts to manipulate Kerberos authentication. The likely attacker objective is to obtain unauthorized access to services by creating forged tickets (silver tickets) or conducting lateral movement within the network. This behavior aligns with the MITRE ATT&CK technique T1558.003 (Credential Access: Use of Kerberos Tickets).
 
-  Primary telemetry sources include Windows PowerShell ScriptBlock logs, which must be enabled for effective detection. If this behavior is malicious, an attacker may obtain unauthorized access to services by impersonating legitimate users. Importantly, this detection does not confirm that a successful ticket grant has occurred, nor does it confirm malicious intent without additional context.
+  The primary telemetry source is Windows PowerShell script block logging, specifically looking for logs containing the string patterns associated with Kerberos ticket requests. If successful, the attacker could escalate privileges or gain unauthorized service access, leading to potential data breaches. Importantly, this detection does NOT confirm that an attack has occurred, as legitimate administration activities may also involve requesting service tickets.
 
   ### Investigation Steps
 
-  - **Review PowerShell ScriptBlock logs**: Check for Event ID 4104 indicating script execution involving 'System.IdentityModel.Tokens.KerberosRequestorSecurityToken'. High-confidence malicious indicators may show unusual or unexpected script execution times or origins.
+  - **Review PowerShell Script Block Logs:** Check for Event ID 4104 in the Windows Event Logs for PowerShell script block logging. Focus on logs that include the string `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and `.GetRequest()`. Verify if the executing user and timestamp align with known good activities.
 
-  - **Correlate user identification**: Confirm the user account associated with the script execution. If the user is a known administrator and this behavior is expected in their role, it may indicate benign activity.
+  - **Correlate User Actions:** Analyze the user associated with the alert against typical administrative activity. Identify if the user has a valid business rationale for executing Kerberos ticket requests. A legitimate action typically correlates with service account access or application authentication requests.
 
-  - **Examine surrounding context**: Look for additional logs (e.g., Event ID 4624) that show authentication attempts or other PowerShell activities near the timestamp of the script execution, which could indicate whether this script execution correlates with known malicious patterns or user behaviors.
+  - **Check Kerberos Ticket Granting Tickets (TGTs):** Use `klist` or Security Event ID 4769 to review recent Kerberos ticket requests. Note any unusual service principal names (SPNs) typically not associated with the user or session, which may indicate suspicious activity.
 
-  - **Check for unusual Service Principal Names (SPNs)**: If the script outputs SPNs, analyze these against known services within your organization. Unexpected SPNs could indicate a ticket-granting attempt for unauthorized services.
+  - **Examine Process Creation Logs:** Review Sysmon Event ID 1 to identify the parent-child process relationships. Look for unusual PowerShell executions spawned from a non-administrative context, as this may indicate an external compromise.
 
-  - **Validate ScriptBlock logging configuration**: Ensure that ScriptBlock logging is enabled in your environment. If it's not, you may lack visibility into similar future incidents.
+  - **Investigate Network Traffic:** Capture and analyze network traffic that includes Kerberos authentication requests. Look for flows initiated from sources not normally expected to request service tickets, which could confirm compromised accounts attempting lateral movement.
 
   ### Prioritization
 
-  This alert should be prioritized as high severity due to its potential impact on authentication and access controls. The likelihood of malicious activity is significant, given that Kerberos ticket exploitation techniques are commonly weaponized by attackers seeking unauthorized access to enterprise resources.
+  This alert is high priority due to the potential for significant security impacts if Kerberos tickets are misused. The likelihood of malicious behavior is heightened by the specificity of the detected PowerShell commands, often employed in well-documented attacks against Active Directory environments.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited in environments where PowerShell logging is not comprehensively configured or where attackers have disabled logging mechanisms. Legitimate administrative activities, such as authorized Kerberos ticket requests by legitimate users, may trigger this alert. A related detection to consider includes monitoring for failed Kerberos authentication attempts (MITRE ATT&CK ID TGT, TGS), which helps establish context for potential misuse of Kerberos tickets.
+  Detection may be limited if script block logging is not enabled or if users are utilizing obfuscation techniques to hide their commands. Legitimate administrative activities, such as troubleshooting service access, may inadvertently trigger this alert. A companion detection rule for suspicious account logon behaviors (e.g., T1078.001 - Valid Accounts) can enhance coverage of potential credential abuses.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -28,29 +28,35 @@ detection:
 falsepositives:
 - Unknown
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_msiexec_dll/info.yml
 note: |
   ### Technical Context
 
-  This detection identifies the execution of `msiexec.exe` that calls the `DllUnregisterServer` function, typically used to unregister DLLs from the system. Attackers may utilize this method to disable security controls or remove malicious artifacts. This behavior aligns with the MITRE ATT&CK framework under the tactic "Defense Evasion" and the technique "Component Object Model Hijacking" (T1218.007). The primary telemetry source for this detection is process creation logs, specifically capturing events where `msiexec.exe` is invoked with specific command line parameters. If identified as malicious, the impact could include persistent access, unauthorized changes to system configurations, or malicious software removal. However, this detection does NOT confirm whether the action is inherently malicious; legitimate administrative tasks may invoke similar behaviors.
+  This rule detects the invocation of the `DllUnregisterServer` function through `msiexec.exe`, which is typically used for Windows Installer operations. An attacker may use this technique to deregister malicious DLLs, potentially removing critical detection mechanisms or preparing the environment for further payload execution or persistence. The relevant MITRE ATT&CK technique is T1218.007 (Signed Binary Proxy Execution).
+
+  The primary telemetry source is Windows process creation logs, specifically Monitoring Security Event ID 4688 and Sysmon Event ID 1 for `msiexec.exe` calls. If the activity is malicious, it can lead to unauthorized changes in system configuration or application behavior. Importantly, this detection does not confirm malware presence or execution on its own—it indicates suspicious behavior that requires further investigation.
 
   ### Investigation Steps
 
-  - **Check process creation logs**: Review Windows Security Event ID 4688 for `msiexec.exe` invocation. Identify if it contains the `CommandLine` parameters indicating DllUnregisterServer execution.
+  - **Review process creation logs:** Check Windows Security Event ID 4688 or Sysmon Event ID 1 for instances of `msiexec.exe` launching with command line arguments that include `-z` and a `.dll` file. Note that legitimate use might involve software installations or updates without these specific flags.
 
-  - **Analyze command-line arguments**: Verify the full command-line of the `msiexec.exe` process to check for unusual flags such as `-z` or references to `.dll` files. Legitimate uses typically do not include these parameters.
+  - **Analyze the command line arguments:** Confirm that the CommandLine parameter includes both `-z` and a file path ending with `.dll`. Malicious indicators would show abnormal or inconsistent paths that do not match standard application directories.
 
-  - **Identify parent process**: Examine the parent process of `msiexec.exe` using Event ID 4688. Suspicious parental processes, such as scripts or unusual executables launching `msiexec.exe`, can indicate malicious workflows.
+  - **Check for high-risk DLLs:** Cross-reference the DLL name being deregistered against known malicious DLLs or software in your organization's whitelist. Non-standard, unfamiliar DLLs can indicate malicious intent.
 
-  - **Review DLL modification timestamps**: Check the modification timestamps of the DLLs involved using file system logs. Unusual or recent modifications preceding the execution could indicate tampering, suggesting malicious behavior.
+  - **Validate application whitelisting:** Compare the triggering event to your application whitelisting solution. Legitimate enterprise applications initiating `msiexec.exe` should match established configurations and paths.
 
-  - **Correlate with endpoint security logs**: Investigate logs from endpoint detection and response (EDR) systems to identify potential alerts generated in parallel, indicating a broader malicious event.
+  - **Evaluate recent changes to systems:** Investigate system changes made around the time of the alert, looking for patch installations, software updates, or administrative actions that could explain the behavior.
+
+  - **Check for concurrent suspicious activity:** Look for other alerts or anomalous activity (e.g., unauthorized configurations or privilege escalations) occurring near the same time, which may suggest broader malicious behavior in the environment.
 
   ### Prioritization
 
-  The alert is medium-severity due to potential significant impacts on system integrity if allowed to proceed. Malicious actors could commonly exploit this technique to disable defenses or erase traces of their activities, indicating a moderate likelihood of misuse in the wild.
+  This alert is of medium severity; while the affected system may contain critical applications, the likelihood of malicious abuse through this technique is moderate. Disabling DLLs can be a precursor to more devastating actions, making it an area of concern for SOC analysts.
 
   ### Blind Spots and Assumptions
 
-  The detection may be evaded if an attacker uses other legitimate administrative tools or custom scripts to unregister DLLs without invoking `msiexec.exe`. Reliable detection requires proper logging settings to capture all process creation events for `msiexec.exe`. Additionally, routine operations by IT staff performing software maintenance may trigger this alert, warranting thorough investigation. A companion detection that enhances coverage could be monitoring for modifications in Windows Service configurations (T1543), as they often indicate simultaneous malicious activity.
+  Detection effectiveness may be limited by user account control (UAC) settings or if `msiexec.exe` is executing as a trusted process. Legitimate software installers could trigger this alert. Additional detection logic could strengthen coverage—consider monitoring for abnormal command executions of installed software or changes made through administrative powers, such as PowerShell command activity related to DLL manipulations.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

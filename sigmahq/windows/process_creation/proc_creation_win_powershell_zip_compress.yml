@@ -34,33 +34,35 @@ detection:
 falsepositives:
 - Unknown
 level: medium
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_zip_compress/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the use of the `Compress-Archive` cmdlet in PowerShell to compress files or folders, specifically when the output file is directed to commonly abused directories such as Temp folders. This activity may indicate that an attacker is preparing data for exfiltration, including sensitive documents or credentials, making it easier to transfer over the network.
+  This rule detects the execution of PowerShell's `Compress-Archive` cmdlet that targets potentially suspicious output locations commonly associated with data exfiltration, such as the Temp folder. The likely attacker objective is to compress sensitive files for ease of transport, potentially in preparation for exfiltration. This behavior correlates with the MITRE ATT&CK technique T1074.001 (Data Staged: Local Data Staging).
 
-  The relevant MITRE ATT&CK techniques are T1074.001 (Data Staged: Local Data Staging) under the Collection tactic. Primary telemetry sources include Windows Process Creation logs, specifically Security Event ID 4688, and Sysmon Event ID 1. If the behavior is malicious, it poses a risk of data leakage or loss, especially if sensitive information is involved. However, this detection alone does not confirm a successful exfiltration; it merely indicates potential preparatory actions.
+  Primary telemetry sources include process creation logs, specifically focusing on PowerShell command executions within Windows. The security impact is significant if malicious, as it indicates a potential data exfiltration attempt. However, this detection does NOT confirm that any data was actually exfiltrated or that the compression is inherently malicious; legitimate use of file compression tools may trigger this alert.
 
   ### Investigation Steps
 
-  - **Check Event ID 4688 for Process Creation**: Review Security Event ID 4688 logs to identify the PowerShell process creation that includes `Compress-Archive`. Look for parent processes indicating legitimate administrative actions versus potential abuse.
+  - **Check Process Creation Events:** Review Security Event ID 4688 logs for entries related to PowerShell execution. Look for command lines containing `Compress-Archive -Path` and verify if they target `$env:TEMP`, `AppData\Local\Temp\`, or `C:\Windows\Temp\`.
 
-  - **Validate CommandLine Arguments**: Analyze the `CommandLine` field for the process, confirming it includes `Compress-Archive -Path`, particularly targeting `$env:TEMP` or `C:\Windows\Temp\`. If this is present, be wary of the context surrounding the command execution.
+  - **Analyze Context of Compression:** Determine if the script or command was run from a known user context or a compromised account. Use Event ID 4624 (logon events) to correlate user activities leading up to the use of `Compress-Archive`. Benign examples include administrative scripts run by system admins, while suspicious activities might come from different users or unexpected accounts.
 
-  - **Inspect Output File Locations**: Look for newly created or modified files in `$env:TEMP`, `C:\Users\<Username>\AppData\Local\Temp\`, or `C:\Windows\Temp\`. Files created here after the `Compress-Archive` cmdlet execution may suggest malicious intent, especially if they stem from an unknown or suspicious user account.
+  - **Validate File Creation:** Check for newly created zip files in the output locations using File System Event IDs (e.g., 4663 for access attempts and modifications). Confirm if the created archive contains sensitive data or operationally relevant files to understand potential data theft.
 
-  - **Correlate with User Activity**: Investigate the user account associated with the PowerShell execution. If the user is non-administrative or does not typically engage in file compression activities, this may indicate malicious use. Conversely, a legitimate admin may compress files for maintenance or backup.
+  - **Identify Similar Alerts:** Look for companion detections in the logs by correlating entries related to any `Invoke-WebRequest` (Event ID 4688) in nearby timeframes that may indicate file transmission post-compression.
 
-  - **Review for Supporting Tactics**: Check for additional signs of data staging or exfiltration, such as network connections to suspicious external IPs following the compression event or further use of file transfer tools (e.g., PowerShell upload scripts).
+  - **Examine Running PowerShell Scripts:** Review other PowerShell logs for suspicious payloads or non-standard scripting paths. Investigate if the same session executed multiple scripts; high activity might indicate a scripted attack versus a one-off administrative task.
 
-  - **Assess Historical Log Correlation**: Compare against historical data to see if previous legitimate instances of compression occurred under similar conditions. Frequent or unusual instances could indicate abnormal behavior warranting deeper investigation.
+  - **Investigate User Behavior:** Look for unusual user behavior, such as execution of numerous compress commands without a business justification. This investigation could include a review of user training, recent changes to user roles, and expected file management practices.
 
   ### Prioritization
 
-  This alert should be considered medium severity in an enterprise environment. If the affected system stores sensitive data or has elevated privileges, the potential impact of exploitation increases. The likelihood of this specific behavior being malicious is notable due to its association with data staging techniques commonly used by adversaries.
+  The severity of this alert is medium due to the potential impact on sensitive data residing on the affected systems, specifically if they are critical assets. While the likelihood of malicious abuse is concerning, usage of file compression can also be common in routine administrative tasks, necessitating careful analysis.
 
   ### Blind Spots and Assumptions
 
-  This detection may miss legitimate uses of `Compress-Archive` by trusted administrative users, especially if policies allow for legitimate data handling within Temp folders. Effective monitoring requires robust logging configurations, including capturing PowerShell activity. Shared or automated tasks that manipulate files in Temp locations could also trigger similar alerts. Companion detections could include alerts for outbound connections following this activity, reinforcing the suspicion of exfiltration attempts.
+  This detection may miss instances where attackers employ other compression tools or script obfuscation techniques to hide their activities. Additionally, if appropriate log sources (e.g., PowerShell logs) are not enabled or configured correctly, this may lead to gaps in visibility. Legitimate activities, such as system administrators performing backup tasks, could trigger the alert. A related detection to enhance coverage would be monitoring for anomalous network activity associated with unusual outbound connections after compression events, indicating potential data exfiltration attempts.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

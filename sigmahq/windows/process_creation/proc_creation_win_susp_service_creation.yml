@@ -54,33 +54,35 @@ detection:
 falsepositives:
 - Unlikely
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_susp_service_creation/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the creation of new Windows services using the "sc" command or PowerShell's `New-Service` cmdlet, particularly when suspicious binary paths are involved. The behavior typically indicates an attacker attempting to establish persistence on a compromised system, leveraging services to maintain a foothold or execute malicious code. This detection aligns with the MITRE ATT&CK Tactic "Persistence" (ID: T1543) and the technique "Create or Modify System Service" (ID: T1543.003).
+  This Sigma rule detects the creation of a new Windows service that may be indicative of malicious activity, using either the `sc` command or the PowerShell `New-Service` cmdlet with suspicious binary paths. Attackers often seek to establish persistence on a compromised system by creating services that execute malware or facilitate further exploits. This behavior aligns with the MITRE ATT&CK tactic of Persistence (TA0003) and the technique of Create or Modify System Process (T1543.003).
 
-  Primary telemetry sources include Security Event ID 7045 (Service Installation) and process creation logs (e.g., Sysmon Event ID 1) capturing the command-line arguments used during service creation. If malicious, the impact could be significant, enabling the adversary to run malware persistently. However, this detection alone does NOT confirm malicious intent, as legitimate applications may also create new services under similar conditions.
+  The primary telemetry sources are Windows Process Creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If malicious, this activity can allow attackers to maintain long-term access, evading detection and possibly executing additional malicious payloads. However, this detection alone does not confirm malicious intent, as there may be legitimate reasons to create a service under certain conditions.
 
   ### Investigation Steps
 
-  - **Check Service Installation Logs**: Review Security Event ID 7045 for the timestamp of the new service creation. Verify the service's binary path against known benign services. Focus on creation events with suspicious binary paths such as those leading to `C:\Users\Public` or `C:\Windows\TEMP`.
+  - **Check Process Creation Events**: Review Security Event ID 4688 and Sysmon Event ID 1 to analyze the newly created service, focusing on the `CommandLine` and `Image` fields. Malicious indicators may include suspicious binary paths or command-line arguments, such as paths to `C:\Users\Public` or commands invoking system hosts.
 
-  - **Analyze Process Creation Events**: Investigate Sysmon Event ID 1 (Process Creation) related to the `sc.exe` or `powershell.exe` execution. Look for command lines that contain both `create` and `binPath=`. Legitimate operations will typically feature stable applications or standard utilities.
+  - **Verify Service Configuration**: Query the Windows Service Control Manager using `Get-Service` or PowerShell. Check for recently created services and compare their `DisplayName` and `BinaryPath` against known good configurations. Legitimate entries usually have standard naming conventions and binary paths corresponding to legitimate applications.
 
-  - **Validate Binary Path**: Examine the paths specified in the `New-Service` command for common legitimacy. Paths leading to temporary directories or common scripting hosts (e.g., `mshta`, `wscript`) should raise suspicion and warrant further scrutiny.
+  - **Examine Process Parentage**: Investigate the parent process ID (PID) of the suspicious service creation by cross-referencing with Event ID 4688 logs. Look for instances where `cmd.exe`, `PowerShell`, or another obscure process initiated the service creation. Malicious activity may exhibit unusual parent-child relationships.
 
-  - **Assess Service Properties**: Inspect the new service properties through the Services console or via PowerShell (`Get-Service`). Identify if the service's start type is set to 'Automatic' which may indicate persistence. Benign services typically use `Manual` start types unless explicitly configured.
+  - **Correlate with Additional Security Logs**: Review Windows Security logs for any prior suspicious access events leading up to the service creation, focusing on Event ID 4624 for logons and Event ID 4625 for failed attempts. Patterns leading to the service creation offer context for the alert.
 
-  - **Network Behavior Review**: If applicable, correlate with network traffic to identify unusual outbound connections initiated by the new service's executable. Malicious indicators include unexpected communication to known bad IPs or domains.
+  - **Look for Scheduled Tasks or Scripts**: Investigate if any scheduled tasks or scripts are associated with the newly created service using `Get-ScheduledTask` cmdlet. Malicious actors often schedule tasks that invoke services at startup or during idle times.
 
-  - **Contextualize with Related Detections**: Note any alerts from companion detections, such as the creation of scheduled tasks or abnormal user behavior, which could signify a coordinated attack and strengthen your investigation.
+  - **Conduct Threat Intelligence Lookup**: Reference threat intelligence sources for any known Indicators of Compromise (IOCs) related to the binary paths or names seen in the service creation. High-confidence malicious indicators would often map to documented malware behaviors.
 
   ### Prioritization
 
-  This alert is categorized as high severity due to the potential for persistent threats being established on critical systems. The likelihood of malicious exploitation is significant, given that attackers commonly utilize service creation mechanisms for persistence. The technique is well-documented in threat actor tactics, making timely responses essential.
+  This alert is of high severity due to the potential impact on critical enterprise systems. If a new service is created with malicious intent, it poses a significant risk for data exfiltration and lateral movement within the environment. The behavior is frequently exploited in sophisticated attacks, making prompt investigation essential.
 
   ### Blind Spots and Assumptions
 
-  This detection may be evaded through techniques such as using legitimate-looking paths or services, or by exploiting native binaries. Ensure that necessary log sources are appropriately configured; for example, Sysmon must be deployed to capture detailed process creation logs. Legitimate software installations, particularly enterprise applications, may trigger this alert if they inadvertently create services under similar conditions. A related detection to consider is monitoring for unusual process hierarchies indicating service creation from unexpected parent processes (Sysmon Event ID 1 ParentProcessId).
+  This detection may miss legitimate service creations initiated by administrative users or automated deployment scripts that follow standard practices. The effectiveness relies on accurate logging configurations, including Sysmon and Windows Event logging. Additionally, it may trigger on benign actions like software installations or system updates. A related detection would involve monitoring for unusual service alterations or deletions, providing broader context on service integrity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

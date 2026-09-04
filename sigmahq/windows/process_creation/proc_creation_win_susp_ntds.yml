@@ -70,33 +70,35 @@ detection:
 falsepositives:
 - Unknown
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_susp_ntds/info.yml
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of specific process patterns and command line arguments associated with the exfiltration of the NTDS.DIT file, which contains sensitive information about Active Directory. The likely attacker objective is to extract user credentials and sensitive data for credential access and elevation of privilege. This behavior aligns with the MITRE ATT&CK technique "Credential Dumping: NTDS.DIT" (T1003.003).
+  This Sigma rule detects suspicious process patterns associated with the exfiltration of the NTDS.DIT file, which contains Active Directory data, potentially including user credentials. The likely attacker objective is to gain unauthorized access to sensitive account information, facilitating further malicious actions such as privilege escalation or lateral movement within the network. Relevant MITRE ATT&CK tactics include Credential Access (T1003) and specifically Credential Dumping (T1003.003).
 
-  The primary telemetry sources involved are Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If successful, an attack could lead to unauthorized account access or lateral movement within the network. However, this detection alone does NOT confirm that an exfiltration occurred, as the activity may be part of legitimate administrative operations.
+  Primary telemetry sources include Windows Security Event ID 4688 (process creation logs) and Sysmon Event ID 1 (detailed process creation events). If malicious, successful exfiltration of NTDS.DIT presents a high security risk, as it could lead to complete compromise of Active Directory. This detection does NOT confirm that NTDS.DIT has been successfully exfiltrated or that credential theft occurred; it only indicates potential attempts to access or copy the file.
 
   ### Investigation Steps
 
-  - **Review process creation events:** Check for Security Event ID 4688 with Image names ending in `NTDSDump.exe` or `NTDSDumpEx.exe`. Look for command lines containing `ntds.dit` or `system.hiv`. Legitimate usage typically shows a different image path and absence of sensitive file references.
+  - **Investigate Event 4688 for Process Creation**: Review Windows Security Event ID 4688 logs for process creation involving 'NTDSDump.exe', 'NTDSDumpEx.exe', or related PowerShell commands that include 'ntds.dit'. Look for suspicious parent processes like 'powershell.exe' or 'cmd.exe'.
 
-  - **Analyze command line arguments:** For any identified suspicious processes, examine the accompanying command line parameters. Specifically, look for full command lines that contain phrases like `'ac i ntds'` and `'create full'`, which may indicate an unauthorized attempt to create an offline backup of NTDS.
+  - **Analyze Command Line Arguments**: Check for specific command line arguments in logs that might indicate credential access attempts, such as those containing 'create full' with paths referencing 'ntds.dit' or 'system.hiv'. A command like `ntdsutil.exe 'ac i ntds' 'ifm' 'create full'` would be suspicious.
 
-  - **Investigate file access patterns:** Validate any copying actions to or from `\windows\ntds\ntds.dit` through Event ID 4663 (File Access). Examine operations like `copy` commands in PowerShell or CMD for signs of malicious intent.
+  - **Identify the Source of the Process**: Determine the parent process and its location (e.g., Apache or Tomcat directories) for any instances where 'ntds.dit' or related files are referenced. High-risk locations such as '\Temp\' or '\AppData\' could indicate malicious behavior.
 
-  - **Identify unusual parent processes:** Review for processes spawned from common applications like `apache` or `tomcat`. If these processes are executing commands related to NTDS extraction, this could indicate a malicious activity that deviates from standard operational behavior.
+  - **Review High-Confidence Indicators**: Look for instances where the command line contains 'copy' with paths referencing 'ntds.dit', especially commands that execute `cmd.exe /c copy`. This is a strong indicator of potential data exfiltration actions.
 
-  - **Correlate with known reconnaissance tools:** Cross-reference findings with known tools such as NTDSDumpEx or scripts like `NTDSgrab.ps1`. If present, investigate the context of their execution and determine if their usage aligns with legitimate administrative tasks or indicates a breach.
+  - **Validate Against Expected Behavior**: Confirm if processes are related to legitimate administrative activities. For instance, ensure that actions involving 'ntdsutil.exe' are part of authorized maintenance or backup procedures, particularly devoid of unusual command line parameters or unauthorized directories.
 
-  - **Collect and analyze file artifacts:** If file artifacts related to `ntds.dit` are created, such as hash files exported to atypical directories, validate if there were any unauthorized file transfers. This includes verifying logs for any exfiltration activities or synchronization actions.
+  - **Monitor for Related Activities**: Check for other accompanying suspicious actions, such as elevated privileges or attempts to list Active Directory users from unapproved scripts or tools, which may indicate coordinated credential access efforts.
 
   ### Prioritization
 
-  This alert carries a high severity level as it indicates potential credential dumping targeting sensitive Active Directory data. The impact on enterprise security is significant due to the potential for malicious credential access and lateral movement. The behavior is notably weaponized by threat actors, making prompt investigation essential.
+  The alert is high severity due to the critical nature of the NTDS.DIT file and its association with sensitive credential information. The likelihood of conduct leading to account compromise is significant, especially given that tools for NTDS extraction are commonly weaponized in targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection may have limitations if logs are misconfigured, particularly for File Object Access events (Event ID 4663), which could mask file manipulations. Legitimate administrative actions such as backup procedures or domain maintenance might trigger this alert. A related detection rule for unauthorized access to sensitive directory files can enhance coverage and detection efficacy.
+  There are potential evasion techniques, such as attackers using legitimate administrative tools or running malicious scripts from common management directories that may generate noise in detection rules. Reliable detection requires comprehensive logging configurations, including Sysmon and Windows Security logs. Legitimate backup or administrative actions may trigger this alert, especially if performed from unusual contexts or command lines. Companion detections that monitor file access events or network traffic for large data transfers should be utilized to enhance detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

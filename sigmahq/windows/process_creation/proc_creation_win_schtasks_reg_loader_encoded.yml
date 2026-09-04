@@ -43,33 +43,33 @@ detection:
 falsepositives:
 - Unlikely
 level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_schtasks_reg_loader_encoded/info.yml
 note: |
   ### Technical Context
 
-  This rule detects the creation of a scheduled task that executes a PowerShell command embedded within a Base64-encoded payload stored in the Windows Registry. The behavior indicates potential malicious activity, as adversaries often use scheduled tasks for persistence, enabling them to reconvene or execute payloads remotely at defined intervals. The relevant MITRE ATT&CK tactics and techniques include Execution (T1059.001) and Persistence (T1053.005). The primary telemetry sources are Windows process creation logs with specific focus on the registry access captured through Event ID 4688 and other syscall logs that detail PowerShell executions.
-
-  If this behavior is confirmed malicious, it could lead to system compromise, data exfiltration, or lateral movement within the environment. However, this detection on its own does not confirm if the executed payload is specifically harmful or if any command was actually executed successfully.
+  This rule detects the creation of a scheduled task using `schtasks.exe`, which executes a command that retrieves and decodes a base64 encoded payload from the Windows Registry. The likely attacker objective is to establish persistence and execute a malicious payload without direct user interaction. The relevant MITRE ATT&CK tactics are Persistence (T1053.005) and Execution (T1059.001). Primary telemetry sources include process creation logs, specifically Windows Event ID 4688 and Sysmon Event ID 1, focusing on command line arguments. If malicious, this behavior can result in unauthorized execution of code that may lead to system compromise. Importantly, this detection does NOT confirm whether the payload executed successfully or was indeed malicious on its own.
 
   ### Investigation Steps
 
-  - **Review scheduled tasks created:** Check scheduled tasks with **Task Scheduler** or through **PowerShell Get-ScheduledTask** to identify any tasks created in a suspicious manner. Look for tasks with names containing GUIDs similar to `{97F2F70B-10D1-4447-A2F3-9B070C86E261}`.
+  - **Review scheduled tasks:** Check for any newly created tasks in the Windows Task Scheduler that match the naming pattern of GUIDs (e.g., "{97F2F70B-10D1-4447-A2F3-9B070C86E261}"). This can be validated via the Task Scheduler GUI or by querying for scheduled tasks in the registry.
 
-  - **Analyze process creation logs:** Investigate Windows Security Event ID 4688 logs to find any instance of `schtasks.exe` being executed. Focus on the CommandLine field to identify if it matches patterns such as containing `cmd /c start /min "powershell.exe -Command IEX(`.
+  - **Inspect process creation logs:** Look at Windows Event ID 4688 and Sysmon Event ID 1 for instances of `schtasks.exe` being executed with `/Create`. Pay specific attention to the command line that includes parameters like `/TN`, `/TR`, and `/SC`, which may indicate malicious activity.
 
-  - **Inspect registry access:** Review relevant logs for registry access events (e.g., Sysmon Event ID 10) that involve `HKCU:\SOFTWARE` or `HKLM:` for anomalous calls to `Get-ItemProperty` around the time the task creation was logged.
+  - **Analyze command line arguments:** Focus on the command line containing `FromBase64String` or `Get-ItemProperty`. These arguments often suggest an encoded payload retrieval. Capture the entire command line for further analysis.
 
-  - **Identify encoded commands:** Payload analysis is crucial. If the `Base64-encoded` string or related commands are present in the logs, decode them for potential malicious content. Use Sysmon for detailed command-line capture and look for any indicators of known malware signatures.
+  - **Identify relevant registry keys:** Determine if the registry path `HKCU:\SOFTWARE\` or similar keys are being accessed to retrieve the encoded data. Query the relevant registry key for existing values that match expected formats and inspect the base64 data if accessible.
 
-  - **Check for legitimate counterparts:** Compare with expected business processes or legitimate tasks. Identify regular scheduled tasks historically seen within your environment and their modification patterns to distinguish benign behavior.
+  - **Validate legitimate behavior:** Scheduled tasks for system maintenance, updates, or user-defined applications typically use standard paths and command formats. Verify against historical logs for legitimate scheduled tasks to distinguish between normal and abnormal activities.
 
-  - **Correlate with additional alerts or incidents:** Search for related security incidents or alerts involving user accounts modified within the same timeframe, possibly indicating an initial compromise leading to subsequent malicious actions.
+  - **Cross-reference payload execution:** If base64 content is identified, decode it and analyze its content for known malicious patterns or behaviors (e.g., downloading additional malware, executing scripts).
 
   ### Prioritization
 
-  This alert is high severity due to the potential impact on sensitive systems where scheduled tasks are critical for operations. The likelihood of misuse is significant, especially in environments where adversaries are known to exploit PowerShell for various attack vectors, making this behavior a common pattern in weaponization.
+  This alert is of high severity as it potentially indicates an attacker trying to establish persistence or execute malicious code without user knowledge. Given the ease of executing encoded commands and the prevalence of similar tactics in the wild, swift analysis is warranted, particularly if the affected system has critical functions.
 
   ### Blind Spots and Assumptions
 
-  Potential evasion techniques could include using obfuscated PowerShell commands or modifying task descriptions to appear legitimate. Ensuring logging for both process creation and registry access events is crucial for reliable detection, particularly for tasks executed with hidden or peculiar arguments. Legitimate activities could range from system maintenance to scheduled updates that might also trigger this alert. A companion detection could involve monitoring for unusual PowerShell executions (T1059.001) that further enhances coverage of potential misuse scenarios.
+  Detection may be limited due to obfuscation techniques used by attackers, including the use of different encoding methods or alternate executables that achieve similar functionality. Ensure that Sysmon is configured to capture detailed process creation events. Legitimate scheduled tasks (e.g., backup or maintenance tasks) may trigger this alert, hence analysts should be familiar with typical scheduled tasks in the environment. A complementary detection to consider includes monitoring for unusual base64 encoded strings in command lines or registry values to enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
