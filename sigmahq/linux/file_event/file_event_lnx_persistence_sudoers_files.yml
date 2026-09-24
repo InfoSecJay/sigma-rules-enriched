@@ -1,15 +1,15 @@
-title: Persistence Via Sudoers.d Files
+title: Persistence Via Sudoers Files
 id: ddb26b76-4447-4807-871f-1b035b2bfa5d
 status: test
 description: |
-  Detects the creation or modification of files within the "sudoers.d" directory on Linux systems.
-  Such activity may indicate an attempt to establish or maintain privilege escalation by granting specific users elevated permissions.
-  Unauthorized changes to sudoers files are a common technique used by attackers to persist administrative access.
+  Detects the creation or modification of the main "/etc/sudoers" file or files within the "/etc/sudoers.d/" directory on Linux systems.
+  Adversaries may alter sudoers configuration to execute commands with elevated privileges without supplying a password.
 references:
+- https://www.sudo.ws/docs/man/sudoers.man/
 - https://github.com/h3xduck/TripleCross/blob/1f1c3e0958af8ad9f6ebe10ab442e75de33e91de/apps/deployer.sh
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-07-05
-modified: 2026-03-18
+modified: 2026-08-15
 tags:
 - attack.privilege-escalation
 - attack.persistence
@@ -19,39 +19,42 @@ logsource:
   category: file_event
 detection:
   selection:
-    TargetFilename|startswith: '/etc/sudoers.d/'
+  - TargetFilename: '/etc/sudoers'
+  - TargetFilename|startswith: '/etc/sudoers.d/'
   filter_main_dpkg:
     Image|endswith: '/usr/bin/dpkg'
     TargetFilename: '/etc/sudoers.d/README.dpkg-new'
   condition: selection and not 1 of filter_main_*
 falsepositives:
-- Creation of legitimate files in sudoers.d folder as part of administrator work
+- Legitimate sudoers changes by administrators or configuration-management tools
 level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation or modification of files in the `/etc/sudoers.d/` directory on Linux systems. This behavior is typically associated with attempts to establish or maintain elevated privileges, which can facilitate unauthorized administrative access. The likely objective of an attacker leveraging this technique is to persistently gain elevated permissions for future access. This detection aligns with the MITRE ATT&CK tactic "Privilege Escalation" and technique "Sudo and Sudo Caching" (T1548.003).
+  This Sigma rule detects the creation or modification of the main "/etc/sudoers" file or any files within the "/etc/sudoers.d/" directory on Linux systems. Attackers may modify these files to gain elevated privileges for executing commands without providing a password, allowing them to maintain persistence within the environment. This behavior aligns with the MITRE ATT&CK technique "T1548.003: Sudo and Sudo Caching" under the "Privilege Escalation" tactic.
 
-  The primary telemetry source for this detection comes from file event logs on Linux systems, specifically monitoring actions related to file creation and modification in the sudoers.d directory. If the alert is confirmed as malicious, the security impact could be significant, allowing attackers continued administrative access to compromised systems. However, it should be noted that this detection does NOT confirm malicious intent on its own, as legitimate administrative activities may also trigger the rule.
+  The primary telemetry sources include file event logs from the Linux operating system, particularly monitoring changes to "/etc/sudoers" and "/etc/sudoers.d/". If malicious, the impact could include unauthorized access to sensitive system functions and data. Importantly, this detection does NOT confirm malicious activity on its own, as legitimate changes made by system administrators or configuration management tools may trigger the alert.
 
   ### Investigation Steps
 
-  - **Verify file creation/modification timestamps:** Check for timestamps of newly created or modified files in `/etc/sudoers.d/` using the `stat` command. Malicious modifications may show recent timestamps inconsistent with expected administrative activities.
+  - **Review file modification timestamps:** Check `/etc/sudoers` and `/etc/sudoers.d/` for unexpected recent changes. Compare against known change windows for legitimate configuration management.
 
-  - **Identify the user responsible for changes:** Review `/var/log/auth.log` or `/var/log/secure` for entries surrounding the time of the alert to locate the user or process responsible for the changes. Legitimate changes usually involve recognized administrative accounts.
+  - **Examine user activity:** Look for recent login sessions or command executions by users with privileges to modify sudoers (such as users in the wheel group). Review logs using `last` or system logs for suspicious login patterns.
 
-  - **Check for specific entries in sudoers.d files:** Look for any nonsensical or broad entries like `ALL=(ALL) NOPASSWD: ALL`, which indicate potentially malicious permission grants. Legitimate modifications should typically be narrower in scope.
+  - **Assess related processes:** Identify processes that accessed the sudoers files around the same time as the modification. For example, check for `dpkg` activities using Sysmon Event ID 1 or Linux audit logs.
 
-  - **Review change history of sudoers.d files:** Use a version control system (if utilized) or log audits to assess any changes made to sudoers.d files. Abnormal or frequent changes by non-admin users would be a red flag.
+  - **Identify legitimate changes:** Confirm if there are documented changes made by authorized personnel as part of system maintenance or updates; review change logs or tickets in the ticketing system.
 
-  - **Look for related processes:** Investigate any running processes associated with the user who modified the files. Review processes using `ps -ef` and correlate with the time of the changes. Unexpected binaries or command-line arguments can indicate malicious intent.
+  - **Check for anomalies:** Look for unlikely user agents or atypical request patterns, especially during the time of change. Cross-reference with your device or user baselines.
+
+  - **Confirm abnormal permission escalations:** If the log indicates modification by non-administrative users, or if a script was responsible, validate execution logs (e.g., `bash_history`) or file creation timestamps for evidence of unauthorized use.
 
   ### Prioritization
 
-  This alert should be treated with medium severity due to the potential risks associated with unauthorized administrative privilege escalation. The impact is significant given that the affected system could allow adversaries extended control and persistence. This behavior is a common tactic employed in attacks and should be investigated promptly, especially if seen on critical systems.
+  This alert is of medium severity because unauthorized changes to sudoers files can lead to significant security risks, particularly on systems that handle sensitive information or critical infrastructure. Although the likelihood of malicious abuse is moderate, this behavior is a known tactic used frequently by adversaries to maintain access and escalate privileges.
 
   ### Blind Spots and Assumptions
 
-  There are detection limitations as legitimate administrative actions may trigger this alert through normal operational activity, such as routine configuration changes within the sudoers.d directory. Furthermore, if logging for file events on Linux systems is not appropriately configured or is disabled, the detection may be ineffective. It's important to consider that legitimate DevOps processes might modify these files during deployments. Companion detections related to process execution for certain commands (e.g., `visudo`) could enhance coverage and provide additional context for investigations.
+  Detection may be limited by legitimate administrative actions, such as routine updates or configuration changes that modify sudoers files. Ensure comprehensive logging from Linux file auditing is enabled to capture all changes effectively. Valid legitimate activities may include authorized script updates or configuration management tool operations. A complementary detection method includes monitoring for abnormal command executions with elevated privileges, enhancing coverage of potential misuses of permissions.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
