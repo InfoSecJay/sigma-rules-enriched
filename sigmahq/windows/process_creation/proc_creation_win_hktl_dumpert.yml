@@ -8,7 +8,7 @@ references:
 - https://unit42.paloaltonetworks.com/actors-still-exploiting-sharepoint-vulnerability/
 author: Florian Roth (Nextron Systems)
 date: 2020-02-04
-modified: 2025-01-22
+modified: 2026-09-16
 tags:
 - attack.credential-access
 - attack.t1003.001
@@ -17,49 +17,43 @@ logsource:
   product: windows
 detection:
   selection:
-  - Hashes|contains: 'MD5=09D278F9DE118EF09163C6140255C690'
-  - CommandLine|contains: 'Dumpert.dll'
+  - Hashes|contains: 'IMPHASH=09D278F9DE118EF09163C6140255C690'
+  - CommandLine|contains:
+    - 'Dumpert.dll'
+    - 'Dumpert.exe'
   condition: selection
 falsepositives:
 - Very unlikely
 level: critical
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_hktl_dumpert/info.yml
 note: |
-  ---
-
   ### Technical Context
 
-  This Sigma rule detects the execution of the Dumpert tool, which is specifically used to dump the memory of the lsass.exe process in Windows environments. This behavior is often indicative of an attacker attempting to extract credentials and sensitive information stored in memory, facilitating unauthorized access and lateral movement within a network. This detection aligns with the MITRE ATT&CK framework, particularly under the technique "OS Credential Dumping" (T1003.001).
+  This rule detects the execution of the Dumpert process dumper, specifically targeting the `lsass.exe` process memory. The likely objective of an attacker using Dumpert is to capture sensitive credentials stored in memory, facilitating unauthorized access to accounts and data. This behavior is connected to the MITRE ATT&CK technique "Credential Dumping" (T1003.001).
 
-  The primary telemetry source is Windows process creation logs, specifically Security Event ID 4688. Detecting this activity can indicate a high severity incident as it may lead to significant credential compromise if malicious. However, this alert does NOT confirm that the credentials have been successfully obtained or used; it only indicates the potential act of memory dumping.
-
-  ---
+  The primary telemetry source for this detection is Windows process creation logs, specifically with fields indicating the command line and executable hashes. The security impact could be significant, as successful credential dumping can lead to further compromise within the network. It is important to note that this detection does NOT confirm that an attack has occurred without corroborating evidence of other malicious activities.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Review Security Event ID 4688 for the presence of the Dumpert process. Look for a command line that includes 'Dumpert.dll' and note the parent process. A legitimate process creation would typically involve system or administrative processes.
+  - **Verify the process creation log:** Check for Security Event ID 4688 focusing on the `Dumpert.exe` process, ensuring to examine the CommandLine field for specific flags that indicate Dumpert was used.
 
-  - **Validate process integrity:** Examine the hash of the executing file against known good hashes. The presence of the specific MD5 hash '09D278F9DE118EF09163C6140255C690' indicates malicious activity.
+  - **Analyze process parent-child relationships:** Use Sysmon Event ID 1 to identify potential parent processes that initiated `Dumpert.exe`, which may provide context on how it was executed (e.g., launched via a legitimate management tool vs. a suspicious script).
 
-  - **Correlate with lsass.exe activity:** Look for any concurrent instances or timings of lsass.exe access in the System Event logs (Event ID 4688) as this suggests that memory dumping is being targeted.
+  - **Check for unusual user behavior:** Look at the user context under which `Dumpert.exe` ran to see if it's a known administrator or a standard user. Legitimate administrative actions typically invoke such tools during endpoint management.
 
-  - **Analyze user accounts involved:** Determine the user account that executed Dumpert by checking the User fields in Event ID 4688 logs. If executed by a non-administrative user or an unexpected user account, this could signify malicious activity.
+  - **Inspect the lsass.exe memory dump:** Confirm if a memory dump was created by checking for file artifacts created by Dumpert (e.g., files typically named with `.dmp` or similar extensions) in the directory specified in the Dumpert command line arguments.
 
-  - **Assess for abnormal network behavior:** Review outbound connections from the host in firewall or network logs. Look for unusual traffic patterns that could suggest exfiltration attempts post-dumping (e.g., connections to external IP addresses).
+  - **Correlate with user login events:** Review related Security Event IDs 4624 (successful login) to determine if a login event occurred just before Dumpert ran, suggesting a potential credential theft scenario.
 
-  - **Investigate host role or asset criticality:** Determine if the host running this tool has access to sensitive resources or is part of a critical infrastructure. Higher criticality may warrant immediate remediation actions.
-
-  ---
+  - **Identify known malicious hash:** Validate that the process executed matches the known malicious hash `IMPHASH=09D278F9DE118EF09163C6140255C690`, as this is a strong indicator of Dumpert's usage.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the severe impact it may have on compromised credentials, especially if it occurs on domain controllers or systems with administrative rights. The nature of the Dumpert tool makes it a commonly weaponized method for credential harvesting, increasing the likelihood of malicious intent.
-
-  ---
+  This alert should be treated as critical due to the potential impact of credential theft from `lsass.exe`, a vital process on Windows systems. The likelihood of malicious abuse is high because Dumpert is frequently used by attackers to facilitate credential dumping, a commonly weaponized technique.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments where logging isn’t thoroughly managed, or if the Dumpert tool is modified to evade hash detection. Ensure that process creation logging is enabled (Windows Audit Policy) to capture pertinent events reliably. Legitimate administrative actions or IT troubleshooting may inadvertently trigger this alert. A related detection to consider is monitoring for suspicious access to lsass.exe memory via debugging tools, which can further reinforce malicious activity verification.
-
-  ---
+  Detection may be limited if only partial logs are captured or if Dumpert is executed in a manner that circumvents logging (e.g., using legitimate administrative tools to invoke Dumpert). Ensure that Process Creation logs are enabled on all critical assets to support reliable detection. Legitimate administrative tasks involving credential access or troubleshooting issues could inadvertently trigger this alert. A companion detection, such as monitoring for suspicious PowerShell commands that may interact with Dumpert, would enhance detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

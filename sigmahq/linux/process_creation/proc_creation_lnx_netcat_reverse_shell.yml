@@ -1,8 +1,8 @@
 title: Potential Netcat Reverse Shell Execution
 id: 7f734ed0-4f47-46c0-837f-6ee62505abd9
 status: test
-description: Detects execution of netcat with the "-e" flag followed by common 
-  shells. This could be a sign of a potential reverse shell setup.
+description: |
+  Detects execution of netcat with the "-e" or "-c" flags followed by common shells, which are commonly used to spawn reverse shells.
 references:
 - https://pentestmonkey.net/cheat-sheet/shells/reverse-shell-cheat-sheet
 - https://www.revshells.com/
@@ -11,6 +11,7 @@ references:
 - https://man7.org/linux/man-pages/man1/ncat.1.html
 author: '@d4ns4n_, Nasreddine Bencherchali (Nextron Systems)'
 date: 2023-04-07
+modified: 2026-09-24
 tags:
 - attack.execution
 - attack.t1059
@@ -20,8 +21,13 @@ logsource:
 detection:
   selection_nc:
     Image|endswith:
+    - '/nc.openbsd'
+    - '/nc.traditional'
     - '/nc'
     - '/ncat'
+    - '/netcat.openbsd'
+    - '/netcat.traditional'
+    - '/netcat'
   selection_flags:
     CommandLine|contains:
     - ' -c '
@@ -61,28 +67,26 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the execution of Netcat (or Ncat) with the "-e" flag followed by various shell commands, which is often indicative of a reverse shell being established on a system. The primary objective of an attacker using this technique is to gain remote control over a compromised machine, allowing for further exploitation or data exfiltration. This activity aligns with the MITRE ATT&CK technique "Command and Control: Reverse Shell" (T1059).
-
-  Primary telemetry sources include process creation logs, specifically from Linux systems that capture command line invocations (e.g., `auditd`, Syslog). If detected, this behavior can lead to significant security risks, such as unauthorized system access and data breaches. However, this detection does not confirm that a successful reverse shell session has been established; additional forensic investigations are necessary to validate the presence of an ongoing threat.
+  This Sigma rule detects the execution of Netcat, specifically with the `-e` or `-c` flags, which are commonly employed to create reverse shells. The likely attacker objective is to establish unauthorized remote access to the compromised host, enabling further exploitation or data exfiltration. This behavior maps to the MITRE ATT&CK technique "Command and Scripting Interpreter: Payloads" (T1059). Primary telemetry sources include Linux process creation logs, specifically focusing on command line arguments containing the identified execution patterns and shell names. If malicious, this behavior can lead to significant security breaches, such as data theft or system integrity compromise. However, this detection does NOT confirm the presence of an attacker without corroborating evidence of malicious intent or further suspicious activity.
 
   ### Investigation Steps
 
-  - **Review process creation logs:** Examine process creation logs for Event ID  execve or equivalent log entries, specifically looking for entries with the command line containing `nc`, `ncat`, and `-e` followed by any of the specified shell commands (like `/bin/bash`). Legitimate commands should not include the `-e` flag with the shell.
+  - **Review process creation logs:** Inspect **Syslog or journal logs** for **process creation events** (e.g., `cmdline` fields) that match the criteria, specifically **Image ends with** `nc`, `ncat`, or `netcat` and containing `-e` or `-c` flags.
 
-  - **Identify high confidence malicious indicators:** If a process running `nc` or `ncat` shows that it was invoked with command line elements such as `-e bash` or `-e sh`, escalate as a potential malicious activity. Note any suspicious parent process (e.g., if it's spawned from web server processes or scripts).
+  - **Check command execution context:** Identify the user executing the command. Use logs from **/var/log/auth.log** to determine if the user has legitimate privileges or if they exhibit suspicious behavior that deviates from normal role-based access patterns.
 
-  - **Check network activity:** Investigate associated network connections on the host using `netstat` or similar tools. Look for unusual outbound connections or listening sockets directed at unknown external IP addresses, especially those established shortly after `nc` execution.
+  - **Investigate associated network activity:** Check for outbound network connections initiated by the process. Examine **iptables logs** or **netstat** output to confirm if the Netcat instance is trying to connect to an external IP address, particularly ones known for abuse or associated with command and control servers.
 
-  - **Assess expected behavior:** Typical legitimate use of Netcat includes simple file transfers or local port listening without the `-e` flag. Review any recent procedures or incidents involving Netcat usage in your organization’s policies to validate legitimate context.
+  - **Identify legitimate use cases:** In some environments, Netcat might be used for legitimate purposes, such as debugging or file transfer. Validate that other tools performing similar functions are present and acceptable for the organization.
 
-  - **Correlate with security policies:** Verify if any security controls or endpoint protection are in place that may log or block the execution of reverse shell attempts. This may include EDR solutions or host-based firewalls configured to alert on such behaviors.
+  - **Correlate with other alerts:** Look for any additional alerts related to remote access tools or abnormal outbound connections around the same timestamp, enhancing the likelihood of confirming a malicious attempt.
 
   ### Prioritization
 
-  The alert has a **high severity** level due to the significant impact of a compromised host and the high likelihood of this technique being weaponized by threat actors during compromise phases. The presence of a reverse shell can lead directly to data exfiltration and lateral movement within the network, thus warranting immediate investigation.
+  This alert carries high severity due to the critical impact if a sensitive system is involved and the likelihood of malicious abuse, as reverse shell functionality is a common tactic employed by attackers to maintain persistence and further access to the network.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the configuration of logging on Linux systems; ensure that process command line arguments are captured appropriately. Additionally, legitimate activities such as software testing or development tasks using Netcat may trigger this alert. A related detection to consider could be the monitoring of outbound connections that match patterns indicative of command-and-control traffic, which strengthens coverage against reverse shell activity.
+  Detection may be limited by users who could potentially have legitimate reasons for using Netcat, thereby generating false positives. Additionally, environments lacking robust logging configurations may miss critical event details necessary for effective detection and response. It's important to consider companion detections, such as monitoring for unusual outbound traffic anomalies, which could strengthen overall situational awareness regarding potential misuse of remote access tools.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
