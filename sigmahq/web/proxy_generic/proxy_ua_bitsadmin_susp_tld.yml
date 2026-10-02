@@ -7,7 +7,7 @@ references:
 - https://isc.sans.edu/forums/diary/Investigating+Microsoft+BITS+Activity/23281/
 author: Florian Roth (Nextron Systems), Tim Shelton
 date: 2019-03-07
-modified: 2023-05-17
+modified: 2026-09-30
 tags:
 - attack.command-and-control
 - attack.execution
@@ -21,44 +21,45 @@ logsource:
 detection:
   selection:
     c-useragent|startswith: 'Microsoft BITS/'
-  falsepositives:
+  filter_main_legit_tlds:
     cs-host|endswith:
     - '.com'
+    - '.microsoft'         # Microsoft brand TLD
     - '.net'
     - '.org'
     - '.scdn.co'         # spotify streaming
     - '.sfx.ms'         # Microsoft domain, example request: https://oneclient.sfx.ms/PreSignInSettings/Prod/2022-08-15-21-xx-xx/PreSignInSettingsConfig.json
-  condition: selection and not falsepositives
+  condition: selection and not 1 of filter_main_*
 falsepositives:
 - Rare programs that use Bitsadmin and update from regional TLDs e.g. .uk or .ca
 level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of Bitsadmin to initiate connections to domains with uncommon top-level domains (TLDs), which are typically not associated with legitimate enterprise traffic. Attackers may use Bitsadmin as part of malware deployment or data exfiltration strategies, targeting obscure domains to avoid detection (MITRE ATT&CK Tactic: Command and Control, Technique: Application Layer Protocol, ID: T1071.001, and Persistence, ID: T1197). The primary telemetry source is proxy logs that capture outbound HTTP/S requests, specifically looking for User-Agent strings that start with "Microsoft BITS/".
+  This rule detects instances of Microsoft BITS (Background Intelligent Transfer Service) making connections to domains with uncommon top-level domains (TLDs). Attackers may leverage BITS to exfiltrate data or download malicious payloads using legitimate Windows components, aiming to evade security monitoring. This behavior falls under the MITRE ATT&CK tactic of Command and Control (T1071.001) and Execution (T1197), as it can facilitate communication with external systems.
 
-  If malicious, this behavior could signify compromised systems attempting to communicate with command and control (C2) servers or download additional payloads. However, this detection does not confirm that malicious activity is occurring; legitimate application updates or network operations may also generate similar alerts, particularly from less common TLDs that are used in benign regional contexts.
+  Primary telemetry sources include proxy logs that capture HTTP/S requests, specifically focusing on fields like `c-useragent` and `cs-host`. If malicious, this indicates unauthorized external communications that could compromise network security and data integrity. However, it is essential to note that this detection does not confirm that the activity is inherently malicious; additional context and investigation are necessary to establish intent.
 
   ### Investigation Steps
 
-  - **Verify proxy logs for Bitsadmin usage**: Check proxy log entries for HTTP requests from the User-Agent "Microsoft BITS/". Look for Event IDs related to external web traffic (e.g., 5145 for Windows or equivalent proxy event IDs) to establish context for the request.
+  - **Review the proxy logs for BITS activity:** Check for entries with `c-useragent` starting with "Microsoft BITS/" in the proxy logs (e.g., Event ID 400 for Windows Proxy logs). Record the `cs-host` field to analyze the domain.
 
-  - **Analyze the destination domain**: Investigate the TLD of the domain being reached. If it ends with an uncommon TLD (e.g., .xyz, .top, or other non-standard domains), escalate to a deeper investigation. Compare against a known list of common and safe domains.
+  - **Validate the TLD of the connected domain:** Cross-reference the domain captured in the `cs-host` field against common TLDs. Legitimate activity often ends with `.com`, `.net`, or `.microsoft`; any requests to uncommon TLDs (e.g., `.xyz`, `.top`) warrant further scrutiny.
 
-  - **Establish normal Bitsadmin behavior**: Review past proxy logs or activity baseline reports to identify regular and legitimate usage patterns of Bitsadmin within your organization, particularly for known internal tool updates which may involve TLDs like .com or .net.
+  - **Correlate with endpoint logs:** Investigate the associated host's Security Event ID 4688 and Sysmon Event ID 1 to confirm if BITS was initiated by a legitimate process. This step helps differentiate benign usage from potential malicious exploitation.
 
-  - **Identify malicious indicators**: Look specifically for known malicious indicators within the context of the alert. This could include IP addresses associated with previously flagged malware, or specific paths that match known C2 infrastructure.
+  - **Identify high-confidence malicious indicators:** Look for repeated connections to multiple uncommon TLDs within a short timeframe. Confirm if IP addresses associated with these domains have been flagged in threat intelligence feeds.
 
-  - **Assess host criticality and impact**: Determine the role of the affected host within the network. If it is a critical asset, the alert should be prioritized for immediate investigation. For non-critical systems, document findings but assess lower urgency.
+  - **Assess the criticality of the affected host:** Determine the role of the host system in your environment. High-value assets (e.g., domain controllers, financial servers) should be prioritized for investigation compared to lower-risk endpoints.
 
-  - **Check for additional context on the telemetry**: Validate if multiple requests to different uncommon TLDs are present, indicating potential exfiltration attempts, and cross-reference with geolocation data to evaluate the legitimacy based on user location.
+  - **Examine for potential data exfiltration:** Check for unusual outbound traffic patterns originating from the host, including significant file transfers or requests to the unusual domains. Investigate log files, data flow reports, or file creation artifacts (e.g., uploads via file sharing).
 
   ### Prioritization
 
-  This alert is of high severity as it involves the potential compromise of network integrity through communication with untrusted, unusual domains. The likelihood of malicious activity is heightened due to the intentional use of uncommon TLDs, which are often an indication of obfuscation tactics employed by threat actors. Given that such behaviors can be weaponized for data breaches, prompt investigation is critical.
+  This alert is of high severity due to the potential for data exfiltration or malicious payload delivery when a trusted service like BITS is leveraged by an adversary. The likelihood of malicious exploitation is notable, especially given the known usage of BITS for covert operations. This behavior is not commonly legitimate in enterprise environments, making it a high-priority alert for investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations may include evasion techniques where attackers could spoof legitimate User-Agent strings or use common TLDs to blend in. Reliable detection necessitates comprehensive logging configurations for proxy servers and thorough insight into both legitimate and suspicious traffic patterns. Legitimate tools and updates may occasionally trigger alerts, particularly for regional programs or external services that utilize less common domains. Companion detections can include monitoring for abnormal DNS queries or unexpected outbound connections to augment overall detection efficacy.
+  Detection limitations may arise from misconfigured or incomplete log sources; proxy logs must be enabled and correctly capturing all traffic. Additionally, legitimate applications may use BITS for updates from regional TLDs, which could trigger false positives. A companion detection measure would involve monitoring DNS request logs for abnormal lookups to similar uncommon TLDs, further enhancing detection capabilities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
