@@ -1,0 +1,72 @@
+title: Potential WSL Binary Modification from Installed Location
+id: 2f400434-01e1-416b-b52c-bb5bfbb9eb78
+status: experimental
+description: |
+  Detects the modification of the wsl.exe binary from its installed location.
+  Attackers can replace the legitimate wsl.exe binary with a malicious payload in its place, which is then executed when the user runs WSL, acting as a proxy execution and defense evasion technique.
+references:
+- https://cardinalops.com/blog/bash-and-switch-hijacking-via-windows-subsystem-for-linux/
+- https://blog.qualys.com/vulnerabilities-threat-research/2022/04/20/implications-of-windows-subsystem-for-linux-for-adversaries-defenders-part-2
+- https://www.bleepingcomputer.com/news/security/new-malware-uses-windows-subsystem-for-linux-for-stealthy-attacks/
+- https://thehackernews.com/2021/09/new-malware-targets-windows-subsystem.html
+- https://learn.microsoft.com/en-us/windows/wsl/
+author: Liran Ravich, Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-05-05
+tags:
+- attack.stealth
+- attack.t1036.005
+- attack.t1218
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection_wsl_exe:
+    TargetFilename|endswith: '\wsl.exe'
+  selection_wsl_folder:
+  - TargetFilename|contains:
+    - ':\Program files\wsl\'
+    - ':\Program files\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForLinux_'
+  - TargetFilename|contains|all:
+    - ':\Users\'
+    - '\AppData\Local\Microsoft\WindowsApps\'
+  filter_main_msiexec:
+    Image:
+    - 'C:\Windows\System32\msiexec.exe'
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+  filter_main_svchost:
+    Image: 'C:\Windows\System32\svchost.exe'
+    TargetFilename|contains: '\WindowsApps\'
+  condition: all of selection_* and not 1 of filter_main_*
+falsepositives:
+- Unlikely
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/file/file_event/file_event_win_wsl_binary_modification/info.yml
+note: |
+  ### Technical Context
+
+  This rule detects modifications to the `wsl.exe` binary from its installed directories, which an attacker could exploit by replacing the legitimate binary with a malicious version. The likely objective is to execute arbitrary code or maintain persistence using Windows Subsystem for Linux (WSL) while evading detection by security controls. This behavior aligns with the MITRE ATT&CK technique for Substitution (T1036.005) and Execution with WSL (T1218).
+
+  The primary telemetry source is Windows file event logs, specifically looking for alterations to executables located in system directories. If exploited, the modifications could allow unauthorized execution of malicious payloads within the WSL environment, potentially leading to data breaches or lateral movement. Notably, this detection does NOT confirm malicious intent or compromise on its own; further verification is necessary to determine the context of the modification.
+
+  ### Investigation Steps
+
+  - **Examine the modification time of `wsl.exe`:** Check for recent changes to `wsl.exe` using Windows Security Event ID 4663 (File accessed) to confirm the timestamp of the modification and who made it. Benign activity shows consistent timestamps, while a sudden change may indicate malicious activity.
+
+  - **Identify modified file metadata:** Use PowerShell to retrieve file properties (`Get-Item 'C:\Program Files\WindowsApps\...wsl.exe' | Format-List *`). Look for signs of unusual modifications to access, modified, and created dates. Legitimate modifications typically do not involve timestamps that deviate significantly from original pre-installed times.
+
+  - **Review process creation logs during the modification window:** Investigate Security Event ID 4688 (Process Creation) for any processes launching `wsl.exe` around the time of the modification. High-confidence malicious indicators include unexpected parent processes, such as `msiexec.exe` or `svchost.exe`, initiating changes.
+
+  - **Check for related file artifacts in the AppData folder:** Monitor changes in `C:\Users\<Username>\AppData\Local\Microsoft\WindowsApps\` for newly created or altered files around the same time. Malicious behavior may include the creation of a new malicious executable or script that mimics legitimate WSL functions.
+
+  - **Correlate alerts with user activity:** Review any documented recent user actions involving WSL usage by querying user logs or helpdesk tickets. Legitimate interactions often involve administrative tasks, development, or testing environments, while unknown user activity may warrant further investigation.
+
+  ### Prioritization
+
+  This alert represents a medium severity in an enterprise context due to the potential impact on systems where WSL is utilized. Given the capability for adversaries to execute malicious payloads via modified binaries, there is a realistic likelihood of abuse. This behavior is not commonly weaponized but should be treated with caution due to its stealthy nature.
+
+  ### Blind Spots and Assumptions
+
+  Detection limitations include potential evasion techniques where attackers may restore the binary after modification or use alternative executables to achieve similar outcomes. Reliable detection requires configuration of appropriate file monitoring on directories associated with WSL, which might be overlooked. Legitimate administrative activities, such as authorized updates to WSL components, could trigger alerts. A related detection to strengthen coverage includes monitoring for unauthorized access attempts via file event logs for `wsl.exe` using similar modifications.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -6,13 +6,15 @@ related:
 status: test
 description: |
   Detects PowerShell scripts that utilize native PowerShell Identity modules to request Kerberos tickets.
-  This behavior is typically seen during a Kerberos or silver ticket attack. A successful execution will output the SPNs for the endpoint in question.
+  This behavior is typically seen during a Kerberoasting or silver ticket attack. A TGS request is issued by
+  the KerberosRequestorSecurityToken constructor, resulting tickets are cached in LSA and become
+  extractable by other tools later on.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1558.003/T1558.003.md#atomic-test-4---request-a-single-ticket-via-powershell
 - https://learn.microsoft.com/en-us/dotnet/api/system.identitymodel.tokens.kerberosrequestorsecuritytoken?view=netframework-4.8.1
 author: frack113
 date: 2021-12-28
-modified: 2025-11-18
+modified: 2026-09-14
 tags:
 - attack.credential-access
 - attack.t1558.003
@@ -22,40 +24,40 @@ logsource:
   definition: 'Requirements: Script Block Logging must be enabled'
 detection:
   selection:
-    ScriptBlockText|contains|all:
-    - 'System.IdentityModel.Tokens.KerberosRequestorSecurityToken'
-    - '.GetRequest()'
+    ScriptBlockText|contains: 'System.IdentityModel.Tokens.KerberosRequestorSecurityToken'
   condition: selection
 falsepositives:
-- Unknown
+- Legitimate Kerberos authentication development and troubleshooting scripts
 level: high
 regression_tests_path: 
   regression_data/rules/windows/powershell/powershell_script/posh_ps_request_kerberos_ticket/info.yml
 note: |
   ### Technical Context
 
-  This rule detects PowerShell scripts that request Kerberos tickets using the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class, which is often indicative of attempts to manipulate Kerberos authentication. The likely attacker objective is to obtain unauthorized access to services by creating forged tickets (silver tickets) or conducting lateral movement within the network. This behavior aligns with the MITRE ATT&CK technique T1558.003 (Credential Access: Use of Kerberos Tickets).
+  This rule detects PowerShell scripts that make use of the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` to request Kerberos tickets. This behavior is indicative of potential Kerberoasting or silver ticket attacks, where an attacker aims to harvest sensitive credentials by targeting Service Principal Names (SPNs) within an Active Directory environment. The relevant MITRE ATT&CK tactic is Credential Access (Tactic: Credential Access, Technique: T1558.003).
 
-  The primary telemetry source is Windows PowerShell script block logging, specifically looking for logs containing the string patterns associated with Kerberos ticket requests. If successful, the attacker could escalate privileges or gain unauthorized service access, leading to potential data breaches. Importantly, this detection does NOT confirm that an attack has occurred, as legitimate administration activities may also involve requesting service tickets.
+  Primary telemetry sources include PowerShell Script Block Logging, which must be enabled to capture the relevant script execution data. The issuance of Kerberos tickets can lead to unauthorized access to sensitive resources, significantly impacting security if malicious. It is important to note that this detection alone does NOT confirm malicious activity; legitimate administrative script usage may generate similar events.
 
   ### Investigation Steps
 
-  - **Review PowerShell Script Block Logs:** Check for Event ID 4104 in the Windows Event Logs for PowerShell script block logging. Focus on logs that include the string `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and `.GetRequest()`. Verify if the executing user and timestamp align with known good activities.
+  - **Review PowerShell Execution History:** Examine PowerShell's execution history (Event ID 4104) within the specified timeframe. Check for any instances of `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and validate if the user is a known administrator or a flagged user within the organization.
 
-  - **Correlate User Actions:** Analyze the user associated with the alert against typical administrative activity. Identify if the user has a valid business rationale for executing Kerberos ticket requests. A legitimate action typically correlates with service account access or application authentication requests.
+  - **Inspect User Context:** Check the context and privileges of the user that executed the PowerShell script. Users with permissions to request Kerberos tickets should be strictly limited. Unrecognized or unusual user accounts executing such scripts may indicate a breach.
 
-  - **Check Kerberos Ticket Granting Tickets (TGTs):** Use `klist` or Security Event ID 4769 to review recent Kerberos ticket requests. Note any unusual service principal names (SPNs) typically not associated with the user or session, which may indicate suspicious activity.
+  - **Analyze Script Details:** Validate the full contents of the script using PowerShell logs (Event ID 4104). Look for parameters, comments, and other context to differentiate between legitimate security operations and potential exploitation attempts.
 
-  - **Examine Process Creation Logs:** Review Sysmon Event ID 1 to identify the parent-child process relationships. Look for unusual PowerShell executions spawned from a non-administrative context, as this may indicate an external compromise.
+  - **Identify Artifact Creation:** Look for any file artifacts or cache entries where Kerberos tickets might be stored (e.g., in LSA) that correspond to the time of execution. Validate if known administrative accounts are generating ticket requests versus anomalous accounts not typically associated with such activity.
 
-  - **Investigate Network Traffic:** Capture and analyze network traffic that includes Kerberos authentication requests. Look for flows initiated from sources not normally expected to request service tickets, which could confirm compromised accounts attempting lateral movement.
+  - **Determine Legitimate Activity:** Cross-reference with known benign scripts that are used for Kerberos troubleshooting or administrative tasks. Consider typical administrative workflows that may involve ticket requests and validate their context with the user’s roles.
+
+  - **Correlate with Other Alerts:** Investigate related alerts from similar detections (e.g., T1558.003 - Kerberoasting) to strengthen the case for investigation or escalate based on the volume or patterns of alert generations coinciding with the detected behavior.
 
   ### Prioritization
 
-  This alert is high priority due to the potential for significant security impacts if Kerberos tickets are misused. The likelihood of malicious behavior is heightened by the specificity of the detected PowerShell commands, often employed in well-documented attacks against Active Directory environments.
+  The severity of this alert is high due to the critical nature of Kerberos authentication in securing Active Directory environments. The likelihood of malicious abuse is significant as this technique is frequently weaponized by adversaries conducting credential theft attacks. Affected systems, especially those hosting services exposed to internal accounts, should be prioritized for investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if script block logging is not enabled or if users are utilizing obfuscation techniques to hide their commands. Legitimate administrative activities, such as troubleshooting service access, may inadvertently trigger this alert. A companion detection rule for suspicious account logon behaviors (e.g., T1078.001 - Valid Accounts) can enhance coverage of potential credential abuses.
+  Detection may be limited by the need for PowerShell Script Block Logging to be enabled; if not configured, relevant activities could go unnoticed. Legitimate activities, especially in troubleshooting scenarios, might trigger similar alerts, potentially leading to false positives. It is also essential to be aware that attackers may use obfuscation techniques to modify script contents to evade detection. A related detection to monitor is anomalous Kerberos Ticket Granting Service (TGS) requests, which could further corroborate malicious activity.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

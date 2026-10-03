@@ -1,0 +1,73 @@
+title: Suspicious WSL Binary Hijack via Proxy Execution
+id: 88d306e9-8e2d-4025-9768-28757d2732db
+status: experimental
+description: |
+  Detects C:\Windows\System32\wsl.exe spawning a child wsl.exe process from outside the legitimate WSL install locations.
+  When WSL or bash is invoked, the System32 stub (wsl.exe) looks up the InstallLocation registry key and executes the wsl.exe found there.
+  An attacker who modifies InstallLocation to a controlled path causes the stub to transparently proxy execution to a malicious payload,
+  which then appears as a wsl.exe child of the legitimate System32 stub.
+references:
+- https://cardinalops.com/blog/bash-and-switch-hijacking-via-windows-subsystem-for-linux/
+- https://blog.qualys.com/vulnerabilities-threat-research/2022/04/20/implications-of-windows-subsystem-for-linux-for-adversaries-defenders-part-2
+- https://www.bleepingcomputer.com/news/security/new-malware-uses-windows-subsystem-for-linux-for-stealthy-attacks/
+- https://thehackernews.com/2021/09/new-malware-targets-windows-subsystem.html
+- https://learn.microsoft.com/en-us/windows/wsl/
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-05-05
+tags:
+- attack.stealth
+- attack.t1036.005
+- attack.t1218
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage: 'C:\Windows\System32\wsl.exe'
+    Image|endswith: '\wsl.exe'
+  filter_main_legit_paths_1:
+    Image:
+    - 'C:\Windows\System32\wsl.exe'
+    - 'C:\Program Files\WSL\wsl.exe'
+  filter_main_legit_paths_2:
+    Image|startswith:
+    - 'C:\Windows\WinSxS\amd64_microsoft-windows-lxss-wsl_'
+    - 'C:\Windows\WinSxS\arm64_microsoft-windows-lxss-wsl_'
+    - 'C:\Program Files\WindowsApps\MicrosoftCorporationII.WindowsSubsystemForLinux'
+  filter_main_legit_paths_3:
+    Image|startswith: 'C:\Users\'
+    Image|contains: '\AppData\Local\Microsoft\WindowsApps\'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unlikely
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_wsl_binary_hijack_execution/info.yml
+note: |
+  ### Technical Context
+
+  This rule detects instances where `C:\Windows\System32\wsl.exe` spawns a child `wsl.exe` process from non-standard execution paths. An attacker may exploit this by modifying the InstallLocation registry value to redirect legitimate WSL calls to a malicious payload, thereby executing it as if it were a valid WSL process. The primary MITRE ATT&CK tactics involved here are “Defense Evasion” (TA0005) and “Masquerading” (T1036.005). The key telemetry source is the Windows process creation logs, specifically Security Event ID 4688. If the execution is malicious, it could lead to compromise of the host and unauthorized actions. However, this detection alone does not confirm malicious intent without further context and corroborating evidence.
+
+  ### Investigation Steps
+
+  - **Identify the process creation log**: Check Security Event ID 4688 for instances where `wsl.exe` was spawned. Look specifically for logs with `ParentImage` set to `C:\Windows\System32\wsl.exe`.
+
+  - **Review the command line arguments**: Inspect the event for command line arguments in the `NewProcessName` field. Malicious indicators often contain unusual script executions or references to known malicious payloads.
+
+  - **Check registry modifications**: Query the registry for `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\App Paths\wsl.exe` and `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\wsl.exe`. Look for any unauthorized changes to the `InstallLocation` key.
+
+  - **Observe expected behavior**: Compare the execution paths of legitimate WSL operations—these should typically originate from `C:\Windows\System32\wsl.exe` or standard WSL install directories, not arbitrary or user-specific locations.
+
+  - **Correlate with other telemetry**: Look at Sysmon Event ID 1 for the creation of network connections initiated by `wsl.exe` processes to further establish whether additional malicious behaviors are present.
+
+  - **Identify high-confidence malicious indicators**: Investigate any `wsl.exe` processes spawned from paths outside of known legitimate WSL installation paths, e.g., in temporary directories or user profile folders.
+
+  ### Prioritization
+
+  This alert should be treated with high severity due to the potential impact on affected systems, as it involves a critical security pathway being exploited. The likelihood of malicious use is significant given the stealth nature of this technique, which is known to be weaponized by adversaries in the wild targeting Windows environments.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited by the absence of adequate logging configurations or potential evasion techniques such as the use of alternate paths or direct execution without proper logging. Legitimate activities like software updates or legitimate script executions may also trigger this alert. A related detection to enhance coverage would be monitoring for unauthorized registry modifications associated with WSL installations, as this can indicate adversarial changes to execute malicious payloads.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

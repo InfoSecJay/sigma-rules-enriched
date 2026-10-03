@@ -8,13 +8,15 @@ description: |
   Detects suspicious Kerberos ticket requests via command line using System.IdentityModel.Tokens.KerberosRequestorSecurityToken class.
   Threat actors may use command line interfaces to request Kerberos tickets for service accounts in order to
   perform offline password cracking attacks commonly known as Kerberoasting or other Kerberos ticket abuse
-  techniques like silver ticket attacks.
+  techniques like silver ticket attacks. Encoded commands will not surface the class name, so the ps_script
+  rule covers that instead.
 references:
 - https://www.huntress.com/blog/gootloader-threat-detection-woff2-obfuscation
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1558.003/T1558.003.md#atomic-test-4---request-a-single-ticket-via-powershell
 - https://learn.microsoft.com/en-us/dotnet/api/system.identitymodel.tokens.kerberosrequestorsecuritytoken?view=netframework-4.8.1
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2025-11-18
+modified: 2026-09-14
 tags:
 - attack.credential-access
 - attack.t1558.003
@@ -30,48 +32,38 @@ detection:
     - 'powershell.exe'
     - 'pwsh.dll'
   selection_cli:
-    CommandLine|contains|all:
-    - 'System.IdentityModel.Tokens.KerberosRequestorSecurityToken'
-    - '.GetRequest()'
+    CommandLine|contains: 'System.IdentityModel.Tokens.KerberosRequestorSecurityToken'
   condition: all of selection_*
 falsepositives:
-- Legitimate command line usage by administrators or security tools.
+- Legitimate command line usage by administrators or security tools
 level: high
 note: |
   ### Technical Context
 
-  This rule detects the suspicious use of the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class via command line to request Kerberos tickets, an activity often indicative of Kerberoasting or silver ticket attacks. Attackers may exploit this technique to gain access to service accounts, allowing them to attempt offline password cracking.
+  This Sigma rule detects suspicious Kerberos ticket requests initiated from command-line interfaces, specifically those attempting to invoke the `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` class. The likely attacker objective is to exploit service account credentials to obtain Kerberos tickets, potentially facilitating credential theft through techniques such as Kerberoasting or silver ticket attacks. This behavior aligns with the MITRE ATT&CK technique T1558.003 (Steal or Forge Kerberos Tickets).
 
-  The relevant MITRE ATT&CK technique is **T1558.003: Credentials from Kerberos Ticket Granting Ticket**. The primary telemetry source for this detection is Windows process creation logs, specifically focusing on PowerShell executions. If malicious, this behavior poses a significant security impact, potentially compromising sensitive accounts and enabling further lateral movement within the network.
-
-  This detection does NOT confirm a breach on its own; legitimate administrative tasks may also trigger this rule, necessitating further investigation.
+  The primary telemetry sources include process creation logs from Windows (Event ID 4688 or Sysmon Event ID 1). If this behavior is malicious, it could lead to unauthorized access to sensitive resources and privilege escalation within the environment. It is crucial to note that the detection does NOT confirm that the tickets have been successfully obtained or misused; it only indicates an attempt to utilize a known attack vector.
 
   ### Investigation Steps
 
-  - **Check Process Creation Events:**
-    Review Security Event ID 4688 for process creation logs where the image path is either `powershell.exe` or `pwsh.exe`, filtering for `CommandLine` containing `System.IdentityModel.Tokens.KerberosRequestorSecurityToken` and `.GetRequest()`.
+  - **Correlate event IDs**: Review Security Event ID 4688 or Sysmon Event ID 1 for the command execution log containing `System.IdentityModel.Tokens.KerberosRequestorSecurityToken`. Determine if the execution context aligns with suspicious or unauthorized user accounts.
 
-  - **Analyze Command Line Parameters:**
-    Inspect the full command line provided in the logs to validate intended use cases; look for indication of known tools or strings that align with administrative functions versus potential misuse.
+  - **Analyze command line arguments**: Inspect the full command line used. Look for obfuscation or unusual patterns, and validate if the arguments map to legitimate administrative functions or known automation tasks.
 
-  - **Identify User Context:**
-    Correlate the user ID associated with the ticket request to ascertain legitimacy; check if the user belongs to an administrative group or if the action is consistent with their role.
+  - **Identify normal user activities**: Verify legitimate administrative usage patterns of PowerShell or pwsh.exe. Check if authorized personnel regularly interact with Kerberos ticket requests for routine operations.
 
-  - **Validate Event Frequency:**
-    Assess if multiple similar requests occur in a short timeframe. A high volume of Kerberos ticket requests from a single user could indicate automated attack behavior.
+  - **Check associated user account activity**: Investigate the user account that executed the command. Review logon patterns and recent activities (Event ID 4624) to ensure they align with expected behavior and do not raise red flags.
 
-  - **Examine Related Logs for Anomalies:**
-    Look into authentication logs (e.g., Security Event ID 4624) that correspond with the process creation timestamps to verify if the requests resulted in successful authentications to sensitive systems.
+  - **Capture the output of the Kerberos request**: If the telemetry allows, gather any outputs or logs from that command execution—this may help identify unauthorized attempts to extract Kerberos tickets.
 
-  - **Identify Expected Behavior:**
-    Understand legitimate use cases of PowerShell for service account management within your environment; document typical commands for reference to differentiate between benign and malicious activities.
+  - **Assess impact on sensitive systems**: Determine if the affected assets are critical (e.g., domain controllers, servers hosting sensitive applications). Increased scrutiny is warranted on systems that manage authentication.
 
   ### Prioritization
 
-  This alert is categorized as high severity due to the potential impact on critical systems and the likelihood of being weaponized for credential theft. The ability to request tickets for privileged accounts can provide attackers enhanced access to system resources, amplifying their foothold.
+  This alert is considered high severity due to the potential impact on critical systems and the likelihood of exploitation by adversaries. The behavior of issuing Kerberos ticket requests is a well-known technique used in attacks, making it a common vector for credential theft.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments where legitimate administrative command line usage is common, possibly leading to false positives. Ensure that logging is configured correctly for process creation, particularly for PowerShell commands. It's also important to take into account that legitimate administrator uses may trigger this alert. Companion detections that can provide additional context include monitoring for unusual Kerberos ticket granting or TGT requests in Security Event ID 4769, which track when service tickets are requested.
+  Detection relies on the available logging of process creation; if logs are not correctly configured or preserved, malicious activity may go undetected. Legitimate administrative actions and certain automated security tools could trigger similar alerts, leading to possible false positives. Companion detections related to Kerberos ticket validation failures or unauthorized access attempts (e.g., Event ID 4776 or TGS requests) can strengthen overall monitoring for related credential abuse.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
