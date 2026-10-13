@@ -2,14 +2,18 @@ title: ETW Trace Evasion Activity
 id: a238b5d0-ce2d-4414-a676-7a531b3d13d6
 status: test
 description: |
-  Detects command line activity that tries to clear or disable any ETW trace log which could be a sign of logging evasion.
+  Detects command line activity that attempts to tamper with Event Tracing for Windows (ETW) by clearing or disabling
+  trace logs or providers. Adversaries may target ETW to blind security tooling and evade detection by removing
+  visibility into process activity, network connections, and other telemetry sources.
+  Techniques include clearing logs via wevtutil, disabling trace sessions via logman, and removing or modifying
+  ETW providers using PowerShell cmdlets such as Remove-EtwTraceProvider and Set-EtwTraceProvider.
 references:
 - https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wevtutil
 - https://abuse.io/lockergoga.txt
 - https://medium.com/palantir/tampering-with-windows-event-tracing-background-offense-and-defense-4be7ac62ac63
 author: '@neu5ron, Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community'
 date: 2019-03-22
-modified: 2022-06-28
+modified: 2026-10-12
 tags:
 - attack.stealth
 - attack.defense-impairment
@@ -20,64 +24,86 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection_clear_1:
-    CommandLine|contains|all:
-    - 'cl'
-    - '/Trace'
-  selection_clear_2:
-    CommandLine|contains|all:
+  selection_wevtutil_img:
+  - Image|endswith: '\wevtutil.exe'
+  - OriginalFileName: 'wevtutil.exe'
+  selection_wevtutil_cli_clear:     # Example: wevtutil cl "/Trace" or wevtutil cl "Microsoft-Windows-DNS-Client/Operational"
+    CommandLine|contains:
+    - ' cl '
     - 'clear-log'
-    - '/Trace'
-  selection_disable_1:
-    CommandLine|contains|all:
-    - 'sl'
-    - '/e:false'
-  selection_disable_2:
-    CommandLine|contains|all:
+    CommandLine|contains|windash: '/Trace'
+  selection_wevtutil_cli_disable:     # Example: wevtutil sl "Microsoft-Windows-DNS-Client/Operational" /e:false
+    CommandLine|contains:
+    - ' sl '
     - 'set-log'
-    - '/e:false'
-  selection_disable_3:     # ETW provider removal from a trace session
+    CommandLine|contains|windash: '/e:false'
+  selection_logman_img:     # Example: logman update trace EventLog-Application --p "Microsoft-Windows-Security-Auditing" -ets
+  - Image|endswith: '\logman.exe'
+  - OriginalFileName: 'Logman.exe'
+  selection_logman_update:     # Example: logman update trace EventLog-Application --p "Microsoft-Windows-Security-Auditing" -ets
     CommandLine|contains|all:
-    - 'logman'
     - 'update'
     - 'trace'
     - '--p'
     - '-ets'
-  selection_pwsh_remove:     # Autologger provider removal
-    CommandLine|contains: 'Remove-EtwTraceProvider'
-  selection_pwsh_set:     # Provider “Enable” property modification
-    CommandLine|contains|all:
+  selection_pwsh_img:
+  - Image|endswith:
+    - '\powershell.exe'
+    - '\pwsh.exe'
+  - OriginalFileName:
+    - 'powershell.exe'
+    - 'pwsh.dll'
+  selection_pwsh_cli:
+        # Example: Remove-EtwTraceProvider -AutologgerName "EventLog-Application" -Guid "{54849625-5478-4994-A5BA-3E3B0328C30D}"
+  - CommandLine|contains: 'Remove-EtwTraceProvider'
+        # Example: Set-EtwTraceProvider -Guid '{A0C1853B-5C40-4B15-8766-3CF1C58F985A}' -AutologgerName 'EventLog-Application' -Property 0x11
+        # Note: 0x11 and 17 are equivalent and represent the same property value
+  - CommandLine|contains|all:
     - 'Set-EtwTraceProvider'
     - '0x11'
-  condition: 1 of selection_*
+  - CommandLine|contains|all:
+    - 'Set-EtwTraceProvider'
+    - ' 17'
+  - CommandLine|contains|all:
+    - 'Set-EtwTraceProvider'
+    - "'17'"
+  - CommandLine|contains|all:
+    - 'Set-EtwTraceProvider'
+    - '"17"'
+  condition: |
+    (selection_wevtutil_img and 1 of selection_wevtutil_cli_*)
+    or (all of selection_logman_*)
+    or (all of selection_pwsh_*)
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects command line activity indicative of attempts to clear or disable Event Tracing for Windows (ETW) logs, which may signal a malicious actor's effort to evade detection by altering logging mechanisms. The adversary may aim to manipulate logs to hide their actions during lateral movement or data exfiltration, obstructing forensic analysis. This behavior is categorized under MITRE ATT&CK tactics "Defense Evasion" (TA0005) and techniques "Indicator Removal on Host" (T1070) and "Tainting Logs" (T1685).
+  This rule detects manipulation attempts targeting Event Tracing for Windows (ETW) logs, specifically actions that involve clearing or disabling ETW trace providers. The likely objective of an adversary employing these techniques is to conceal their activities, thereby evading detection by security tooling. This behavior fits within the MITRE ATT&CK framework under the tactics of Defense Evasion and the following techniques: "Indicator Removal on Host" (T1070) and "Traffic Filtering" (T1685).
 
-  The primary telemetry sources include Windows process creation logs, notably Security Event ID 4688 and Sysmon Event ID 1, which capture command line arguments utilized for executing processes. The security impact of this behavior can be significant; successful evasion undermines incident response efforts and can facilitate ongoing compromise. Notably, this detection does NOT confirm whether the host is genuinely compromised or if the command was executed in a context that indicates malicious intent.
+  Primary telemetry sources include process creation logs specifically from Windows (Security Event ID 4688, Sysmon Event ID 1). If malicious, clearing ETW logs impairs the organization's ability to conduct forensic investigations and understand ongoing attacks. It is important to clarify that the detection of these actions does NOT confirm a breach; they indicate potentially suspicious activities that should be further investigated in context.
 
   ### Investigation Steps
 
-  - **Check process creation logs for suspicious commands:** Review Windows Security Event ID 4688 and Sysmon Event ID 1 logs for command line strings containing terms like `cl /Trace`, `clear-log /Trace`, and `Remove-EtwTraceProvider`. Valid commands associated with ETW management should not include these patterns.
+  - **Review detected commands for legitimate context:** Analyze the command line arguments associated with the alert. For example, legitimate use of `wevtutil` for log management will typically involve administrative maintenance tasks, like `wevtutil epl` for exporting logs.
 
-  - **Identify the user context of the command:** Investigate the account or service that executed the command. A legitimate administrator performing ETW tasks may show a typical user account on systems with specific administrative privileges. Malicious execution may arise from unexpected or non-administrative accounts.
+  - **Validate the process origins:** Check the image paths for the executing processes against a whitelist. Look for `wevtutil.exe`, `logman.exe`, and `powershell.exe` in expected directories (e.g., `C:\Windows\System32`). Any unusual paths could indicate malicious activity.
 
-  - **Analyze command execution context:** Review logs for the process parent-child relationships surrounding the command. Commands initiated from known legitimate processes (e.g., cmd.exe) with standard administrative execution context may be benign; however, unusual parent processes could indicate malicious activity.
+  - **Analyze user account activity:** Correlate the detected command execution with user account activity across your environment (security logs Event ID 4624). High-risk or service accounts executing these commands without prior announcement may signal malicious intent.
 
-  - **Look for patterns indicating exfiltration or lateral movement:** Validate if the system is part of a scheduled task or concurrent with other suspicious behaviors. Correlate with known exponential commands that follow ETW tampering, such as `Invoke-WebRequest` or anomalous remote commands.
+  - **Identify high-confidence indicators:** Look for specific commands executed that are frequently associated with malicious activity, such as `Remove-EtwTraceProvider` or disabling logs via `logman`. Document if these commands were run with administrative privileges.
 
-  - **Check for related log management alterations:** Review configurations and modifications to the ETW settings in the Windows Event Log using Event ID 1102. Seeing frequent adjustments to logging levels or retention policies could indicate an attempt to obscure malicious activity or misconfigure logging.
+  - **Examine historical ETW logs:** Investigate past ETW configurations and trace visibility before the suspicious commands were executed. Identify what telemetry may have been available before it was cleared. Utilize the Application, Security, and System event logs for specific entries linked with ETW operations.
+
+  - **Assess asset criticality for affected hosts:** Prioritize investigation on critical assets (e.g., domain controllers, servers handling sensitive data) to understand the potential impact of ETW manipulation and follow up on any relevant incidents connected to these hosts.
 
   ### Prioritization
 
-  The alert severity is high due to the critical nature of the system's logging integrity, directly impacting the organization's ability to detect and respond to threats. The likelihood of malicious abuse is elevated, given that evasion techniques are often employed during attacks to hinder security visibility. Such behavior is frequently weaponized in targeted intrusions.
+  This alert carries high severity due to the potential impact on incident detection and response capabilities within the SOC. The manipulation of ETW logs signifies a deliberate effort to obscure malicious activities, which is commonly weaponized by advanced adversaries during the post-exploitation phase.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include methods to bypass traditional monitoring, such as running commands through scripts that obfuscate activity. Reliable detection requires consistent logging configuration for process creation and should not rely solely on standard logs; appropriate permissions must be maintained for robust log generation. Legitimate activities may include valid administrative tasks performed under emergency circumstances or legitimate ETW modifications. Companion detections include monitoring for unusual PowerShell command line activity, which is often associated with similar malicious intents and can enhance overall visibility into potential attacks.
+  Detection limitations exist since legitimate activities, such as routine IT operations or maintenance tasks, may trigger this alert. Additionally, the efficacy of this detection relies on proper configuration and retention of relevant Windows logs, including process creation and security event logs. False positives may arise from standard administrative practices, emphasizing the need for context in triaging alerts. A related detection to strengthen coverage would include monitoring changes to audit policies or trace configurations on target systems, enhancing visibility into ETW modifications.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

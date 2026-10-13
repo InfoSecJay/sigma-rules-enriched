@@ -19,7 +19,7 @@ references:
 - https://vipre.com/blog/svg-phishing-attacks-the-new-trick-in-the-cybercriminals-playbook/
 author: Nasreddine Bencherchali (Nextron Systems), frack113
 date: 2022-06-19
-modified: 2026-03-31
+modified: 2026-10-12
 tags:
 - attack.stealth
 - attack.t1036.007
@@ -61,9 +61,12 @@ detection:
     #     TargetFilename|contains:
     #         - '\AppData\Roaming\Microsoft\Office\Recent\'
     #         - '\AppData\Roaming\Microsoft\Windows\Recent\'
-  filter_icons_linux:
+  filter_main_duplicate_extension:
+    TargetFilename|endswith: '.svg.svg'
+  filter_optional_icons_linux:
     TargetFilename|startswith: '/usr/share/icons/'
-  condition: 1 of selection_* and not 1 of filter_*
+  condition: 1 of selection_* and not 1 of filter_main_* and not 1 of 
+    filter_optional_*
 falsepositives:
 - Unlikely
 level: high
@@ -72,33 +75,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of files with double extensions, a common evasion technique employed by attackers to disguise malicious files as legitimate documents. The goal of this tactic is usually to trick users into executing what appears to be a non-executable file, leading to malware installation or execution. This behavior aligns with the MITRE ATT&CK tactic of "Defense Evasion" (TA0005) and the technique "Hidden File Systems" (T1036.007).
+  This Sigma rule detects the creation of files with double extensions, such as `.exe.docx` or `.zip.exe`, which attackers commonly use to obfuscate true file types and bypass security controls. The likely objective is to persuade users to open harmful files disguised as benign documents or media, enabling payload execution or malware delivery. This behavior primarily aligns with the MITRE ATT&CK technique of "Masquerading" (T1036.007).
 
-  The primary telemetry sources for this detection include Windows file creation events, particularly those captured through Sysmon (Event ID 1) or the native Windows Security log (Event ID 4663). If malicious, the security impact could include system compromise, data exfiltration, or lateral movement within the network. However, this detection does NOT confirm that the file is executed or that it is indeed malicious solely based on its naming convention.
+  The primary telemetry sources are Windows file event logs that capture file creation actions, focusing on specific file extensions that may indicate malicious intent. If executed, the malicious file could lead to unauthorized access or data exfiltration, impacting overall security posture. However, this detection does NOT confirm that the file is malicious on its own; further investigation is necessary to establish intent and context.
 
   ### Investigation Steps
 
-  - **Examine file creation events:**
-    Review Sysmon Event ID 1 or Windows Security Event ID 4663 for any suspicious file creations in directories commonly associated with user downloads (e.g., Downloads, Desktop). Focus on filenames that contain two extensions such as `.doc.exe` or `.pdf.exe`.
+  - **Examine the alert details:** Identify the `TargetFilename` field from the file creation event logs (Windows Security Event ID 4663 or Sysmon Event ID 11) for double extensions. Review filenames that contain malicious indicators, e.g., files ending with `.exe.docx` or `.zip.exe`.
 
-  - **Identify patterns linked to known malware:**
-    Cross-reference the detected file names with known malware signatures or reports. Utilize external threat intelligence feeds to check for documented uses of specific double extension files in active threat campaigns.
+  - **Review legitimate file creation patterns:** Determine if the file was created in user directories or system folders. Legitimate files usually appear in well-known directory structures like `C:\Users\[username]\Documents\`.
 
-  - **Review user behavior:**
-    Investigate user activity around the time of the suspicious file creation. Determine if the user accessed any email attachments or web downloads that may correspond to a known malicious pattern.
+  - **Check for historical context:** Look into the recent activity logs for downloads or file transfers prior to the file creation event. Event ID 4104 from PowerShell logs may reveal commands that downloaded malicious payloads.
 
-  - **Analyze execution context:**
-    If the double extension file was executed, retrieve Windows Security Event ID 4688 for process creation logs that show the parent process and command line arguments. Legitimate file types (e.g., `.png`, `.pdf`, etc.) invoked in unusual contexts should raise further suspicion.
+  - **Assess file properties and execution attempts:** Use `Get-Item` in PowerShell to check the `FileVersionInfo` of the associated executable to identify any unusual or malicious properties. Note that legitimate files may show normal version details.
 
-  - **Validate the legitimacy of flagged files:**
-    Assess the properties of the flagged files through file metadata analysis tools to check their origin and creation methods. Ensure there are no legitimate applications misconfigured to generate double extension files.
+  - **Correlate with endpoint protection alerts:** Review logs from endpoint security solutions to identify if there have been any detections of the same filename or SHA256 hash associated with known malware.
+
+  - **Investigate related context or execution:** If the double-extension file was executed, check process creation logs (Sysmon Event ID 1) to verify if there were any subsequent process executions linked to the original file, indicating potential escalation.
 
   ### Prioritization
 
-  This alert should be treated with high priority due to the potential compromise of systems and sensitive data. Double extension files are often weaponized by attackers for social engineering attacks, increasing the likelihood of malicious exploitation if ingested by users.
+  The alert severity is high due to the potential impact on critical systems and the likelihood that double-extension files serve as delivery mechanisms for known exploit techniques. Such behaviors are commonly weaponized in phishing and malware distribution attacks, stressing the importance of timely investigation.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if file creation events are not fully logged or if file transfers occur over channels that bypass standard logging (e.g., alternative cloud storage services). Legitimate applications, especially those involving file conversion or processing, may inadvertently create double extension files. Companion detections to strengthen coverage include monitoring for unusual zip or compressed file extractions that may include executable content indicating prior file operations.
+  Evasion techniques may include renaming files with non-standard extensions or using legitimate-looking filenames. Detection relies heavily on comprehensive logging from file event sources; ensure file auditing is enabled for critical directories. Legitimate activities that might trigger alerts include users saving documents through email or download services, particularly if they extract files from zipped archives. A companion detection focusing on executable file downloads (ex: web proxy logs for file downloads) could enhance coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -10,7 +10,7 @@ references:
 - https://medium.com/palantir/tampering-with-windows-event-tracing-background-offense-and-defense-4be7ac62ac63
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-06-28
-modified: 2022-11-25
+modified: 2026-10-12
 tags:
 - attack.stealth
 - attack.defense-impairment
@@ -24,41 +24,51 @@ logsource:
 detection:
   selection_pwsh_remove:     # Autologger provider removal
     ScriptBlockText|contains: 'Remove-EtwTraceProvider '
-  selection_pwsh_set:     # Provider “Enable” property modification
+  selection_pwsh_set_hex:     # Provider “Enable” property modification (hex form)
     ScriptBlockText|contains|all:
     - 'Set-EtwTraceProvider '
     - '0x11'
-  condition: 1 of selection*
+  selection_pwsh_set_dec:     # Provider “Enable” property modification (decimal form, equivalent to 0x11)
+  - ScriptBlockText|contains|all:
+    - 'Set-EtwTraceProvider '
+    - ' 17'
+  - ScriptBlockText|contains|all:
+    - 'Set-EtwTraceProvider '
+    - “'17'”
+  - ScriptBlockText|contains|all:
+    - 'Set-EtwTraceProvider '
+    - '”17”'
+  condition: 1 of selection_*
 falsepositives:
 - Unknown
 level: high
 note: |
   ### Technical Context
 
-  This rule detects the use of PowerShell cmdlets that disable or remove Event Tracing for Windows (ETW) trace sessions, indicating a potential attempt by an adversary to evade detection mechanisms. These actions may signify an attacker’s objective to conceal their activities, maintain persistence, or hinder incident response efforts by disrupting logging capabilities. Relevant MITRE ATT&CK tactics include **Defense Evasion (T1562)**, specifically through the technique **Impair Defenses (T1070)**.
+  This rule detects the use of PowerShell cmdlets aimed at disabling or modifying Event Tracing for Windows (ETW) trace sessions. The behaviors targeted by this detection indicate that an attacker may be attempting to impair the effectiveness of security monitoring tools, thus allowing malicious activities to remain hidden. Such actions align with the MITRE ATT&CK tactics of **Defense Evasion** (TA0005) and **Impair Defenses** (T1650).
 
-  Primary telemetry sources for this detection are Windows PowerShell logs, specifically focusing on script block logging which must be enabled to capture relevant actions. If malicious, the security impact could be significant, compromising the organization's ability to track and investigate malicious activities. It is important to note that simply detecting these cmdlets does not confirm malicious intent without further contextual analysis.
+  The primary telemetry source for this detection is PowerShell script logs, specifically Script Block Logging, which must be enabled to capture relevant cmdlet activities. If malicious, these actions could significantly impact the security posture of the organization by preventing the logging of crucial security events. However, it is important to clarify that this detection alone does not confirm malicious intent; legitimate administrative or troubleshooting activities may also trigger it.
 
   ### Investigation Steps
 
-  - **Examine PowerShell Script Execution Logs:** Review the PowerShell logs for Event ID 4104 to identify any instances of the cmdlets `Remove-EtwTraceProvider` or the properties being modified in the context of `Set-EtwTraceProvider`. Check for ScriptBlockText violations.
+  - **Check PowerShell logs for script execution:** Review PowerShell Script Block logs for Security Event ID 4104 to identify the specific cmdlets executed, focusing on those containing `Remove-EtwTraceProvider` and `Set-EtwTraceProvider` commands.
 
-  - **Identify User Context:** Determine the user account executing the PowerShell scripts. Check for unusual or unauthorized user accounts (e.g., service accounts executing these cmdlets) to identify potential insider threats.
+  - **Validate the context of cmdlet usage:** Cross-reference the timestamps of the detected cmdlets with recent administrative or monitoring activities to determine if the actions align with expected behavior. Legitimate system administrators may run ETW commands as part of troubleshooting but should have known business justifications.
 
-  - **Assess Script Block Logging Status:** Verify that script block logging is enabled on the systems in question (set via Group Policy). If not enabled, this rule may not function correctly, leading to blind spots in detection.
+  - **Determine who executed the command:** Use Windows Security Event ID 4688 to identify the account that executed the PowerShell script. Look for unusual or unauthorized user accounts, particularly those with non-interactive logins.
 
-  - **Determine Impact of ETW Modification:** Investigate historical logging states and ETW sessions to see if log collection was recently reduced or disabled, signaling possible malicious intent. Look for Event IDs 1102 (Event Log Clearance) in conjunction.
+  - **Review the output of ETW traces:** Validate the status of existing ETW trace sessions (using `Get-EtwTraceProvider`) to investigate if any critical providers have been disabled or modified, indicating potential evasion efforts.
 
-  - **Correlate with Other Suspicious Activities:** Look for other related detections such as unauthorized network connections or binary modifications that may occur around the same time as the PowerShell cmdlets were executed.
+  - **Identify the affected systems:** Assess if the affected system is a critical asset (e.g., domain controllers, file servers) or less critical devices (e.g., user workstations). The impact of such actions may vary based on the role and severity of the asset in the environment.
 
-  - **Review Legitimate Administrative Actions:** Consider any recent legitimate administrative activities. Activities such as routine server maintenance, software updates, or configuration changes could explain benign usage of these cmdlets.
+  - **Examine concurrent activities or anomalies:** Monitor for other security alerts that relate to lateral movement or privilege escalation activities occurring around the same timeframe, which may indicate a broader attack attempt.
 
   ### Prioritization
 
-  This alert should be considered high severity due to the critical impact on logging capabilities, which could lead to diminished visibility during an ongoing attack. The likelihood of malicious abuse is significant, as attackers commonly seek to manipulate logging mechanisms to evade detection during unauthorized activities.
+  This alert is of high severity as it involves potential manipulation of logging mechanisms that are indispensable for incident detection and response. The likelihood of abuse is considerable, especially since disabling ETW is a common tactic employed by advanced adversaries during offensive operations.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by environments where script block logging is not consistently enabled, resulting in a lack of visibility into PowerShell operations. Legitimate activities, such as administrative tasks or updates to system configurations, might trigger these alerts. A related detection that strengthens coverage includes monitoring for Event ID 4688 (process creation) specifically focused on PowerShell to correlate with suspicious execution context.
+  This detection may be limited by the active configuration of PowerShell logging. If Script Block Logging is not enabled, these commands can go undetected. Legitimate administrative actions, such as routine maintenance or troubleshooting, might inadvertently trigger this alert. A related detection to consider is any unusual activity linked to the `Get-EtwTraceProvider` cmdlet as it may indicate attempts to assess the current logging configuration prior to tampering.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
