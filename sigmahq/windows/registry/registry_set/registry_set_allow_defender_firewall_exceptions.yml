@@ -1,0 +1,63 @@
+title: Allow Exceptions in Microsoft Defender Firewall via Registry
+id: c69fc6a2-607d-4530-b7d1-75823af1bde4
+status: experimental
+description: |
+  Detects the degradation of the system firewall security by the DoNotAllowExceptions policy value being
+  set to 0 (DWORD 0x00000000), which re-enables application and port exceptions in the Microsoft
+  Defender Firewall and can restore network paths that a hardened profile would block.
+references:
+- https://www.virustotal.com/gui/file/da209017000b9812e8bc5f4e8db6499430ee2aadc72ef896964cffdfd896f143/behavior
+- https://app.any.run/tasks/8d4113a8-5403-4367-a79f-4ce4978d9bdb
+- https://www.zscaler.com/fr/blogs/security-research/malvertising-targeting-european-transit-users
+- https://www.trendmicro.com/vinfo/us/threat-encyclopedia/malware/trojan.win32.zbot.e
+author: frack113
+date: 2026-10-13
+tags:
+- attack.defense-impairment
+- attack.t1686.003
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|contains: '\Services\SharedAccess\Parameters\FirewallPolicy\'
+    TargetObject|endswith: '\DoNotAllowExceptions'
+    Details: 'DWORD (0x00000000)'
+  filter_main_svchost:
+    Image:
+    - 'C:\Windows\System32\svchost.exe'
+    - 'C:\Windows\SysWOW64\svchost.exe'
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: medium
+regression_tests_path: 
+  regression_data/rules/windows/registry/registry_set/registry_set_allow_defender_firewall_exceptions/info.yml
+note: |
+  ### Technical Context
+
+  This Sigma rule detects changes to the Microsoft Defender Firewall configuration that toggle the `DoNotAllowExceptions` value to 0, effectively allowing exceptions for applications and ports. This behavior indicates a potential degradation of firewall security policies, which adversaries might exploit to create network paths for malicious traffic. The relevant MITRE ATT&CK tactic is Defense Evasion (T1562: Impair Defenses), and the sub-technique is T1686.003, which specifically deals with modifying security settings.
+
+  The primary telemetry source is Windows registry event logs, specifically focusing on modifications to firewall policy registry keys located at `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows Firewall\`. If an attacker successfully exploits this, they could enable malicious applications or facilitate data exfiltration without triggering firewall defenses. It’s important to note that while this detection flags a possible configuration change, it does NOT confirm that malicious intent or activity is taking place.
+
+  ### Investigation Steps
+
+  - **Check the registry change details:** Review Windows registry logs (Event ID 4663 or security logs related to registry modifications) for changes to `TargetObject` indicating `\DoNotAllowExceptions` set to `0`. Confirm the timestamp and user context of the modification.
+
+  - **Identify the process initiating the change:** Cross-reference the registry change event with logs from Sysmon Event ID 1 (process creation) to find any suspicious processes (e.g., identified as `svchost.exe` in the detection criteria) that initiated the modification. Evaluate the integrity of the parent process.
+
+  - **Review related firewall activity:** Examine the Windows Firewall logs (typically located at C:\Windows\System32\LogFiles\Firewall\pfirewall.log) to identify if any exceptions were subsequently made after the registry setting change, indicating potential malicious activity.
+
+  - **Correlate with known legitimate application behavior:** Validate typical operations like scheduled updates or legitimate administrative access, where exceptions may be set in controlled environments. Check for expected legitimate user accounts making these registry changes during known administrative tasks.
+
+  - **Assess the asset’s risk profile:** Investigate the role and criticality of the host where the change was detected. Changes to firewall settings on critical systems (e.g., domain controllers or application servers) should raise higher concerns than changes on non-critical workstations.
+
+  ### Prioritization
+
+  This alert carries medium severity since enabling application exceptions in the firewall could lead to significant security risks if exploited. The likelihood of malicious abuse is moderate, as attackers often rely on such configurations to bypass security controls. This behavior has been weaponized in past incidents involving malware that manipulates firewall settings for persistence and exfiltration.
+
+  ### Blind Spots and Assumptions
+
+  The detection could be circumvented if an adversary reverts the change quickly after modification or uses alternate techniques to alter firewall configurations without triggering registry logs. Required log sources include comprehensive Windows registry auditing and firewall logging configurations to ensure complete visibility of rule adjustments. Legitimate administrative tools or scripts that modify firewall settings could trigger this alert. Companion detections, such as monitoring outbound network traffic (e.g., via firewall logs or IDS alerts), can provide additional context to strengthen overall coverage.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

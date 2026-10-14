@@ -5,10 +5,13 @@ description: Detects installation of new certificate on the system which
   attackers may use to avoid warnings when connecting to controlled web servers 
   or C2s
 references:
-- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1553.004/T1553.004.md
+- https://www.trendmicro.com/en_us/research/14/h/finding-holes-operation-emmental.html
+- https://www.kaspersky.com/blog/lenovo-pc-with-adware-superfish-preinstalled/
+- https://www.cisa.gov/news-events/alerts/2015/02/20/lenovo-superfish-adware-vulnerable-https-spoofing
+- https://capec.mitre.org/data/definitions/479.html
 author: Ömer Günal, oscd.community
 date: 2020-10-05
-modified: 2022-07-07
+modified: 2026-10-04
 tags:
 - attack.defense-impairment
 - attack.t1553.004
@@ -17,38 +20,49 @@ logsource:
   category: process_creation
 detection:
   selection:
-    Image|endswith:
+    CommandLine|contains:
     - '/update-ca-certificates'
     - '/update-ca-trust'
   condition: selection
 falsepositives:
 - Legitimate administration activities
 level: low
+simulation:
+- type: atomic-red-team
+  name: Install root CA on CentOS/RHEL
+  technique: T1553.004
+  atomic_guid: 9c096ec4-fd42-419d-a762-d64cc950627e
+- type: atomic-red-team
+  name: Install root CA on Debian/Ubuntu
+  technique: T1553.004
+  atomic_guid: 53bcf8a0-1549-4b85-b919-010c56d724ff
 note: |
   ### Technical Context
 
-  This rule detects the installation of new root certificates through specific command invocations related to updating certificate authorities on a Linux system. Attackers may exploit this behavior to plant malicious certificates, enabling them to intercept SSL traffic without triggering security warnings, particularly when communicating with command-and-control servers (C2s).
+  This Sigma rule detects the installation of new root certificates on Linux systems, which can be leveraged by attackers to prevent SSL warnings when connecting to malicious command and control (C2) servers. The likely objective of the adversary is to establish trusted communication channels for data exfiltration or to facilitate further malicious activities. This detection maps to the MITRE ATT&CK technique T1553.004 (Install Root Certificate).
 
-  The relevant MITRE ATT&CK tactic is Defense Evasion with the technique T1553.004: Certificate Authorities. Primary telemetry sources include Linux process creation logs, specifically monitoring the execution of commands like `/update-ca-certificates` or `/update-ca-trust`. If malicious, such activity can lead to severe security impacts, including data exfiltration or unauthorized access to secure communications. However, this detection does NOT confirm that malicious activity is occurring on its own; legitimate administrative tasks may also trigger this alert.
+  The primary telemetry source includes Linux process creation logs that capture command-line method calls. Such behavior poses a significant security risk, as unauthorized root certificates can enable SSL interception and man-in-the-middle attacks. It is important to note that this detection does NOT inherently confirm malicious intent. It can also be triggered by legitimate administrative actions, particularly during certificate updates.
 
   ### Investigation Steps
 
-  - **Identify the process execution context:** Review process creation logs for Event ID related to command execution. Check for associated user accounts (e.g., root) and timestamps to identify any unusual patterns.
+  - **Verify the process execution context**: Check for the command-line calls containing `/update-ca-certificates` or `/update-ca-trust` in Linux log files (e.g., `/var/log/syslog`, `/var/log/secure`). Look for unexpected processes initiated by non-privileged users as indicators of potential compromise.
 
-  - **Verify the certificate installation:** Check the system's certificate store (e.g., `/etc/ssl/certs/`) for newly added certificates or changes to existing ones, focusing on certificates that were added in close temporal proximity to the detected command execution.
+  - **Identify the user and time of execution**: Examine the logs for Event IDs 1 (Sysmon) to check the user account that executed the process. Benign indicators include administrative users executing this during routine maintenance; however, unauthorized users should be considered suspicious.
 
-  - **Assess the environment:** Validate whether the command was executed under normal administrative practices. Confirm that the host is within an environment where updating certificates is expected; for instance, development vs. production systems may have different baseline behaviors.
+  - **Review the installed certificates**: Locate and inspect the certificate store (e.g., `/etc/ssl/certs`) to identify any newly installed root certificates. High-confidence malicious indicators would include certificates issued by unknown or non-trusted certificate authorities.
 
-  - **Look for malicious indicators:** Search for suspicious command parameters or user activity closely linked to unauthorized certificate installations. Identify any abnormal user behavior, such as commands run with `sudo` by non-privileged accounts.
+  - **Cross-reference with known vulnerabilities or tools**: Search for any known associations (via sources like CISA alerts or security blogs) linking the detected activity to documented vulnerabilities or attack tools specific to the observed certificate installation.
 
-  - **Examine related log entries:** Review logs from security monitoring tools like Syslog or system audit logs for additional activities related to network connections established post-certificate installation, especially to non-business IP addresses.
+  - **Monitor for concurrent abnormal activity**: Look for other suspicious behaviors within the same time frame, such as unusual outbound connections or process creations via logs (e.g., `auditd` logs) to identify coordinated malicious activity.
+
+  - **Consider the role of the impacted host**: Assess whether the system where the certificate was installed hosts critical applications or functions that would be susceptible to man-in-the-middle attacks, enhancing the urgency of the investigation.
 
   ### Prioritization
 
-  The alert is of low severity given the potential for legitimate administrative actions triggering it. However, the potential for malicious use, especially in environments handling sensitive data, necessitates investigation. This behavior can be weaponized by actors aiming to engage in man-in-the-middle attacks, making it essential to monitor.
+  The severity of this alert is low to moderate, depending on the context of the affected system. However, if it occurs on critical infrastructure or servers handling sensitive data, the risk increases significantly. Although such activities are less common compared to direct exploitations, they remain a vector often utilized during targeted attacks.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the possibility of evasion techniques, such as attackers using less common commands for certificate installation that may not be captured by this rule. Administrators may frequently execute certificate updates as part of routine tasks, leading to potential false positives. Required logs include comprehensive process creation logs and audit logs. A companion detection to consider is monitoring outbound network connections for new IPs following a certificate installation, which could indicate an attempt to leverage the newly trusted certificates for C2 communication.
+  This detection may miss sophisticated evasion techniques where attackers use legitimate tools or processes to install certificates stealthily. Further, relying solely on process creation logs can overlook cases where attackers use alternative methods for certificate installation. Legitimate administrative activities, such as updates or unauthorized script execution, can trigger this alert. Companion detections, such as unusual outbound traffic logs or anomalies within SSL/TLS session setups, can strengthen coverage against potential threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
