@@ -6,22 +6,24 @@ related:
 - id: 999bff6d-dc15-44c9-9f5c-e1051bfc86e1
   type: similar
 status: test
-description: Detects suspicious powershell download cradle using nslookup. This 
-  cradle uses nslookup to extract payloads from DNS records
+description: |
+  Detects suspicious powershell download cradle using nslookup.
+  This cradle uses nslookup to extract payloads from DNS records
 references:
 - https://twitter.com/Alh4zr3d/status/1566489367232651264
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-09-05
-modified: 2022-12-19
+modified: 2026-10-13
 tags:
-- attack.stealth
+- attack.command-and-control
+- attack.t1071.004
 logsource:
   category: process_creation
   product: windows
 detection:
   selection_img:
-  - Image|contains: '\nslookup.exe'
-  - OriginalFileName: '\nslookup.exe'
+  - Image|endswith: '\nslookup.exe'
+  - OriginalFileName: 'nslookup.exe'
   selection_cmd:
     ParentImage|endswith:
     - '\powershell.exe'
@@ -29,6 +31,7 @@ detection:
     CommandLine|contains:
     - ' -q=txt '
     - ' -querytype=txt '
+    - ' -type=txt'
   condition: all of selection_*
 falsepositives:
 - Unknown
@@ -36,28 +39,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection identifies the use of PowerShell to execute `nslookup` commands that are commonly associated with download cradles, which are techniques used by attackers to retrieve malicious files from DNS records. The likely objective is to bypass traditional security controls by using DNS as a covert channel for delivering payloads. This behavior aligns with the MITRE ATT&CK tactics of "Command and Control" (T1071) and techniques of "Application Layer Protocol" (T1071.001).
+  This rule detects the execution of PowerShell commands that utilize `nslookup` for downloading payloads from DNS TXT records. The likely attacker objective is to exfiltrate data or deliver malicious content without utilizing traditional, more detectable methods of command and control. This behavior maps to the MITRE ATT&CK framework under the tactic of Command and Control (T1071.004) which involves the use of DNS for data exfiltration or communication with an external entity.
 
-  The primary telemetry sources involved include process creation logs from Windows, specifically Event ID 4688 and Sysmon Event ID 1, which capture the execution of processes and their command-line arguments. If this behavior is malicious, it could lead to the execution of arbitrary code, data breaches, or lateral movement within the environment. Importantly, this detection does NOT confirm that malicious activity has occurred on its own; further context is needed for accurate attribution.
+  Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 or Sysmon Event ID 1, capturing process command-line arguments and parent-child relationships. If malicious, this behavior can indicate an attempt to bypass security measures and establish communication with an external command and control server. Importantly, this detection alone does not confirm malicious intent; legitimate usage of `nslookup` may lead to similar command patterns.
 
   ### Investigation Steps
 
-  - **Check executing process details:** Review Security Event ID 4688 for the `nslookup.exe` instance. Verify that the parent process is `powershell.exe` or `pwsh.exe`. Look for command-line arguments containing `-q=txt` or `-querytype=txt`. Malicious indicators include unexpected or obfuscated command-line arguments.
+  - **Review process creation logs**: Check for Windows Security Event ID 4688 or Sysmon Event ID 1 related to `nslookup.exe` being executed. Confirm the parent process is `powershell.exe` or `pwsh.exe` to better contextualize the alert.
 
-  - **Review DNS query logs:** Check the DNS logs corresponding to the timestamps of the alert for unusual TXT record queries initiated by the host in question. A legitimate request typically arises from known, trusted applications. Malicious behavior may include repeated queries to unknown or suspicious domains.
+  - **Examine command-line arguments**: Look for specific command-line options like `-q=txt`, `-querytype=txt`, or `-type=txt`. Legitimate uses typically do not include these in combination with PowerShell scripts aimed at DNS queries.
 
-  - **Analyze file downloads:** Investigate for file creation or modifications on the host using Sysmon Event ID 11 or Windows Event ID 5145, checking for any new files created that may correlate with the nslookup activity. Pay attention to file names and extensions that indicate potential malicious downloads (e.g., executable files).
+  - **Verify DNS request logs**: Inspect logs for DNS queries associated with the reported `nslookup` command. Analyze outbound DNS requests for queries returning suspicious TXT records, which might be indicative of data exfiltration.
 
-  - **Correlate with relevant alerts:** Assess any other alerts within the environment triggered by the same host or user account, particularly those related to suspicious PowerShell activities or outbound DNS queries. Close proximity timing with other indicators is suggestive of coordinated attack activity.
+  - **Identify file creations or downloads**: Validate any subsequent creation of files or downloads initiated by `nslookup` that may be executed by PowerShell. Check for unusual file extensions or unexpected content in context to the command being executed.
 
-  - **Identify legitimate usage patterns:** Establish baseline behaviors for DNS lookups on the affected host. Legitimate users may perform DNS queries for domain resolution or troubleshooting, generally with well-known domains. Compare this to activity that triggers the alert.
+  - **Assess regular usage patterns**: Understand baseline behavior for `nslookup` in your environment. Legitimate internal administrative scripts may use similar command patterns; identify whether those occurred around the same time as the alert.
+
+  - **Look for high-confidence malicious indicators**: If DNS queries return TXT records containing executable URLs, these can be considered high-confidence indicators of malicious intent. Cross-reference with known indicators of compromise (IoCs) where applicable.
 
   ### Prioritization
 
-  This alert holds medium severity due to the potential impact on sensitive systems and the nature of DNS being a common channel for data exfiltration or command control. The use of nslookup in this context is increasingly weaponized by threat actors hoping to evade detection, thereby warranting immediate investigation.
+  This alert has a medium severity due to the potential impact of the affected systems, especially if they are part of critical infrastructure. While not all nslookup usage is nefarious, the likelihood of attackers using such techniques is well-established, making this a crucial alert for immediate investigation.
 
   ### Blind Spots and Assumptions
 
-  The detection may be limited by instances where logging is not enabled for process creation or DNS queries, thus preventing visibility into related activities. Additionally, legitimate administrative tasks or scripts performing DNS queries may inadvertently trigger the alert. A related detection to consider is monitoring for direct downloads via PowerShell (T1059.001) to enhance contextual coverage and response.
+  Detection can be limited by legitimate uses of `nslookup` for system administration. Effective detection relies on having proper logging configurations enabled, especially for process creation events and DNS resolutions. Legitimate internal scripts or administrative users running `nslookup` commands may trigger these alerts. Companion detections related to unusual DNS activity or alerts on incoming/outgoing DNS traffic (e.g., DNS exfiltration patterns) should be considered for enhanced coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

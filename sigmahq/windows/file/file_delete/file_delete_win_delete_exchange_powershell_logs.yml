@@ -4,10 +4,11 @@ status: test
 description: Detects the deletion of the Exchange PowerShell cmdlet History logs
   which may indicate an attempt to destroy forensic evidence
 references:
-- https://m365internals.com/2022/10/07/hunting-in-on-premises-exchange-server-logs/
+- https://web.archive.org/web/20221012062917/https://m365internals.com/2022/10/07/hunting-in-on-premises-exchange-server-logs/
+- https://www.it-server-room.com/en/exchange-server-log-file-locations-and-cleanup-guide/
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2022-10-26
-modified: 2022-12-30
+modified: 2026-10-13
 tags:
 - attack.stealth
 - attack.t1070
@@ -16,8 +17,9 @@ logsource:
   product: windows
 detection:
   selection:
-    TargetFilename|startswith: '\Logging\CmdletInfra\LocalPowerShell\Cmdlet\'
-    TargetFilename|contains: '_Cmdlet_'
+    TargetFilename|contains|all:
+    - '\Logging\CmdletInfra\LocalPowerShell\Cmdlet\'
+    - '_Cmdlet_'
   condition: selection
 falsepositives:
 - Possible FP during log rotation
@@ -25,30 +27,26 @@ level: high
 note: |
   ### Technical Context
 
-  This rule detects the deletion of PowerShell cmdlet history logs on Microsoft Exchange servers, specifically targeting files located in the `\Logging\CmdletInfra\LocalPowerShell\Cmdlet\` directory. Attackers may delete these logs to erase traces of their activities, thus achieving stealth and hindering forensic investigations. The primary MITRE ATT&CK technique associated with this behavior is Data Destruction (T1070).
+  This rule detects the deletion of Exchange PowerShell cmdlet history logs, which could indicate an attacker’s effort to erase forensic evidence of their actions within an Exchange environment. The objective of such an activity is typically to hinder incident response capabilities and eliminate traces of unauthorized or malicious operations performed via PowerShell. The relevant MITRE ATT&CK tactic is **Defense Evasion** (TA0005), specifically technique **Indicator Removal on Host** (T1070).
 
-  Primary telemetry sources include Windows file deletion logs, specifically those reporting on successful deletions within the specified directory. If malicious, this action could prevent the detection of unauthorized administrative activities or lateral movements within the Exchange environment. This detection does NOT confirm that malicious activity has occurred, as legitimate log rotation processes could trigger similarly.
+  The primary telemetry source is Windows file deletion events related to Exchange Server logs, particularly focusing on log files located in the `\Logging\CmdletInfra\LocalPowerShell\Cmdlet\` directory. If this deletion is malicious, it can significantly impede the ability to understand the nature of compromised accounts or systems. This detection alone does not confirm that malicious activity has taken place; it indicates suspicious behavior that warrants further investigation.
 
   ### Investigation Steps
 
-  - **Review file deletion events:** Check Windows Security Event ID 4660 for records of file deletions, focusing on events originating from the `\Logging\CmdletInfra\LocalPowerShell\Cmdlet\` directory. Assess if the deleted files correlate with scheduled log maintenance.
+  - **Review recent log deletions**: Check Windows Security Event ID 4663 or Sysmon Event ID 11 for deletion events. Look for deletions of files corresponding to the cmdlet history path. Compare timestamps with known user activity to establish context.
 
-  - **Correlate to administrative actions:** Analyze Security Event IDs 4688 (process creation) and 4104 (PowerShell script block logging) for any PowerShell processes executed by administrative accounts immediately before the deletions. Compare timestamps to establish a potential timeline of malicious activity.
+  - **Analyze user activity logs**: Investigate PowerShell logs (Event ID 4104) and Command Line logs (Event ID 4688) to check for any suspicious cmdlet execution patterns or abnormal user behavior preceding the deletion. Legitimate administrative user actions typically correlate with scheduled tasks or expected maintenance windows.
 
-  - **Identify anomalous access times:** Examine the access logs for the Exchange server to determine if log deletions occurred during unusual hours or when no regular administrative activities are expected, signaling potential malicious behavior.
+  - **Identify user permissions**: Determine if the account that executed the deletion has appropriate permissions. Cross-reference the account with typical roles; Azure AD sign-ins or on-premises Active Directory logs can provide insights into user roles and responsibilities.
 
-  - **Check for legitimate log maintenance patterns:** Confirm whether log rotation or cleanup is regularly scheduled in the environment. Identify expected log deletion patterns to differentiate benign actions from suspicious ones.
-
-  - **Verify system and user role:** Assess the role of the server (such as Domain Controller or Exchange server) and the privileges of the user account executing the deletion. High-privileged accounts conducting deletions may warrant closer scrutiny.
-
-  - **Cross-reference with PowerShell history:** Check for any anomalies in PowerShell session logs or command history, specifically looking for executed commands that might relate to the recent file deletions, which could indicate an attempt to obscure evidence of exploitation.
+  - **Check for concurrent suspicious activities**: Correlate the deletion timestamp with other logs, such as Windows Event ID 4740 (account lockout) or Event ID 4672 (special privileges assigned), that may suggest unauthorized access or elevated permissions usage.
 
   ### Prioritization
 
-  This alert is high priority due to the critical nature of Exchange servers within the enterprise environment. The likelihood of malicious use is elevated, especially in targeted attacks aiming to manipulate or destroy log evidence. The potential impact of such threats is significant, as they can facilitate further malicious actions unnoticed.
+  This alert should be considered high severity due to the potential impact on forensic investigations and incident response efforts. The likelihood of malicious abuse is considerable, as erasing cmdlet history is a common tactic employed by adversaries to cover their tracks. This behavior is often weaponized in contexts of compromise, especially within environments managing critical communications.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if log retention policies or configurations are not adequately set to capture all file deletions in critical directories. Attackers might also employ log rotation processes as a cover for their actions, complicating forensic investigations. Legitimate administrative tasks can inadvertently trigger this alert, emphasizing the need for context. Companion detections, such as suspicious PowerShell command execution, can enhance coverage and provide additional signals of potential compromise.
+  Detection may be limited by legitimate file rotation or cleanup processes that occur regularly on Exchange servers, which can generate false positives. Proper configuration of log files must be ensured for reliable detection, particularly monitoring the cmdlet log directory. It’s also important to note that administrative users may legitimately delete cmdlet histories during maintenance. Companion detections, such as monitoring for unusual PowerShell execution (e.g., use of encoded commands or harmful cmdlets), can provide stronger coverage and context around suspicious activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
