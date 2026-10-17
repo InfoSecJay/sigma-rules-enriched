@@ -19,7 +19,7 @@ references:
 - https://vipre.com/blog/svg-phishing-attacks-the-new-trick-in-the-cybercriminals-playbook/
 author: Nasreddine Bencherchali (Nextron Systems), frack113
 date: 2022-06-19
-modified: 2026-10-12
+modified: 2026-10-16
 tags:
 - attack.stealth
 - attack.t1036.007
@@ -28,30 +28,7 @@ logsource:
   product: windows
 detection:
   selection_gen:
-    TargetFilename|endswith:
-    - '.exe'
-    - '.iso'
-    - '.rar'
-    - '.svg'
-    - '.zip'
-            # - '.lnk'  # legitimate links can happen just anywhere
-    TargetFilename|contains:
-    - '.doc.'
-    - '.docx.'
-    - '.gif.'
-    - '.jpeg.'
-    - '.jpg.'
-    - '.mp3.'
-    - '.mp4.'
-    - '.pdf.'
-    - '.png.'
-    - '.ppt.'
-    - '.pptx.'
-    - '.rtf.'
-    - '.svg.'
-    - '.txt.'
-    - '.xls.'
-    - '.xlsx.'
+    TargetFilename|re|i: '\.(docx?|gif|jpe?g|mp3|mp4|pdf|png|pptx?|rtf|svg|txt|xlsx?)\.(bat|exe|iso|rar|svg|vbe|vbs|zip)$'
   selection_exe:
     TargetFilename|endswith:
     - '.rar.exe'
@@ -61,8 +38,12 @@ detection:
     #     TargetFilename|contains:
     #         - '\AppData\Roaming\Microsoft\Office\Recent\'
     #         - '\AppData\Roaming\Microsoft\Windows\Recent\'
-  filter_main_duplicate_extension:
-    TargetFilename|endswith: '.svg.svg'
+  filter_main_legitimate_extensions:
+    TargetFilename|endswith:
+    - '.svg.svg'
+    - '.png.svg'
+    - '.jpg.svg'
+    - '.jpeg.svg'
   filter_optional_icons_linux:
     TargetFilename|startswith: '/usr/share/icons/'
   condition: 1 of selection_* and not 1 of filter_main_* and not 1 of 
@@ -75,30 +56,28 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation of files with double extensions, such as `.exe.docx` or `.zip.exe`, which attackers commonly use to obfuscate true file types and bypass security controls. The likely objective is to persuade users to open harmful files disguised as benign documents or media, enabling payload execution or malware delivery. This behavior primarily aligns with the MITRE ATT&CK technique of "Masquerading" (T1036.007).
+  This Sigma rule detects files with double extensions, a common tactic employed by attackers to bypass security measures and disguise malicious payloads by exploiting the Windows operating system's tendency to hide file extensions. The likely objective of the attacker is to obfuscate malicious files, such as executables disguised as documents or images, to facilitate phishing and execute malware delivery. This behavior aligns with the MITRE ATT&CK technique "Obfuscated Files or Information" (T1036.007).
 
-  The primary telemetry sources are Windows file event logs that capture file creation actions, focusing on specific file extensions that may indicate malicious intent. If executed, the malicious file could lead to unauthorized access or data exfiltration, impacting overall security posture. However, this detection does NOT confirm that the file is malicious on its own; further investigation is necessary to establish intent and context.
+  The primary telemetry source is Windows file event logs, specifically tracking events reflecting file creation and manipulation. The security impact of successful exploitation could lead to unauthorized code execution or malware installation. Importantly, this detection alone does not confirm malicious intent; it indicates potential risk that requires further investigation.
 
   ### Investigation Steps
 
-  - **Examine the alert details:** Identify the `TargetFilename` field from the file creation event logs (Windows Security Event ID 4663 or Sysmon Event ID 11) for double extensions. Review filenames that contain malicious indicators, e.g., files ending with `.exe.docx` or `.zip.exe`.
+  - **Review file creation events**: Check for Windows Security Event ID 4663 or Sysmon Event ID 11 to track file creation events related to the detected double extensions. Look for patterns indicating unexpected file types in sensitive directories.
 
-  - **Review legitimate file creation patterns:** Determine if the file was created in user directories or system folders. Legitimate files usually appear in well-known directory structures like `C:\Users\[username]\Documents\`.
+  - **Identify legitimate uses**: Confirm whether the file in question is associated with known applications or user workflows. For instance, SVG files should generally not have executable extensions; legitimate SVG files (e.g., `image.svg`) should be in standard graphic directories without double extensions.
 
-  - **Check for historical context:** Look into the recent activity logs for downloads or file transfers prior to the file creation event. Event ID 4104 from PowerShell logs may reveal commands that downloaded malicious payloads.
+  - **Check user activity**: Utilize Windows Event Log (Event ID 4624) to identify the user who created the file and correlate with user behavior or schedules. Legitimate users should not create files with double extensions in unusual directories.
 
-  - **Assess file properties and execution attempts:** Use `Get-Item` in PowerShell to check the `FileVersionInfo` of the associated executable to identify any unusual or malicious properties. Note that legitimate files may show normal version details.
+  - **Analyze the executable's path**: Focus on the full path of the detected file. For example, files located in user directories (e.g., `C:\Users\<username>\Downloads\`) with double extensions present a stronger indicator of potential malicious activity compared to files in system directories.
 
-  - **Correlate with endpoint protection alerts:** Review logs from endpoint security solutions to identify if there have been any detections of the same filename or SHA256 hash associated with known malware.
-
-  - **Investigate related context or execution:** If the double-extension file was executed, check process creation logs (Sysmon Event ID 1) to verify if there were any subsequent process executions linked to the original file, indicating potential escalation.
+  - **Correlation with other detections**: Cross-reference the detected file with related detections, such as behavioral indicators or previous alerts about the same host. This can include prior file execution events (Event ID 4688).
 
   ### Prioritization
 
-  The alert severity is high due to the potential impact on critical systems and the likelihood that double-extension files serve as delivery mechanisms for known exploit techniques. Such behaviors are commonly weaponized in phishing and malware distribution attacks, stressing the importance of timely investigation.
+  This alert is high-severity due to the potential for significant impact on the affected system, especially in environments where users might download files. The likelihood of abuse is elevated as double extensions are frequently weaponized tactics, commonly associated with various types of malware and phishing attempts.
 
   ### Blind Spots and Assumptions
 
-  Evasion techniques may include renaming files with non-standard extensions or using legitimate-looking filenames. Detection relies heavily on comprehensive logging from file event sources; ensure file auditing is enabled for critical directories. Legitimate activities that might trigger alerts include users saving documents through email or download services, particularly if they extract files from zipped archives. A companion detection focusing on executable file downloads (ex: web proxy logs for file downloads) could enhance coverage.
+  Detection may be limited by user domain privileges that allow legitimate creation of double extension files for benign purposes (e.g., misconfigured user applications). Reliable detection requires comprehensive monitoring of file events across all user directories. Additionally, legitimate file types, such as certain media files, might occasionally appear with double extensions. Companion detections, such as monitoring for abnormal process execution after file creation (e.g., execution of a `.exe` from downloads), can strengthen overall detection coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
