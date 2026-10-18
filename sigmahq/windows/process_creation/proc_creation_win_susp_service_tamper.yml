@@ -20,7 +20,7 @@ references:
 author: Nasreddine Bencherchali (Nextron Systems), frack113 , X__Junior (Nextron
   Systems)
 date: 2022-09-01
-modified: 2025-08-27
+modified: 2026-10-17
 tags:
 - attack.impact
 - attack.defense-impairment
@@ -64,8 +64,11 @@ detection:
   selection_services:
     CommandLine|contains:
     - '143Svc'
+    - 'aakore'
     - 'Acronis VSS Provider'
+    - 'AcronisActiveProtectionService'
     - 'AcronisAgent'
+    - 'AcronisCyberProtectionService'
     - 'AcrSch2Svc'
     - 'AdobeARMservice'
     - 'AHS Service'
@@ -300,30 +303,30 @@ level: high
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of certain Windows binaries (`net`, `sc`, `PowerShell`, etc.) employed to manipulate critical services, such as stopping, pausing, disabling, or deleting them. Such actions are often indicative of adversary behavior aiming to disable security mechanisms (e.g., antivirus) during an attack, particularly in scenarios involving ransomware, which seeks to exploit service interruption to encrypt data without resistance.
+  This Sigma rule detects suspicious behavior associated with Windows service manipulation through command-line execution involving common system tools (e.g., `net.exe`, `sc.exe`, `powershell.exe`). The targeted manipulation typically involves stopping, pausing, disabling, or deleting essential services, including antivirus or backup services, which are common tactics used in ransomware attacks to disable security controls before further exploitation.
 
-  This behavior aligns with the MITRE ATT&CK technique T1489 (Service Stop) and T1685 (Service Registry Permissions Weakness). The primary telemetry sources include process creation logs and command-line activity from the affected endpoints, tracked via Event ID 4688 and Sysmon Event ID 1. If these actions are malicious, the security impact can be significant, leading to data breaches or system compromise. Importantly, this detection does NOT confirm the malicious intent of the activity on its own, as legitimate service management operations may trigger the same alerts.
+  The likely attacker objective is to disrupt the security posture of the target system, facilitating lateral movement or data encryption as seen in ransomware operations. This behavior maps to MITRE ATT&CK techniques such as **Impact (T1489)** and **Defense Evasion (T1685)**. The primary telemetry sources involved are Windows process creation logs (Security Event ID 4688 and Sysmon Event ID 1), capturing command-line arguments associated with service management.
+
+  If malicious, this activity could allow attackers to incapacitate critical services, posing a severe risk to data integrity and availability. This detection alone does not confirm a successful compromise; it only indicates potentially malicious attempts to disrupt services.
 
   ### Investigation Steps
 
-  - **Review the command-line arguments:** Examine Event ID 4688 or Sysmon Event ID 1 where the process `net.exe`, `sc.exe`, or `PowerShell.exe` was executed. Look for command-line strings containing keywords like `stop`, `pause`, `delete`, or `Remove-Service`, which suggests potential misuse.
+  - **Verify process origin**: Check the `OriginalFileName` and `CommandLine` values of processes with Event ID 4688 or Sysmon ID 1 logs. Legitimate operations should ideally come from logged administrative tools or well-known applications rather than unexpected binaries.
 
-  - **Assess service manipulation:** Cross-reference the service names being manipulated against a list of known critical services (e.g., `WinDefend`, `McShield`, etc.). If these services were stopped or deleted, flag the activity as suspicious and note the timestamp for escalation.
+  - **Review command parameters**: Inspect command-line details for the detected process. Look for keywords like `delete`, `stop` or `pause`. Focus on critical services (e.g., `WinDefend`, `McShield`) being targeted. For example, legitimate service management commands should not invoke these terms for critical security services unless during authorized maintenance.
 
-  - **Verify parent process and context:** Check the parent process of the triggering command. Legitimate service operations typically originate from known administrative tools or system accounts. Anomalous or unexpected parent processes (e.g., process created by `cmd.exe` initiated by a user account) may indicate malicious activity.
+  - **Identify high-risk services**: Cross-reference the detected command against a list of critical services. Use a configuration or compliance management tool to ensure unplanned service disruptions are uncommon within authorized operational procedures.
 
-  - **Identify high-confidence malicious indicators:** Focus on actions involving the following services: `Antivirus`, `BackupExec`, or any name within the comprehensive list provided in the rule. If commands are targeting these services, this is a strong indicator of malicious behavior. Capture context around when and why the service was stopped or deleted.
+  - **Analyze parent process**: Investigate the parent process for the detected activity in process creation logs. Look for anomalous parent processes that may indicate malicious workflows (e.g., a PowerShell script invoked by an untrusted executable).
 
-  - **Examine access permissions:** If the alert was generated from a user context other than a known administrator or service management tool, evaluate account permissions. Unprivileged users attempting to manipulate high-privilege services typically indicate an elevated risk.
-
-  - **Document expected activity:** Validate whether any planned maintenance or upgrades were recently scheduled that could explain legitimate service interruptions. Consult with IT operations or change management logs to verify.
+  - **Gather context on service status**: Validate the current status of affected services using PowerShell cmdlets (e.g., `Get-Service`) to see if they were indeed stopped or disabled during the timeframe of the alert. Service state changes without administrative oversight indicate risk.
 
   ### Prioritization
 
-  The alert should be prioritized as high due to the potential impact on critical systems and the likelihood of misuse by threat actors, especially when it involves disabling or deleting security services. This behavior is a well-known tactic employed by various types of malware and is commonly weaponized in ransomware attacks.
+  This alert should be prioritized as high severity due to the potential impact on critical systems such as antivirus or backup services. The likelihood of malicious abuse is considerable, as tampering with essential services is a common tactic employed by numerous ransomware variants, thereby warranting immediate attention.
 
   ### Blind Spots and Assumptions
 
-  Detection could be limited by user activity logging configurations or misconfigured policy settings, potentially allowing legitimate administrative actions to slip through undetected. Additionally, legitimate processes like automated service restarts or scheduled tasks may inadvertently trigger the alert. Companion detections focused on lateral movement (e.g., T1075 - Pass the Hash) can provide further contextual information to strengthen security posture against service manipulation activities.
+  This rule may be evaded using non-standard tools or scripting methods that do not utilize the common executables specified. Log sources must include comprehensive settings for process creation and commands executed via administrative tools to ensure reliable detection. Additionally, legitimate administrative actions, such as scheduled service updates or host reconfigurations, could trigger alerts. Companion detections such as abnormal file access patterns (e.g., sudden numbers of files being encrypted) can enhance overall threat coverage.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

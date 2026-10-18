@@ -1,0 +1,79 @@
+title: Shell Spawned by Celery Worker Process
+id: 904f6442-3b57-4b3f-987c-1559f58ce8d8
+status: experimental
+description: |
+  Detects a system shell interpreter being spawned directly by a Celery worker process.
+  This behavior indicates a Python background task execution framework is evaluating raw string input through a shell execution context,
+  which is highly indicative of successful command or prompt injection exploitation against an LLM agent task.
+references:
+- https://docs.celeryq.dev/en/stable/userguide/tasks.html
+- https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+- https://labs.cloudsecurityalliance.org/research/csa-research-note-promptware-c2-agent-exploitation-20260406/
+- https://nvd.nist.gov/vuln/detail/CVE-2021-23727
+- https://owasp.org/www-project-top-10-for-large-language-model-applications/
+- https://security.snyk.io/vuln/SNYK-PYTHON-CELERY-2314953
+- https://snyk.io/blog/python-rce-vulnerability/
+- https://unit42.paloaltonetworks.com/ai-agent-prompt-injection/
+- https://www.microsoft.com/en-us/security/blog/2026/05/07/prompts-become-shells-rce-vulnerabilities-ai-agent-frameworks
+author: Jennifer Batina
+date: 2026-10-17
+tags:
+- attack.execution
+- attack.t1059.004
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection_img:
+    Image|endswith:
+    - '/ash'
+    - '/bash'
+    - '/busybox'
+    - '/csh'
+    - '/dash'
+    - '/fish'
+    - '/ksh'
+    - '/sh'
+    - '/tcsh'
+    - '/zsh'
+    ParentCommandLine|contains: 'celery'
+  selection_parent:
+  - ParentImage|endswith:
+    - '/python'
+    - '/python3'
+  - ParentImage|contains: '/python3.'
+  condition: all of selection_*
+falsepositives:
+- Legacy or custom administrative tasks deliberately hardcoded with shell=True 
+  or os.system execution inside Celery task functions.
+- Media processing, deployment, or reporting pipelines that intentionally shell 
+  out to external tools (e.g. ffmpeg, git) from within a task.
+level: medium
+note: |
+  ### Technical Context
+
+  This Sigma rule detects the spawning of a system shell (e.g., bash, sh) by a Celery worker process, indicating potential exploitation of command or prompt injection vulnerabilities within Python-based applications leveraging large language models (LLMs). The likely attacker objective is to execute arbitrary commands on the host system, giving attackers the ability to manipulate, exfiltrate, or damage data. This behavior aligns with the MITRE ATT&CK technique T1059.004 (Command and Scripting Interpreter: Unix Shell).
+
+  Primary telemetry sources include Linux process creation logs where instances of shell interpreters initiated by Celery processes are recorded. The security impact, if malicious, could range from unauthorized access to significant data breach ramifications. Importantly, this detection does NOT confirm a successful compromise on its own; further investigation is necessary to correlate with other indicators.
+
+  ### Investigation Steps
+
+  - **Identify the process chain:** Review process creation logs for Security Event ID execve and correlate the parent process with Celery. Look specifically for logs with `ParentCommandLine` containing 'celery' and `Image` ending with common shell interpreters (bash, sh, etc.).
+
+  - **Check for command injection indicators:** Analyze the Celery task code or configurations for known vulnerable patterns, particularly those using `shell=True` or `os.system`. Look for `task` metadata indicating unsanitized user input passed to shell execution functions (e.g., `ffmpeg`, `git` commands).
+
+  - **Examine legitimate usage cases:** Validate instances where Celery tasks legitimately require shell access, such as media processing or deployment tasks. Ensure these tasks are part of expected workflows and well-documented in change management records.
+
+  - **Confirm malicious indicators:** Monitor for additional logs that suggest further command execution beyond the initial shell spawn, such as lateral movement or connections initiated from the spawned shell. Examine network logs for outbound connections to suspicious or unknown IP addresses.
+
+  - **Evaluate affected host role:** Determine the criticality of the host running the Celery worker. If the host is responsible for handling sensitive data or critical functions, escalate the alert priority and involve incident response teams.
+
+  ### Prioritization
+
+  This alert should be considered medium severity due to its association with known exploitation techniques and the potential for significant impact if a critical system is compromised. The likelihood of abuse is heightened given recent trends in exploiting LLMs for command injections. Given the specialized nature of Celery in enterprise environments, this behavior is less common but can have serious implications.
+
+  ### Blind Spots and Assumptions
+
+  Detection is limited by evasion techniques such as obfuscation of malicious input or use of non-standard shells. Ensuring comprehensive logging configurations are necessary for reliable detection; specifically, configurations should include process creation and system audit logs. Legitimate administrative tasks and automated CI/CD pipelines may trigger this alert, warranting a careful review of context. A related detection to strengthen coverage could focus on monitoring unusual command executions from worker processes outside of expected usage patterns.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
