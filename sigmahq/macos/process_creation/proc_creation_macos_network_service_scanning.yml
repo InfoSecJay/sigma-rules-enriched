@@ -6,7 +6,7 @@ references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1046/T1046.md
 author: Alejandro Ortuno, oscd.community
 date: 2020-10-21
-modified: 2021-11-27
+modified: 2026-10-19
 tags:
 - attack.discovery
 - attack.t1046
@@ -14,45 +14,45 @@ logsource:
   category: process_creation
   product: macos
 detection:
-  selection_1:
+  selection_netcat:
     Image|endswith:
     - '/nc'
     - '/netcat'
-  selection_2:
+  selection_other:
     Image|endswith:
     - '/nmap'
     - '/telnet'
-  filter:
-    CommandLine|contains: 'l'
-  condition: (selection_1 and not filter) or selection_2
+  filter_main_nc_listen:
+    CommandLine|re: '\s(?:--listen\b|-[46DdknrtuUvz]{0,10}l[46DdknrtuUvz]{0,10})'
+  condition: (selection_netcat and not 1 of filter_main_nc_*) or selection_other
 falsepositives:
 - Legitimate administration activities
 level: low
 note: |
   ### Technical Context
 
-  This detection identifies the execution of network scanning tools such as Netcat, Nmap, and Telnet, which can be used to enumerate local or remote network services. The likely attacker objective is to discover live hosts, open ports, or services running on a target environment, aiding in subsequent reconnaissance or exploitation efforts. This behavior relates to the MITRE ATT&CK tactic of Discovery and the technique T1046 (Network Service Scanning). The primary telemetry sources include process creation logs from macOS (such as syslog or unified logs), specifically monitoring for command-line events associated with the mentioned tools. If malicious, this activity can lead to network breaches or data exfiltration through service exploitation. It is important to note that this detection does NOT confirm that the action is malicious; legitimate administrative actions may also trigger the alert.
+  This Sigma rule detects the enumeration of local or remote network services using tools like Netcat, Nmap, or Telnet, particularly when the command indicates a listening state. The likely attacker objective is reconnaissance, aimed at identifying open ports and services on the target machine to exploit vulnerabilities. This behavior correlates with the MITRE ATT&CK tactic **Discovery** and technique **Network Service Scanning (T1046)**. Primary telemetry sources include macOS process creation data, specifically logs that capture command line arguments and images of executed processes. If malicious, this activity could facilitate unauthorized access or lateral movement within the network. Importantly, this detection does NOT confirm that any malicious exploitation has occurred; it only highlights potential reconnaissance activity.
 
   ### Investigation Steps
 
-  - **Review the command line arguments: ** Check the command line for Event ID associated with process creation (macOS unified logs) for any unusual flags or combinations indicative of scanning (i.e., typical usage patterns like `nmap -sP` for ping scans).
+  - **Review process creation logs for network scanning tools**: Check Security Event ID for macOS process creation (e.g., `syslog` entries) where the image ends with `/nc`, `/netcat`, `/nmap`, or `/telnet`. Identify if the command line includes arguments suggesting a listening state (`--listen`, `-l`).
 
-  - **Investigate recent usage history: ** Look for the execution timestamps of detected processes within the last 24 hours to assess if the activity correlates with other suspicious events (e.g., sudden spikes in network activity).
+  - **Validate the legitimacy of network scanning activity**: Compare the identified activities against a baseline of normal administrative functions on the affected asset. Legitimate actions may involve authorized downloads or scans performed during network assessment or troubleshooting.
 
-  - **Identify the executing user context: ** Review the user account in the logs (e.g., DEVUUID for macOS) to see if it aligns with legitimate administrative roles. Uncommon users running these tools may indicate potential abuse.
+  - **Correlate timing with other network logs**: Examine network traffic logs (such as `tcpdump` or `netstat`) during the same timeframe for unusual connections or access attempts to the same target systems.
 
-  - **Cross-reference network access logs: ** Validate outbound connections during the time of the scanning activity using application firewall logs or network activity logs (e.g., event logs showing outbound connections) to assess if any unauthorized external services were accessed.
+  - **Identify high-confidence malicious indicators**: Look for repeated attempts to scan multiple IP addresses within a short timeframe, especially if followed by alerts of successful unauthorized access attempts.
 
-  - **Understand normal administrative behavior: ** Document benign use of these tools by network admins. For example, authorized usage of nmap might typically involve specific IP ranges, service checks, or locations that don’t raise alarms.
+  - **Assess asset criticality**: Determine the role of the affected system (e.g., server, workstation, gateway) and the potential impact of any unauthorized access based on its criticality within the organization.
 
-  - **Look for brute force and login attempts: ** Analyze for related events like failed login attempts to systems in the scanned IP range (macOS auth logs), indicating potentially malicious intent after probing network services.
+  - **Check for evasion tactics**: Investigate potential use of obfuscation techniques, such as using custom or less common scanning tools that might not trigger detection but indicate advanced adversary behavior.
 
   ### Prioritization
 
-  This alert should be classified as low severity. While it indicates a potential reconnaissance activity on the network, the likelihood of malicious abuse is moderate, as legitimate administrative actions may trigger the detection. However, network scanning is a common precursor to further exploits, underscoring the need for careful investigation.
+  The severity of this alert is low due to its nature as a reconnaissance activity rather than an immediate threat. However, it can indicate potential preparation for more malicious actions, especially if observed on sensitive systems or in critical environments where reconnaissance is often a prelude to attack.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited if logging is not sufficiently detailed, as the specifics of command-line arguments may not always be captured. Adversaries may employ evasion techniques, such as obfuscating tool names or using custom scripts that mirror legitimate traffic. Legitimate activities, such as network assessments by admins, can result in false positives. A related detection to enhance coverage would be monitoring for abnormal outbound connections that correlate with known scanning activities.
+  Detection may be limited by the usage of custom or encrypted scanning tools that do not match known signatures. Reliable detection requires enabling comprehensive logging for process creations on macOS systems. Legitimate activities, such as network configuration changes or testing by authorized personnel, may trigger these alerts. A companion detection for broader coverage could involve monitoring direct HTTP requests or unusual service accesses that often follow network scanning activities.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

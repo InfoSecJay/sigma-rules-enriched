@@ -11,6 +11,7 @@ references:
 - https://lolbas-project.github.io/#/download
 author: Swachchhanda Shrawan Poudel (Nextron Systems)
 date: 2025-12-10
+modified: 2026-10-14
 tags:
 - attack.stealth
 - attack.t1218
@@ -64,7 +65,19 @@ detection:
     - '\Start Menu\Programs\Startup\'
     - '\Users\Default\'
     - '\Videos\'
-  condition: all of selection_*
+  filter_optional_dell_techhub_repair:
+        # Dell TechHub runs "esentutl /p" on its SRUDB copy; the repair scratch files land in the working directory (System32)
+    Image|endswith: '\esentutl.exe'
+    TargetFilename|startswith:
+    - 'C:\Windows\System32\SRUDB_'
+    - 'C:\Windows\System32\TEMPREPAIR'
+    TargetFilename|endswith:
+    - '.INTEG.RAW'
+    - '.EDB'
+  filter_optional_dell_techhub_copy:
+    Image|endswith: '\esentutl.exe'
+    TargetFilename|startswith: 'C:\ProgramData\Dell\DTP\DB\SRUDBData\'
+  condition: all of selection_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
 level: high
@@ -73,30 +86,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the action of legitimate applications writing files to uncommon or suspicious directories on Windows systems. Attackers may exploit legitimate applications (often referred to as Living off the Land Binaries or LOLBins) to place malicious files in these non-standard locations, with the intent to evade detection by security solutions. The relevant MITRE ATT&CK tactics include "Defense Evasion" (TA0068) and "Command and Control" (TA0011), specifically techniques T1218 (Signed Binary Proxy Execution) and T1105 (Ingress Tool Transfer).
+  This Sigma rule detects the use of legitimate applications writing files to uncommon or suspicious locations on a Windows system. Attackers often utilize Living off the Land Binaries (LOLBins) to execute malicious actions while blending in with normal operations, such as downloading or executing malicious files in atypical directories. The relevant MITRE ATT&CK tactics and techniques for this detection are Command and Control (TA0011) and Execution (TA0040) under the techniques T1105 (Ingress Tool Transfer) and T1218 (System Services Execution).
 
-  Primary telemetry sources for this detection are file event logs from Windows, particularly focusing on created or modified files within directories that are atypical for legitimate application behavior. If this activity is malicious, it could facilitate further compromise or data exfiltration. However, this detection alone does NOT provide confirmation that the file being created is malicious; further investigation is required to establish intent and legitimacy.
+  Primary telemetry sources include Windows file event logs, specifically tracking file creation events by monitoring Event ID 4663, which denotes file access or modification. If the behavior is malicious, it can lead to unauthorized access, data exfiltration, or the execution of malware, posing significant security risks. Importantly, this detection does NOT confirm that the activity is malicious by itself; further investigation is required to ascertain the intent behind the file creation.
 
   ### Investigation Steps
 
-  - **Identify the process responsible for the file write:** Review Windows Security Event ID 4688 (Process Creation) for associated process details. Look for entries involving applications in the list (like `cmdl32.exe`, `mshta.exe`, etc.) writing files to suspicious locations.
+  - **Review file creation events:** Check Security Event ID 4663 in the Windows Security log to identify the exact time, user, application, and target file path associated with the event. Validate whether the files are being created in listed uncommon locations.
 
-  - **Examine file paths for unusual patterns:** Analyze the TargetFilename field for file writes occurring in uncommon directories such as `C:\Users\Public\`, `C:\ProgramData\`, and `C:\Temp\`. Legitimate application writes typically occur in user-specific folders or designated program data directories.
+  - **Identify the executing process:** Confirm the process identified in the file creation log matches one from the list of known LOLBins (e.g., `cmdl32.exe`, `mshta.exe`). Check for any parent process relationships that indicate unusual execution paths or invocation.
 
-  - **Check for concurrent suspicious activities:** Utilize Sysmon Event ID 1 (Process Creation) to correlate if the detected file write was preceded or followed by other suspicious behaviors, such as network activity leading to known malicious IP addresses or domains.
+  - **Examine for unusual file names:** Investigate the created files in uncommon directories for suspicious naming conventions, such as executable files (.exe) in directories like `C:\Temp\` or `C:\Users\Public\`. Legitimate applications typically create files in their respective directories under `C:\Program Files\` or user-specific folders.
 
-  - **Validate the file content or type:** Review the file type created in the unauthorized location. Malicious indicators may include executable files or scripts in areas like `$Recycle.Bin\` or `C:\Temp\`. Legitimate file types are often documents or configuration files specific to the application behavior.
+  - **Validate malicious indicators:** Look for any indications of lateral movement or command and control behavior, such as network connections from the identified process using TCP/UDP ports that are not standard (e.g., port numbers outside the range of known service ports).
 
-  - **Assess the execution behavior of the involved applications:** Look for previously known benign usage of the applications noted in your review. For example, `certutil.exe` could legitimately download files when used by authorized administrators, but unusual file paths or execution flags may indicate abuse.
+  - **Assess host criticality:** Determine the role and criticality of the affected host. Production systems running critical business applications are more likely to be malicious targets compared to non-critical test systems.
 
-  - **Review user activity and credentials:** Investigate the user account associated with the file write action. Legitimate business operations can lead to files in shared directories, while suspicious user patterns may indicate an account is being exploited or has elevated privileges misused.
+  - **Collect additional contextual information:** If possible, retrieve information from endpoint protection platforms or EDR solutions for additional context on the behavior observed, including any prior alerts related to the same process.
 
   ### Prioritization
 
-  The alert severity is high, primarily due to the potential impact on all systems involved, especially if sensitive data or critical processes are compromised. The likelihood of malicious abuse is significant, considering adversaries commonly use LOLBins for obfuscation. This behavior is frequently leveraged in attacks against enterprise environments.
+  This alert carries high severity due to the potential impact on the system's integrity and security, especially if the affected applications are typically trusted within the enterprise environment. Given the likelihood that attackers exploit benign applications for malicious purposes, this behavior is increasingly common and weaponized in the context of modern cyber threats.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include possible evasion techniques, such as using non-standard executables or renaming legitimate processes to bypass detection. Reliable identification of this behavior requires complete logging for Windows file events and process creations. Legitimate activities like administrative tasks may also trigger this alert, especially in shared environments. Companion detections that reinforce coverage include alerts for anomalous outbound connections following file creations, enhancing the context of potential data exfiltration attempts.
+  Detection may struggle to identify every instance of legitimate application misuse, especially if the applications are known to operate in defined behaviors or include whitelisted processes. A proper configuration of Windows file event logging is vital for reliable detection. Common legitimate activities such as software updates or configuration changes may trigger this alert, necessitating context to distinguish normal from abnormal behavior. A related detection for consideration is the use of `bitsadmin.exe`, which could indicate additional layers of file transfer or command execution that complement the evidence provided by this rule.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
