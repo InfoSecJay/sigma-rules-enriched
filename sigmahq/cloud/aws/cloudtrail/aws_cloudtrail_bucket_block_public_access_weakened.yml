@@ -1,0 +1,67 @@
+title: AWS Bucket Block Public Access Weakened
+id: ab18a523-e093-4ac6-8303-8c47431f4fca
+status: experimental
+description: |
+  Detects the weakening of "Block Public Access" setting of S3 buckets in CloudTrail logs.
+  Monitoring changes to Block Public Access settings is critical, as attackers may disable these safeguards before exposing a bucket through a public ACL or bucket policy.
+references:
+- https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html
+- https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutPublicAccessBlock.html
+author: Shoban Chiddarth
+date: 2026-10-21
+tags:
+- attack.defense-impairment
+- attack.t1686.001
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection_event_name:
+    eventSource: 's3.amazonaws.com'
+    eventName: 'PutBucketPublicAccessBlock'
+  selection_weaken_restrict_public_buckets:
+    requestParameters.PublicAccessBlockConfiguration.RestrictPublicBuckets: 'false'
+  selection_weaken_block_public_acls:
+    requestParameters.PublicAccessBlockConfiguration.BlockPublicAcls: 'false'
+  selection_weaken_block_public_policy:
+    requestParameters.PublicAccessBlockConfiguration.BlockPublicPolicy: 'false'
+  selection_weaken_ignore_public_acls:
+    requestParameters.PublicAccessBlockConfiguration.IgnorePublicAcls: 'false'
+  selection_status_success:
+    errorCode: 'Success'
+  selection_status_null:
+    errorCode:
+  condition: selection_event_name and 1 of selection_weaken_* and 1 of 
+    selection_status_*
+falsepositives:
+- Administrators intentionally modifying Block Public Access settings to support
+  a legitimate application or public bucket configuration.
+level: medium
+note: |
+  ### Technical Context
+
+  The rule detects changes to the "Block Public Access" settings of Amazon S3 buckets, specifically when these settings are weakened or disabled in AWS environments. An attacker may aim to expose sensitive data by modifying these configurations to facilitate unauthorized public access to the bucket. This behavior corresponds to the MITRE ATT&CK technique "Weaken Defenses" (T1686.001) under the tactic of Defense Evasion.
+
+  The primary telemetry source for this detection is AWS CloudTrail logs, particularly focusing on events related to the `PutBucketPublicAccessBlock` API. If malicious, such a change could lead to significant data breaches, exposing sensitive data to the public internet. However, this detection does NOT confirm malicious intent on its own, as legitimate administrators may make similar changes for valid use cases.
+
+  ### Investigation Steps
+
+  - **Review CloudTrail logs for PutBucketPublicAccessBlock events:** Search for CloudTrail logs with `eventName: "PutBucketPublicAccessBlock"` within the last 24 hours to identify any recent changes to S3 bucket settings and note the user or role making the change.
+
+  - **Analyze request parameters for weakened settings:** Check the `requestParameters.PublicAccessBlockConfiguration` fields in the identified logs for values set to `false`, such as `RestrictPublicBuckets`, `BlockPublicAcls`, `BlockPublicPolicy`, and `IgnorePublicAcls`, which indicate reduction in protection.
+
+  - **Confirm legitimate administrator actions:** Identify known administrators or automation processes that typically modify these settings and assess their IAM policies and roles to verify if the change aligns with legitimate operations.
+
+  - **Investigate affected buckets:** Review the affected bucket's `ACL` and `bucket policy` settings using the AWS S3 API (e.g., `GetBucketAcl` and `GetBucketPolicy`) to understand the implications of the recent changes and determine if they expose sensitive data.
+
+  - **Check for subsequent exposure:** If the access block settings were weakened, use tools like Amazon Macie or S3 Inventory to scan the bucket for any publicly accessible data that might have been unauthorizedly exposed.
+
+  ### Prioritization
+
+  This alert is of medium severity because changes to Block Public Access settings on S3 buckets can greatly impact sensitive data exposure. While not all changes indicate malicious behavior, the likelihood of attackers targeting these settings to exploit unprotected data is high, making it a significant point of concern in AWS environments.
+
+  ### Blind Spots and Assumptions
+
+  Detection may be limited by legitimate administrative actions that intentionally weaken bucket protections for application needs, which could lead to false positives. Reliable detection requires proper logging configurations for CloudTrail to ensure all relevant API calls are captured. Additionally, some applications may trigger these configurations legitimately during maintenance, so context around each case is essential. A related detection to strengthen coverage would be monitoring for subsequent public access changes to bucket policies or ACLs following the modification of Block Public Access settings.
+
+  > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

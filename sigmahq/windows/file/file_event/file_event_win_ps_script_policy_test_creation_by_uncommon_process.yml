@@ -8,7 +8,7 @@ references:
 - https://www.paloaltonetworks.com/blog/security-operations/stopping-powershell-without-powershell/
 author: Nasreddine Bencherchali (Nextron Systems)
 date: 2023-06-01
-modified: 2026-07-28
+modified: 2026-10-19
 tags:
 - attack.stealth
 logsource:
@@ -40,6 +40,11 @@ detection:
   filter_optional_gethelp:
     Image|startswith: 'C:\Program Files\WindowsApps\Microsoft.GetHelp_'
     Image|endswith: '\GetHelp.exe'
+  filter_optional_citrix:
+    Image|startswith:
+    - 'C:\Program Files\Citrix\ConfigSync\'
+    - 'C:\Program Files (x86)\Citrix\ConfigSync\'
+    Image|endswith: '\ConfigSyncRun.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 falsepositives:
 - Unknown
@@ -47,30 +52,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This rule detects the creation of a file named "PSScriptPolicyTest," which is commonly associated with PowerShell scripting used to test against AppLocker policies. The likely attacker objective may involve bypassing application whitelisting or running unauthorized PowerShell scripts. This detection aligns with the MITRE ATT&CK technique for "PowerShell" (T1059.001) under the "Execution" tactic.
+  This Sigma rule detects the creation of a file named "PSScriptPolicyTest" by uncommon processes, which is commonly indicative of PowerShell being misused to test against AppLocker bypass configurations. The likely attacker objective is to evaluate potential misconfigurations in security controls to execute malicious scripts without detection. This behavior aligns with the MITRE ATT&CK tactic of "Defense Evasion" (TA0005) and the technique "Bait and Switch" (T1079).
 
-  Primary telemetry sources include file creation events on Windows systems, specifically targeting the paths associated with the `pwsh.exe` and other PowerShell instances. If the behavior is malicious, it poses a significant threat by enabling attackers to execute arbitrary scripts or commands under the guise of a legitimate process. This detection alone does NOT confirm malicious intent, as the legitimate creation of this script may occur in response to policy testing or debugging.
+  The primary telemetry sources for this detection are Windows File Event logs, specifically tracking file creations where the filename contains "__PSScriptPolicyTest_". If malicious, this behavior could lead to allowing unauthorized scripts, facilitating further malware execution or data exfiltration. It is essential to note that this detection does NOT confirm the intent; legitimate processes might trigger this alert during testing or benign administrative tasks.
 
   ### Investigation Steps
 
-  - **Identify process source:** Check Event ID 4663 (File Access) for the creation event of "PSScriptPolicyTest" and note the `SubjectUserName` and `ProcessId`. A common benign source will likely be `powershell.exe` or `pwsh.exe`.
+  - **Examine the process creation event:** Review Security Event ID 4688 to identify the process that created the "PSScriptPolicyTest" file. Focus on unusual parent processes indicating possible misuse, such as those not typically associated with file creation.
 
-  - **Review process legitimacy:** Validate the parent process of `pwsh.exe` using Sysmon Event ID 1. A legitimate invocation often appears under management scripts or software deployment, while uncommon tools or user contexts may indicate malicious intent.
+  - **Verify the source of the PowerShell invocation:** Check for PowerShell script execution logs (Event ID 4103 for PowerShell) to confirm if the invocation was executed through legitimate PowerShell channels. Compare scripts' actual content against known benign patterns.
 
-  - **Correlate with known baselines:** Reference recent PowerShell execution logs (e.g., Event ID 4104 for PowerShell, containing script block logging). Compare against expected scripts executed by IT management, distinguishing between legitimate administrative actions versus suspicious behavior patterns.
+  - **Identify execution context:** Investigate the user account associated with the process creation (via Event ID 4688). Check if the user had legitimate administrative tasks, like testing AppLocker configurations, or if its context appears suspicious or unfamiliar in the current enterprise usage.
 
-  - **Examine user context and asset role:** Determine the account executing the process. Elevated privileges through administrative accounts executing the script creation may suggest nefarious intent, especially if the behavior is outside their typical role.
+  - **Analyze file metadata:** Inspect the file's creation time, size, and other metadata through file system attributes (using commands like `Get-ChildItem` in PowerShell) to rule out anomalies or common renaming tactics associated with evasion.
 
-  - **Check for unusual file paths:** Inspect file creation paths against established asset baselines. Legitimate activity would typically occur within designated locations (like `C:\Temp`). Paths that deviate from the norm could signify malicious activity.
+  - **Look for additional indicators of compromise:** Cross-reference with other detection alerts for unusual behaviors in the environment (e.g., suspicious script executions or command-line arguments). Identify any external file activity during the same timeframe that could suggest an attempted breach.
 
-  - **Look for related indicators:** Cross-reference logs for potential follow-up commands or script executions linked to the created file, such as subsequent PowerShell commands or unexpected file modifications.
+  - **Recognize expected legitimate activity:** Typical administrative functions might involve PowerShell scripts related to AppLocker configurations using common administrative tools and processes. Historical log review may demonstrate typical administrative patterns that do not involve creating this file.
 
   ### Prioritization
 
-  This alert has a medium-severity rating due to the potential for abuse in environments where PowerShell is a common execution platform. The creation of this script file may be exploited to facilitate application-whitelisting avoidance, making it relevant for further inspection, especially in critical systems.
+  This alert should be considered medium priority since the affected system can have significant security implications if compromised. The likelihood of malicious exploitation exists due to the potential for attackers to leverage PowerShell for stealthy operations. While the behavior is uncommon, it could indicate preliminary phases of an attack, particularly targeting defenses like AppLocker.
 
   ### Blind Spots and Assumptions
 
-  Detection effectiveness is limited by the use of obfuscation techniques by adversaries, who may invoke PowerShell scripts in more legitimate-looking contexts to avoid alerting. Comprehensive logging of PowerShell activity (including script block logs) is crucial for reliable detection. Legitimate administrative users executing policy tests may trigger this alert, thus requiring contextual user analysis. Companion detections involving script execution (e.g., T1059.001) or file access anomalies can augment the investigation process.
+  This detection is limited by potential evasion techniques, such as attackers utilizing other processes or renaming techniques to avoid detection. It relies on accurate file event logging; without comprehensive logging configurations, detection may be unreliable. Legitimate administrative activities may trigger this alert, particularly in environments where PowerShell is extensively used for testing and configuration. A related detection to strengthen coverage includes monitoring for unusual Process Creation events that may indicate other phases of malicious PowerShell executions (TA0005).
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

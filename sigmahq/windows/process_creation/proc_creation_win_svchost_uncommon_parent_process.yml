@@ -6,7 +6,7 @@ references:
 - Internal Research
 author: Florian Roth (Nextron Systems)
 date: 2017-08-15
-modified: 2022-06-28
+modified: 2026-10-19
 tags:
 - attack.stealth
 - attack.t1036.005
@@ -24,6 +24,12 @@ detection:
     - '\rpcnet.exe'
     - '\services.exe'
     - '\TiWorker.exe'
+  filter_main_svchost:
+    ParentImage|endswith: '\svchost.exe'
+    CommandLine|endswith:
+    - 'svchost.exe"'
+    - 'svchost.exe'
+    - '-k TSLicensing'
   filter_main_parent_null:
     ParentImage:
   filter_main_parent_empty:
@@ -37,28 +43,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects instances where the `svchost.exe` process is spawned with unusual parent processes that are typically not associated with legitimate system activity. The objective of an attacker employing this behavior often involves executing malicious components while evading detection by leveraging the common `svchost.exe` process as a cover. The relevant MITRE ATT&CK tactic is **Defense Evasion** and the technique is **T1036.005** (Masquerading: Match Legitimate Name or Location).
+  This Sigma rule detects the spawning of an uncommon `svchost.exe` process that originates from anomalous parent processes, such as `Mrt.exe` (Microsoft Windows Malicious Software Removal Tool) or `MsMpEng.exe` (Microsoft Malware Protection Engine). The behavior is indicative of potential privilege escalation, exploitation, or lateral movement tactics by an adversary, aiming to execute malicious payloads disguised as legitimate Windows services.
 
-  The primary telemetry sources include Windows Process Creation events (Event ID 4688) and Sysmon (Event ID 1), which provide details on process execution and relationships. If malicious, this behavior can indicate an attempt to stealthily run a payload under the guise of a trusted process. Importantly, this detection does not confirm that the parent process or its activity is intrinsically malicious; further investigation is necessary.
+  Relevant MITRE ATT&CK tactics include **Defense Evasion** (T1203) and **System Service Discovery** (T1056). The primary telemetry sources are Windows process creation events, specifically Security Event ID 4688 or Sysmon Event ID 1. The security impact could be significant as it may indicate malicious activity evading traditional security measures. However, this detection does NOT confirm that the activity is inherently malicious without corroborating evidence from additional telemetry.
 
   ### Investigation Steps
 
-  - **Examine process lineage:** Utilize Windows Event ID 4688 to inspect the complete command line and parent-child relationship for `svchost.exe`. Look for unusual command line parameters indicating potential exploitation (e.g., commands that do not align with typical system operations).
+  - **Inspect process creation logs:** Review Security Event ID 4688 for the creation of `svchost.exe`. Focus on the `ParentImage` field to identify any known benign parent processes (e.g., `services.exe`). If the parent process matches any listed in the Sigma rule’s filters, it is suspicious.
 
-  - **Identify known good parent processes:** Compare parent process entries against a whitelist of established processes (e.g., `Mrt.exe`, `MsMpEng.exe`, etc.). Legitimate behavior will often show these common processes as parents of `svchost.exe`.
+  - **Analyze command line arguments:** For instances where `svchost.exe` was spawned, check the CommandLine field for unusual options or parameters. An expected benign entry would typically either have no arguments or be related to system services, whereas unexpected flags may indicate malicious intent.
 
-  - **Check Sysmon logs:** Review Sysmon Event ID 1 to identify file hashes, creation time, and user context for processes involved. Malicious indicators may include strange or mismatched hashes for `svchost.exe`; known good hashes can be compared.
+  - **Cross-reference against known processes:** Identify if the originating parent process (`Mrt.exe`, `MsMpEng.exe`, etc.) was invoked by legitimate system activities or user actions. Legitimate occurrences are generally scheduled tasks or user-initiated scans.
 
-  - **Monitor for persistence mechanisms:** Investigate registry entries or scheduled tasks that may correlate with the unusual process spawnings. Look for references in the registry (`HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services`) linked to non-standard executable paths.
+  - **Look for high-confidence malicious indicators:** Investigate any `svchost.exe` instances that have a `ParentImage` of `services.exe`. If the `Image` field's file path does not exist in typical system directories (e.g., `C:\Windows\System32\`), categorize this as high confidence in malicious activity.
 
-  - **Assess potential lateral movement:** If the detected `svchost.exe` runs in a sensitive or critical system role (e.g., domain controllers or financial systems), prioritize the investigation due to potential implications of lateral movement toward more critical assets.
+  - **Validate file creation or modification:** Check the file system for recent changes involving `svchost.exe` and related executable signatures. Use appropriate file integrity monitoring tools to identify unauthorized modifications, particularly if a newly created or modified executable is present.
+
+  - **Assess asset criticality:** Determine if the affected system is crucial to enterprise operations. If it hosts critical applications or sensitive data, alerting higher-tier analysts is imperative, regardless of confirmation of malicious behavior.
 
   ### Prioritization
 
-  This alert should be considered medium severity as it involves potentially anomalous behavior in a critical system process. The ability for adversaries to leverage `svchost.exe` to hide malicious activities makes this behavior noteworthy, although detailed context is necessary to ascertain the true severity and intent of the activity.
+  The severity of this alert is medium due to the potential impact on a critical system if exploited. The likelihood of malicious abuse is elevated, particularly as the behavior aligns with commonly weaponized techniques for stealth and lateral movement in targeted environments.
 
   ### Blind Spots and Assumptions
 
-  Detection can miss evasion techniques such as attackers using custom-named binaries that mimic `svchost.exe`, which may evade this rule. Reliable detection requires complete logging of Windows process creation events and Sysmon configurations to ensure comprehensive visibility. Regular administrative activities, such as system updates or security scans, might trigger similar alerts if not appropriately whitelisted. Companion detections focusing on known malicious behavior associated with `svchost.exe`, like keyword searches for known malicious command lines, can strengthen overall detection capabilities.
+  Detection may be limited by legitimate processes that could match the parent criteria under varied circumstances, such as scheduled maintenance or updates. It assumes that the necessary logging configurations are enabled to capture each relevant process creation event. Common legitimate activities may include system updates triggering `svchost.exe`, and a companion detection rule for unusual system service behavior could enhance overall visibility.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

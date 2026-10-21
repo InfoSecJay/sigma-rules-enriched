@@ -9,7 +9,7 @@ references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1012/T1012.md
 author: Timur Zinniatullin, oscd.community
 date: 2019-10-21
-modified: 2023-02-05
+modified: 2026-10-19
 tags:
 - attack.discovery
 - attack.t1012
@@ -22,7 +22,7 @@ detection:
   - Image|endswith: '\reg.exe'
   - OriginalFileName: 'reg.exe'
   selection_flag:
-    CommandLine|contains: 'query'
+    CommandLine|contains: ' query '
   selection_key:
     CommandLine|contains:
     - 'currentVersion\windows'
@@ -31,35 +31,41 @@ detection:
     - 'currentVersion\run'         # Also covers the strings "RunOnce", "RunOnceEx" and "runServicesOnce"
     - 'currentVersion\policies\explorer\run'
     - 'currentcontrolset\services'
-  condition: all of selection_*
+  filter_optional_yammer:
+    ParentImage|endswith: '\Yammer.exe'
+    CommandLine: 'C:\Windows\system32\reg.exe QUERY HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+      /v Yammer'
+  condition: all of selection_* and not 1 of filter_optional_*
 falsepositives:
 - Discord
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of `reg.exe` for querying specific registry keys, which can indicate reconnaissance activities by adversaries looking to gather information about system configurations, installed software, or credential storage. The likely attacker objective is to collect intelligence that can be used for lateral movement or privilege escalation within the environment. This behavior fits into the MITRE ATT&CK framework under the tactic of "Discovery" and specifically technique T1012 (Query Registry).
+  This detection rule identifies the execution of `reg.exe` to query specific registry keys often targeted by adversaries for reconnaissance purposes. The behavior indicates an effort to extract sensitive configuration information from the Windows registry, which could include details about installed software, user account settings, or other system configurations. The likely attacker objective is to gather data for further exploitation or lateral movement within a network.
 
-  The primary telemetry sources for this detection are Windows process creation logs, particularly focusing on logs that capture command line arguments and executed images. If malicious in nature, this activity could lead to discovering sensitive configurations or credentials, potentially allowing further exploitation. Importantly, this detection does NOT confirm malicious intent solely on its own, as legitimate use of `reg.exe` can occur during administrative tasks.
+  This rule relates to the MITRE ATT&CK tactic for Discovery (ID: TA-0007) and the technique for System Information Discovery (ID: T1012). The primary telemetry source is process creation logs, specifically targeting Event ID 4688 for Windows. If this behavior is malicious, it could lead to credential theft or unauthorized system configuration changes. However, the execution of `reg.exe` alone does not confirm malicious activity—it must be evaluated in conjunction with other context and indicators.
 
   ### Investigation Steps
 
-  - **Check process creation logs:** Investigate Windows Security Event ID 4688 for instances where `reg.exe` was executed. Look for command line parameters containing ‘query’ and registry paths indicative of reconnaissance activities.
+  - **Check process details for `reg.exe`:** Review Security Event ID 4688 logs for instances of `reg.exe` and gather details such as the Process ID and User context. Look for unusual execution contexts (e.g., from non-standard user accounts or processes) which may indicate malicious intent.
 
-  - **Review command line details:** Pay particular attention to command line arguments in the logs. Legitimate entries typically include queries for general configurations unrelated to sensitive data, whereas malicious queries often target paths like `currentVersion\policies\explorer\run`.
+  - **Examine the CommandLine arguments:** Analyze the CommandLine field in Event ID 4688 for `reg.exe` executions. Focus on queries that target sensitive registry paths such as `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Legitimate usage often applies to administrative tasks or troubleshooting, while suspicious queries may pertain to credential-related keys.
 
-  - **Assess user context:** Identify which user account executed the `reg.exe` command. Legitimate administrative accounts may use this utility for valid purposes; accounts with lower privileges executing such commands could indicate suspicious behavior.
+  - **Identify high-confidence malicious indicators:** Look for specific strings in the CommandLine that indicate reconnaissance, such as `query currentVersion\windows`, or `query winlogon\`. The presence of specific arguments targeting known attack vectors can signal malicious actions.
 
-  - **Look for repeated patterns:** Determine if there are multiple executions of `reg.exe` within a short timeframe. Frequent execution, especially against sensitive registry paths like `currentControlSet\Services`, could indicate automated or scripted reconnaissance.
+  - **Assess parent process relationships:** Examine the ParentImage field in Event ID 4688 for unusual parent-child relationships. Most benign `reg.exe` executions do not originate from non-system processes or services. Anomalous parents like `Yammer.exe` in conjunction with the detected commands can indicate likely evasion techniques.
 
-  - **Cross-reference system logs:** Validate against other logs such as Sysmon Event ID 1 to correlate the parent process of `reg.exe`. Malicious usage may appear with a suspicious parent process or script, while legitimate usage might originate from a known administrative tool.
+  - **Review targeted registry keys:** For any identified instances of `reg.exe`, validate the registry keys accessed by cross-referencing with normal operational behavior. The legitimate usage will typically involve queries for configuration information without targeting user-specific keys that may signal malicious reconnaissance.
+
+  - **Correlate with user activity logs:** Cross-reference findings with user activity or process logs to understand if the execution of `reg.exe` correlates with other potentially suspicious activities, such as failed login attempts or access to sensitive resources.
 
   ### Prioritization
 
-  This alert is of medium severity. An attack using registry enumeration could leverage discovered information for later exploitation, particularly on sensitive or critical systems. However, the likelihood of abuse depends on the user’s context and the specific registry keys targeted, as not all access to the registry indicates malicious intent.
+  This alert carries medium severity; its impact depends on the criticality of the affected system and the potential for credential or configuration exposure. The likelihood of malicious abuse is moderate, as attackers frequently exploit registry queries to facilitate reconnaissance, making this behavior a common tactic.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by situations where logging for process creation is not adequately configured or where `reg.exe` execution is obscured by other processes. Legitimate activities, such as system administration, can also trigger this alert, especially by users performing standard tasks on system configurations. A related detection, such as monitoring for command execution in conjunction with PowerShell, could provide a broader view of potential malicious activities surrounding registry exploration.
+  Detection may be limited by legitimate administrative activities using `reg.exe` for configuration management, potentially generating false positives. Comprehensive logging for process creation and registry access is essential for effective detection. Common behavior that may trigger this alert includes routine system checks or software installations. To enhance coverage, consider companion detections for suspicious PowerShell commands or abnormal process chains that could indicate advanced persistence threats.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

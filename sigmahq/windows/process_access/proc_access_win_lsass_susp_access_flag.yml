@@ -16,7 +16,7 @@ author: Florian Roth, Roberto Rodriguez, Dimitrios Slamaris, Mark Russinovich,
   Thomas Patzke, Teymur Kheirkhabarov, Sherif Eldeeb, James Dickenson, Aleksey 
   Potapov, oscd.community
 date: 2021-11-22
-modified: 2026-06-29
+modified: 2026-10-20
 tags:
 - attack.credential-access
 - attack.t1003.001
@@ -55,7 +55,7 @@ detection:
     - 'FA'
     - '0x14C2'            # https://github.com/b4rtik/ATPMiniDump/blob/76304f93b390af3bb66e4f451ca16562a479bdc9/ATPMiniDump/ATPMiniDump.c
   - GrantedAccess|startswith:
-    - '0x100000'
+              # - '0x100000'  # SYNCHRONIZE - cannot be used for credential dumping; high FP rate from AV/EDR agents synchronizing on LSASS
     - '0x1418'              # car.2019-04-004
     - '0x1438'              # car.2019-04-004
     - '0x143a'              # car.2019-04-004
@@ -131,30 +131,30 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects abnormal process access requests to the LSASS (Local Security Authority Subsystem Service) process using potentially suspicious access rights flags. An attacker may leverage these access requests to attempt to dump credentials stored in memory, which aligns with typical credential theft objectives. This activity is categorized under the MITRE ATT&CK framework as Tactic: Credential Access, Technique: Credential Dumping (T1003.001).
+  This Sigma rule detects unauthorized access attempts to the LSASS (Local Security Authority Subsystem Service) process utilizing suspicious granted access flags. The primary attacker objective is likely credential dumping, where an adversary attempts to extract sensitive information such as user credentials or authentication tokens from LSASS. This behavior aligns with the MITRE ATT&CK tactics of Credential Access (TA0006) and the specific technique of Credential Dumping - LSASS (T1003.001).
 
-  The primary telemetry source comes from Windows process access logs that detail interactions with system processes, specifically Event ID 4656 (An attempt was made to access an object) or the equivalent Sysmon Event ID for process access events. If malicious, this could lead to unauthorized exposure of sensitive credentials, granting access to further compromise the environment. However, it is important to note that this detection alone does not confirm malicious activity without further context, as legitimate applications may also access LSASS for valid operational reasons.
+  The detection is primarily sourced from process access telemetry on Windows, specifically through Security Event ID 4663 and Sysmon Event ID 10 (ProcessAccess), which log process access attempts. If successful, the malicious action can lead to significant security impacts, including unauthorized access to accounts and elevated privileges. However, this detection does NOT confirm an actual credential dump occurred on its own, as it captures access attempts rather than confirming data extraction.
 
   ### Investigation Steps
 
-  - **Check Event Logs for Process Access:** Review Windows Security Event Log (Event ID 4656) or Sysmon Event Log (Event ID 10) for access requests targeting LSASS.exe. Compare the `GrantedAccess` flags against known malicious patterns.
+  - **Identify the process access attempt**: Review Security Event ID 4663 or Sysmon Event ID 10 in the logs. Check the `TargetImage` field for access to `lsass.exe` and the `GrantedAccess` flags against the suspicious values listed in the detection rule.
 
-  - **Analyze Source Processes:** Identify the `SourceImage` involved in the access attempts. Valid entries should mainly originate from system processes such as `C:\Windows\System32\`. Any access attempts from unusual or third-party applications may indicate compromise.
+  - **Correlate source processes**: Analyze the `SourceImage` field to identify the originating process that attempted access. Verify if it matches known legitimate processes or if it deviates from expected behavior (e.g., built-in Windows services vs. uncommon executables).
 
-  - **Investigate Timeframe of Access Requests:** Determine the timeframe of the alerts in relation to user activity logs. Do the alerts correlate with known active user sessions or administrative tasks? Anomalies here can indicate unauthorized access attempts.
+  - **Compare access flags**: Cross-reference the `GrantedAccess` field against typical baseline values. Malicious attempts often involve flags like '0x1f0fff', while legitimate processes might show values like '0x40' for read access.
 
-  - **Identify High-Risk Access Flags:** Pay special attention to `GrantedAccess` values like '30', '50', or '70' that indicate attempts to read process memory or perform more invasive actions. Document these flags for further risk assessment.
+  - **Assess use of known software**: Examine the execution path of the initiating process. For example, `SourceImage` should not match paths of trusted security software (e.g., Windows Defender) that might access LSASS legitimately.
 
-  - **Search for Legitimate Software Behavior:** Look for commonly allowed applications like anti-virus or endpoint detection and response (EDR) tools that may have legitimate reasons to access LSASS with specific flags (e.g., '0x40'). Confirm these applications are up-to-date and operating as expected.
+  - **Look for evidence of further exploitation**: Check for subsequent process creation events (Event ID 4688) that might indicate a follow-up action after the access attempt, such as running credential-dumping tools.
 
-  - **File Creation and Exfiltration Validation:** If the ML/AI tool used to triage data creates files for further processing, verify the creation timestamps and file paths, ensuring no suspicious exfiltration activities coincide with LSASS access attempts.
+  - **Contextualize system criticality**: Review the asset from which this alert originated, especially if it is a server or domain controller. Credible threats in high-value assets require immediate remediation action.
 
   ### Prioritization
 
-  Given that LSASS holds critical credentials, any alerts related to its access should be treated with high priority. This behavior is commonly exploited by attackers for credential dumping, making the likelihood of malicious intent significant. The potential impact on the affected system is severe, warranting immediate investigation, especially on high-criticality assets.
+  This alert is of medium severity given its potential impact on systems that manage user credentials and authentication processes. The likelihood of malicious abuse is significant, as credential dumping is a common tactic employed in lateral movement and privilege escalation. Therefore, timely review and action are critical to prevent potential account compromise.
 
   ### Blind Spots and Assumptions
 
-  Limitations in detecting malicious behaviors may arise due to sophisticated evasion techniques, such as use of trusted processes or legitimate software with modified behavior. It is crucial that all relevant Windows Security event logs and Sysmon logs are enabled and properly configured to ensure effective detection. Legitimate services like anti-virus tools may trigger similar alerts; therefore, it's necessary to cross-reference these events with application performance and legitimacy. Companion detections could include monitoring Windows Credential Manager access patterns (ATT&CK ID T1003.002) to enhance coverage of credential access activities.
+  Evasion techniques might include the use of replacing legitimate processes or utilizing stealthy, system-hiding execution paths, making detection challenging. Reliable detection relies heavily on configurations allowing the correct logging levels for both process access and Sysmon events. Legitimate software such as endpoint protection services may occasionally trigger this alert due to their interactions with LSASS. A companion detection to strengthen coverage could include monitoring for abnormal `lsass.exe` parent processes, such as unexpected executables attempting direct access, further indicating potential compromise.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

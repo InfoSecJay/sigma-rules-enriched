@@ -6,10 +6,13 @@ description: |
   A threat actor can create a new AD Health ADFS service and create a fake server to spoof AD FS signing logs.
   The health AD FS service can then be deleted after it is not longer needed via HTTP requests to Azure.
 references:
-- https://o365blog.com/post/hybridhealthagent/
+- https://web.archive.org/web/20220619212736/https://o365blog.com/post/hybridhealthagent/
+- https://aadinternals.com/talks/HelSec%20August%202021.pdf
+- https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/identity#microsoftadhybridhealthservice
+- https://www.inversecos.com/2023/01/detecting-fake-events-in-azure-sign-in.html
 author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research), MSTIC
 date: 2021-08-26
-modified: 2023-10-11
+modified: 2026-10-21
 tags:
 - attack.defense-impairment
 - attack.t1578.003
@@ -18,10 +21,9 @@ logsource:
   service: activitylogs
 detection:
   selection:
-    CategoryValue: 'Administrative'
-    ResourceProviderValue: 'Microsoft.ADHybridHealthService'
-    ResourceId|contains: 'AdFederationService'
-    OperationNameValue: 'Microsoft.ADHybridHealthService/services/delete'
+    category: 'Administrative'
+    resourceId|contains: 'AdFederationService'
+    operationName: 'MICROSOFT.ADHYBRIDHEALTHSERVICE/SERVICES/DELETE'
   condition: selection
 falsepositives:
 - Legitimate AAD Health AD FS service instances being deleted in a tenant
@@ -29,30 +31,28 @@ level: medium
 note: |
   ### Technical Context
 
-  This detection rule identifies the deletion of an Azure AD Hybrid Health AD FS service instance through Azure Activity logs. This behavior may indicate a malicious actor attempting to remove a compromised service that they previously established to spoof authentication logs. The attacker objective would typically involve manipulating authentication mechanisms to conduct unauthorized access or maintain stealth by eliminating evidence of their activities.
-
-  The relevant MITRE ATT&CK tactic is **Defense Impairment (T1578)**, specifically the technique of **Application Layer Protocol Manipulation (T1578.003)**. The primary telemetry source is Azure Activity logs, particularly involving administrative actions. If this action is malicious, it can severely impact identity management, leading to unauthorized access or impersonation of legitimate users. However, this detection does NOT confirm that the deletion was malicious without additional corroborating evidence.
+  This rule detects the deletion of an Azure AD Hybrid Health AD FS service instance through Azure Activity Logs. Such a deletion may be indicative of an adversary's intention to obscure their tracks after creating a rogue service, which could lead to the manipulation or spoofing of AD FS signing logs to conduct further attacks. This behavior aligns with the MITRE ATT&CK tactic of **Defense Impairment** (TA0020) and the technique of **Impair Defenses: Application Layer** (T1578.003). The primary telemetry source is Azure Activity Logs, specifically focusing on administrative actions involving the Hybrid Health service. If this deletion is indeed malicious, it may severely compromise the integrity of authentication logs, enabling further exploitation or undetected access to the environment. However, this detection does NOT confirm that all deletions are malicious, as legitimate service instances may also be removed as part of regular operational procedures.
 
   ### Investigation Steps
 
-  - **Review Azure Activity Logs: ** Examine logs for Event ID related to the operation `Microsoft.ADHybridHealthService/services/delete`. Look for the initiating user, timestamp, and associated resource details to identify if it aligns with expected administrative actions.
+  - **Check Azure Activity Logs:** Review Azure Activity Logs (Event ID equivalent) for records of the deletion event with `operationName: 'MICROSOFT.ADHYBRIDHEALTHSERVICE/SERVICES/DELETE'` filtered by the relevant timestamps indicating the alert. Identify any instances of suspicious user accounts engaging in this action.
 
-  - **Validate User Context:** Check the user who executed the deletion against known administrative accounts. Legitimate deletions are typically performed by authorized accounts during scheduled maintenance or service updates.
+  - **Identify User Context:** Investigate the `initiatedBy` field within the Azure Activity Logs to determine the account used for the deletion. Look for accounts with administrative privileges that do not commonly perform this action, indicating potential misuse.
 
-  - **Monitor Service Recreation:** Investigate whether a new AD FS service has been created shortly after deletion. Creation events should show a connection to potentially malicious infrastructure such as IPs or domains outside normal operational parameters.
+  - **Correlate with Service Creation Events:** Look for corresponding service creation entries in the Azure Activity Logs to establish a timeline. Recent creation followed by deletion could suggest malicious intent, especially if an unexpected or unauthorized account created the service.
 
-  - **Identify Related Unique Resource Attributes:** Examine any log properties such as `ResourceId` or `ResourceProviderValue` for unusual patterns or discrepancies indicative of abnormal activity.
+  - **Review Role and Permissions:** Examine the Azure Active Directory roles and permissions for the user account associated with the deletion event to ensure they align with expected operational patterns. Compare against legitimate admin accounts responsible for managing Hybrid Health services.
 
-  - **Cross-reference with User Behavior Analytics:** Utilize security tools to assess if the activity fits within the normal behavior profile of the user or service account involved. Sudden changes in service management patterns may signal malicious intent.
+  - **Identify Legitimate Behavior Patterns:** Determine the regular lifecycle of AD FS service instances in your enterprise by consulting operational logs or documentation. Legitimate deletion events should occur within standard maintenance windows and involve known service accounts that regularly manage these resources.
 
-  - **Check for Subsequent Authentication Failures:** Review authentication logs (e.g., Azure AD sign-in logs) for anomalies following the deletion that could indicate attempts to exploit the deletion of the AD FS service.
+  - **Monitor for Subsequent Suspicious Activity:** Check for any API calls to Azure AD or AD FS post-deletion that appear abnormal, particularly those requesting login or authentication logs, which could indicate attempts to leverage a maliciously created service.
 
   ### Prioritization
 
-  The severity of this alert is medium given that it points to potential identity security risks. If an AD FS service instance is maliciously deleted, it could enable significant unauthorized access if not controlled, but such actions are less commonly weaponized compared to direct credential theft techniques.
+  This alert has medium severity. The affected systems are critical for authentication processes, and the likelihood of malicious abuse is considerable, especially if the deletion is linked to unauthorized user accounts. While this action may not be frequently weaponized in isolation, it could be part of a broader attack strategy involving impersonation or credential theft.
 
   ### Blind Spots and Assumptions
 
-  Detection limitations include the potential for legitimate administrative activities triggering the alert, which are often common in routine maintenance. Log sources must be consistently configured to capture comprehensive Azure activity logs. Related detections might include monitoring for `ADHybridHealthService/service/create` events to identify the creation of potentially unauthorized services, strengthening overall coverage against this vector.
+  Detection may be limited by insufficient logging configurations for Azure services or filtering that excludes administrative actions. Legitimate activities, such as routine service management by trusted admins, could inadvertently trigger this alert. Additionally, it is important to correlate with other detections, such as monitoring unauthorized modifications to Azure AD roles, to strengthen coverage against potential attack patterns.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

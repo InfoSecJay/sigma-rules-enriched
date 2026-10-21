@@ -9,6 +9,7 @@ references:
 - https://twitter.com/malmoeb/status/1570814999370801158
 author: frack113
 date: 2022-09-16
+modified: 2026-10-14
 tags:
 - attack.discovery
 - attack.t1083
@@ -18,10 +19,8 @@ logsource:
   definition: 'Requirements: Script Block Logging must be enabled'
 detection:
   selection_action:
-    ScriptBlockText|contains:
-    - ls
-    - get-childitem
-    - gci
+        # Whole words only: as plain substrings, 'ls' and 'gci' also match words such as 'false' or 'credentials'
+    ScriptBlockText|re|i: '\b(?:get-childitem|gci|ls|dir)\b'
   selection_recurse:
     ScriptBlockText|contains: '-recurse'
   selection_file:
@@ -38,30 +37,28 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of PowerShell commands commonly utilized by adversaries to enumerate sensitive files, specifically those with extensions related to password caches and vaults (like `.pass`, `.kdbx`, `.kdb`). The likely attacker objective here is to identify and potentially exfiltrate sensitive credentials or keys that may facilitate further access within the target environment. This behavior aligns with the MITRE ATT&CK framework under the tactic of Discovery, particularly the technique T1083 (File and Directory Discovery).
+  This Sigma rule detects the use of PowerShell commandlets that are commonly employed to enumerate sensitive files on Windows systems, specifically through the invocation of commands such as `Get-ChildItem` or its aliases. The likely attacker objective is to locate sensitive credential files (e.g., passwords, keystores) to facilitate lateral movement or privilege escalation. This behavior fits within the MITRE ATT&CK framework under the tactic of Discovery (TA0007) and the technique of File and Directory Discovery (T1083).
 
-  Primary telemetry sources include Windows PowerShell script block logs, which require that Script Block Logging be enabled. The security impact of these actions can be significant, as discovering sensitive files might lead to unauthorized access to critical systems. However, this detection does not confirm whether malicious intent exists; legitimate users could run similar commands under normal operational scenarios.
+  The primary telemetry source is Windows PowerShell script logs, requiring the activation of Script Block Logging to capture relevant events. If exploited maliciously, an attacker could gain unauthorized access to sensitive information. However, this detection alone does not confirm malicious activity; legitimate administrative tasks may trigger the same alerts.
 
   ### Investigation Steps
 
-  - **Check executed PowerShell commands:** Review PowerShell script block logs (Event ID 4104) for commands containing `ls`, `get-childitem`, or aliases like `gci`. Compare against expected scripting practices for authorized users.
+  - **Identify the PowerShell script context**: Review the associated Script Block Logging events (Event ID 4104) to assess the process context (e.g., calling user, parent process) for any anomalies. Verify if the script was run by expected administrative users.
 
-  - **Evaluate file access patterns:** Identify if the commands are targeting sensitive files by checking the ScriptBlockText for extensions like `.pass`, `.kdb`, or `.kdbx`. Access by known admins vs. unauthorized users can indicate potential malicious behavior.
+  - **Check for sensitive file types**: Confirm the presence of the sensitive file extensions being targeted (e.g., `.pass`, `.kdbx`, `.kdb`) in the output of the command. Check for their existence using file audit logs (Event ID 4663) and correlate findings.
 
-  - **Validate normal operations:** Investigate the context of PowerShell executions by determining whether the commands were run by authenticated users who typically engage in file discovery, such as system administrators, within appropriate timeframes.
+  - **Evaluate legitimate administrative activity**: Review if scheduled tasks or administrative scripts are using similar commands without malicious intent. Cross-reference user roles to validate expected behavior for tools such as configuration management or monitoring scripts.
 
-  - **Identify high-confidence malicious indicators:** Look for patterns suggesting abuse, including recursive directory scans (indicated by `-recurse` in ScriptBlockText) targeting sensitive directories.
+  - **Identify high-confidence malicious indicators**: Investigate if there are sequences of commands involving multiple sensitive file types. An attacker may run recursive searches (`-recurse` flag) across multiple directories; track this against logs for additional suspicious activities or data exfiltration attempts.
 
-  - **Monitor for lateral movement:** Track any subsequent actions following the file discovery commands, such as further access to identified sensitive files, as this may suggest a pivot to more privileged activities.
-
-  - **Review Script Block Logging status:** Ensure that script block logging is properly configured and enabled. Lack of logging can lead to gaps in visibility for similar future activities.
+  - **Collect process creation logs**: Look for suspicious process creation (Event ID 4688) instances from the PowerShell executable, and review command-line arguments for signs of automation or unusual user inputs that deviate from baseline behavior.
 
   ### Prioritization
 
-  This alert should be treated with medium severity. The systems potentially affected may contain sensitive information, making them prime targets for exploitation. While the likelihood of a malicious activity exists, further context is needed to determine if the actions are part of a systematic attack, as legitimate administrative tasks might involve similar commands.
+  This alert should be treated with medium severity due to the potential impact on sensitive data exposure. The likelihood of abuse is notable since enumerating credential-related files can often precede further exploits. While not universally weaponized, this behavior is common in various adversarial tactics, warranting prompt investigation.
 
   ### Blind Spots and Assumptions
 
-  This detection has limitations, as legitimate administrative activities may trigger alerts due to routine file discovery. If Script Block Logging is not enabled, no visibility will be gained into the command executions. Additionally, adversaries may use obfuscation techniques or alternative scripting languages to evade detection. Relating this to companion detections, rules monitoring for unexpected file access or administrative command executions may enhance threat assessment and mitigate blind spots.
+  Detection limitations may arise from insufficient Script Block Logging configuration, which could lead to unrecorded execution commands. Legitimate administrative scripts or routine maintenance could also trigger these alerts, potentially generating false positives. Companion detection, such as user behavior analytics for abnormal PowerShell usage patterns, enhances coverage against evasion tactics.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

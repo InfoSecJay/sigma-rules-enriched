@@ -7,7 +7,7 @@ references:
 - https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/dd364427(v=ws.10)
 author: frack113
 date: 2022-02-19
-modified: 2024-08-29
+modified: 2026-10-19
 tags:
 - attack.defense-impairment
 - attack.t1686.003
@@ -24,44 +24,53 @@ detection:
     - 'C:\Program Files (x86)\'
     - 'C:\Program Files\'
     - 'C:\Windows\WinSxS\'
+  filter_main_local_system:
+        # Added to filter out modifications made by the Local System account as these are typically legitimate system actions and cause false positives.
+    ModifyingUser: 'S-1-5-18'
+  filter_main_msiexec:
+    ModifyingApplication:
+    - 'C:\Windows\SysWOW64\msiexec.exe'
+    - 'C:\Windows\System32\msiexec.exe'
   filter_main_svchost:
     ModifyingApplication: 'C:\Windows\System32\svchost.exe'
-  filter_optional_msmpeng:
+  filter_main_msmpeng:
     ModifyingApplication|startswith: 'C:\ProgramData\Microsoft\Windows Defender\Platform\'
     ModifyingApplication|endswith: '\MsMpEng.exe'
   filter_main_null:
     ModifyingApplication:
   filter_main_empty:
     ModifyingApplication: ''
+  filter_optional_google_updater:
+    ModifyingApplication|startswith: 'C:\Windows\SystemTemp\'
+    ModifyingApplication|contains: 'GoogleUpdater'
+    ModifyingApplication|endswith: '\setup.exe'
   condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the deletion of rules from the Windows Defender Firewall exception list. Such behavior can indicate an attempt by an adversary to impair defense mechanisms, potentially allowing malicious traffic to bypass network controls. The likely objective of the threat actor may involve establishing persistent access or facilitating lateral movement by reducing visibility and protection against outbound connections.
-
-  This detection maps to the MITRE ATT&CK tactic of Defense Evasion (ID: TA0057), specifically targeting the technique of Disable Security Tool (ID: T1686.003). Primary telemetry sources include Windows Security Event Logs (Event ID 2006 and Event ID 2052). If malicious, this activity could create pathways for an attacker to execute malicious commands undetected. However, this detection does not confirm that a deletion was malicious or part of an attack, as legitimate administrative activity may also result in similar log entries.
+  This rule detects the deletion of one or more rules from the Windows Defender Firewall exception list as indicated by Event IDs 2006 and 2052. This behavior may signify an attempt by an attacker to weaken firewall protections, potentially facilitating lateral movement, data exfiltration, or command and control (C2) communications. Relevant MITRE ATT&CK tactic is "Defense Evasion" (ID: T1562) and the technique specifically is "Modify Firewall Rules" (ID: T1686.003). The primary telemetry source for this detection comes from the Windows Event Logs, specifically focusing on the Security logs and System logs for the aforementioned Event IDs. If malicious, this could lead to unauthorized access or exploitation of systems, increasing overall risk to the organization. This detection by itself does not confirm that malicious activity is occurring; it only indicates that a firewall rule has been altered or deleted, which could also be performed by trusted applications.
 
   ### Investigation Steps
 
-  - **Review relevant security event logs**: Check Windows Security Event Logs for Event ID 2006 or 2052 to confirm rule deletions. Look for fields indicating which application performed the deletion and the specific rules that were affected.
+  - **Check Event Details**: Review the Windows Security Event logs for Event IDs 2006 or 2052. Assess `SubjectUserName`, `SubjectDomainName`, and `SubjectLogonID` fields to identify the user or process responsible for the rule deletion.
 
-  - **Identify the modifying application**: Examine the `ModifyingApplication` field associated with the event logs. Legitimate applications typically include `svchost.exe` or known management tools. Unusual paths (e.g., custom executables or scripts) indicate potential malicious activity.
+  - **Analyze the Modifying Application**: Look at the `ModifyingApplication` field from the event logs. Verify if it matches any known legitimate applications (e.g., `msiexec.exe`, `svchost.exe`). An unknown or unexpected application may indicate malicious behavior.
 
-  - **Correlate user activity**: Investigate the user account associated with the event. Check for any recent administrative activity or related tasks. Legitimate activity might include maintenance tasks carried out by IT personnel.
+  - **Cross-reference with Asset Inventory**: Confirm the role of the affected system (e.g., server, workstation) and its criticality to your organization. Deletion of firewall rules on critical assets poses a higher risk.
 
-  - **Assess firewall configuration**: Verify the current firewall rules using Windows Firewall with Advanced Security console. Assess whether critical rules for inbound or outbound traffic have been removed or altered.
+  - **Identify Recent Changes**: Investigate if there were recent software updates or installations around the time of the event. Corresponding Event IDs (e.g., 11724 for installation events) from the Application log may help validate legitimate changes.
 
-  - **Look for suspicious network traffic**: Utilize network monitoring tools to analyze outbound connections from systems that registered deletions. High volumes of unexplained or suspicious connections may indicate exploitation of the removed rules.
+  - **Evaluate Firewall Configuration History**: Check the firewall configuration history through Windows PowerShell or Group Policy changes to correlate any legitimate modifications that could explain the rule deletion.
 
-  - **Check for related logs**: Review Application and System Event Logs for any other unusual behavior around the time of the event, such as privilege escalation attempts or changes to security policies that may further indicate malicious intent.
+  - **Monitor for Additional Signs of Compromise**: Since rule deletion can indicate lateral movement, review other related logs or alerts (e.g., unusual outbound traffic in Firewall logs or Authentication logs for unauthorized access attempts).
 
   ### Prioritization
 
-  The severity of this alert is moderate due to the potential impact on the security posture of affected systems, creating a risk of unauthorized communication that could lead to data exfiltration or further compromise. While this behavior could result from benign administrative actions, it is also indicative of a common tactic among threat actors aiming to exploit weaknesses in firewall configurations.
+  The alert is of medium severity due to potential impact on critical assets and the likelihood of exploitation if an attacker can bypass firewall protections. Since deletion of firewall rules can facilitate common attack paths, such as exfiltration or C2 communications, it should be investigated swiftly.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by legitimate administrative changes that also result in deletions, leading to false positives. Reliable detection requires configured logging for Windows Firewall events, which may not always be enabled in all environments. This alert may also trigger during routine maintenance or policy updates, highlighting the need for context around user activity. A related detection for unusual process creation (Event ID 4688) can strengthen coverage against broader exploitation tactics.
+  Detection capabilities may be limited by configurations that do not log all firewall modifications or due to specific event filtering. Legitimate administrative actions, such as updates or configuration changes, may trigger this alert, thus necessitating context for investigative actions. A companion detection such as monitoring for unauthorized inbound/outbound traffic could strengthen overall security posture and provide supplementary context for assessing the potential impact of the alert.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

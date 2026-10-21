@@ -6,10 +6,13 @@ description: |
   A threat actor can create a new AD Health ADFS service and create a fake server instance to spoof AD FS signing logs. There is no need to compromise an on-prem AD FS server.
   This can be done programmatically via HTTP requests to Azure.
 references:
-- https://o365blog.com/post/hybridhealthagent/
+- https://web.archive.org/web/20220619212736/https://o365blog.com/post/hybridhealthagent/
+- https://aadinternals.com/talks/HelSec%20August%202021.pdf
+- https://learn.microsoft.com/en-us/azure/role-based-access-control/permissions/identity#microsoftadhybridhealthservice
+- https://www.inversecos.com/2023/01/detecting-fake-events-in-azure-sign-in.html
 author: Roberto Rodriguez (Cyb3rWard0g), OTR (Open Threat Research), MSTIC
 date: 2021-08-26
-modified: 2023-10-11
+modified: 2026-10-21
 tags:
 - attack.defense-impairment
 - attack.t1578
@@ -18,10 +21,9 @@ logsource:
   service: activitylogs
 detection:
   selection:
-    CategoryValue: 'Administrative'
-    ResourceProviderValue: 'Microsoft.ADHybridHealthService'
-    ResourceId|contains: 'AdFederationService'
-    OperationNameValue: 'Microsoft.ADHybridHealthService/services/servicemembers/action'
+    category: 'Administrative'
+    resourceId|contains: 'AdFederationService'
+    operationName: 'MICROSOFT.ADHYBRIDHEALTHSERVICE/SERVICES/SERVICEMEMBERS/ACTION'
   condition: selection
 falsepositives:
 - Legitimate AD FS servers added to an AAD Health AD FS service instance
@@ -29,36 +31,26 @@ level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the creation or modification of an Azure Active Directory Hybrid Health AD FS service instance. Malicious actors may exploit this capability to create a fake server instance, thereby spoofing Active Directory Federation Services (AD FS) signing logs without needing to compromise an existing on-premises AD FS server. This behavior aligns with the MITRE ATT&CK tactic: **Defense Impairment (T1578)**, indicating collusion or deception aimed at undermining security controls.
-
-  The primary telemetry source for this detection is the Azure Activity Logs, specifically logs under the Administrative category, which include events related to the management and configuration of Azure services. If malicious, this activity could potentially allow an adversary to impersonate users or disrupt authentication processes. However, this detection does NOT confirm that malicious activity occurred without further context, as legitimate administrative actions are also captured by this rule.
+  This Sigma rule detects the creation or update of a server instance within the Azure AD Hybrid Health AD FS service, potentially indicating the establishment of a fake server instance by an attacker. The likely objective is to manipulate or spoof AD FS signing logs, enabling unauthorized access or impersonation without compromising existing AD FS servers. This activity aligns with the MITRE ATT&CK tactic of Defense Evasion (TA0011) and the technique of Misuse Elevation Control Mechanism (T1578). The primary telemetry source is Azure activity logs, specifically within the Administrative category. If malicious, the creation of a fake instance could allow an adversary to bypass security measures and misuse identity services. This detection does NOT confirm actual exploitation; it only indicates a potential malicious configuration change.
 
   ### Investigation Steps
 
-  - **Verify recent Azure Activity Log entries:**
-    Explore Azure Activity Logs, particularly looking for entries where `OperationNameValue` is set to `Microsoft.ADHybridHealthService/services/servicemembers/action`. This could indicate a change in AD FS server instances.
+  - **Check for unauthorized resource IDs:** Review Azure activity logs (Event category: Administrative) for entries with `resourceId` containing 'AdFederationService'. Identify instances created by unfamiliar or unauthorized accounts, particularly any created outside of standard operational hours.
 
-  - **Identify the initiator of the event:**
-    Review the `Caller` field in the Activity Log for the creation event. Anomalous or unexpected user accounts (especially those not typically associated with administration) could be a strong indicator of potential malicious activity.
+  - **Validate operation names:** Look for log entries with `operationName` set to 'MICROSOFT.ADHYBRIDHEALTHSERVICE/SERVICES/SERVICEMEMBERS/ACTION'. Cross-reference the timestamp and user with known administrative actions to discern if changes were made by legitimate personnel.
 
-  - **Check for legitimate administrative behavior:**
-    Compare changes against a baseline of normal operations; look for patterns of openings and closures around legitimate AD FS instances. Consistent entries in logs from known legitimate users indicate normal administrative functions.
+  - **Review account permissions:** Examine users creating or updating server instances to ensure they possess the appropriate Azure role-based access controls (RBAC). Legitimate AD FS services should be limited to specific administrative roles; any deviations may indicate malicious intent.
 
-  - **Analyze resource ID details:**
-    Validate the `ResourceId` associated with the logged event. Ensure it adheres to expected patterns for legitimate AD FS instances (i.e., check for naming conventions or patterns generally followed by your organization).
+  - **Identify potential spoofing activity:** Investigate any subsequent sign-in logs for unusual activity or entries that suggest spoofing attempts, especially around the time when new server instances were created. Look for anomalies such as logins from atypical IP addresses or devices.
 
-  - **Review access permissions of the initiator:**
-    Use Azure Access Control (IAM) logs to assess whether the user who created or modified the AD FS instance had the necessary roles and permissions. Unauthorized role assignments can correlate with suspicious activities.
-
-  - **Monitor for secondary indicators:**
-    Watch for subsequent events that indicate attempts to access or utilize the spoofed AD FS service, such as unusual sign-in logs or modified resource interactions tied to this service.
+  - **Analyze historical modifications:** Utilize Azure activity logs to assess historical changes to the AD FS instance. Frequent changes or updates, especially by non-privileged accounts, can indicate attempts to manipulate or disrupt service functionality.
 
   ### Prioritization
 
-  This alert has a medium severity level due to the potential impact on authentication processes if exploited but may also indicate administrative changes by legitimate users in response to operational needs. While the creation of fake AD FS instances can be weaponized, it typically requires precise targeting, making its likelihood conditional on the sophistication of the adversary.
+  This alert should be considered medium severity. The impact of a compromised Azure AD AD FS setup is significant, as it can affect access control across multiple services. While the likelihood of malicious abuse may vary, the potential for this method to be weaponized in identity theft and access manipulation makes it a relevant concern for security operations.
 
   ### Blind Spots and Assumptions
 
-  The detection may miss certain evasion techniques where attackers could use legitimate accounts to mask their actions, highlighting a reliance on an accurate tracking of user permissions in Azure. Additionally, legitimate updates to AD FS services can also trigger this alert, causing potential false positives. It’s advisable to have companion detections around unusual authentication patterns or access log anomalies to strengthen coverage.
+  Detection may be limited by the availability of comprehensive Azure activity logs; missing logs can hinder accurate assessments. Attackers may use legitimate administrative accounts to evade detection, as organizational roles may not accurately reflect actual usage. Additionally, the legitimate addition of AD FS servers to support business operations may trigger this alert without malicious intent. A companion detection could include monitoring abnormal patterns in AD FS signing logs to provide context for suspicious server instances.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
