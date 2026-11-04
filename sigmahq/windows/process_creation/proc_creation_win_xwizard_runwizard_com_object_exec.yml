@@ -11,7 +11,7 @@ references:
 author: Ensar Şamil, @sblmsrsn, @oscd_initiative, Nasreddine Bencherchali 
   (Nextron Systems)
 date: 2020-10-07
-modified: 2024-08-15
+modified: 2026-11-04
 tags:
 - attack.stealth
 - attack.t1218
@@ -19,38 +19,41 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection:
-    CommandLine: 'RunWizard'
+  selection_img:
+  - Image|endswith: '/xwizard.exe'
+  - OriginalFileName: 'xwizard.exe'
+  selection_cli:
+    CommandLine|contains: 'RunWizard'
     CommandLine|re: '\{[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}\}'
-  condition: selection
+  condition: all of selection_*
 falsepositives:
 - Unknown
 level: medium
 note: |
   ### Technical Context
 
-  This Sigma rule detects the execution of the Xwizard tool with the command line argument "RunWizard" alongside a GUID-like argument. This behavior indicates a potential attempt to execute malicious COM objects that can be used for stealthy payload delivery or lateral movement within a network. The likely attacker objective is to leverage Xwizard as a means to run embedded scripts or binaries that interact with Windows' COM infrastructure. The relevant MITRE ATT&CK tactic is Execution (TA0002), specifically technique T1218 (Signed Binary Proxy Execution).
+  This rule detects the execution of the Xwizard utility with the "RunWizard" flag, accompanied by a GUID-like argument. This behavior is often leveraged by attackers to execute malicious COM objects that have been registered within the Windows registry, supporting lateral movement and payload execution. The likely attacker objective includes exploiting legitimate administrative tools to obfuscate malicious activity while potentially executing payloads on the target system.
 
-  The primary telemetry source for this detection is process creation logs, specifically Windows Security Event ID 4688 for process creation events, alongside Sysmon Event ID 1. If malicious, this behavior can lead to unauthorized remote access and execution of further malicious payloads, compromising the integrity and confidentiality of affected systems. However, this detection does NOT confirm successful execution of malicious payloads on its own, as legitimate use of COM objects may also trigger the alert.
+  Relevant MITRE ATT&CK tactic: Execution; technique: Command and Scripting Interpreter (T1059). Primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. The security impact, if malicious, involves unauthorized execution of scripts or binaries that compromise system integrity or confidentiality. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate administrative tasks can trigger the same behavior.
 
   ### Investigation Steps
 
-  - **Check process creation events:** Review Security Event ID 4688 and Sysmon Event ID 1 for instances where 'Xwizard.exe' is initiated with 'RunWizard' and a GUID-like parameter. Log fields to inspect include `ParentProcessId` to determine the originating process and `CommandLine` for the argument specifics.
+  - **Review process creation events:** Check for Security Event ID 4688 and Sysmon Event ID 1. Look for instances where `xwizard.exe` is executed with the `RunWizard` flag and a GUID-like argument in the command line field.
 
-  - **Identify high-confidence malicious behavior:** Verify if the GUID format in the command line correlates with known malicious COM objects. Compare against documented indicators of compromise (IOCs) or repositories of malicious GUIDs from threat intelligence feeds.
+  - **Identify process parentage:** Analyze the parent process of the `xwizard.exe` execution. Legitimate behavior may originate from trusted applications or administrative scripts. Malicious executions often stem from suspicious or unexpected parent processes.
 
-  - **Analyze the execution context:** Examine the `ParentProcessId` to identify the process that launched Xwizard. Legitimate execution typically stems from trusted system processes, while suspicious execution may originate from less common executables or script interpreters.
+  - **Assess registry activities:** Investigate for associated registry changes indicating new COM objects added via registry keys. Pay close attention to keys under `HKEY_CLASSES_ROOT` or `HKEY_CURRENT_USER\Software\Classes`, which may indicate malicious persistence mechanisms.
 
-  - **Review file system artifacts:** Verify for any file creation or modification related to Xwizard, particularly in directories like C:\Windows\Temp or user profile paths. Look for suspicious timestamps or files created just after the Xwizard execution.
+  - **Correlate with known threat intelligence:** Cross-check the execution of `xwizard.exe` against threat intelligence sources or vulnerability databases to determine if this instance aligns with reported malicious usage cases of the utility.
 
-  - **Validate expected activity:** Cross-reference the event with legitimate system operations or installed applications that might use Xwizard legitimately. Confirm that the system and software state match baseline behaviors to rule out false positives.
+  - **Verify logging configurations:** Ensure that process creation logs (including command lines) are enabled in the environment to maintain comprehensive visibility. This includes both Security Event ID 4688 and Sysmon configurations.
 
   ### Prioritization
 
-  This alert's severity is medium due to the potential impact on systems running sensitive applications and the likelihood that Xwizard will be exploited by adversaries. This behavior is not commonly seen in authorized software executions, increasing the risk of malicious intent.
+  The alert has a medium severity due to the potential for Xwizard to execute malicious code using legitimate tools. The impact can be significant if installed on critical systems, and while not all instances are malicious, execution via Xwizard aligns with advanced persistent threat methodologies, necessitating urgent investigation.
 
   ### Blind Spots and Assumptions
 
-  This detection may not capture evasion techniques such as obfuscated command arguments or alternate execution paths for malicious payloads. It relies on having comprehensive logging configurations for process creation, which may not always be enabled. Legitimate software installations or updates that use Xwizard may trigger this alert, potentially leading to false positives. Companion detections, such as monitoring for unusual outbound connections shortly after Xwizard execution, could enhance overall detection efficacy.
+  This detection has limitations, particularly in environments with custom administrative scripts where legitimate usage may trigger the alert. Without comprehensive logging configurations for process creation, missed detections are probable. Additionally, the presence of Windows administrative tools and reliance on benign usage may lead to false positives. A related detection for evaluating registry changes post-Xwizard execution could enhance coverage against potential abuses.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

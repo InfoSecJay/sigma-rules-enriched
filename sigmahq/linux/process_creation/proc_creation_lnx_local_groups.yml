@@ -1,13 +1,16 @@
-title: Local Groups Discovery - Linux
+title: Local Groups Discovery Attempt - Linux
 id: 676381a6-15ca-4d73-a9c8-6a22e970b90d
 status: test
-description: Detects enumeration of local system groups. Adversaries may attempt
-  to find local system groups and permission settings
+description: |
+  Detects attempts to enumerate local groups and group membership via common Linux utilities and sensitive file access.
+  Adversaries may read files such as /etc/group and /etc/gshadow, or use tools like getent and groups to identify
+  group memberships and privilege assignments on a compromised system.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1069.001/T1069.001.md
+- https://man7.org/linux/man-pages/man1/getent.1.html
 author: Ömer Günal, Alejandro Ortuno, oscd.community
 date: 2020-10-11
-modified: 2025-06-04
+modified: 2026-11-03
 tags:
 - attack.discovery
 - attack.t1069.001
@@ -15,20 +18,33 @@ logsource:
   category: process_creation
   product: linux
 detection:
-  selection_1:
+  selection_groups:
     Image|endswith: '/groups'
-  selection_2:
+  selection_read_utilities:
     Image|endswith:
     - '/cat'
     - '/ed'
+    - '/emacs'
     - '/head'
     - '/less'
+    - '/makemap'
     - '/more'
     - '/nano'
+    - '/sqlite3'
     - '/tail'
     - '/vi'
     - '/vim'
-    CommandLine|contains: '/etc/group'
+    CommandLine|contains:
+    - 'group'
+    - 'gshadow'
+  selection_getent:
+    Image|endswith: '/getent'
+    CommandLine|contains:
+    - ' group'
+    - ' gshadow'
+  selection_ypcat:
+    Image|endswith: '/ypcat'
+    CommandLine|contains: 'group'
   condition: 1 of selection_*
 falsepositives:
 - Legitimate administration activities
@@ -36,28 +52,28 @@ level: low
 note: |
   ### Technical Context
 
-  This Sigma rule detects the enumeration of local system groups in Linux environments, specifically targeting commands like `groups`, `cat /etc/group`, and other text utilities used to read the contents of group configuration files. The primary attacker objective is to gather information about user permissions, system access control, and sensitive group memberships, which can be exploited for lateral movement or privilege escalation.
+  This rule detects attempts to enumerate local groups on Linux systems through commands like `getent` and file accesses to `/etc/group` and `/etc/gshadow`. The likely attacker objective is to gain insight into user privileges and group memberships to facilitate further exploitation or lateral movement within the network. This behavior correlates with the MITRE ATT&CK tactic of Discovery and specifically the technique T1069.001.
 
-  This activity aligns with the MITRE ATT&CK tactic of **Discovery**, specifically the technique **Account Discovery (T1069.001)**. The primary telemetry sources for this detection include process creation logs that capture command execution details. If this behavior is confirmed to be malicious, it could indicate a significant security risk, as attackers may utilize this information to plan further attacks. However, this detection alone does not confirm malicious intent since legitimate administrative activities can trigger it.
+  Key telemetry sources include process creation logs with relevant information about commands executed and files accessed. If malicious, the impact could be significant, as attackers can exploit the information to escalate privileges or plan further attacks. This detection does NOT confirm actual compromise; it merely indicates that potentially suspicious enumeration behavior has occurred.
 
   ### Investigation Steps
 
-  - **Review process creation logs**: Check for Linux process creation logs with `Event ID` for process creation (via `auditd` or Syslog) showing commands ending with `/groups`, along with the user who executed them. Legitimate users may frequently execute these commands for query purposes.
+  - **Verify process creation logs:** Inspect process creation logs, specifically Security Event ID 5010 for SystemD on Linux, and look for processes ending with `/groups`, `/getent`, and `/ypcat`, indicating potential enumeration attempts.
 
-  - **Examine command line arguments**: Look for `CommandLine` fields in the logs that contain `/etc/group` and are executed by shell utilities like `cat`, `head`, or `less`. An unusually high number of runs by non-administrative users may indicate potential malicious activity.
+  - **Check command-line arguments:** Analyze the command-line inputs for the detected processes. Legitimate use of tools like `getent` may involve querying user or host information; however, indicators such as `group` or `gshadow` suggest potential misuse.
 
-  - **Verify user role and asset criticality**: Confirm the roles of users executing these commands. Events from administrative users or systems designated for management (like an admin workstation) are more likely to be benign compared to those from standard user accounts.
+  - **Review file access history:** Look at the access logs for `/etc/group` and `/etc/gshadow` (e.g., using audit logs or syslog) to identify read attempts. Access to these files might be benign when performed by system administrators but indicates potential malicious intent when associated with unexpected user roles.
 
-  - **Check for suspicious aggregation of commands**: Determine if the command executions are part of a pattern; for instance, multiple enumeration commands run in quick succession might indicate a reconnaissance effort by an attacker.
+  - **Evaluate user roles and activity:** Profile the user who executed the commands. If the commands were run by non-administrative users or during unapproved activities, it raises the likelihood of malicious intent.
 
-  - **Analyze historical execution data**: Compare these logs with historical data to identify any sudden spikes in group enumeration activity, especially on critical assets, which could suggest a preliminary phase of a larger attack.
+  - **Identify known bad actors:** Cross-reference the executing user and their associated privileges with threat intelligence databases to identify if they have been involved in previous incidents.
 
   ### Prioritization
 
-  This alert is classified as low severity as the activity could stem from benign administrative tasks. However, given the potential for malicious use in gathering sensitive access control information, it should not be ignored, especially in critical asset contexts. The likelihood of abuse is moderate due to common usage of these commands by attackers for reconnaissance phases.
+  This alert may indicate a low-severity incident, as local group enumeration could be part of legitimate administrative activities in certain contexts. However, it could lead to significant security issues if exploited by an attacker gaining foothold within the environment. The risk is elevated on critical systems where privilege escalation poses a higher impact.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by evasion techniques, such as the use of command obfuscation or custom scripts to access group information. It is also important to ensure that complete log collection from relevant sources like `auditd` or Syslog is configured to capture all necessary data. Legitimate activities by system administrators may frequently trigger this alert, requiring careful contextual analysis to ascertain intent. Companion detections, such as monitoring for unexpected user escalation requests or unauthorized access to sensitive accounts, can strengthen overall coverage against broader reconnaissance initiatives.
+  Detection may be limited by legitimate administrative activities that also utilize these commands, leading to false positives. It's essential to ensure that logging is appropriately configured to capture all relevant process creation and file access events, particularly on administrator workflows. The absence of related detection rules targeting suspicious file accesses or privilege elevation attempts could weaken coverage in these scenarios. Enabling finer-grained logging for critical servers may help bridge these gaps.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

@@ -10,7 +10,7 @@ references:
 - https://github.com/LOLBAS-Project/LOLBAS/blob/2cc01b01132b5c304027a658c698ae09dd6a92bf/yml/OSBinaries/Esentutl.yml
 author: Teymur Kheirkhabarov, Daniil Yugoslavskiy, oscd.community
 date: 2019-10-22
-modified: 2024-06-04
+modified: 2026-10-31
 tags:
 - attack.credential-access
 - attack.t1003.002
@@ -23,7 +23,7 @@ logsource:
 detection:
   selection_esent_img:
   - Image|endswith: '\esentutl.exe'
-  - OriginalFileName: '\esentutl.exe'
+  - OriginalFileName: 'esentutl.exe'
   selection_esent_cli:
     CommandLine|contains|windash:
     - 'vss'
@@ -51,28 +51,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of `esentutl.exe`, a Windows utility, to copy sensitive files, specifically credential data such as the SAM and NTDS.dit files. The likely attacker objective is to extract credentials and analyze them for unauthorized access, fitting into the MITRE ATT&CK framework under the tactic of Credential Access (TA0006) and the technique of Credential Dumping, specifically OS Credential Dumping via Windows tools (T1003.002) and Active Directory Credential Dumping (T1003.003). The primary telemetry source for detection is Windows Process Creation logs, specifically Event ID 4688, which captures the command-line execution of the esentutl.exe tool.
+  This Sigma rule detects the use of `esentutl.exe`, a Windows utility that can be leveraged to copy sensitive files, particularly credential data from system files like NTDS.dit and backups of security-sensitive registries. The likely attacker objective is to obtain user credentials or hashes, which are usually a precursor to lateral movement or privilege escalation within the network. This behavior corresponds to the MITRE ATT&CK framework's Credential Access tactic, specifically techniques T1003.002 (OS Credential Dumping: Security Account Manager (SAM)) and T1003.003 (OS Credential Dumping: NTDS).
 
-  If executed with malicious intent, this behavior could lead to unauthorized access to sensitive user accounts or domain administrative privileges, resulting in significant security risks. However, this detection does NOT confirm that malicious activity has occurred on its own, as legitimate use could include backup operations or authorized forensic investigations.
+  The primary telemetry sources include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1. If this behavior is malicious, it can lead to unauthorized access to sensitive accounts, resulting in serious security breaches. This detection does NOT confirm malicious intent solely on its own, as the use of `esentutl.exe` may also occur during legitimate backup activities or forensic investigations.
 
   ### Investigation Steps
 
-  - **Review Process Creation Logs:** Check Windows Security Event ID 4688 for instances of `esentutl.exe`. Look for command lines containing parameters for volume shadow services or paths indicating sensitive file access, consistent with suspicious activity.
+  - **Review process creation logs for `esentutl.exe`:** Check Security Event ID 4688 or Sysmon Event ID 1 for instances where `Image` is `esentutl.exe`. Ensure to note the `CommandLine` used to identify potential malicious usage patterns.
 
-  - **Identify Malicious Command-Line Arguments:** Confirm command lines containing specific paths like `\config\RegBack\sam` or `\windows\ntds\ntds.dit`, and flags like `vss` or `/m`. If these are present without an authorized context, it indicates a high- confidence malicious indicator.
+  - **Identify suspicious command-line arguments:** Focus on logs showing `CommandLine` containing keywords like `vss`, `/m`, or `/y`, as these indicate the potential initiation of credential file copying activities.
 
-  - **Investigate User Account Activity:** Check the user account associated with the execution of esentutl.exe. If the account is non-administrative and does not have a known business justification for access, it may warrant further scrutiny.
+  - **Examine accessed files for sensitive content:** Look for events that reference file paths such as `\config\sam`, `\config\security`, `\config\system`, or `\windows\ntds\ntds.dit`. These files typically contain sensitive data, and their unauthorized access is indicative of potential malicious activity.
 
-  - **Validate Legitimate Activity:** Compare against known legitimate activity patterns, such as scheduled backups or forensic tasks performed by IT personnel. Ensure such tasks have appropriate documentation and approval.
+  - **Verify legitimate usage patterns:** Capture contexts where `esentutl.exe` is legitimately used, such as backup processes (e.g., backup software using this utility). Compare file access times against business operations to confirm benign activities.
 
-  - **Audit for Previous Events:** Review Windows Event Log for prior actions leading up to the execution of `esentutl.exe`. Indicators such as a series of failed authentication attempts before the execution may provide insight into potential reconnaissance or exploitation activity.
+  - **Detect high-confidence malicious indicators:** Identify if `esentutl.exe` was executed from atypical user accounts or processes, especially admin-level accounts, which may indicate an elevated risk for credential dumping.
+
+  - **Inspect for file creation or exfiltration artifacts:** If applicable, check for file creation timestamps or movements into unusual locations, which could signify attempts at data exfiltration or illicit file access.
 
   ### Prioritization
 
-  This alert is designated high severity due to the potential impact on sensitive systems containing credential data. The likelihood of malicious abuse is high, especially in targeted attacks, as this behavior aligns with common techniques used by threat actors to extract authentication data. Given the nature of credential dumping, this behavior is commonly weaponized in attacks attempting to gain persistent access to environments.
+  This alert is of high severity due to the potential compromise of sensitive user credentials, which could enable further unauthorized access, lateral movement, or privilege escalation within the enterprise environment. The likelihood of malicious abuse is significant, as the techniques used in this alert are commonly weaponized by threat actors in various attack scenarios.
 
   ### Blind Spots and Assumptions
 
-  There are limitations to detecting credential extraction, as legitimate administrator actions could also trigger this alert. Effective monitoring depends on consistent logging configurations, including the capture of command line parameters. Additionally, activities such as routine backups could result in false positives. A related detection that strengthens coverage is monitoring for unusual access patterns to the SAM and NTDS.dit files outside of approved maintenance windows.
+  Detection may be limited by the need for specific logging configurations, as some environments may not capture all relevant process creation events or file accesses, leading to missed detections. Additionally, legitimate administrative activities may inadvertently trigger this alert, particularly during system maintenance or legitimate backup procedures. A related detection that strengthens coverage is monitoring for unusual process trees stemming from `esentutl.exe`, which may reveal intricate attack methodologies or multiple pipeline stages.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

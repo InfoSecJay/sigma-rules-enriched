@@ -9,7 +9,7 @@ references:
 - https://twitter.com/_st0pp3r_/status/1583914515996897281
 author: frack113
 date: 2022-04-24
-modified: 2026-10-19
+modified: 2026-10-31
 tags:
 - attack.stealth
 - attack.t1218.007
@@ -19,7 +19,7 @@ logsource:
 detection:
   selection_img:
   - Image|endswith: '\msiexec.exe'
-  - OriginalFileName: '\msiexec.exe'
+  - OriginalFileName: 'msiexec.exe'
   selection_cli:
     CommandLine|contains|windash: ' -z '
     CommandLine|contains: '.dll'
@@ -34,28 +34,30 @@ regression_tests_path:
 note: |
   ### Technical Context
 
-  This Sigma rule detects the use of the `msiexec.exe` process calling the `DllUnregisterServer` function on DLL files. Typically, this behavior indicates an attacker attempting to unregister a malicious or legitimate DLL, possibly as part of software installation clean-up or to prevent associated functionalities from executing. The likely attacker objective here is to manipulate or disable certain applications or services by removing their DLLs.
+  This rule detects the execution of the `msiexec.exe` process with specific command-line arguments indicating a `DllUnregisterServer` function call on a DLL file, typically an indicator of potential malware behavior. The likely attacker objective is to unregister a DLL to disable its functionality, potentially as a precursor to malware installation or modification of legitimate software. This behavior is categorized under the MITRE ATT&CK technique T1218.007 (Signed Binary Proxy Execution).
 
-  This behavior corresponds to the MITRE ATT&CK techniques of **“DLL Search Order Hijacking” (T1218.007)**. The primary telemetry sources for this detection are Windows process creation logs, specifically **Event ID 4688** for process creation details, which includes the command line used. If confirmed malicious, this activity could lead to disabling security features or persistence mechanisms on the system. Importantly, this detection does NOT confirm the intent behind the action—I.e., whether it is part of legitimate software maintenance or an attempt to disable a security measure.
+  The primary telemetry sources for this detection include Windows process creation logs, specifically Security Event ID 4688 and Sysmon Event ID 1, capturing process execution details and command line arguments. If malicious, this can lead to unauthorized software manipulation or removal of essential functionality, impacting the integrity and availability of systems. Importantly, this detection does NOT confirm malicious intent on its own, as legitimate system maintenance processes may also invoke similar DLL operations.
 
   ### Investigation Steps
 
-  - **Examine the command line arguments**: Review **Event ID 4688** for the associated `msiexec.exe` process creation. Look for command lines containing `-z` and a `.dll` extension to identify potentially malicious actions.
+  - **Examine the command line arguments**: Review Process Creation logs (Event ID 4688) for `msiexec.exe` where the CommandLine contains `-z` and `.dll`. Focus on atypical paths or filenames for DLL files, which may indicate malicious behavior.
 
-  - **Validate the DLL file**: Check the path in the command line for the DLL being unregistered. A benign example might include system DLLs located in `C:\Windows\System32`. Malicious indicators could include unusual paths like `C:\Users\Public\Downloads\malicious.dll`.
+  - **Identify known legitimate DLLs**: Compare the detected DLL paths against known benign software inventories. For example, legitimate `MsiHandler.dll` files are part of system management. Unrecognized or uncommon DLLs warrant further scrutiny.
 
-  - **Confirm execution context**: Determine whether `msiexec.exe` is running in a context that suggests a normal update or installation, such as initiated by a known installer. Legitimate activities might include recognized software installation logs or updates from publishing sources.
+  - **Correlate with process execution time**: Check the execution timeline. Investigate if `msiexec.exe` was executed when unusual system activity was logged around the same time (e.g., Event ID 4697 indicates a service installation).
 
-  - **Assess the affected system's criticality**: Identify if the system is a server or endpoint. Critical systems, if compromised, could have severe implications for data security and operations. Prioritize investigating alerts from servers or sensitive workstations.
+  - **Check for prior `DllRegisterServer` attempts**: Search for any prior execution of DLL registration processes associated with the detected DLL. Any previous calls may signify a continuing effort to manipulate the DLL's registration state.
 
-  - **Inspect for persistence mechanisms**: Review other log sources, such as **Event ID 4672** (Special privileges assigned) or **Event ID 7045** (New service installed), to identify any created registry keys or services related to the DLL that might indicate persistence attempts.
+  - **Review the host's role and criticality**: If the `msiexec.exe` is executing on a critical system (such as a domain controller or database server), escalate the investigation due to higher potential impact.
+
+  - **Validate DLL presence post-execution**: After noting the flagged process, check for any file system changes or newly created artifacts under the DLL path using Sysinternals tools or Windows Security logs. Unexpected file deletions or modifications should be treated seriously.
 
   ### Prioritization
 
-  The alert has medium severity. The potential impact on critical systems is high, as unregistered DLLs can lead to application failures or security vulnerabilities. The likelihood of malicious abuse is moderate, given that the behavior could indicate software tampering or removal of security functionality.
+  The alert severity is medium, as while it indicates suspicious usage of `msiexec.exe`, its potential to reconfigure or disable crucial software services could lead to significant impacts if exploited. The likelihood of malicious abuse is moderate, considering attackers may leverage this technique to destroy functionality in targeted attacks, though legitimate uses do exist.
 
   ### Blind Spots and Assumptions
 
-  This detection may not capture cases where `msiexec` is invoked with benign intentions, such as during legitimate application updates or maintenance. The effectiveness of detection relies on the availability of process creation logs (**Event ID 4688**) and appropriate configurations for capturing these events. Legitimate software installers may trigger this alert when they clean up unused components, which could lead to false positives. Implementing companion detections for changes to system services or unauthorized file modifications may provide better context for analysis.
+  Detection may be limited by the absence of comprehensive monitoring for process arguments, allowing malicious actors to evade detection by varying their command-line syntax. Reliably capturing this activity requires proper logging configurations, especially enabling detailed process creation events. Additionally, legitimate administrative actions such as software updates might trigger similar alerts. A related detection that strengthens coverage would be tracking the creation and deletion of DLL files themselves, providing further context to the use of `msiexec.exe`.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.

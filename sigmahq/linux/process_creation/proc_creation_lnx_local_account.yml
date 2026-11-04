@@ -1,16 +1,19 @@
-title: Local System Accounts Discovery - Linux
+title: Local System Accounts Discovery Attempt - Linux
 id: b45e3d6f-42c6-47d8-a478-df6bd6cf534c
 status: test
-description: Detects enumeration of local system accounts. This information can 
-  help adversaries determine which local accounts exist on a system to aid in 
-  follow-on behavior.
+description: |
+  Detects attempts to enumerate local user accounts via common Linux utilities and sensitive file access.
+  Adversaries may read files such as /etc/passwd, /etc/shadow, and /etc/sudoers, or use tools like getent,
+  id, who, and finger to identify accounts and privilege levels on a compromised system.
 references:
 - https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1087.001/T1087.001.md
 - https://my.f5.com/manage/s/article/K589
 - https://man.freebsd.org/cgi/man.cgi?pwd_mkdb
+- https://man7.org/linux/man-pages/man1/getent.1.html
+- https://linux.die.net/man/1/finger
 author: Alejandro Ortuno, oscd.community, CheraghiMilad
 date: 2020-10-08
-modified: 2024-12-10
+modified: 2026-11-03
 tags:
 - attack.discovery
 - attack.t1087.001
@@ -18,63 +21,84 @@ logsource:
   category: process_creation
   product: linux
 detection:
-  selection_1:
-    Image|endswith: '/lastlog'
-  selection_2:
-    CommandLine|contains: '''x:0:'''
-  selection_3:
+  selection_lastlog:
+    Image|endswith:
+    - '/lastlog'
+    - '/last'
+    - '/lastb'
+  selection_root_string:
+    CommandLine|contains: 'x:0:'
+  selection_read_utilities:
     Image|endswith:
     - '/cat'
     - '/ed'
+    - '/emacs'
     - '/head'
+    - '/less'
+    - '/makemap'
     - '/more'
     - '/nano'
+    - '/sqlite3'
     - '/tail'
     - '/vi'
     - '/vim'
-    - '/less'
-    - '/emacs'
-    - '/sqlite3'
-    - '/makemap'
     CommandLine|contains:
     - '/etc/passwd'
     - '/etc/shadow'
     - '/etc/sudoers'
-    - '/etc/spwd.db'
-    - '/etc/pwd.db'
-    - '/etc/master.passwd'
-  selection_4:
+    - 'master.passwd'
+    - 'pwd.db'
+  selection_id:
     Image|endswith: '/id'
-  selection_5:
+  selection_lsof:
     Image|endswith: '/lsof'
     CommandLine|contains: '-u'
-  condition: 1 of selection*
+  selection_getent:
+    Image|endswith: '/getent'
+    CommandLine|contains:
+    - ' passwd'
+    - ' shadow'
+  selection_who:
+    Image|endswith:
+    - '/finger'
+    - '/users'
+    - '/w'
+    - '/who'
+  selection_ypcat:
+    Image|endswith: '/ypcat'
+    CommandLine|contains: 'passwd'
+  filter_optional_landscape_sysinfo:
+    ParentCommandLine|contains: '/usr/bin/landscape-sysinfo'
+    Image|endswith: '/who'
+  condition: 1 of selection_* and not 1 of filter_optional_*
 falsepositives:
 - Legitimate administration activities
 level: low
 note: |
   ### Technical Context
 
-  This rule detects attempts to enumerate local system accounts on Linux systems through specific commands and tools. By gathering information such as user accounts and their privileges, an attacker aims to map the system's user landscape to facilitate later exploitation or privilege escalation. The relevant MITRE ATT&CK techniques include account discovery (T1087.001), specifically targeting local accounts. Primary telemetry sources include process creation logs with details on executed commands and command line arguments. If malicious, this behavior can lead to unauthorized access and potential compromise of the system. It is important to note that this detection alone does not confirm malicious intent, as legitimate administrative activities may exhibit similar patterns.
+  This rule detects attempts to enumerate local user accounts on Linux systems through common utilities such as `getent`, `last`, and reading sensitive files like `/etc/passwd`, `/etc/shadow`, and `/etc/sudoers`. The likely attacker objective is to gather information about user accounts and privileges, potentially for privilege escalation or lateral movement within the network. This behavior aligns with the MITRE ATT&CK tactic of Discovery (ID: T1087) and technique Account Discovery (ID: T1087.001).
+
+  The primary telemetry sources include process creation logs categorized under Linux, particularly focusing on utilities used to access user account information. The security risk of this behavior is significant, as it lays the groundwork for further attacks against users with high privileges. Importantly, this detection does NOT confirm malicious intent on its own; benign administrative activities may also utilize these commands.
 
   ### Investigation Steps
 
-  - **Check process execution details:** Review process creation logs for Event ID  fork/exec (e.g., `audit.log` on Linux) to identify recent executions of relevant commands (`/lastlog`, `/cat /etc/passwd`, etc.). Validate against expected process usage to identify anomalies.
+  - **Check for unauthorized processes: **Review process creation events (Linux `process_creation` logs) with common user enumeration utilities like `/getent`, `/id`, or `/lsof` and correlate Event ID 134 (process execution). Look for unexpected execution by non-administrative users, especially those that lack legitimate reasons for such inquiries.
 
-  - **Analyze command line arguments:** Focus on `CommandLine` fields associated with the captured processes for patterns like `/etc/passwd`, `/etc/shadow`, or parameters indicating user enumeration (e.g., `-u` with `lsof`), to distinguish potential malicious use from standard administrative activity.
+  - **Review command-line arguments: **Scrutinize the command line arguments for processes running `cat` or `vi` against sensitive files, such as `/etc/passwd`, `/etc/shadow`, or `/etc/sudoers`. Malicious indicators include processes accessing these files without valid operational justification, particularly by users that shouldn't have this level of access.
 
-  - **Assess user roles:** Identify if the command execution is linked to a legitimate admin or if it comes from a low-privilege user context. Benign usage might involve common system administrator tools by expected users (e.g., root user).
+  - **Identify legitimate administrative patterns: **Observe if expected behavior from system administrators executing account queries via commands like `who` or `w` corresponds with times of known maintenance activity. Confirm that the users executing these commands are in known administrator or operations groups and authorized for such tasks.
 
-  - **Monitor for common admin actions:** Document instances of legitimate account enumeration (e.g., using `getent passwd`, checking `/etc/passwd`), which typically do not accompany unusual process executions or unfamiliar user access patterns.
+  - **Cross-reference user access levels: **Review user activity via `last`, `finger`, or `who` commands against documented user privileges and roles within the system. Discrepancies may signal reconnaissance efforts by an adversary, especially if executed by a user without administrative rights.
 
-  - **Identify high-confidence indicators:** Confirm if rapid consecutive invocations of `lsof -u` or similar tools come from a single user indicating potential account discovery attempts rather than standard usage.
+  - **Monitor for excessive access attempts: **Watch for repeated or excessive calls to `getent passwd` or `/etc/shadow`, especially from the same user or IP address within a short time frame, as this could indicate a scripted enumeration attempt rather than legitimate administrative reviews.
 
   ### Prioritization
 
-  This alert is considered low severity as it does not indicate active exploitation but rather account enumeration, which can precede further attacks. However, frequent triggers by non-administrative users could suggest the beginnings of an unauthorized reconnaissance effort, warranting prompt investigation.
+  This alert has a low severity in the context of the enterprise since the involved systems are typically not critical infrastructure. However, the likelihood of malicious exploitation increases if the activity originates from non-administrative accounts attempting to gather user account information frequently. Adversaries commonly weaponize these techniques during initial access or lateral movement phases.
 
   ### Blind Spots and Assumptions
 
-  Detection may be limited by the absence of extensive logging configurations, which are necessary to capture all process executions. Legitimate administration tasks, especially in multi-user environments, could trigger the alert without any malicious intent. A companion detection rule for monitoring unusual elevation of privileges (e.g., T1068) could provide additional context and strengthen overall visibility of potential threats.
+  Detection limitations include the potential for legitimate administrative activities to trigger the alert, as system administrators often run similar commands. Required log sources for reliable detection involve ensuring full process accounting is enabled on Linux systems. Additionally, legitimate scripts or maintenance routines may utilize these commands without malicious intent. Related detections to strengthen coverage include monitoring for suspicious privilege escalation attempts (T1068) or command execution patterns indicative of automated probing behavior.
 
   > **Disclaimer:** This investigation guide was created using generative AI technology and has not been reviewed for its accuracy and relevance. While every effort has been made to ensure its quality, we recommend validating the content and adapting it to suit specific environments and operational needs. Please communicate any changes to the detection engineering team.
